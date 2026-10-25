@@ -28,6 +28,13 @@ pub struct Sleeps {
     unheard: Mutex<HashMap<NodeId, Unheard>>,
 }
 
+struct Seen {
+    path: PathBuf,
+    changed: SystemTime,
+    typed_after: SystemTime,
+    listening: bool,
+}
+
 struct Unheard {
     oldest: MessageId,
     step: Step,
@@ -37,7 +44,7 @@ struct Unheard {
 #[derive(Clone, Copy)]
 enum Step {
     Seen(Instant),
-    Typed(Instant),
+    Tried(Instant),
     Relaunched,
 }
 
@@ -89,7 +96,7 @@ impl Sleeps {
                     Step::Seen(at) if now.duration_since(at) >= IDLE_GRACE => {
                         Some((id, Wake::Type))
                     }
-                    Step::Typed(at) if now.duration_since(at) >= IDLE_GRACE => {
+                    Step::Tried(at) if now.duration_since(at) >= IDLE_GRACE => {
                         Some((id, Wake::Relaunch))
                     }
                     _ => None,
@@ -109,7 +116,7 @@ impl Sleeps {
     fn woke(&self, node: NodeId, wake: Wake, now: Instant) {
         if let Some(u) = self.unheard.lock().unwrap().get_mut(&node) {
             u.step = match wake {
-                Wake::Type => Step::Typed(now),
+                Wake::Type => Step::Tried(now),
                 Wake::Relaunch => Step::Relaunched,
             };
         }
@@ -194,9 +201,13 @@ impl App {
             if self.relaunches.holds_mail(id) && !queued {
                 continue;
             }
-            let Some((path, since)) = self.unheard_since(&node)? else {
+            let Some(seen) = self.unheard_since(&node)? else {
                 continue;
             };
+            if seen.listening && !queued {
+                continue;
+            }
+            let since = seen.typed_after;
             if self.sleeps.first_miss(id) {
                 eprintln!("loom: 노드 {}의 쉬는 대기가 없다", id.0);
                 if let Err(e) = self
@@ -207,16 +218,17 @@ impl App {
                 }
             }
             if queued || matches!(wake, Wake::Relaunch) {
-                let guard = self.restart_guard(id, path, since);
+                let guard = self.restart_guard(id, seen);
                 if !guard(&self.host.screen(id)) {
                     continue;
                 }
-                self.sleeps.woke(id, Wake::Relaunch, now);
                 if queued {
                     eprintln!("loom: 노드 {}의 턴 끝 다시 띄우기를 지금 한다", id.0);
+                    self.sleeps.woke(id, Wake::Type, now);
                     self.run_at_turn_end(id, Some(guard));
                     continue;
                 }
+                self.sleeps.woke(id, Wake::Relaunch, now);
                 eprintln!("loom: 알림 줄로 깨지 않은 노드 {}를 다시 띄운다", id.0);
                 let app = self.clone();
                 tokio::spawn(async move {
@@ -254,25 +266,22 @@ impl App {
         Ok(())
     }
 
-    fn restart_guard(self: &Arc<Self>, node: NodeId, path: PathBuf, since: SystemTime) -> Guard {
+    fn restart_guard(self: &Arc<Self>, node: NodeId, seen: Seen) -> Guard {
         let app = self.clone();
         let line = claude::wake_line();
         Arc::new(move |screen: &Screen| {
             let input = claude::input(&screen.text);
-            std::fs::metadata(&path)
+            std::fs::metadata(&seen.path)
                 .and_then(|m| m.modified())
-                .is_ok_and(|at| at == since)
-                && !app.idle.waiting(node)
-                && app.untouched(node, since, screen)
+                .is_ok_and(|at| at == seen.changed)
+                && app.idle.waiting(node) == seen.listening
+                && app.untouched(node, seen.typed_after, screen)
                 && (input == Some("") || input == Some(line.as_str()))
         })
     }
 
-    fn unheard_since(&self, node: &Active) -> rusqlite::Result<Option<(PathBuf, SystemTime)>> {
-        if profile_of(node) != Some(Profile::Claude)
-            || self.idle.waiting(node.id)
-            || self.sleeps.stopping(node.id)
-        {
+    fn unheard_since(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
+        if profile_of(node) != Some(Profile::Claude) || self.sleeps.stopping(node.id) {
             return Ok(None);
         }
         let Some(transcript) = &node.transcript else {
@@ -280,12 +289,25 @@ impl App {
         };
         let place = self.graph.place_of(node.id)?;
         let path = crate::wsl::from_node(PathBuf::from(transcript), Path::new(&place.worktree));
-        let changed = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-        Ok(changed
-            .filter(|at| {
-                at.elapsed().is_ok_and(|age| age >= IDLE_GRACE) && claude::turn_ended(&path)
-            })
-            .map(|at| (path, at)))
+        let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
+            return Ok(None);
+        };
+        if self.idle.waiting(node.id) {
+            return Ok(Some(Seen {
+                path,
+                changed,
+                typed_after: SystemTime::now(),
+                listening: true,
+            }));
+        }
+        let ended =
+            changed.elapsed().is_ok_and(|age| age >= IDLE_GRACE) && claude::turn_ended(&path);
+        Ok(ended.then_some(Seen {
+            path,
+            changed,
+            typed_after: changed,
+            listening: false,
+        }))
     }
 
     fn untouched(&self, node: NodeId, since: SystemTime, screen: &Screen) -> bool {
@@ -577,6 +599,18 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn redrawn(t: &Fixture, node: NodeId, first: &str, then: &str) {
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args([
+            "-c",
+            "stty -icanon -echo; printf '%s' \"$FIRST\"; head -c 1 >/dev/null; printf '\\033[2J\\033[H%s' \"$THEN\"; exec cat >/dev/null",
+        ]);
+        cmd.env("FIRST", boxed(first));
+        cmd.env("THEN", boxed(then));
+        host_pty(t, node, cmd);
+    }
+
+    #[cfg(unix)]
     fn host_pty(t: &Fixture, node: NodeId, cmd: portable_pty::CommandBuilder) {
         let hosts = t.dir.path().join("pty").join("nodes");
         crate::node_host::in_process(&hosts, node, cmd);
@@ -602,14 +636,7 @@ mod tests {
         let typed = unheard(&t, "typed", ENDED);
         let spoke = unheard(&t, "spoke", ENDED);
         let quiet = unheard(&t, "quiet", ENDED);
-        let mut cmd = portable_pty::CommandBuilder::new("sh");
-        cmd.args([
-            "-c",
-            "stty -icanon -echo; printf '%s' \"$SCREEN\"; head -c 1 >/dev/null; printf '\\033[2J\\033[H%s' \"$DRAFT\"; exec cat >/dev/null",
-        ]);
-        cmd.env("SCREEN", boxed("❯ "));
-        cmd.env("DRAFT", boxed("❯ 고쳐 줘"));
-        host_pty(&t, drafted, cmd);
+        redrawn(&t, drafted, "❯ ", "❯ 고쳐 줘");
         for node in [typed, spoke, quiet] {
             screen(&t, node, "❯ ");
         }
@@ -618,8 +645,8 @@ mod tests {
             .into_iter()
             .filter(|n| [drafted, typed, spoke, quiet].contains(&n.id))
             .map(|n| {
-                let (path, since) = t.app.unheard_since(&n).unwrap().unwrap();
-                let guard = t.app.restart_guard(n.id, path, since);
+                let seen = t.app.unheard_since(&n).unwrap().unwrap();
+                let guard = t.app.restart_guard(n.id, seen);
                 assert!(
                     guard(&t.app.host.screen(n.id)),
                     "the sweep decides to restart"
@@ -746,19 +773,63 @@ mod tests {
         }
     }
 
+    fn idle_request(
+        t: &Fixture,
+        token: &str,
+    ) -> tokio::task::JoinHandle<
+        Result<axum::Json<Vec<crate::protocol::Delivery>>, crate::daemon::AgentError>,
+    > {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        tokio::spawn(crate::daemon::commands::agent_idle(
+            axum::extract::State(t.app.clone()),
+            headers,
+            axum::Json(None),
+        ))
+    }
+
+    async fn taken(
+        wait: tokio::task::JoinHandle<
+            Result<axum::Json<Vec<crate::protocol::Delivery>>, crate::daemon::AgentError>,
+        >,
+    ) -> String {
+        let axum::Json(taken) = tokio::time::timeout(Duration::from_secs(5), wait)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        taken[0].body.clone()
+    }
+
     #[tokio::test]
     async fn a_cancelled_wake_restart_frees_an_idle_wait_that_came_during_preparation() {
-        use axum::Json;
-        use axum::extract::State;
-        use axum::http::{HeaderMap, header};
         let t = fixture();
         let fallback = add_worker(&t, "fallback");
-        let queued = add_worker(&t, "queued");
+        t.app.relaunches.hold(fallback);
+        let wait = idle_request(&t, "fallback");
+        tokio::time::sleep(Duration::from_millis(50)).await;
         t.app
             .graph
-            .set_transcript(queued, t.dir.path().join("없음.jsonl").to_str().unwrap())
+            .note(t.lead, "fallback", Kind::Queue, "for fallback", None)
             .unwrap();
-        t.app.idle.turn_started(queued, "UserPromptSubmit".into());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            !wait.is_finished(),
+            "the wait holds while the restart prepares"
+        );
+        t.app.kept_running(fallback);
+        assert_eq!(taken(wait).await, "for fallback");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_kept_queued_plan_runs_only_when_the_guard_passes_later() {
+        let t = fixture();
+        let queued = unheard(&t, "queued", ENDED);
+        redrawn(&t, queued, "❯ 고쳐 줘", "❯ ");
         let held = t
             .app
             .graph
@@ -769,53 +840,46 @@ mod tests {
             .unwrap();
         assert_eq!(
             t.app.relaunch_or_queue(held).await,
-            Ok(crate::daemon::relaunch::Relaunched::AtTurnEnd)
+            Ok(Relaunched::AtTurnEnd)
         );
-        for node in [fallback, queued] {
-            t.app.relaunches.hold(node);
-        }
-        let idle = |token: &str| {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                header::AUTHORIZATION,
-                format!("Bearer {token}").parse().unwrap(),
-            );
-            tokio::spawn(crate::daemon::commands::agent_idle(
-                State(t.app.clone()),
-                headers,
-                Json(None),
-            ))
-        };
-        let mut waits = [idle("fallback"), idle("queued")];
+        t.app.relaunches.hold(queued);
+        let wait = idle_request(&t, "queued");
         tokio::time::sleep(Duration::from_millis(50)).await;
-        for name in ["fallback", "queued"] {
-            t.app
-                .graph
-                .note(t.lead, name, Kind::Queue, &format!("for {name}"), None)
-                .unwrap();
-        }
+        human_typed(&t.app, queued);
+        t.app.kept_at_turn_end(queued);
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let relaunched = || missed(&t).contains(&(queued, true));
+        let exited = || t.dir.path().join(format!("exited-{}", queued.0)).exists();
+        assert!(!wait.is_finished() && !relaunched() && !exited());
         assert!(
-            waits.iter().all(|w| !w.is_finished()),
-            "the waits hold while the restart prepares"
+            t.app.relaunches.at_turn_end(queued),
+            "the plan stays queued"
         );
 
-        t.app.kept_running(fallback);
-        t.app.kept_at_turn_end(queued);
-        for (wait, name) in waits.iter_mut().zip(["fallback", "queued"]) {
-            let Json(taken) = tokio::time::timeout(Duration::from_secs(5), wait)
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            assert_eq!(taken[0].body, format!("for {name}"));
-        }
-        assert!(
-            missed(&t)
-                .iter()
-                .any(|&(node, relaunched)| node == queued && relaunched),
-            "the queued plan ran at the turn end that came during preparation"
+        let t0 = Instant::now();
+        t.app.wake_unheard(t0).unwrap();
+        t.app.wake_unheard(t0 + IDLE_GRACE).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!relaunched() && !exited(), "no restart over the draft");
+        assert_eq!(
+            claude::input(&t.app.host.screen(queued).text),
+            Some("고쳐 줘")
         );
+
+        t.app
+            .host
+            .write_if(queued, |_| {
+                human_typed(&t.app, queued);
+                Ok::<_, std::convert::Infallible>(b"\x7f".to_vec())
+            })
+            .unwrap();
+        while claude::input(&t.app.host.screen(queued).text) != Some("") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        t.app.wake_unheard(t0 + IDLE_GRACE * 2).unwrap();
+        std::fs::remove_file(t.dir.path().join("queued.jsonl")).unwrap();
+        assert_eq!(taken(wait).await, "new task");
+        assert!(relaunched(), "the queued plan ran once the box was empty");
     }
 
     #[test]

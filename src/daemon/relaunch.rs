@@ -483,13 +483,9 @@ impl App {
         );
     }
 
-    pub(super) fn kept_at_turn_end(self: &Arc<Self>, node: NodeId) {
+    pub(super) fn kept_at_turn_end(&self, node: NodeId) {
         if let Some((phase, _)) = self.relaunches.pending.lock().unwrap().get_mut(&node) {
             *phase = Phase::AtTurnEnd;
-        }
-        if self.idle.waiting(node) {
-            self.turn_ended(node);
-            return;
         }
         eprintln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",

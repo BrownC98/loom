@@ -217,11 +217,12 @@ pub struct DoneRequest {
     pub images: Vec<PathBuf>,
     #[serde(default)]
     pub doc: Option<PathBuf>,
+    #[serde(default)]
+    pub keep: Vec<Kept>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Reported {
-    pub alive: Vec<String>,
     pub warning: Option<String>,
 }
 

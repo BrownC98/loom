@@ -350,6 +350,7 @@ pub(super) async fn agent_done(
         summary: &req.summary,
         file: req.file.as_deref(),
         warning: warning.clone(),
+        keep: &req.keep,
     };
     let done = word.and_then(|()| {
         app.graph.done(
@@ -361,8 +362,7 @@ pub(super) async fn agent_done(
             Some(&via),
         )
     });
-    let done = done.map(|alive| Reported {
-        alive,
+    let done = done.map(|()| Reported {
         warning: warning.clone(),
     });
     let what = MessageKind::Done {

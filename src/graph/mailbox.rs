@@ -511,14 +511,15 @@ impl Graph {
         images: &[PathBuf],
         doc: Option<WaitDoc>,
         via: Option<&Via>,
-    ) -> Result<Vec<String>, Refusal> {
-        let summary = report.summary;
+    ) -> Result<(), Refusal> {
+        let summary = &with_kept(report.summary, report.keep);
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
         let bare = bare_link(summary);
         let mut db = self.lock();
         let parent = parent_of(&db, node)?;
+        super::nodes::check_spent(&db, node, report.keep)?;
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
         if parent.is_none() && asked.is_none() {
             return Err(Refusal::NoAsked);
@@ -555,19 +556,13 @@ impl Graph {
                 enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
             }
         }
-        let alive_children = tx
-            .prepare(&format!(
-                "SELECT name FROM nodes WHERE parent = ?1 AND {REACHABLE} ORDER BY id"
-            ))?
-            .query_map([node.0], |row| row.get(0))?
-            .collect::<rusqlite::Result<Vec<String>>>()?;
         tx.commit()?;
         self.publish_node(&db, node)?;
         if let Some(parent) = parent {
             self.publish_node(&db, parent)?;
             self.publish_message(node, Toward::Parent);
         }
-        Ok(alive_children)
+        Ok(())
     }
 }
 
@@ -614,6 +609,24 @@ pub struct Report<'a> {
     pub summary: &'a str,
     pub file: Option<&'a str>,
     pub warning: Option<String>,
+    pub keep: &'a [Kept],
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Kept {
+    pub name: String,
+    pub reason: String,
+}
+
+fn with_kept(summary: &str, keep: &[Kept]) -> String {
+    if keep.is_empty() {
+        return summary.to_owned();
+    }
+    let kept: Vec<String> = keep
+        .iter()
+        .map(|k| format!("{} ({})", k.name, k.reason))
+        .collect();
+    format!("{summary}\nKept: {}", kept.join("; "))
 }
 
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {

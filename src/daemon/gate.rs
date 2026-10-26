@@ -166,10 +166,9 @@ impl App {
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
         let mine = owned_worktree(&repo, &place.worktree, branch, cwd).await?;
-        if !worktree::changes(&mine)
+        if worktree::dirty(Path::new(&mine.path))
             .await
             .map_err(git_problem)?
-            .is_empty()
         {
             return Err(Refusal::Uncommitted(branch.to_owned()));
         }

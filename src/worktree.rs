@@ -283,11 +283,15 @@ pub async fn check(path: &Path) -> Result<(), RepoProblem> {
         .map_err(|_| RepoProblem::NotGit(text()))
 }
 
-pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
-    let branches = git::run(path, &["branch", "--format=%(refname:short)"])
+pub async fn branches(dir: &Path) -> Vec<String> {
+    git::run(dir, &["branch", "--format=%(refname:short)"])
         .await
         .map(|out| out.lines().map(str::to_owned).collect())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
+    let branches = branches(path).await;
     let worktrees = worktrees(path).await;
     RepoView {
         id,
@@ -503,7 +507,7 @@ async fn left_over(
         Some(made) => {
             let same =
                 Path::new(&made.path).canonicalize().ok() == Path::new(path).canonicalize().ok();
-            let clean = changes(made).await.ok()?.is_empty();
+            let clean = !dirty(Path::new(&made.path)).await.ok()?;
             (same && clean && made.head == base && unowned(&made.path)).then(|| made.path.clone())
         }
         None => {
@@ -524,15 +528,18 @@ fn listed_path(repo: &Path, path: &str, target: &str, listed: Vec<Worktree>) -> 
         .unwrap_or_else(|| git::from_git_path(repo, target))
 }
 
-pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
-    let path = Path::new(&worktree.path);
+pub async fn changes(path: &Path) -> Result<Vec<String>, RepoProblem> {
     if !path.is_dir() {
         return Ok(Vec::new());
     }
-    let status = git::run(path, &["status", "--porcelain"])
+    let status = git::run(path, &["status", "--porcelain", "--untracked-files=all"])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(status.lines().map(str::to_owned).collect())
+}
+
+pub async fn dirty(path: &Path) -> Result<bool, RepoProblem> {
+    changes(path).await.map(|listed| !listed.is_empty())
 }
 
 pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {

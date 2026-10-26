@@ -42,34 +42,17 @@ pub(super) struct Stamp {
 }
 
 impl Graph {
-    pub fn related(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        related(&self.lock(), from, to)
-    }
-
     pub fn any_node(&self, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
-        let db = self.lock();
-        if let Some(id) = node_id(&db, from, to)? {
-            let exists: bool = db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
-                [id],
-                |r| r.get(0),
-            )?;
-            return if exists {
-                Ok(NodeId(id))
-            } else {
-                Err(Refusal::NotFound(to.to_owned()))
-            };
-        }
-        match related(&db, from, to) {
-            Err(Refusal::NotRelated(_)) => {}
-            found => return found.map(|(id, _)| id),
-        }
-        drop(db);
-        self.find(to)
+        any_node(&self.lock(), from, to)
     }
 
-    pub fn steerable(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        steerable(&self.lock(), from, to)
+    pub fn agent_at(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        let db = self.lock();
+        let id = address(&db, from, to)?;
+        let agent = db.query_row("SELECT agent FROM nodes WHERE id = ?1", [id.0], |r| {
+            from_json(r, 0)
+        })?;
+        Ok((id, agent))
     }
 
     pub fn note(
@@ -195,12 +178,7 @@ impl Graph {
             return Err(Refusal::BriefTooLong(body.len()));
         }
         let mut db = self.lock();
-        let found = match kind {
-            Kind::Queue => address(&db, from, to),
-            Kind::Steer => steerable(&db, from, to).map(|(id, _)| id),
-            Kind::Interrupt => related(&db, from, to).map(|(id, _)| id),
-        };
-        let to_id = match found {
+        let to_id = match address(&db, from, to) {
             Ok(to_id) => Some(to_id),
             Err(Refusal::NotFound(_))
                 if kind == Kind::Queue
@@ -883,9 +861,8 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
             Err(Refusal::NotFound(to.to_owned()))
         };
     }
-    match related(db, from, to) {
-        Err(Refusal::NotRelated(_)) => {}
-        found => return found.map(|(id, _)| id),
+    if let Some(id) = related(db, from, to)? {
+        return Ok(id);
     }
     let named = db
         .prepare(&format!(
@@ -908,44 +885,49 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
     }
 }
 
-fn steerable(
-    db: &Connection,
-    from: NodeId,
-    to: &str,
-) -> Result<(NodeId, Option<AgentId>), Refusal> {
-    match related(db, from, to) {
-        Err(Refusal::NotRelated(_)) => {}
-        found => return found,
+pub(super) fn any_node(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
+    if let Some(id) = node_id(db, from, to)? {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        return if exists {
+            Ok(NodeId(id))
+        } else {
+            Err(Refusal::NotFound(to.to_owned()))
+        };
     }
-    let id = node_id(db, from, to)?;
-    db.query_row(
-        "SELECT n.id, n.agent FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != me.id
-         AND (CASE WHEN ?3 IS NULL THEN n.name = ?2 ELSE n.id = ?3 END)
-         AND n.parent = me.parent AND n.review = me.review",
-        params![from.0, to, id],
-        |r| Ok((NodeId(r.get(0)?), from_json(r, 1)?)),
-    )
-    .optional()?
-    .ok_or_else(|| Refusal::NotRelated(to.to_owned()))
+    if let Some(id) = related(db, from, to)? {
+        return Ok(id);
+    }
+    named(db, to)
 }
 
-pub(super) fn related(
-    db: &Connection,
-    from: NodeId,
-    to: &str,
-) -> Result<(NodeId, Option<AgentId>), Refusal> {
-    let id = node_id(db, from, to)?;
-    let found = db.prepare(
-        "SELECT id, agent FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
-         AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) ORDER BY id",
-    )?.query_map(params![from.0, to, id], |row| Ok((NodeId(row.get(0)?), from_json(row, 1)?)))?
+pub(super) fn named(db: &Connection, name: &str) -> Result<NodeId, Refusal> {
+    let ids = db
+        .prepare("SELECT id FROM nodes WHERE name = ?1 ORDER BY id")?
+        .query_map([name], |row| Ok(NodeId(row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    match found.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(Refusal::NotRelated(to.to_owned())),
-        _ => {
-            let ids: Vec<NodeId> = found.iter().map(|(id, _)| *id).collect();
-            Err(ambiguous(db, to, &ids)?)
-        }
+    match ids[..] {
+        [id] => Ok(id),
+        [] => Err(Refusal::NotFound(name.to_owned())),
+        _ => Err(ambiguous(db, name, &ids)?),
+    }
+}
+
+fn related(db: &Connection, from: NodeId, to: &str) -> Result<Option<NodeId>, Refusal> {
+    let id = node_id(db, from, to)?;
+    let found = db
+        .prepare(
+            "SELECT id FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
+         AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) ORDER BY id",
+        )?
+        .query_map(params![from.0, to, id], |row| Ok(NodeId(row.get(0)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    match found[..] {
+        [] => Ok(None),
+        [one] => Ok(Some(one)),
+        _ => Err(ambiguous(db, to, &found)?),
     }
 }

@@ -5,7 +5,7 @@ use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
-    Work, ambiguous, from_json, mailbox, name_of, node_state, note_state, optional_json, parent_of,
+    Work, from_json, mailbox, name_of, node_state, note_state, optional_json, parent_of,
     place_label, place_of, process_of, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
@@ -757,9 +757,9 @@ impl Graph {
     ) -> Result<(NodeId, Vec<String>), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let id = mailbox::related(&tx, caller, name)?.0;
-        if parent_of(&tx, id)? != Some(caller) {
-            return Err(Refusal::NotChild(name.to_owned()));
+        let id = mailbox::any_node(&tx, caller, name)?;
+        if id == caller {
+            return Err(Refusal::NotFound(name.to_owned()));
         }
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
         let mut adoptions = Vec::new();
@@ -793,16 +793,7 @@ impl Graph {
     }
 
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {
-        let db = self.lock();
-        let ids = db
-            .prepare("SELECT id FROM nodes WHERE name = ?1 ORDER BY id")?
-            .query_map([name], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        match ids[..] {
-            [id] => Ok(id),
-            [] => Err(Refusal::NotFound(name.to_owned())),
-            _ => Err(ambiguous(&db, name, &ids)?),
-        }
+        mailbox::named(&self.lock(), name)
     }
 
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
@@ -1139,13 +1130,6 @@ pub(super) fn check_spent(
     node: NodeId,
     keep: &[mailbox::Kept],
 ) -> Result<(), Refusal> {
-    let children = db
-        .prepare("SELECT name FROM nodes WHERE parent = ?1")?
-        .query_map([node.0], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if let Some(kept) = keep.iter().find(|k| !children.contains(&k.name)) {
-        return Err(Refusal::NotChild(kept.name.clone()));
-    }
     let spent = db
         .prepare(
             r#"SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1

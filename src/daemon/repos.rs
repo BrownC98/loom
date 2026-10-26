@@ -217,7 +217,7 @@ async fn delete_worktree(
         return Err(RepoProblem::Original.into());
     }
     for node in app.graph.nodes_in(&req.path).map_err(internal)? {
-        app.remove(node).map_err(internal)?;
+        app.remove(node)?;
     }
     app.spots.forget_worktree(id, &req.path).map_err(internal)?;
     app.graph.publish_view_changed();

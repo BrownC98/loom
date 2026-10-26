@@ -83,7 +83,7 @@ async fn remove_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    app.remove(NodeId(id)).map_err(internal)?;
+    app.remove(NodeId(id))?;
     Ok(Json(()))
 }
 

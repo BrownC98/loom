@@ -639,12 +639,15 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn remove(&self, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    pub fn remove(&self, id: NodeId) -> Result<Vec<NodeId>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        super::gate::owns_round(&tx, id)?;
+        let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(Vec::new());
         };
+        super::gate::regate(&tx, before)?;
         for &child in &removal.children {
             resume_at_turn_end(&tx, child, self.linked)?;
         }
@@ -666,7 +669,7 @@ impl Graph {
             )
             .optional()?
             .unwrap_or(false);
-        if !removable {
+        if !removable || super::gate::owns_round(&tx, id).is_err() {
             return Ok(false);
         }
         let Some(removal) = remove_in(&tx, id)? else {
@@ -689,6 +692,8 @@ impl Graph {
         if id == caller {
             return Err(Refusal::NotFound(name.to_owned()));
         }
+        super::gate::owns_round(&tx, id)?;
+        let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
         let mut adoptions = Vec::new();
         let mut moved = Vec::new();
@@ -712,6 +717,7 @@ impl Graph {
                 refused.join(", ")
             )));
         }
+        super::gate::regate(&tx, before)?;
         tx.commit()?;
         removal.publish(self, &db)?;
         for adoption in adoptions {
@@ -838,14 +844,17 @@ impl Removal {
     }
 }
 
+fn children_of(tx: &Connection, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    tx.prepare("SELECT id FROM nodes WHERE parent = ?1 ORDER BY id")?
+        .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
+        .collect()
+}
+
 fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     let Some(state) = state_of(tx, id).optional()? else {
         return Ok(None);
     };
-    let children = tx
-        .prepare("SELECT id FROM nodes WHERE parent = ?1 ORDER BY id")?
-        .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let children = children_of(tx, id)?;
     let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
     if let Some(parent) = waiting_parent {
         let what = MessageKind::Removed {
@@ -920,6 +929,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
     if taken {
         return Err(Refusal::NameTaken(name));
     }
+    let before = super::gate::open_gates(tx, &[child])?;
     let told_old = (state_of(tx, child).ok() == Some(NodeState::Running)).then_some(old);
     let detached = MessageKind::Adopted {
         node: name,
@@ -937,6 +947,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         )?;
     }
     tx.execute("UPDATE nodes SET parent = NULL WHERE id = ?1", [child.0])?;
+    super::gate::regate(tx, before)?;
     mailbox::enqueue(
         tx,
         old,
@@ -995,6 +1006,7 @@ fn adopt_in(
     if taken {
         return Err(Refusal::NameTaken(name));
     }
+    let before = super::gate::open_gates(tx, &[child])?;
     let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
     let adopted = MessageKind::Adopted {
         node: name.clone(),
@@ -1015,6 +1027,7 @@ fn adopt_in(
         "UPDATE nodes SET parent = ?2 WHERE id = ?1",
         params![child.0, parent.0],
     )?;
+    super::gate::regate(tx, before)?;
     mailbox::enqueue(
         tx,
         parent,

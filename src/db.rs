@@ -389,8 +389,9 @@ const STEPS: &[M] = &[
         ALTER TABLE gates DROP COLUMN verdict;
         ALTER TABLE gates DROP COLUMN merged;"#,
     ),
+    M::up("CREATE TABLE db_changes (name TEXT PRIMARY KEY);"),
 ];
-const BASE_STEPS: usize = 51;
+const BASE_STEPS: usize = 52;
 const _: () = assert!(
     STEPS.len() == BASE_STEPS,
     "STEPS is frozen. Add a DB change as a file src/db/changes/<UTC yyyymmdd-hhmm>-<name>.sql"
@@ -433,21 +434,34 @@ impl Database {
 }
 
 pub fn open(path: &Path) -> std::io::Result<Database> {
+    let names = change_names()?;
+    if cfg!(debug_assertions) {
+        let mut fresh = Connection::open_in_memory().map_err(std::io::Error::other)?;
+        upgrade(&mut fresh, &names, path).map_err(|e| {
+            std::io::Error::other(format!(
+                "a new DB fails, where the changes run in name order: {e}. Give the change a later time than the changes it needs."
+            ))
+        })?;
+    }
     let mut conn = Connection::open(path).map_err(std::io::Error::other)?;
-    conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(std::io::Error::other)?;
+    upgrade(&mut conn, &names, path)?;
+    Ok(Database(Arc::new(Mutex::new(conn))))
+}
+
+fn upgrade(conn: &mut Connection, names: &[String], path: &Path) -> std::io::Result<()> {
+    conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     conn.pragma_update(None, "foreign_keys", true)
         .map_err(std::io::Error::other)?;
-    match MIGRATIONS.to_latest(&mut conn) {
+    match MIGRATIONS.to_latest(conn) {
         Ok(()) => {}
         Err(rusqlite_migration::Error::MigrationDefinition(
             MigrationDefinitionError::DatabaseTooFarAhead,
         )) => return Err(too_new(path)),
         Err(e) => return Err(std::io::Error::other(e)),
     }
-    apply_changes(&mut conn, path)?;
-    Ok(Database(Arc::new(Mutex::new(conn))))
+    apply_changes(conn, names, path)
 }
 
 fn too_new(path: &Path) -> std::io::Error {
@@ -458,20 +472,22 @@ fn too_new(path: &Path) -> std::io::Error {
     ))
 }
 
-fn apply_changes(conn: &mut Connection, path: &Path) -> std::io::Result<()> {
+fn change_names() -> std::io::Result<Vec<String>> {
     let mut names: Vec<String> = Changes::iter()
         .filter(|n| n.ends_with(".sql"))
         .map(String::from)
         .collect();
     names.sort();
-    if let Some(bad) = names.iter().find(|n| !is_change_name(n)) {
-        return Err(std::io::Error::other(format!(
+    match names.iter().find(|n| !is_change_name(n)) {
+        Some(bad) => Err(std::io::Error::other(format!(
             "src/db/changes/{bad}: the name must be {NAME_TIME}<name>.sql"
-        )));
+        ))),
+        None => Ok(names),
     }
+}
+
+fn apply_changes(conn: &mut Connection, names: &[String], path: &Path) -> std::io::Result<()> {
     let tx = conn.transaction().map_err(std::io::Error::other)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS db_changes (name TEXT PRIMARY KEY);")
-        .map_err(std::io::Error::other)?;
     let applied: Vec<String> = tx
         .prepare("SELECT name FROM db_changes")
         .and_then(|mut s| s.query_map([], |row| row.get(0))?.collect())

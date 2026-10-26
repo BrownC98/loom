@@ -31,6 +31,9 @@ windows() {
 
 [ -d web/node_modules ] && [ -d web/dist ] || step timeout 600 bash scripts/worktree/setup.sh
 step cargo fmt --check
+echo "== merged DB change files stay as they are"
+merged_changes=$(git diff --name-status --diff-filter=MDR origin/main...HEAD -- 'src/db/changes/*.sql')
+[ -z "$merged_changes" ] || { echo "$merged_changes"; echo "add a new file in src/db/changes instead"; exit 1; }
 free=$(headroom) || free=
 if [ "$free" -ge $((2 * CARGO_STEP_MIB)) ] 2>/dev/null; then
   echo "== linux and windows cargo groups in parallel (headroom $free MiB)"

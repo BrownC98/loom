@@ -649,6 +649,7 @@ const en = {
       notOwner: '{{branch}}: only the node whose worktree is on this branch calls `loom ready`.',
       uncommitted: '{{value}}: there are uncommitted changes.',
       sameAsTarget: '{{value}}: this is the target branch itself.',
+      sameHead: '{{value}}: the open gate round already has this commit. Only a new commit replaces the round.',
       noFindings: 'A block verdict needs a findings file.',
       kindWord: 'Do not start a message with kind word {{word}}. Instead: {{verb}}.',
       kindWord_nameless: '{{word}} is a kind word · use {{verb}}',

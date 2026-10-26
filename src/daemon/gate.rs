@@ -34,12 +34,6 @@ pub struct VerdictRequest {
     pub findings: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct FailRequest {
-    pub branch: String,
-    pub cause: String,
-}
-
 pub fn via(headers: &HeaderMap, route: &str) -> Via {
     let header = |name| {
         headers
@@ -255,15 +249,4 @@ pub(super) async fn agent_verdict(
         app.merge_queue.notify_one();
     }
     app.traced(node, GateVerb::Verdict, &req.branch, &via, result)
-}
-
-pub(super) async fn agent_fail(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<FailRequest>,
-) -> Result<Json<GateState>, AgentError> {
-    let node = app.caller(&headers)?;
-    let via = via(&headers, "/api/agent/fail");
-    let result = app.graph.fail(node, &req.branch, &req.cause, Some(&via));
-    app.traced(node, GateVerb::Fail, &req.branch, &via, result)
 }

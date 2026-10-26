@@ -18,7 +18,6 @@ pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
-    pub brief: &'a str,
     pub role: Option<&'a str>,
     pub task: &'a str,
     pub review: Option<&'a str>,
@@ -106,15 +105,11 @@ impl Graph {
             name,
             worktree,
             agent,
-            brief,
             role,
             task,
             review,
         } = child;
         let name = checked_name(name)?;
-        if brief.len() > BRIEF_LIMIT_BYTES {
-            return Err(Refusal::BriefTooLong(brief.len()));
-        }
         let mut db = self.lock();
         let tx = db.transaction()?;
         if let Some(max) = limits.max_depth
@@ -151,25 +146,10 @@ impl Graph {
             "UPDATE nodes SET role = ?2, task = ?3, review = ?4 WHERE id = ?1",
             params![id.0, role, task, review],
         )?;
-        let has_brief = !brief.trim().is_empty();
-        if has_brief {
-            mailbox::enqueue(
-                &tx,
-                parent,
-                Some(id),
-                Kind::Queue,
-                &MessageKind::Note,
-                brief,
-                Default::default(),
-            )?;
-        }
         keep(&tx, id, launched)?;
         tx.commit()?;
         drop(db);
         self.started(id, start)?;
-        if has_brief {
-            self.publish_message(id, Toward::Child);
-        }
         Ok(id)
     }
 

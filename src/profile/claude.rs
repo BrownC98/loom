@@ -37,7 +37,7 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-const ALLOWED: [&str; 21] = [
+const ALLOWED: [&str; 20] = [
     "Bash(loom guard)",
     "Bash(loom note:*)",
     "Bash(loom answer:*)",
@@ -58,7 +58,6 @@ const ALLOWED: [&str; 21] = [
     "Bash(loom rm:*)",
     "Bash(loom ready:*)",
     "Bash(loom verdict:*)",
-    "Bash(loom fail:*)",
 ];
 
 pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {

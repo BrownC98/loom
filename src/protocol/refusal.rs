@@ -121,7 +121,7 @@ pub enum Refusal {
     PromptChanged(WaitId),
     /// 관문 상태에서 할 수 없는 관문 호출.
     Gate(IllegalStep),
-    /// 관문 호출을 부를 수 없는 노드가 불렀다: 판정은 관문이 띄운 검토자만, `loom fail`은 관문만 부른다.
+    /// 판정을 부를 수 없는 노드가 불렀다. 판정은 관문이 띄운 검토자만 부른다.
     NotGate {
         branch: String,
         gate: String,
@@ -137,6 +137,8 @@ pub enum Refusal {
     Uncommitted(String),
     /// 담당 브랜치가 대상 브랜치와 같다. 값은 브랜치다.
     SameAsTarget(String),
+    /// 열린 관문 차례가 이미 담당 워크트리의 지금 커밋이다. 새 커밋만 차례를 갈음한다. 값은 브랜치다.
+    SameHead(String),
     /// block 판정에 결함 파일이 없다.
     NoFindings,
     /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작한다(`protocol::kind_word`). `verb`는 대신 쓸 명령이다.
@@ -316,7 +318,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it, and only {gate} calls `loom fail`."
+                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it."
             ),
             Refusal::NoRound(branch) => write!(
                 f,
@@ -334,6 +336,10 @@ impl fmt::Display for Refusal {
             Refusal::SameAsTarget(branch) => write!(
                 f,
                 "{branch} is the target branch itself. If you work in your parent's branch, report with `loom done`."
+            ),
+            Refusal::SameHead(branch) => write!(
+                f,
+                "{branch}: the open gate round already has this commit. Commit the change first; then `loom ready {branch}` replaces the round."
             ),
             Refusal::NoFindings => write!(
                 f,

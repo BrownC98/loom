@@ -37,8 +37,9 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 
 ## Merge and cleanup
 
-- Merge only with `loom ready`, `loom verdict` and `loom fail`. Do not merge or push to main by hand.
+- Merge only with `loom ready` and `loom verdict`. Do not merge or push to main by hand.
 - The owner commits, does the checks and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
+- To change a branch before the queue takes it, commit and call `loom ready` again. The new round replaces the open round, and its reviewers get it.
 - A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review. A block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.
 - The gate gives a high-risk branch to main (storage, concurrency, delivery, auth, process lifecycle, module contracts) two reviewers, else one; if unsure, two. The queue waits for all live reviewers, so spawn all of them before the first verdict.
 - After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. So call `loom done` before `loom ready`.

@@ -148,6 +148,12 @@ impl Graph {
             detail,
             via,
             |tx, row| {
+                if let Some(open) = load(tx, repo, round.branch)?
+                    && matches!(open.state, GateState::Ready | GateState::Passed)
+                    && open.head == round.head
+                {
+                    return Err(Refusal::SameHead(round.branch.to_owned()));
+                }
                 tx.execute(
                     "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
@@ -303,30 +309,6 @@ impl Graph {
             }
         }
         Ok(findings)
-    }
-
-    pub fn fail(
-        &self,
-        caller: NodeId,
-        branch: &str,
-        cause: &str,
-        via: Option<&Via>,
-    ) -> Result<GateState, Refusal> {
-        let detail = Detail {
-            cause: Some(cause.to_owned()),
-            ..Detail::default()
-        };
-        let repo = place_of(&self.lock(), caller)?.repo;
-        let row = self.apply(
-            Caller::Node(caller),
-            repo,
-            branch,
-            GateCall::Fail,
-            detail,
-            via,
-            |tx, row| Ok(update(tx, repo, branch, row.state, None, None)?),
-        )?;
-        Ok(row.state)
     }
 
     pub fn record_gate_refusal(
@@ -720,8 +702,13 @@ impl Graph {
                 sent.push(me);
             }
             if call == GateCall::Ready {
-                let seated = reviewers(&tx, &row, branch, caller)?;
-                for (reviewer, name) in &seated {
+                let replaced = matches!(from, GateState::Ready | GateState::Passed);
+                let with_agents = reviewers(&tx, &row, branch, caller)?;
+                let seated: Vec<(NodeId, String)> = with_agents
+                    .iter()
+                    .map(|(id, name, _)| (*id, name.clone()))
+                    .collect();
+                for (reviewer, name, agent) in &with_agents {
                     let judged = last_judged(&tx, *reviewer, branch)?;
                     let mut body = Vec::new();
                     let peers = peers_of(&tx, &seated, *reviewer, branch)?;
@@ -734,11 +721,15 @@ impl Graph {
                         judged.as_deref(),
                         &findings_of(&tx, *reviewer, name, branch)?,
                     ));
+                    let kind = match replaced {
+                        true => steer_kind(self.linked, agent),
+                        false => Kind::Queue,
+                    };
                     post(
                         &tx,
                         caller,
                         *reviewer,
-                        Kind::Queue,
+                        kind,
                         &what,
                         &body.join("\n"),
                         via,
@@ -804,8 +795,6 @@ fn allowed_caller(
             },
             _ => not_gate(row),
         },
-        (Caller::Node(me), Some(row), Sender::Gate) if row.gate == me => Ok(()),
-        (Caller::Node(_), Some(row), Sender::Gate) => not_gate(row),
     }
 }
 
@@ -873,9 +862,9 @@ fn reviewers(
     row: &Row,
     branch: &str,
     caller: Caller,
-) -> rusqlite::Result<Vec<(NodeId, String)>> {
+) -> rusqlite::Result<Vec<(NodeId, String, Option<AgentId>)>> {
     tx.prepare(&format!(
-        "SELECT n.id, n.name FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
+        "SELECT n.id, n.name, n.agent FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
         in_round("?1", "?2", "?3")
     ))?
     .query_map(
@@ -885,7 +874,7 @@ fn reviewers(
             branch,
             caller.node().map_or(0, |n| n.0)
         ],
-        |r| Ok((NodeId(r.get(0)?), r.get(1)?)),
+        |r| Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?)),
     )?
     .collect()
 }

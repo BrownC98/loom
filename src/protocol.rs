@@ -51,18 +51,14 @@ pub const DISTRO_HOST: u32 = 1;
 pub enum GateVerb {
     Ready,
     Verdict,
+    /// 지운 `loom fail`. 옛 이벤트 기록을 읽으려고 남긴다. 아무도 부르지 못한다.
     Fail,
     /// 데몬의 병합 큐가 한 일(묶음 시작, 다시 줄 세우기, 병합 끝). 에이전트 명령이 아니다(2026-10-23 사람 결정 Q697 A).
     Queue,
 }
 
 impl GateVerb {
-    pub const ALL: [GateVerb; 4] = [
-        GateVerb::Ready,
-        GateVerb::Verdict,
-        GateVerb::Fail,
-        GateVerb::Queue,
-    ];
+    pub const ALL: [GateVerb; 3] = [GateVerb::Ready, GateVerb::Verdict, GateVerb::Queue];
 
     pub fn command(self) -> &'static str {
         match self {
@@ -81,14 +77,14 @@ impl GateVerb {
 pub enum GateState {
     /// 담당이 고치는 중이다(처음, 또는 반려 뒤).
     Working,
-    /// 담당이 `loom ready`를 불렀다. 관문의 검토자가 검토한다.
+    /// 담당이 `loom ready`를 불렀다. 관문의 검토자가 검토한다. 담당이 새 커밋으로 `loom ready`를 다시 부르면 새 차례가 이 차례를 갈음한다.
     Ready,
     /// 판정 pass. 데몬의 병합 큐에 서 있다.
     Passed,
     /// 데몬이 이 브랜치를 묶음에 넣어 검사·병합한다.
     Merging,
     Merged,
-    /// 담당이 고칠 수 없는 실패. 루트(부모 브랜치에서 만든 브랜치면 그 부모)가 정한다. 담당이 고친 뒤 `loom ready`로 새 차례를 연다.
+    /// 병합 큐의 실패. 담당이 고칠 수 없다. 루트(부모 브랜치에서 만든 브랜치면 그 부모)가 정한다. 담당이 고친 뒤 `loom ready`로 새 차례를 연다.
     Failed,
 }
 
@@ -113,7 +109,6 @@ pub enum MergeEnd {
 pub enum GateCall {
     Ready,
     Verdict(Judgment),
-    Fail,
     Start,
     Requeue,
     End(MergeEnd),
@@ -124,16 +119,14 @@ impl GateCall {
         match self {
             GateCall::Ready => GateVerb::Ready,
             GateCall::Verdict(_) => GateVerb::Verdict,
-            GateCall::Fail => GateVerb::Fail,
             GateCall::Start | GateCall::Requeue | GateCall::End(_) => GateVerb::Queue,
         }
     }
 
-    const ALL: [GateCall; 9] = [
+    const ALL: [GateCall; 8] = [
         GateCall::Ready,
         GateCall::Verdict(Judgment::Pass),
         GateCall::Verdict(Judgment::Block),
-        GateCall::Fail,
         GateCall::Start,
         GateCall::Requeue,
         GateCall::End(MergeEnd::Merged),
@@ -180,13 +173,13 @@ pub fn step(state: GateState, call: GateCall) -> Result<GateState, IllegalStep> 
 fn next(state: GateState, call: GateCall) -> Option<GateState> {
     use GateState as S;
     match (state, call) {
-        (S::Working | S::Failed | S::Merged, GateCall::Ready) => Some(S::Ready),
-        (S::Ready | S::Passed | S::Merging, GateCall::Ready) => None,
+        (S::Working | S::Ready | S::Passed | S::Failed | S::Merged, GateCall::Ready) => {
+            Some(S::Ready)
+        }
+        (S::Merging, GateCall::Ready) => None,
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
         (S::Working | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
-        (S::Working | S::Ready | S::Passed, GateCall::Fail) => Some(S::Failed),
-        (S::Merging | S::Merged | S::Failed, GateCall::Fail) => None,
         (S::Passed, GateCall::Start) => Some(S::Merging),
         (S::Working | S::Ready | S::Merging | S::Merged | S::Failed, GateCall::Start) => None,
         (S::Merging, GateCall::Requeue) => Some(S::Passed),
@@ -214,7 +207,6 @@ fn allowed(state: GateState) -> Vec<GateVerb> {
 pub enum Sender {
     Owner,
     Reviewer,
-    Gate,
     Loom,
 }
 
@@ -222,8 +214,7 @@ pub fn sender(verb: GateVerb) -> Sender {
     match verb {
         GateVerb::Ready => Sender::Owner,
         GateVerb::Verdict => Sender::Reviewer,
-        GateVerb::Fail => Sender::Gate,
-        GateVerb::Queue => Sender::Loom,
+        GateVerb::Fail | GateVerb::Queue => Sender::Loom,
     }
 }
 
@@ -248,13 +239,12 @@ pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
             &[Receiver::Owner, Receiver::Gate]
         }
         (GateCall::Start | GateCall::Requeue, _) => &[],
-        (GateCall::End(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail, Target::Base) => {
+        (GateCall::End(MergeEnd::Merged | MergeEnd::Failed), Target::Base) => {
             &[Receiver::Owner, Receiver::Gate, Receiver::Root]
         }
-        (
-            GateCall::End(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail,
-            Target::Coordinator,
-        ) => &[Receiver::Owner, Receiver::Gate],
+        (GateCall::End(MergeEnd::Merged | MergeEnd::Failed), Target::Coordinator) => {
+            &[Receiver::Owner, Receiver::Gate]
+        }
     }
 }
 
@@ -304,12 +294,10 @@ pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str) -> 
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
             "Next: nothing. loom removes this node, its clean worktree and the branch now, unless the node has no parent or has children. Do not commit to this branch again.".to_owned()
         }
-        (GateCall::End(MergeEnd::Failed) | GateCall::Fail, Receiver::Root | Receiver::Gate) => {
-            format!(
-                "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
-            )
-        }
-        (GateCall::End(MergeEnd::Failed) | GateCall::Fail, Receiver::Owner) => format!(
+        (GateCall::End(MergeEnd::Failed), Receiver::Root | Receiver::Gate) => format!(
+            "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
+        ),
+        (GateCall::End(MergeEnd::Failed), Receiver::Owner) => format!(
             "Next: wait for the decision of your gate or root, then fix and call `loom ready {branch}` again."
         ),
     }
@@ -830,7 +818,7 @@ pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
             cause,
             log,
         },
-        GateCall::End(MergeEnd::Failed) | GateCall::Fail => MessageKind::Failed {
+        GateCall::End(MergeEnd::Failed) => MessageKind::Failed {
             branch,
             head,
             cause,
@@ -875,7 +863,7 @@ const KIND_WORDS: [KindWord; 15] = [
     ),
     word("DONE", "`loom done`", false, false),
     word("READY", "`loom ready`", false, true),
-    word("CI RESULT", "`loom verdict` or `loom fail`", true, true),
+    word("CI RESULT", "`loom verdict`", true, true),
     word(
         "MERGED",
         "nothing: the merge queue sends kind merged",
@@ -1011,11 +999,11 @@ pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
 #[macro_export]
 macro_rules! message_usage {
     () => {
-        "- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, it asks your parent; the answer comes as a message (kind: answer), or wait for it: loom wait --reply-to <message-id> --timeout <seconds> --json.
+        "- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, it asks your parent; the answer comes as a message (kind: answer), or wait for it: loom wait --reply-to <message-id> --timeout <seconds>.
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work. If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed), loom fail <branch> <cause> (gate, before the queue takes the branch). The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }

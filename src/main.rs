@@ -89,7 +89,7 @@ enum Cli {
         /// 옛 데몬의 데이터 폴더(WSL `~/.loom`).
         from: PathBuf,
     },
-    /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
+    /// 자식 노드를 만든다. 지시문은 `--file`로 받는다.
     Spawn {
         /// 노드 이름. `--review`면 주지 않는다: loom이 `<역할> <브랜치>`로 짓는다.
         #[arg(required_unless_present = "review", conflicts_with = "review")]
@@ -98,17 +98,14 @@ enum Cli {
         #[arg(long)]
         worktree: Option<String>,
         /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다.
-        #[arg(long, conflicts_with = "command", required_unless_present = "command")]
-        role: Option<String>,
+        #[arg(long)]
+        role: String,
         /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
-        #[arg(long, requires = "role", conflicts_with = "worktree")]
+        #[arg(long, conflicts_with = "worktree")]
         review: Option<String>,
-        /// 지시문 파일. 없으면 stdin이 파이프나 파일일 때만 읽는다. `--role`로 만드는 노드는 지시문이 없으면 실패한다.
+        /// 지시문 파일. `--review` 없이 만드는 노드는 꼭 준다.
         #[arg(long)]
         file: Option<PathBuf>,
-        /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
-        #[arg(last = true)]
-        command: Vec<String>,
     },
     /// 설정의 o-mode 역할을 한 줄씩 출력한다: 이름, 에이전트·모델·강도, 책임.
     Roles {
@@ -136,9 +133,6 @@ enum Cli {
         /// 이 초 안에 답이 없으면 실패한다.
         #[arg(long = "timeout")]
         timeout_secs: Option<u64>,
-        /// 메시지 번호와 답변 대상을 JSON으로 출력한다.
-        #[arg(long)]
-        json: bool,
     },
     /// 내 번호, 현재 부모와 자식, 프로세스 생존 여부를 출력한다.
     Status {
@@ -178,6 +172,7 @@ enum Cli {
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
     Answered { ids: Vec<String> },
     /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없어야 한다.
+    /// 병합 큐가 가져가기 전의 열린 차례는 새 커밋의 `loom ready`가 갈음한다. 앉은 검토자는 새 차례를 받는다.
     /// 관문은 loom이 고른다: 부모 워크트리가 원래 체크아웃의 브랜치가 아닌 브랜치에 있으면 부모(대상은 그 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
@@ -190,8 +185,6 @@ enum Cli {
         #[arg(long)]
         findings: Option<PathBuf>,
     },
-    /// 병합 관문: 관문이 병합 큐에 들기 전의 브랜치를 멈추고 원인을 알린다(main 대상이면 루트도 받는다).
-    Fail { branch: String, cause: String },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
     /// `name` 노드(이름이나 `#번호`)의 부모를 비워 다시 뿌리 노드로 만든다. 그 노드의 이후 질문은 사람 받은편지함으로 간다.
@@ -261,16 +254,11 @@ fn main() -> ExitCode {
             role,
             review,
             file,
-            command,
         } => cli::spawn(
-            match (name, role, review) {
-                (_, Some(role), Some(branch)) => SpawnRun::Review { role, branch },
-                (Some(name), Some(role), None) => SpawnRun::Role { name, role },
-                (name, None, _) => SpawnRun::Command {
-                    name: name.unwrap_or_default(),
-                    line: command.join(" "),
-                },
-                (None, Some(_), None) => unreachable!("clap requires a name without --review"),
+            match (name, review) {
+                (_, Some(branch)) => SpawnRun::Review { role, branch },
+                (Some(name), None) => SpawnRun::Role { name, role },
+                (None, None) => unreachable!("clap requires a name without --review"),
             },
             worktree,
             file.map(wsl::from_caller),
@@ -312,8 +300,7 @@ fn main() -> ExitCode {
         Cli::Wait {
             reply_to,
             timeout_secs,
-            json,
-        } => cli::wait(reply_to, timeout_secs, json),
+        } => cli::wait(reply_to, timeout_secs),
         Cli::Status { all: false } => cli::status(),
         Cli::Status { all: true } => cli::directory(),
         Cli::Done {
@@ -339,7 +326,6 @@ fn main() -> ExitCode {
             judgment,
             findings,
         } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
-        Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Detach { name } => cli::detach(name),
         Cli::Rm { name } => cli::remove(name),

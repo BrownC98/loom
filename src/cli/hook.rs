@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{call, wait_until_mail};
+use super::endpoint::Close;
+use super::{call, interrupt_arrived, wait_until_mail};
 use crate::daemon::{
     AckRequest, EndedTurn, HookWaitRequest, IdleReply, IdleRequest, Relaunched, SaidRequest,
     TakeRequest, Taken,
@@ -34,6 +36,7 @@ pub fn cursor_hook() -> Result<(), String> {
 
 pub fn pi_hook() -> Result<(), String> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
+    let waits: Arc<Mutex<HashMap<u64, Close>>> = Arc::default();
     for line in std::io::stdin().lines() {
         let line = line.map_err(|e| format!("hook input: {e}"))?;
         let request = match pi::request(&line) {
@@ -46,12 +49,35 @@ pub fn pi_hook() -> Result<(), String> {
             return run(&request, |shown| send(shown.out.unwrap_or_default()))
                 .map(|(_, unacked)| unacked.acknowledge());
         };
+        let close = Close::default();
+        if let pi::Served::Interrupt = request.event.served() {
+            waits.lock().unwrap().insert(id, close.clone());
+        }
+        let waits = waits.clone();
         std::thread::spawn(move || {
-            let served = match request.event.acked() {
-                Some(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
+            let served = match request.event.served() {
+                pi::Served::Ack(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
                     .map_err(String::from)
                     .and_then(|()| send(pi::acked(id).line())),
-                None => run(&request, |shown| send(shown.out.unwrap_or_default())).map(drop),
+                pi::Served::Close(of) => {
+                    if let Some(close) = waits.lock().unwrap().remove(&of) {
+                        close.close();
+                    }
+                    send(pi::acked(id).line())
+                }
+                pi::Served::Interrupt => {
+                    let arrived = interrupt_arrived(close.clone());
+                    waits.lock().unwrap().remove(&id);
+                    match arrived {
+                        Ok(true) => send(pi::interrupted(id).line()),
+                        Ok(false) => send(pi::acked(id).line()),
+                        Err(_) if close.closed() => send(pi::acked(id).line()),
+                        Err(e) => Err(e),
+                    }
+                }
+                pi::Served::Hook => {
+                    run(&request, |shown| send(shown.out.unwrap_or_default())).map(drop)
+                }
             };
             if let Err(e) = served {
                 let _ = send(pi::failed(Some(id), e).line());

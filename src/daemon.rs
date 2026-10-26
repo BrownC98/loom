@@ -398,9 +398,9 @@ impl App {
                 loom,
             ))
         });
-        let host = NodeHost::new(pty_dir.join("nodes")).with_links(links);
+        let host = NodeHost::new(pty_dir.join("nodes.screens")).with_links(links);
         let turn_ends = turn_end::TurnEnds::new(graph.clone());
-        Ok(App {
+        let app = App {
             repos,
             host: match &distros {
                 Some(distros) => host.with_distros(distros.clone()),
@@ -422,7 +422,7 @@ impl App {
             spots: Spots::new(database.clone()),
             database,
             accounts_root: db_path.with_file_name("accounts"),
-            logins: settings::Logins::new(pty_dir.join("logins")),
+            logins: settings::Logins::new(pty_dir.join("logins.screens")),
             codex: Mutex::default(),
             opencode2: Mutex::default(),
             sessions: sessions::Sessions::default(),
@@ -461,7 +461,10 @@ impl App {
             },
             spawn_url: node_url(listen),
             update,
-        })
+        };
+        app.adopt_address_files(&pty_dir)
+            .map_err(std::io::Error::other)?;
+        Ok(app)
     }
 }
 

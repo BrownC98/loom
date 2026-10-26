@@ -25,7 +25,7 @@ import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
-import { applySettingsPatch, settingsPatch, type SettingsPatch } from './settingsPatch';
+import { settingsPatch, type SettingsPatch } from './settingsPatch';
 import { pickColor } from './hopLanes';
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { chosenRepo } from './repos';
@@ -138,17 +138,10 @@ export function App() {
   const [hops, setHops] = useState<ReadonlyMap<string, Hop>>(new Map());
   const hopTimers = useRef(new Map<string, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
-  const [settings, setSettingsState] = useState<SettingsView>(EMPTY_SETTINGS);
-  const settingsRef = useRef(settings);
-  const setSettings = (next: SettingsView) => {
-    settingsRef.current = next;
-    setSettingsState(next);
-  };
+  const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [defaultSettings, setDefaultSettings] = useState<SettingsView | null>(null);
   useEffect(() => void getDefaultSettings().then(setDefaultSettings, () => {}), []);
-  const pending = useRef<SettingsPatch[]>([]);
-  const showFetched = (view: SettingsView) => setSettings(pending.current.reduce(applySettingsPatch, view));
   const [viewVersion, setViewVersion] = useState(0);
   const updates = useUpdates(viewVersion);
   const repo = chosenRepo(repos, settings.repo);
@@ -264,24 +257,18 @@ export function App() {
   }, []);
   const afterStop = () => (isTauri() ? exit(0) : setStopped(true));
   const rescan = () => getAgents().then(setAgents);
-  const saveSettings = (next: SettingsView) => {
-    const patch = settingsPatch(settingsRef.current, next);
-    if (!patch) return Promise.resolve();
-    setSettings(next);
-    pending.current.push(patch);
-    return putSettings(patch)
+  const sendSettings = (patch: SettingsPatch) =>
+    putSettings(patch)
       .catch(() => {})
-      .finally(() => {
-        pending.current = pending.current.filter((p) => p !== patch);
-        return getSettings().then(showFetched);
-      });
+      .finally(() => getSettings().then(setSettings));
+  const saveSettings = (next: SettingsView) => {
+    const patch = settingsPatch(settings, next);
+    return patch ? sendSettings(patch) : Promise.resolve();
   };
-  const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settingsRef.current));
-  const resetSettings = (patch: SettingsPatch) => void putSettings(patch)
-    .catch(() => {})
-    .finally(() => getSettings().then(showFetched));
+  const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settings));
+  const resetSettings = (patch: SettingsPatch) => void sendSettings(patch);
   const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
-    getSettings().then(showFetched);
+    getSettings().then(setSettings);
     refreshUsage();
   });
   const [switching, setSwitching] = useState<{ provider: Provider; distro: string | null; to: AccountId | null; nodes: MovableNode[] } | null>(null);
@@ -397,14 +384,14 @@ export function App() {
           newBuildServed()
             .then((stale) => stale && location.reload())
             .catch(() => {});
-          getSettings().then(showFetched);
+          getSettings().then(setSettings);
           setViewVersion((n) => n + 1);
           break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;
         case 'viewChanged':
-          getSettings().then(showFetched);
+          getSettings().then(setSettings);
           setViewVersion((n) => n + 1);
           break;
         case 'recorded':

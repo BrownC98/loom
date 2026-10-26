@@ -514,30 +514,49 @@ export function Graph(props: {
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
   const repoOf = (spot: Spot) => (spot.kind === 'node' ? props.views.get(spot.node)?.place.repo : spot.repo);
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
+  const [clearing, setClearing] = useState<ReadonlySet<RepoId>>(new Set());
+  const arrangedNow = (repo: RepoId) => arrangedRepos.has(repo) && !clearing.has(repo);
   const { alwaysArrange } = props.settings;
-  const keepsArranged = (repo: RepoId) => alwaysArrange || arrangedRepos.has(repo);
+  const keepsArranged = (repo: RepoId) => alwaysArrange || arrangedNow(repo);
+  const savedSpot = (key: string) => {
+    const saved = spots.get(key);
+    const repo = saved && repoOf(saved.spot);
+    return repo !== undefined && clearing.has(repo) ? undefined : saved;
+  };
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
   const swaps = useRef<{ key: string; swap: Swap } | null>(null);
   const [sizes, setSizes] = useState<ReadonlyMap<NodeId, Size>>(new Map());
   const [resizing, setResizing] = useState<{ id: NodeId; size: Size } | null>(null);
-  useEffect(() => {
-    getSpots()
-      .then((layout) => {
+  const readLayout = () =>
+    Promise.all([
+      getSpots().then((layout) => {
         setSpots(new Map(layout.placed.map((p) => [flowId(p.spot), p])));
         setArrangedRepos(new Set(layout.arranged));
-      })
-      .catch((err: Error) => setRefusal(err.message));
-    getSizes()
-      .then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }]))))
-      .catch((err: Error) => setRefusal(err.message));
-  }, [props.viewVersion]);
+      }),
+      getSizes().then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }])))),
+    ]).catch((err: Error) => setRefusal(err.message));
+  useEffect(() => void readLayout(), [props.viewVersion]);
+  const writes = useRef(0);
+  const commit = (write: Promise<unknown>) => {
+    writes.current += 1;
+    void write
+      .catch((err: Error) => setRefusal(err.message))
+      .then(readLayout)
+      .then(() => {
+        writes.current -= 1;
+        if (writes.current > 0) return;
+        setMoving(new Map());
+        setResizing(null);
+        setClearing(new Set());
+      });
+  };
   const { direction } = props;
   const outers = useRef<ReadonlyMap<string, string>>(new Map());
-  const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? (stale.has(key) ? undefined : spots.get(key)?.at);
+  const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? (stale.has(key) ? undefined : savedSpot(key)?.at);
 
   const [order, setOrder] = useState<ReadonlyMap<string, number>>(new Map());
   const rank = (key: string) => {
-    const saved = spots.get(key)?.at;
+    const saved = savedSpot(key)?.at;
     return saved ? (direction === 'down' || direction === 'up' ? saved.x : saved.y) : (order.get(key) ?? Infinity);
   };
   const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
@@ -680,8 +699,7 @@ export function Graph(props: {
   }));
   const resetSizes = (ids: NodeId[]) => {
     if (ids.length === 0) return;
-    setSizes((prev) => new Map([...prev].filter(([id]) => !ids.includes(id))));
-    clearSizes(ids).catch((err: Error) => setRefusal(err.message));
+    commit(clearSizes(ids));
   };
   const resizeFrom = useRef<{ key: string; at: XYPosition } | null>(null);
   const resizeTo = (key: string, step: Resized, done: ReadonlyMap<string, XYPosition>) => {
@@ -886,10 +904,8 @@ export function Graph(props: {
           },
           onResized: (step) => {
             const rounded = { shift: { x: Math.round(step.shift.x), y: Math.round(step.shift.y) }, size: { width: Math.round(step.size.width), height: Math.round(step.size.height) } };
-            setResizing(null);
-            setSizes((prev) => new Map([...prev, [view.id, rounded.size]]));
-            putSizes([{ node: view.id, ...rounded.size }]).catch((err: Error) => setRefusal(err.message));
-            setMoving(new Map());
+            setResizing({ id: view.id, size: rounded.size });
+            commit(putSizes([{ node: view.id, ...rounded.size }]));
             save(resizeTo(String(view.id), rounded, moving));
             resizeFrom.current = null;
           },
@@ -1038,7 +1054,6 @@ export function Graph(props: {
   };
   const onDrop = (key: string, level: Level, dragged: Box) => {
     swaps.current = null;
-    setMoving(new Map());
     save(spread(key, level, dragged, new Map([...moving, [key, originOf(level, key, dragged.at)]])));
   };
   const placed = (level: Level, done: ReadonlyMap<string, XYPosition>) =>
@@ -1070,18 +1085,13 @@ export function Graph(props: {
     const placed = place(done);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : (repoOf(p.spot) ?? []))));
     if (alwaysArrange) return keepArranged([...inside], placed, after);
-    setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
-    after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
+    commit(after.then(() => putSpots(placed)));
   };
   const saveArranged = (ids: readonly RepoId[], done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => keepArranged(ids, place(done), after);
-  const keepArranged = (ids: readonly RepoId[], placed: Placed[], after: Promise<unknown>) => {
-    setArrangedRepos((prev) => new Set([...prev, ...ids]));
-    after.then(() => putArranged({ repos: [...ids], placed })).catch((err: Error) => setRefusal(err.message));
-  };
+  const keepArranged = (ids: readonly RepoId[], placed: Placed[], after: Promise<unknown>) => commit(after.then(() => putArranged({ repos: [...ids], placed })));
   const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => {
-    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
-    setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
-    return placed;
+    setMoving((prev) => new Map([...prev, ...done]));
+    return [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
   };
   const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
     const level = levels.get(key)!;
@@ -1099,7 +1109,7 @@ export function Graph(props: {
     const g = groups.find((g) => g.group.path === ordering);
     if (!g) return;
     const done = new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]);
-    if (arrangedRepos.has(g.repo)) saveArranged([g.repo], done);
+    if (arrangedNow(g.repo)) saveArranged([g.repo], done);
     else save(done);
   });
   const arrangeRepo = (r: (typeof repos)[number]) => {
@@ -1112,8 +1122,7 @@ export function Graph(props: {
   const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);
   const clearRepos = (ids: readonly RepoId[]) => {
     setOrder((prev) => new Map([...prev, ...onScreen()]));
-    setSpots((prev) => new Map([...prev].filter(([, p]) => !ids.some((id) => id === repoOf(p.spot)))));
-    setArrangedRepos((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+    setClearing((prev) => new Set([...prev, ...ids]));
   };
   useEffect(() => {
     if (arranging === null) return;

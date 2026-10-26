@@ -611,7 +611,7 @@ const en = {
       notRelated: '{{value}}: not my parent or child. Steer and interrupt go only between parent and child; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt.',
       notRelated_nameless: 'Not my parent or child. Steer and interrupt go only between parent and child; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt.',
       alreadyRoot: '{{value}}: already a root node. It has no parent.',
-      notChild: '{{value}}: not my child. I can remove, relaunch or keep only my own children.',
+      notChild: '{{value}}: not my child. I can remove or keep only my own children.',
       noResume: '{{value}}: this node runs a shell or command, which has no agent session to continue in a new process.',
       noLink: '{{value}}: loom has no message link for this agent. Pick claude, codex, cursor, or opencode2.',
       relaunching: '{{value}}: this node is starting again now. Change the agent again after it starts.',

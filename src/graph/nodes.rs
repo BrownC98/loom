@@ -579,20 +579,43 @@ impl Graph {
         Ok(())
     }
 
-    pub fn turn_flags(&self) -> rusqlite::Result<Vec<(NodeId, u8)>> {
-        self.lock()
-            .prepare("SELECT id, turn_flags FROM nodes WHERE turn_flags != 0")?
-            .query_map([], |row| Ok((NodeId(row.get(0)?), row.get(1)?)))?
-            .collect()
-    }
-
-    pub fn set_turn_flags(&self, id: NodeId, flags: u8) -> rusqlite::Result<()> {
+    pub fn add_turn_flag(&self, id: NodeId, bit: u8) -> rusqlite::Result<()> {
         self.lock()
             .execute(
-                "UPDATE nodes SET turn_flags = ?2 WHERE id = ?1 AND turn_flags != ?2",
-                params![id.0, flags],
+                "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1 AND turn_flags & ?2 != ?2",
+                params![id.0, bit],
             )
             .map(drop)
+    }
+
+    pub fn clear_turn_flag(&self, id: NodeId, bit: u8) -> rusqlite::Result<()> {
+        self.lock()
+            .execute(
+                "UPDATE nodes SET turn_flags = turn_flags & ~?2 WHERE id = ?1 AND turn_flags & ?2 != 0",
+                params![id.0, bit],
+            )
+            .map(drop)
+    }
+
+    pub fn take_turn_flags(&self, id: NodeId) -> rusqlite::Result<u8> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let flags = tx
+            .query_row(
+                "SELECT turn_flags FROM nodes WHERE id = ?1",
+                params![id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if flags != 0 {
+            tx.execute(
+                "UPDATE nodes SET turn_flags = 0 WHERE id = ?1",
+                params![id.0],
+            )?;
+        }
+        tx.commit()?;
+        Ok(flags)
     }
 
     pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {

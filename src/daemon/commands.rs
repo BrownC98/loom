@@ -295,7 +295,9 @@ pub(super) async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
-    app.take_now(node, req).map(Json).map_err(for_agent)
+    app.take_now(node, bearer(&headers)?, req)
+        .map(Json)
+        .map_err(for_agent)
 }
 
 pub(super) async fn agent_idle(
@@ -307,9 +309,15 @@ pub(super) async fn agent_idle(
     let node = app.caller(&headers)?;
     let current = || app.caller(&headers).is_ok();
     let arrival = arrival.map(|axum::Extension(arrival)| arrival);
-    app.wait_idle(node, req.unwrap_or_default(), arrival, current)
-        .await
-        .map(Json)
+    app.wait_idle(
+        node,
+        bearer(&headers)?,
+        req.unwrap_or_default(),
+        arrival,
+        current,
+    )
+    .await
+    .map(Json)
 }
 
 async fn agent_interrupt(

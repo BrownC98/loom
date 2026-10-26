@@ -1011,7 +1011,7 @@ async fn follow_codex_model(
         ) {
             eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
         }
-        if let Err(e) = graph.set_session(node, &Session(id.clone())) {
+        if let Err(e) = graph.set_session(&token, &Session(id.clone())) {
             eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
         }
         let call = |method, params| server.call(method, params);

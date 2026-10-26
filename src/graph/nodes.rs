@@ -508,10 +508,10 @@ impl Graph {
         Ok(())
     }
 
-    pub fn set_session(&self, id: NodeId, session: &Session) -> rusqlite::Result<()> {
+    pub fn set_session(&self, token: &str, session: &Session) -> rusqlite::Result<()> {
         self.lock().execute(
-            "UPDATE nodes SET session = ?2 WHERE id = ?1 AND session IS NOT ?2",
-            params![id.0, session.0],
+            "UPDATE nodes SET session = ?2 WHERE token = ?1 AND session IS NOT ?2",
+            params![token, session.0],
         )?;
         Ok(())
     }

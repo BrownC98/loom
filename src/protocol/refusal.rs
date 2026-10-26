@@ -12,7 +12,7 @@ pub const SUMMARY_LIMIT_BYTES: usize = 1024;
 
 /// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design/메시징.md 「상한」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct TreeLimits {
     /// 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다. `None`이면 상한이 없다.

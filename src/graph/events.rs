@@ -50,11 +50,11 @@ pub enum Entry {
         from: NodeState,
         to: NodeState,
     },
-    /// 부모가 바뀌었다. `from`이 없으면 부모 없던 노드다.
+    /// 부모가 바뀌었다. `from`이 없으면 부모 없던 노드다. `to`가 없으면 뿌리로 되돌렸다(`loom detach`).
     Adopted {
         node: Who,
         from: Option<Who>,
-        to: Who,
+        to: Option<Who>,
         /// 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
         #[serde(default)]
         held: u32,

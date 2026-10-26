@@ -191,7 +191,7 @@ function whoOf(entry: Entry): Who[] {
     case 'agentStateDisagreed':
       return [entry.node];
     case 'adopted':
-      return [entry.node, ...(entry.from ? [entry.from] : []), entry.to];
+      return [entry.node, ...(entry.from ? [entry.from] : []), ...(entry.to ? [entry.to] : [])];
     case 'message':
       return [entry.from, ...(entry.to ? [entry.to] : [])];
     case 'refused':
@@ -298,7 +298,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           <span className="kind">{t('events.kind.adopted')}</span>
           {name(entry.node)}
           <span className="note">
-            {entry.from ? entry.from.name : t('events.noParent')} → {entry.to.name}
+            {entry.from ? entry.from.name : t('events.noParent')} → {entry.to ? entry.to.name : t('events.noParent')}
             {entry.held > 0 && <> · {t('events.movedHeld', { n: entry.held })}</>}
           </span>
         </>

@@ -6,6 +6,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/nodes", post(create_node))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
+        .route("/api/nodes/{id}/detach", post(detach_node))
         .route("/api/nodes/{id}/name", put(rename_node))
         .route("/api/nodes/{id}/steer-queued", post(steer_queued))
         .route(
@@ -95,6 +96,14 @@ async fn adopt_node(
     Ok(Json(()))
 }
 
+async fn detach_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.detach(NodeId(id))?;
+    Ok(Json(()))
+}
+
 async fn rename_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
@@ -152,7 +161,7 @@ async fn pty(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let id = NodeId(id);
-    if app.host.attach(id).is_none() && app.graph.reachable(id).unwrap_or(false) {
+    if app.host.attach(id).is_none() {
         return coming_pty(ws, via, app, id);
     }
     serve_pty(ws, via, app, |app| &app.host, human_typed, id)
@@ -214,17 +223,27 @@ fn coming_pty(
             }
             let mut pulse = Pulse::new(pulse::BEAT);
             let mut nodes = app.graph.changes();
+            let mut gone = false;
             loop {
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
+                let reachable = app.graph.reachable(id).unwrap_or(false);
+                if app.host.attach(id).is_some() || (gone && reachable) {
                     let _ = socket.send(Message::Close(None)).await;
                     return;
                 }
+                if !gone && !reachable {
+                    gone = true;
+                    let notice =
+                        serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                    if socket.send(Message::Text(notice.into())).await.is_err() {
+                        return;
+                    }
+                }
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
-                        Heard::Frame(Some(Ok(Message::Binary(_)))) => app.sleeps.knocked(id),
+                        Heard::Frame(Some(Ok(Message::Binary(_)))) if !gone => app.sleeps.knocked(id),
                         Heard::Frame(Some(Ok(_))) => {}
                         Heard::Frame(Some(Err(_)) | None) => return,
                         Heard::Beat(beat) => {

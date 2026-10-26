@@ -26,6 +26,7 @@ pub struct NewChild<'a> {
 }
 
 const SHELL_NAME: &str = "shell";
+const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
     pub token: String,
@@ -823,6 +824,14 @@ impl Graph {
         tx.commit()?;
         Ok(adoption.publish(self, &db)?)
     }
+
+    pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let adoption = detach_in(&tx, child)?;
+        tx.commit()?;
+        Ok(adoption.publish(self, &db)?)
+    }
 }
 
 struct Removal {
@@ -914,6 +923,62 @@ impl Adoption {
     }
 }
 
+fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
+    let name = name_of(tx, child)?;
+    let Some(old) = parent_of(tx, child)? else {
+        return Err(Refusal::AlreadyRoot(name));
+    };
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM nodes WHERE parent IS NULL AND name = ?1)",
+        [&name],
+        |row| row.get(0),
+    )?;
+    if taken {
+        return Err(Refusal::NameTaken(name));
+    }
+    let told_old = (state_of(tx, child).ok() == Some(NodeState::Running)).then_some(old);
+    let detached = MessageKind::Adopted {
+        node: name,
+        parent: NO_PARENT.to_owned(),
+    };
+    if let Some(old) = told_old {
+        mailbox::enqueue(
+            tx,
+            child,
+            Some(old),
+            Kind::Queue,
+            &detached,
+            "",
+            Default::default(),
+        )?;
+    }
+    tx.execute("UPDATE nodes SET parent = NULL WHERE id = ?1", [child.0])?;
+    mailbox::enqueue(
+        tx,
+        old,
+        Some(child),
+        Kind::Queue,
+        &detached,
+        "You have no parent now. Your loom ask goes to the human inbox.",
+        Default::default(),
+    )?;
+    events::write(
+        tx,
+        &Entry::Adopted {
+            node: events::who(tx, child)?,
+            from: Some(events::who(tx, old)?),
+            to: None,
+            held: 0,
+        },
+        None,
+    )?;
+    Ok(Adoption {
+        parent: old,
+        child,
+        told_old,
+    })
+}
+
 fn adopt_in(
     tx: &Connection,
     parent: NodeId,
@@ -986,7 +1051,7 @@ fn adopt_in(
         &Entry::Adopted {
             node: events::who(tx, child)?,
             from: old.map(|old| events::who(tx, old)).transpose()?,
-            to: events::who(tx, parent)?,
+            to: Some(events::who(tx, parent)?),
             held: moved as u32,
         },
         None,

@@ -152,7 +152,7 @@ async fn pty(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let id = NodeId(id);
-    if app.host.attach(id).is_none() && app.graph.reachable(id).unwrap_or(false) {
+    if app.host.attach(id).is_none() {
         return coming_pty(ws, via, app, id);
     }
     serve_pty(ws, via, app, |app| &app.host, human_typed, id)
@@ -214,17 +214,26 @@ fn coming_pty(
             }
             let mut pulse = Pulse::new(pulse::BEAT);
             let mut nodes = app.graph.changes();
+            let mut gone = false;
             loop {
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
+                if app.host.attach(id).is_some() {
                     let _ = socket.send(Message::Close(None)).await;
                     return;
                 }
+                if !gone && !app.graph.reachable(id).unwrap_or(false) {
+                    gone = true;
+                    let notice =
+                        serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                    if socket.send(Message::Text(notice.into())).await.is_err() {
+                        return;
+                    }
+                }
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
-                        Heard::Frame(Some(Ok(Message::Binary(_)))) => app.sleeps.knocked(id),
+                        Heard::Frame(Some(Ok(Message::Binary(_)))) if !gone => app.sleeps.knocked(id),
                         Heard::Frame(Some(Ok(_))) => {}
                         Heard::Frame(Some(Err(_)) | None) => return,
                         Heard::Beat(beat) => {

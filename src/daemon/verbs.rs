@@ -494,9 +494,9 @@ pub(super) async fn agent_detach(
     let via = gate::via(&headers, "/api/agent/detach");
     let detached = app
         .graph
-        .find(&req.name)
-        .map_err(Problem::from)
-        .and_then(|child| Ok(app.graph.detach(child)?));
+        .any_node(caller, &req.name)
+        .and_then(|child| app.graph.detach(child))
+        .map_err(Problem::from);
     traced(&app, caller, Attempt::verb(&req.name), &via, detached)
 }
 

@@ -32,7 +32,7 @@ pub async fn holds(dir: &Path, args: &[&str]) -> Result<bool, String> {
     let out = output(dir, args).await?;
     match out.status.code() {
         Some(0) => Ok(true),
-        Some(1) if out.stdout.is_empty() && out.stderr.is_empty() => Ok(false),
+        Some(1) if out.stdout.is_empty() && git_text(&out.stderr).is_empty() => Ok(false),
         _ => Err(failure(&out)),
     }
 }
@@ -47,11 +47,22 @@ async fn output(dir: &Path, args: &[&str]) -> Result<std::process::Output, Strin
 }
 
 fn failure(out: &std::process::Output) -> String {
-    [&out.stderr, &out.stdout]
+    [git_text(&out.stderr), git_text(&out.stdout)]
         .into_iter()
-        .map(|text| String::from_utf8_lossy(text).trim().to_owned())
         .find(|text| !text.is_empty())
         .unwrap_or_else(|| format!("git이 {}로 끝났다", out.status))
+}
+
+/// wsl.exe가 배포판 시작 경고(`wsl: Processing /etc/fstab with mount -a failed.`)를 모든 호출의 stderr 앞에 붙인다.
+/// 그 줄은 git의 답이 아니다.
+fn git_text(text: &[u8]) -> String {
+    String::from_utf8_lossy(text)
+        .lines()
+        .filter(|line| !line.starts_with("wsl: "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
 
 fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {

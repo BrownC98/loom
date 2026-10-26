@@ -26,7 +26,7 @@ pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
     TurnCheck, Via, Who,
 };
-pub use gate::{BatchId, Ended, GateChoice, Merge, Queued, Reclaim, Round};
+pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round};
 pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};

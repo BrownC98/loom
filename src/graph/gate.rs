@@ -4,8 +4,8 @@ use super::events::{self, Entry, GateTrace, Via};
 use super::mailbox::{self, Stamp};
 use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{
-    self, AgentId, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, Kind, MergeEnd,
-    MessageKind, Peer, Receiver, Refusal, Sender, Target,
+    self, AgentId, Finding, GateCall, GateState, GateVerb, Judgment, Kind, MergeEnd, MessageKind,
+    Peer, Receiver, Refusal, Sender, Target,
 };
 use crate::task;
 use crate::worktree::RepoId;
@@ -62,13 +62,98 @@ pub struct Merge<'a> {
     pub target: &'a str,
 }
 
+pub enum Outcome<'a> {
+    Merged(Merge<'a>),
+    Rework,
+    Failed,
+}
+
 pub struct Ended<'a> {
-    pub end: MergeEnd,
-    pub merged: Option<Merge<'a>>,
+    pub outcome: Outcome<'a>,
     pub cause: Option<String>,
     pub log: Option<String>,
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
+}
+
+enum Step<'a> {
+    Ready {
+        target: &'a str,
+    },
+    Verdict {
+        judgment: Judgment,
+        findings: Option<&'a str>,
+    },
+    Requeue,
+    End(Ended<'a>),
+}
+
+impl Step<'_> {
+    fn call(&self) -> GateCall {
+        match self {
+            Step::Ready { .. } => GateCall::Ready,
+            Step::Verdict { judgment, .. } => GateCall::Verdict(*judgment),
+            Step::Requeue => GateCall::Requeue,
+            Step::End(ended) => GateCall::End(match ended.outcome {
+                Outcome::Merged(_) => MergeEnd::Merged,
+                Outcome::Rework => MergeEnd::Rework,
+                Outcome::Failed => MergeEnd::Failed,
+            }),
+        }
+    }
+
+    fn message(&self, branch: &str, row: &Row, reviewer: Option<String>) -> Option<MessageKind> {
+        let branch = branch.to_owned();
+        let head = row.head.clone();
+        Some(match self {
+            Step::Ready { target } => MessageKind::Ready {
+                branch,
+                head,
+                worktree: row.worktree.clone(),
+                target: (*target).to_owned(),
+            },
+            Step::Verdict { judgment, findings } => MessageKind::Verdict {
+                branch,
+                head,
+                judgment: *judgment,
+                findings: findings.map(str::to_owned),
+                reviewer,
+            },
+            Step::Requeue => return None,
+            Step::End(Ended {
+                outcome: Outcome::Merged(merge),
+                log,
+                ..
+            }) => MessageKind::Merged {
+                branch,
+                head,
+                sha: merge.sha.to_owned(),
+                log: log.clone(),
+            },
+            Step::End(Ended {
+                outcome: Outcome::Rework,
+                cause,
+                log,
+                ..
+            }) => MessageKind::Rework {
+                branch,
+                head,
+                cause: cause.clone(),
+                log: log.clone(),
+            },
+            Step::End(Ended {
+                outcome: Outcome::Failed,
+                cause,
+                log,
+                ..
+            }) => MessageKind::Failed {
+                branch,
+                head,
+                cause: cause.clone(),
+                log: log.clone(),
+            },
+        })
+    }
 }
 
 struct Row {
@@ -86,17 +171,6 @@ impl Row {
             false => Target::Coordinator,
         }
     }
-}
-
-#[derive(Default)]
-struct Detail {
-    target: String,
-    findings_file: Option<String>,
-    sha: Option<String>,
-    cause: Option<String>,
-    log: Option<String>,
-    lines: Vec<String>,
-    findings: Vec<Finding>,
 }
 
 #[derive(Clone, Copy)]
@@ -140,17 +214,14 @@ impl Graph {
         round: &Round,
         via: Option<&Via>,
     ) -> Result<String, Refusal> {
-        let detail = Detail {
-            target: round.target.to_owned(),
-            ..Detail::default()
-        };
         let repo = place_of(&self.lock(), owner)?.repo;
         let row = self.apply(
             Caller::Node(owner),
             repo,
             round.branch,
-            GateCall::Ready,
-            detail,
+            Step::Ready {
+                target: round.target,
+            },
             via,
             |tx, row| {
                 if let Some(open) = load(tx, repo, round.branch)?
@@ -241,17 +312,12 @@ impl Graph {
         if judgment == Judgment::Block && findings.is_none() {
             return Err(Refusal::NoFindings);
         }
-        let detail = Detail {
-            findings_file: findings.map(str::to_owned),
-            ..Detail::default()
-        };
         let repo = place_of(&self.lock(), caller)?.repo;
         let row = self.apply(
             Caller::Node(caller),
             repo,
             branch,
-            GateCall::Verdict(judgment),
-            detail,
+            Step::Verdict { judgment, findings },
             via,
             |tx, row| {
                 if head.len() < MIN_HEAD || !row.head.starts_with(head) {
@@ -566,8 +632,7 @@ impl Graph {
             Caller::Loom,
             repo,
             branch,
-            GateCall::Requeue,
-            Detail::default(),
+            Step::Requeue,
             None,
             |tx, row| {
                 update(tx, repo, branch, row.state)?;
@@ -585,31 +650,20 @@ impl Graph {
         &self,
         repo: RepoId,
         branch: &str,
-        ended: Ended,
+        mut ended: Ended,
     ) -> Result<GateState, Refusal> {
-        let Ended {
-            end,
-            merged,
-            cause,
-            log,
-            mut lines,
-            findings,
-        } = ended;
-        lines.extend(findings.iter().map(|f| format!("audit: {f}")));
-        let detail = Detail {
-            sha: merged.as_ref().map(|m| m.sha.to_owned()),
-            cause,
-            log,
-            lines,
-            findings,
-            ..Detail::default()
+        ended
+            .lines
+            .extend(ended.findings.iter().map(|f| format!("audit: {f}")));
+        let merged = match &ended.outcome {
+            Outcome::Merged(merge) => Some((merge.sha, merge.target)),
+            Outcome::Rework | Outcome::Failed => None,
         };
         let row = self.apply(
             Caller::Loom,
             repo,
             branch,
-            GateCall::End(end),
-            detail,
+            Step::End(ended),
             None,
             |tx, row| {
                 update(tx, repo, branch, row.state)?;
@@ -617,14 +671,14 @@ impl Graph {
                     "UPDATE gates SET batch = NULL, queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch],
                 )?;
-                if let Some(merged) = &merged {
+                if let Some((sha, target)) = merged {
                     tx.execute(
                         "INSERT OR IGNORE INTO gate_merges (repo, target, sha) VALUES (?1, ?2, ?3)",
-                        params![repo.0, merged.target, merged.sha],
+                        params![repo.0, target, sha],
                     )?;
                     tx.execute(
                         "UPDATE gates SET merged_into = ?3 WHERE repo = ?1 AND branch = ?2",
-                        params![repo.0, branch, merged.target],
+                        params![repo.0, branch, target],
                     )?;
                 }
                 Ok(())
@@ -766,11 +820,18 @@ impl Graph {
         caller: Caller,
         repo: RepoId,
         branch: &str,
-        call: GateCall,
-        detail: Detail,
+        mut step: Step,
         via: Option<&Via>,
         write: impl FnOnce(&Transaction, &Row) -> Result<(), Refusal>,
     ) -> Result<Row, Refusal> {
+        let call = step.call();
+        let (lines, findings) = match &mut step {
+            Step::End(ended) => (
+                std::mem::take(&mut ended.lines),
+                std::mem::take(&mut ended.findings),
+            ),
+            Step::Ready { .. } | Step::Verdict { .. } | Step::Requeue => (Vec::new(), Vec::new()),
+        };
         let mut db = self.lock();
         let tx = db.transaction()?;
         let old = load(&tx, repo, branch)?;
@@ -796,26 +857,14 @@ impl Graph {
             branch,
             Some(from),
             Some(to),
-            detail.findings,
+            findings,
         )?;
         let mut sent = Vec::new();
-        if let Some(what) = protocol::gate_kind(
-            call,
-            GateFacts {
-                branch: branch.to_owned(),
-                head: row.head.clone(),
-                worktree: row.worktree.clone(),
-                target: detail.target,
-                findings: detail.findings_file,
-                reviewer: trace.agent.as_ref().map(|agent| match &trace.model {
-                    Some(model) => format!("{} {model}", agent.0),
-                    None => agent.0.clone(),
-                }),
-                sha: detail.sha,
-                cause: detail.cause,
-                log: detail.log,
-            },
-        ) {
+        let reviewer = trace.agent.as_ref().map(|agent| match &trace.model {
+            Some(model) => format!("{} {model}", agent.0),
+            None => agent.0.clone(),
+        });
+        if let Some(what) = step.message(branch, &row, reviewer) {
             let held = match call {
                 GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, repo, branch)?,
                 _ => Vec::new(),
@@ -834,7 +883,7 @@ impl Graph {
                 {
                     continue;
                 }
-                let mut body = detail.lines.clone();
+                let mut body = lines.clone();
                 body.push(match held.is_empty() {
                     true => protocol::next_step(call, *receiver, target, branch, &row.head),
                     false => protocol::held_step(*receiver, &held),
@@ -852,7 +901,7 @@ impl Graph {
                 sent.push(to_node);
             }
             if let (true, Caller::Node(me)) = (sent.is_empty(), caller) {
-                let mut body = detail.lines;
+                let mut body = lines;
                 body.push(protocol::KEPT_FOR_CALLER.to_owned());
                 post(
                     &tx,

@@ -207,13 +207,10 @@ impl App {
             .unwrap_or_else(|e| Err(node_host::Unattached::Silent(e.to_string())));
         if let Err(unattached) = attached {
             self.sleeps.exited(node.id);
-            if matches!(unattached, node_host::Unattached::Silent(_))
-                && self.host.has_address(node.id)
-            {
-                eprintln!(
-                    "loom: 노드 {}의 배포판 호스트에 닿지 못했다. 주소를 두고 다음 사건에 다시 붙는다: {unattached}",
-                    node.id.0
-                );
+            if self.host.unattached().contains(&node.id) {
+                let error = format!("left unattached: {unattached}");
+                self.graph
+                    .record_about(node.id, |node| Entry::EndpointFailed { node, error })?;
                 return Ok(Some(node.id));
             }
             if let Some(server) = &node.server {

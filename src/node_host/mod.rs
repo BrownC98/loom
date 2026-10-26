@@ -2,7 +2,7 @@ mod endpoint;
 mod host;
 mod wire;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::net::{SocketAddr, TcpStream};
@@ -95,6 +95,7 @@ pub struct NodeHost<K> {
     dir: PathBuf,
     kept: PathBuf,
     nodes: Arc<RwLock<HashMap<K, Arc<Pty>>>>,
+    unattached: Arc<Mutex<HashSet<K>>>,
     links: Option<Links<K>>,
     distros: Option<Arc<Distros>>,
 }
@@ -188,6 +189,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             kept: dir.with_extension("screens"),
             dir,
             nodes: Arc::default(),
+            unattached: Arc::default(),
             links: None,
             distros: None,
         }
@@ -272,6 +274,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             Err(e) => {
                 if !distro || e == Unattached::Gone {
                     let _ = std::fs::remove_file(&file);
+                    self.unattached.lock().unwrap().remove(&id);
+                } else {
+                    self.unattached.lock().unwrap().insert(id);
                 }
                 return Err((e, on_exit));
             }
@@ -317,6 +322,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 .is_none_or(|old| nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, old)));
             if ours {
                 nodes.insert(id, pty.clone());
+                self.unattached.lock().unwrap().remove(&id);
             }
             ours
         };
@@ -359,8 +365,24 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 return;
             }
             let on_exit = match exit {
-                None if carried_by_distro => match host.link(id, on_exit, Some(pty)) {
+                None if carried_by_distro => match host.link(id, on_exit, Some(pty.clone())) {
                     Ok(()) => return,
+                    Err((Unattached::Silent(cause), _))
+                        if host.unattached.lock().unwrap().contains(&id) =>
+                    {
+                        let mut nodes = host.nodes.write().unwrap();
+                        if nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, &pty)) {
+                            nodes.remove(&id);
+                        }
+                        drop(nodes);
+                        if let Some(links) = &host.links {
+                            let _ = links.send((
+                                id,
+                                Linked::EndpointFailed(format!("left unattached: {cause}")),
+                            ));
+                        }
+                        return;
+                    }
                     Err((_, on_exit)) => on_exit,
                 },
                 _ => on_exit,
@@ -400,10 +422,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let greeted = greet(&mut stream).map_err(silent)?;
         stream.set_read_timeout(None).map_err(silent)?;
         Ok((stream, greeted))
-    }
-
-    pub fn has_address(&self, id: K) -> bool {
-        self.file(id).is_file()
     }
 
     pub fn end_others(&self, keep: &[K]) {
@@ -521,7 +539,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    pub fn unattached(&self) -> Vec<K> {
+        self.unattached.lock().unwrap().iter().copied().collect()
+    }
+
     pub fn kill(&self, id: K) {
+        self.unattached.lock().unwrap().remove(&id);
         if let Some(pty) = self.nodes.write().unwrap().remove(&id) {
             pty.send(&Frame::Kill);
         }

@@ -328,9 +328,10 @@ impl App {
                 waking.push(id);
             }
         }
+        let unattached = self.host.unattached();
         for node in self.graph.active()? {
             let id = node.id;
-            if self.host.attach(id).is_some() || !self.host.has_address(id) {
+            if !unattached.contains(&id) {
                 continue;
             }
             let newest = self.graph.newest_mail(id)?;

@@ -2,9 +2,11 @@ mod agent_state;
 mod events;
 mod gate;
 mod hosts;
+mod idle;
 mod mailbox;
 mod nodes;
 mod relaunch_plans;
+mod turns;
 mod waits;
 
 use std::collections::HashMap;
@@ -26,9 +28,11 @@ pub use events::{
     TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
+pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use relaunch_plans::{NewAgent, Phase, Plan, Planned};
+pub use turns::TurnMark;
 pub use waits::{HUMAN, HumanWait, WaitSource};
 
 use crate::db::Database;
@@ -256,6 +260,7 @@ impl Graph {
         let published = events::last_id(&db.lock())?;
         relaunch_plans::settle_running(&db.lock())?;
         mailbox::requeue_handed(&db.lock())?;
+        idle::forget_old_daemon(&db.lock())?;
         let (agent_tx, agent_rx) = mpsc::unbounded_channel();
         Ok(Self {
             db,

@@ -51,7 +51,7 @@ pub struct Stale {
 pub struct Reclaim {
     pub owner: NodeId,
     pub gate: NodeId,
-    pub gate_worktree: Option<String>,
+    pub target: String,
     pub worktree: String,
     pub head: String,
     pub reviewers: Vec<NodeId>,
@@ -622,6 +622,10 @@ impl Graph {
                         "INSERT OR IGNORE INTO gate_merges (repo, target, sha) VALUES (?1, ?2, ?3)",
                         params![repo.0, merged.target, merged.sha],
                     )?;
+                    tx.execute(
+                        "UPDATE gates SET merged_into = ?3 WHERE repo = ?1 AND branch = ?2",
+                        params![repo.0, branch, merged.target],
+                    )?;
                 }
                 Ok(())
             },
@@ -649,17 +653,16 @@ impl Graph {
         let found = db
             .query_row(
                 &format!(
-                    "SELECT owner, {}, {}, worktree, head FROM gates
-                     WHERE repo = ?1 AND branch = ?2 AND state = ?3",
-                    gate_of("gates.owner"),
-                    parent_gate("gates.owner", "worktree")
+                    "SELECT owner, {}, merged_into, worktree, head FROM gates
+                     WHERE repo = ?1 AND branch = ?2 AND state = ?3 AND merged_into IS NOT NULL",
+                    gate_of("gates.owner")
                 ),
                 params![repo.0, branch, to_json(&GateState::Merged)],
                 |r| {
                     Ok(Reclaim {
                         owner: NodeId(r.get(0)?),
                         gate: NodeId(r.get(1)?),
-                        gate_worktree: r.get(2)?,
+                        target: r.get(2)?,
                         worktree: r.get(3)?,
                         head: r.get(4)?,
                         reviewers: Vec::new(),
@@ -1156,6 +1159,88 @@ fn close(db: &Connection, id: BatchId) -> rusqlite::Result<()> {
          AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1)",
         [id.0],
     )?;
+    Ok(())
+}
+
+pub(super) fn owns_round(db: &Connection, owner: NodeId) -> Result<(), Refusal> {
+    let branch: Option<String> = db
+        .query_row(
+            "SELECT branch FROM gates WHERE owner = ?1
+             AND (state IN (?2, ?3) OR batch IS NOT NULL) LIMIT 1",
+            params![
+                owner.0,
+                to_json(&GateState::Ready),
+                to_json(&GateState::Passed)
+            ],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match branch {
+        Some(branch) => Err(Refusal::OwnsRound(branch)),
+        None => Ok(()),
+    }
+}
+
+pub(super) struct OpenGate {
+    repo: RepoId,
+    branch: String,
+    gate: u32,
+}
+
+pub(super) fn open_gates(db: &Connection, owners: &[NodeId]) -> rusqlite::Result<Vec<OpenGate>> {
+    let owners = serde_json::to_string(&owners.iter().map(|n| n.0).collect::<Vec<_>>())
+        .expect("번호 목록은 늘 직렬화된다");
+    db.prepare(&format!(
+        "SELECT repo, branch, {} FROM gates WHERE owner IN (SELECT value FROM json_each(?1))
+         AND state IN (?2, ?3)",
+        gate_of("gates.owner")
+    ))?
+    .query_map(
+        params![
+            owners,
+            to_json(&GateState::Ready),
+            to_json(&GateState::Passed)
+        ],
+        |r| {
+            Ok(OpenGate {
+                repo: RepoId(r.get(0)?),
+                branch: r.get(1)?,
+                gate: r.get(2)?,
+            })
+        },
+    )?
+    .collect()
+}
+
+pub(super) fn regate(db: &Connection, before: Vec<OpenGate>) -> Result<(), Refusal> {
+    for open in before {
+        let now: u32 = db.query_row(
+            &format!(
+                "SELECT {} FROM gates WHERE repo = ?1 AND branch = ?2",
+                gate_of("gates.owner")
+            ),
+            params![open.repo.0, open.branch],
+            |r| r.get(0),
+        )?;
+        if now == open.gate {
+            continue;
+        }
+        release(db, open.repo, &open.branch)?;
+        db.execute(
+            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+            params![open.repo.0, open.branch],
+        )?;
+        db.execute(
+            "UPDATE gates SET state = ?3, queued = NULL, seq = NULL
+             WHERE repo = ?1 AND branch = ?2 AND state = ?4",
+            params![
+                open.repo.0,
+                open.branch,
+                to_json(&GateState::Ready),
+                to_json(&GateState::Passed)
+            ],
+        )?;
+    }
     Ok(())
 }
 

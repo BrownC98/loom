@@ -111,8 +111,10 @@ pub enum Refusal {
         role: String,
         reviewer: String,
     },
-    /// 병합 큐가 이 브랜치를 검사했고 지금 게시한다. 새 검토자를 받지 않는다. 값은 브랜치다.
+    /// 병합 큐가 이 브랜치를 검사했고 지금 게시한다. 새 검토자도, 관문을 바꾸는 부모 변경도 받지 않는다. 값은 브랜치다.
     Publishing(String),
+    /// 지울 노드가 열린 관문 차례(ready, passed, 큐 안)를 가진다. 값은 그 브랜치다.
+    OwnsRound(String),
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -416,7 +418,11 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Publishing(branch) => write!(
                 f,
-                "The merge queue checked {branch} and publishes it now, so it takes no new reviewer. Wait for merged or rework."
+                "The merge queue checked {branch} and publishes it now, so it takes no new reviewer and its gate cannot change. Wait for merged or rework, then try again."
+            ),
+            Refusal::OwnsRound(branch) => write!(
+                f,
+                "This node owns the open gate round of {branch}. Wait until its gate merges it or sends rework, then remove the node."
             ),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }

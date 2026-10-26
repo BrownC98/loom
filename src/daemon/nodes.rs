@@ -1,4 +1,6 @@
-use super::pulse::{self, Beat, Heard, Pulse};
+use futures_util::Sink;
+
+use super::pulse::{Beat, Heard, Pulse};
 use super::*;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -223,7 +225,10 @@ fn coming_pty(
             {
                 return;
             }
-            let mut pulse = Pulse::new(pulse::BEAT);
+            let mut pulse = Pulse::new();
+            if send_beat(&mut socket, &pulse).await.is_err() {
+                return;
+            }
             let mut nodes = app.graph.changes();
             let mut gone = false;
             loop {
@@ -246,10 +251,18 @@ fn coming_pty(
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
                         Heard::Frame(Some(Ok(Message::Binary(_)))) if !gone => app.sleeps.knocked(id),
+                        Heard::Frame(Some(Ok(Message::Text(text)))) => {
+                            if pulse.paced(&text) && send_beat(&mut socket, &pulse).await.is_err() {
+                                return;
+                            }
+                        }
                         Heard::Frame(Some(Ok(_))) => {}
                         Heard::Frame(Some(Err(_)) | None) => return,
                         Heard::Beat(beat) => {
-                            if beat == Beat::Dead || socket.send(Message::Ping(Default::default())).await.is_err() {
+                            if beat == Beat::Dead
+                                || socket.send(Message::Ping(Default::default())).await.is_err()
+                                || (beat == Beat::Send && send_beat(&mut socket, &pulse).await.is_err())
+                            {
                                 return;
                             }
                         }
@@ -260,6 +273,17 @@ fn coming_pty(
             }
         })
     })
+}
+
+async fn send_beat<S: Sink<Message> + Unpin>(
+    to_view: &mut S,
+    pulse: &Pulse,
+) -> Result<(), S::Error> {
+    let beat = PtyNotice::Beat {
+        quiet_ms: pulse.quiet_ms(),
+    };
+    let notice = serde_json::to_string(&beat).expect("PtyNotice는 늘 직렬화된다");
+    to_view.send(Message::Text(notice.into())).await
 }
 
 async fn send_kept(socket: &mut WebSocket, kept: node_host::Kept) -> Result<(), axum::Error> {
@@ -296,6 +320,11 @@ pub enum PtyNotice {
     /// 붙을 때 PTY가 한동안 조용했다(`node_host::Attached::settled`). backlog보다 먼저 보낸다. 화면은 그 backlog 속 색 질의(OSC 10·11·4)에 답하지 않는다.
     /// 근거: 카드를 열 때마다 xterm이 옛 질의에 다시 답해 프로그램에 늦은 입력이 갔다(실측 2026-10-23). 갓 보낸 질의는 프로그램이 아직 기다릴 수 있어 답한다.
     Settled,
+    /// 연결이 살아 있음을 알린다. 붙은 바로 뒤, `Pace`를 받은 바로 뒤, 그 뒤 박동 간격마다 보낸다. 화면은 `quietMs` 동안 아무 프레임도 받지 못하면 이 연결만 다시 연다.
+    Beat {
+        #[serde(rename = "quietMs")]
+        quiet_ms: u32,
+    },
 }
 
 pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
@@ -374,7 +403,10 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     {
         return;
     }
-    let mut pulse = Pulse::new(pulse::BEAT);
+    let mut pulse = Pulse::new();
+    if send_beat(&mut to_view, &pulse).await.is_err() {
+        return;
+    }
     loop {
         tokio::select! {
             chunk = output.recv() => match chunk {
@@ -388,7 +420,10 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
             }
             heard = pulse.listen(&mut from_view) => match heard {
                 Heard::Beat(beat) => {
-                    if beat == Beat::Dead || to_view.send(Message::Ping(Default::default())).await.is_err() {
+                    if beat == Beat::Dead
+                        || to_view.send(Message::Ping(Default::default())).await.is_err()
+                        || (beat == Beat::Send && send_beat(&mut to_view, &pulse).await.is_err())
+                    {
                         return;
                     }
                 }
@@ -399,6 +434,11 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())
                     });
+                }
+                Heard::Frame(Some(Ok(Message::Text(text)))) if pulse.paced(&text) => {
+                    if send_beat(&mut to_view, &pulse).await.is_err() {
+                        return;
+                    }
                 }
                 Heard::Frame(Some(Ok(Message::Text(text)))) => match serde_json::from_str(&text) {
                     Ok(PtyRequest::Resize(Resize { cols, rows })) => host(app).resize(id, cols, rows),

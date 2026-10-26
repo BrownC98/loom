@@ -79,9 +79,9 @@ async fn save_paste(
     };
     let path = paste::save(&root, &name, &body).map_err(internal)?;
     let path = path.to_string_lossy().into_owned();
-    Ok(Json(match wsl::location(&path) {
-        Some(inside) if wsl.is_some() => inside.path,
-        _ => path,
+    Ok(Json(match wsl {
+        Some(_) => wsl::linux_of(&path),
+        None => path,
     }))
 }
 

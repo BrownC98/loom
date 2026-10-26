@@ -65,9 +65,9 @@ fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {
 }
 
 pub fn to_git_path(dir: &Path, path: &str) -> String {
-    match (wsl::of(dir), wsl::location(path)) {
-        (Some(_), Some(inside)) => inside.path,
-        _ => path.to_owned(),
+    match wsl::of(dir) {
+        Some(_) => wsl::linux_of(path),
+        None => path.to_owned(),
     }
 }
 

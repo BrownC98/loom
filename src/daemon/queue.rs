@@ -602,7 +602,7 @@ impl Batch<'_> {
                 self.rework(
                     format!(
                         "the coordinator worktree {} has uncommitted changes; the coordinator commits them, then the owner calls loom ready again",
-                        crate::wsl::location(worktree).map_or_else(|| worktree.to_owned(), |w| w.path)
+                        crate::wsl::linux_of(worktree)
                     ),
                     None,
                 ),

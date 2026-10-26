@@ -103,10 +103,10 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
-        self.graph.remove(node)?;
+    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+        let children = self.graph.remove(node)?;
         self.host.kill(node);
-        Ok(())
+        Ok(children)
     }
 
     pub(super) fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {

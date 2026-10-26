@@ -83,7 +83,8 @@ async fn remove_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    app.remove(NodeId(id)).map_err(internal)?;
+    let children = app.remove(NodeId(id)).map_err(internal)?;
+    app.position_changed(&children);
     Ok(Json(()))
 }
 
@@ -92,7 +93,9 @@ async fn adopt_node(
     Path((id, parent)): Path<(u32, u32)>,
 ) -> Result<Json<()>, Problem> {
     let limits = app.tree_limits()?;
-    app.graph.adopt(NodeId(parent), NodeId(id), limits)?;
+    if app.graph.adopt(NodeId(parent), NodeId(id), limits)? {
+        app.position_changed(&[NodeId(id)]);
+    }
     Ok(Json(()))
 }
 
@@ -101,6 +104,7 @@ async fn detach_node(
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     app.graph.detach(NodeId(id))?;
+    app.position_changed(&[NodeId(id)]);
     Ok(Json(()))
 }
 
@@ -419,4 +423,38 @@ async fn send_size(
     let notice = serde_json::to_string(&PtyNotice::Size(Resize { cols, rows }))
         .expect("PtyNotice는 늘 직렬화된다");
     to_view.send(Message::Text(notice.into())).await
+}
+
+impl App {
+    /// A node that became a root or a child starts again at its turn end, so its start text
+    /// follows its place. A node that cannot start again keeps its text.
+    pub(super) fn position_changed(self: &Arc<Self>, nodes: &[NodeId]) {
+        let active = self.graph.active().unwrap_or_default();
+        for node in active
+            .into_iter()
+            .filter(|n| nodes.contains(&n.id) && relaunch::profile_of(n).is_some())
+        {
+            let planned = self.graph.plan_relaunch(node.id, |now| match now.pending {
+                None if !now.ended => (
+                    Some((crate::graph::Phase::AtTurnEnd, crate::graph::Plan::Resume)),
+                    true,
+                ),
+                kept => (kept, false),
+            });
+            match planned {
+                Ok(true) => eprintln!(
+                    "loom: 노드 {}의 자리가 바뀌었다. 턴 끝에 다시 띄운다",
+                    node.id.0
+                ),
+                Ok(false) => {}
+                Err(e) => eprintln!(
+                    "loom: 노드 {}의 다시 띄우기를 계획하지 못했다: {e}",
+                    node.id.0
+                ),
+            }
+            if self.at_turn_end(node.id) {
+                self.server_turn_ended(node.id);
+            }
+        }
+    }
 }

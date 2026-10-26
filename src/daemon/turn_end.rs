@@ -1,13 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use super::App;
-use crate::graph::{Entry, Graph, NodeId, TurnCheck};
-
-const HUMAN: u8 = 1;
-const CALLED: u8 = 2;
-const KIND_NUDGED: u8 = 4;
-const ASKED: u8 = 8;
+use crate::graph::{Entry, Graph, NodeId, TurnCheck, TurnMark};
 
 const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
@@ -16,83 +10,62 @@ const KIND_NUDGE: &str = "Your last reply has a line that starts with a kind wor
 const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. The human answers only loom ask, and loom keeps no record of that box or its answer. Ask the same question again with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskQuestion again.";
 
 pub struct TurnEnds {
-    said: Mutex<HashMap<NodeId, String>>,
-    turn: Mutex<HashMap<NodeId, String>>,
-    ended_turns: Mutex<HashMap<NodeId, HashSet<String>>>,
-    question_box: Mutex<HashSet<NodeId>>,
     graph: Arc<Graph>,
 }
 
 impl TurnEnds {
     pub fn new(graph: Arc<Graph>) -> Self {
-        TurnEnds {
-            said: Mutex::default(),
-            turn: Mutex::default(),
-            ended_turns: Mutex::default(),
-            question_box: Mutex::default(),
-            graph,
-        }
+        TurnEnds { graph }
     }
 
-    fn mark(&self, node: NodeId, bit: u8) {
-        if let Err(e) = self.graph.add_turn_flag(node, bit) {
+    fn mark(&self, node: NodeId, mark: TurnMark) {
+        if let Err(e) = self.graph.mark_turn(node, mark) {
             eprintln!("loom: 노드 {}의 턴 표시를 쓰지 못했다: {e}", node.0);
         }
     }
 
-    pub fn said(&self, node: NodeId, text: String, turn: Option<&str>) {
-        let current = self.turn.lock().unwrap();
-        let ended = self.ended_turns.lock().unwrap();
-        if turn.is_some_and(|said| {
-            current.get(&node).is_some_and(|now| now != said)
-                || ended.get(&node).is_some_and(|done| done.contains(said))
-        }) {
-            return;
+    pub fn said(&self, node: NodeId, text: &str, turn: Option<&str>) {
+        if let Err(e) = self.graph.said(node, text, turn) {
+            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
         }
-        self.said.lock().unwrap().insert(node, text);
     }
 
     pub fn stepped(&self, node: NodeId, turn: Option<&str>) {
-        let mut current = self.turn.lock().unwrap();
-        if let Some(turn) = turn {
-            current.insert(node, turn.to_owned());
+        if let Some(turn) = turn
+            && let Err(e) = self.graph.stepped(node, turn)
+        {
+            eprintln!("loom: 노드 {}의 턴을 쓰지 못했다: {e}", node.0);
         }
     }
 
     pub fn stopped(&self, node: NodeId, turn: Option<&str>) {
-        if let Some(turn) = turn {
-            let current = self.turn.lock().unwrap();
-            let mut ended = self.ended_turns.lock().unwrap();
-            ended.entry(node).or_default().insert(turn.to_owned());
-            drop(current);
+        if let Some(turn) = turn
+            && let Err(e) = self.graph.stopped(node, turn)
+        {
+            eprintln!("loom: 노드 {}의 끝난 턴을 쓰지 못했다: {e}", node.0);
         }
     }
 
     pub fn human(&self, node: NodeId) {
-        self.mark(node, HUMAN);
+        self.mark(node, TurnMark::Human);
     }
 
     pub fn called(&self, node: NodeId) {
-        self.mark(node, CALLED);
+        self.mark(node, TurnMark::Called);
     }
 
     pub fn question_box(&self, node: NodeId) {
-        self.question_box.lock().unwrap().insert(node);
+        self.mark(node, TurnMark::QuestionBox);
     }
 
     pub fn asked(&self, node: NodeId) {
-        self.mark(node, ASKED);
+        self.mark(node, TurnMark::Asked);
     }
 
     pub fn launched(&self, node: NodeId) {
-        let mut current = self.turn.lock().unwrap();
-        current.remove(&node);
-        self.ended_turns.lock().unwrap().remove(&node);
-        drop(current);
-        if let Err(e) = self.graph.clear_turn_flag(node, ASKED) {
+        if let Err(e) = self.graph.turn_launched(node) {
             eprintln!("loom: 노드 {}의 턴 표시를 지우지 못했다: {e}", node.0);
         }
-        self.question_box.lock().unwrap().remove(&node);
     }
 
     pub fn ended(
@@ -100,26 +73,18 @@ impl TurnEnds {
         node: NodeId,
         gated_repo: impl FnOnce() -> bool,
         unreported_root: impl FnOnce() -> bool,
-    ) -> rusqlite::Result<TurnEnd> {
-        let flags = self.graph.take_turn_flags(node)?;
-        let reply = self.said.lock().unwrap().remove(&node);
-        let mut current = self.turn.lock().unwrap();
-        if let Some(turn) = current.remove(&node) {
-            let mut ended = self.ended_turns.lock().unwrap();
-            ended.entry(node).or_default().insert(turn);
-        }
-        drop(current);
-        let (human, called, nudged, asked) = (
-            flags & HUMAN != 0,
-            flags & CALLED != 0,
-            flags & KIND_NUDGED != 0,
-            flags & ASKED != 0,
+    ) -> rusqlite::Result<Option<TurnCheck>> {
+        let taken = self.graph.take_turn(node)?;
+        let (human, called, nudged, asked, question_box) = (
+            taken.has(TurnMark::Human),
+            taken.has(TurnMark::Called),
+            taken.has(TurnMark::KindNudged),
+            taken.has(TurnMark::Asked),
+            taken.has(TurnMark::QuestionBox),
         );
-        if self.question_box.lock().unwrap().remove(&node) && !asked {
-            return Ok(TurnEnd {
-                reply,
-                nudge: Some(TurnCheck::QuestionBox),
-            });
+        let reply = taken.reply;
+        if question_box && !asked {
+            return Ok(Some(TurnCheck::QuestionBox));
         }
         let mut gated = None;
         let mut gated_repo = Some(gated_repo);
@@ -133,21 +98,13 @@ impl TurnEnds {
                 .is_some()
             });
         let nudge = if kind_line {
-            self.mark(node, KIND_NUDGED);
+            self.mark(node, TurnMark::KindNudged);
             Some(TurnCheck::KindLine)
         } else {
-            (human
-                && reply.as_ref().is_some_and(|text| !text.trim().is_empty())
-                && unreported_root())
-            .then_some(TurnCheck::Unreported)
+            (human && reply.is_some() && unreported_root()).then_some(TurnCheck::Unreported)
         };
-        Ok(TurnEnd { reply, nudge })
+        Ok(nudge)
     }
-}
-
-pub struct TurnEnd {
-    reply: Option<String>,
-    nudge: Option<TurnCheck>,
 }
 
 fn nudge_text(check: TurnCheck) -> &'static str {
@@ -166,17 +123,12 @@ impl App {
                 false
             })
         };
-        let TurnEnd { reply, nudge } = self.turn_ends.ended(node, gated_repo, || {
+        let nudge = self.turn_ends.ended(node, gated_repo, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
             })
         })?;
-        if let Some(text) = reply
-            && let Err(e) = self.graph.set_reply(node, &text)
-        {
-            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
-        }
         let Some(check) = nudge.filter(|_| !self.holds_mail(node)) else {
             return Ok(None);
         };

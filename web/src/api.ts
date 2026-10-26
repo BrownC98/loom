@@ -218,4 +218,3 @@ export function attachPty(
   };
 }
 export const relaunchNode = (id: NodeId) => call<Relaunched>('POST', `/api/nodes/${id}/relaunch`);
-export const relaunchQueued = (id: NodeId) => call<boolean>('GET', `/api/nodes/${id}/relaunch`);

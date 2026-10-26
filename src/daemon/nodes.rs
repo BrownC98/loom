@@ -450,9 +450,7 @@ impl App {
                     node.id.0
                 ),
             }
-            if self.at_turn_end(node.id) {
-                self.server_turn_ended(node.id);
-            }
+            self.run_unless_busy(node.id);
         }
     }
 }

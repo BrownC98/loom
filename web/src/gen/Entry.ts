@@ -78,7 +78,7 @@ members: Array<BatchMember>,
 /**
  * check.sh가 걸린 초. 검사 전에 끝났으면 없다.
  */
-check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, } | { "kind": "noIdleWait", node: Who, } | { "kind": "endpointFailed", node: Who, error: string, } | { "kind": "agentStateChanged", node: Who, 
+check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, } | { "kind": "endpointFailed", node: Who, error: string, } | { "kind": "agentStateChanged", node: Who, 
 /**
  * 없으면 프로세스가 없었다.
  */

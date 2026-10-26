@@ -388,6 +388,10 @@ const STEPS: &[M] = &[
         ALTER TABLE gates DROP COLUMN verdict;
         ALTER TABLE gates DROP COLUMN merged;"#,
     ),
+    M::up(
+        "ALTER TABLE agent_states DROP COLUMN changed_ns;
+        DELETE FROM events WHERE entry ->> 'kind' = 'noIdleWait';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -4,6 +4,7 @@ export type State = { transcript?: string; model?: string; effort?: string };
 export type Harness<Context> = {
   state(ctx: Context): State;
   ours(event: Event, ctx: Context): boolean;
+  busy?(): void;
   background: string;
 };
 type Reply = { id?: number; text?: string; ids?: number[]; error?: string };
@@ -119,19 +120,13 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   };
 
   const deliver = (reply: Reply | undefined, ctx: C) => {
-    if (!reply?.text || shutdown.signal.aborted || !(ctx.isIdle() || ctx.signal)) return;
+    if (!reply?.text || shutdown.signal.aborted) return;
+    if (!(ctx.isIdle() || ctx.signal)) return harness.busy?.();
     pi.sendMessage({ customType: MESSAGE, content: reply.text, display: true }, { triggerTurn: true, deliverAs: "steer" });
     handed(reply, ctx);
   };
 
   const wait = async (event: string, ctx: C, reply?: string) => deliver(await call({ event, reply }, ctx), ctx);
-
-  const reopen = (_event: unknown, ctx: C) => {
-    if (!ctx.signal) void wait("idle", ctx);
-  };
-  pi.on("session_compact", reopen);
-  pi.on("session_compact_failed", reopen);
-  pi.on("session_tree", reopen);
 
   pi.on("before_agent_start", async (event: Event & { prompt: string }, ctx) => {
     if (!harness.ours(event, ctx)) return;
@@ -163,6 +158,9 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     async start(ctx: C, idle: boolean) {
       await call({ event: "session_start" }, ctx);
       if (idle || pi.getFlag(IDLE_FLAG) === true) void wait("idle", ctx);
+    },
+    idle(ctx: C) {
+      void wait("idle", ctx);
     },
     settled(ctx: C, reply: string | undefined) {
       void wait("settled", ctx, reply);

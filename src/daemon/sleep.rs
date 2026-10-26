@@ -335,7 +335,9 @@ impl App {
                 continue;
             }
             let newest = self.graph.newest_mail(id)?;
-            if knocked.contains(&id) || self.sleeps.mail_since_unwoken(id, newest) {
+            if (knocked.contains(&id) || self.sleeps.mail_since_unwoken(id, newest))
+                && self.host.take_unattached(id)
+            {
                 self.sleeps.unwoken(id, newest);
                 let app = self.clone();
                 tokio::spawn(async move {

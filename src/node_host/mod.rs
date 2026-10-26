@@ -543,6 +543,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         self.unattached.lock().unwrap().iter().copied().collect()
     }
 
+    pub fn take_unattached(&self, id: K) -> bool {
+        self.unattached.lock().unwrap().remove(&id)
+    }
+
     pub fn kill(&self, id: K) {
         self.unattached.lock().unwrap().remove(&id);
         if let Some(pty) = self.nodes.write().unwrap().remove(&id) {

@@ -39,7 +39,7 @@ impl Dialog {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum Session {
+pub enum SessionStart {
     NotStarted,
     Started,
 }
@@ -52,7 +52,7 @@ pub enum Place {
 
 const TRANSCRIPT_INDENT: usize = 2;
 
-pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitKind, String)> {
+pub fn find(dialogs: &[Dialog], screen: &str, session: SessionStart) -> Option<(WaitKind, String)> {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
     let panel_start = lines
         .iter()
@@ -65,7 +65,9 @@ pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitK
         .filter_map(|d| {
             let needle = squeeze(d.text);
             let (named, at) = match d.place {
-                Place::BeforeSession | Place::OtherBeforeSession if session == Session::Started => {
+                Place::BeforeSession | Place::OtherBeforeSession
+                    if session == SessionStart::Started =>
+                {
                     return None;
                 }
                 Place::BeforeSession => (true, squeezed.rfind(&needle)?),

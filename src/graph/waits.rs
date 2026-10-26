@@ -20,9 +20,8 @@ use super::{Graph, NodeId, NodeState, from_json, parent_of, state_of, to_json};
 #[serde(rename_all = "camelCase")]
 pub enum WaitSource {
     Hook,
-    Codex,
     Screen,
-    OpenCode2,
+    Server,
 }
 
 /// 화면에 보내는 대기 한 건.

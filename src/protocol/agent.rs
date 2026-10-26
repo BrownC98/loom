@@ -35,20 +35,6 @@ impl ModelChoice {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ServerLink {
-    Codex {
-        url: String,
-        pid: Option<u32>,
-    },
-    OpenCode2 {
-        url: String,
-        pid: Option<u32>,
-        password: String,
-    },
-}
-
 /// 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
 #[derive(Debug, Serialize, TS)]
 #[serde(tag = "code", content = "value", rename_all = "camelCase")]
@@ -72,8 +58,6 @@ pub enum LaunchError {
         program: String,
         cause: String,
     },
-    /// 서버를 쓰는 프로필인데 서버가 없다. 값은 에이전트 이름이다.
-    NoServer(String),
     /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoBrief(String),
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
@@ -110,9 +94,6 @@ impl std::fmt::Display for LaunchError {
             ),
             LaunchError::Server { program, cause } => {
                 write!(f, "Could not start `{program}`: {cause}")
-            }
-            LaunchError::NoServer(agent) => {
-                write!(f, "{agent}: could not start the server for the node.")
             }
             LaunchError::NoModelChoice(agent) => write!(
                 f,

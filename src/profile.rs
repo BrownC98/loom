@@ -8,22 +8,23 @@ pub mod pi;
 pub mod process;
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
+use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, Model, ModelChoice,
-    OpenQuestion, Prompt as ScreenPrompt, Provider, StartDigests, WaitKind,
+    OpenQuestion, Prompt as ScreenPrompt, Provider, Report as ServerReport, Session, StartDigests,
+    WaitKind,
 };
-use crate::screen::{self, LinePrompt, Reply, Screen, Session};
+use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-use adapter::{Adapter, NoServer};
+use adapter::{Adapter, InputSeen, Serve, Server};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -85,7 +86,7 @@ pub struct Signals {
     pub hook: String,
     pub model: Option<Model>,
     pub take: Option<Take>,
-    pub session: Option<crate::protocol::Session>,
+    pub session: Option<Session>,
     pub prompt: Option<String>,
     pub human_input: bool,
     pub turn: Option<String>,
@@ -104,6 +105,7 @@ pub enum Signal {
     TurnEnded(Option<String>),
     Stopped,
     HumanInput,
+    Report(ServerReport),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -134,16 +136,16 @@ impl std::fmt::Display for NotTaken {
 pub trait ServerAdapter: Send {
     fn takes(&self, now: Status) -> &'static [&'static [Kind]];
     fn status(&mut self) -> Option<Status>;
-    fn signal(&mut self, change: Option<Change>) -> impl Future<Output = Option<Signal>> + Send;
-    fn changed(&mut self) -> impl Future<Output = bool> + Send;
-    fn inject(
-        &mut self,
-        taken: &[Delivery],
+    fn signals(&mut self, change: Option<Change>) -> BoxFuture<'_, Vec<Signal>>;
+    fn changed(&mut self) -> BoxFuture<'_, bool>;
+    fn inject<'a>(
+        &'a mut self,
+        taken: &'a [Delivery],
         now: Status,
-    ) -> impl Future<Output = Result<(), NotTaken>> + Send;
-    fn stop_shells(&self) -> impl Future<Output = ()> + Send;
-    fn start_turn(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
-    fn steer(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
+    ) -> BoxFuture<'a, Result<(), NotTaken>>;
+    fn stop_shells(&self) -> BoxFuture<'_, ()>;
+    fn start_turn<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
+    fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
 }
 
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
@@ -162,24 +164,13 @@ impl Profile {
         adapter(self).facts().provider
     }
 
-    pub fn hooked(self) -> bool {
-        adapter(self).facts().hooked
+    pub fn sleeps(self) -> bool {
+        adapter(self).facts().sleeps
     }
 
     pub fn listens_at_start(self) -> bool {
         adapter(self).facts().listens_at_start
     }
-}
-
-pub enum Remote<'a> {
-    Codex {
-        url: &'a str,
-    },
-    OpenCode2 {
-        url: &'a str,
-        session: &'a str,
-        password: &'a str,
-    },
 }
 
 #[derive(Deserialize)]
@@ -224,8 +215,34 @@ pub struct AgentView {
     pub provider: Option<Provider>,
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
     pub can_bypass: bool,
+    pub model_rule: ModelRule,
     /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
     pub places: Vec<AgentAt>,
+}
+
+/// 모델과 추론 강도를 고르는 규칙.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ModelRule {
+    Fixed,
+    Free,
+    EffortNeedsModel,
+}
+
+pub fn model_rule(profile: Option<Profile>) -> ModelRule {
+    let takes = |model: Option<&str>, effort: Option<&str>| {
+        let choice = ModelChoice {
+            model: model.map(str::to_owned),
+            effort: effort.map(str::to_owned),
+        };
+        profile.is_some_and(|p| adapter(p).choice_args(&choice).is_some())
+    };
+    match (takes(Some("model"), None), takes(None, Some("effort"))) {
+        (false, _) => ModelRule::Fixed,
+        (true, true) => ModelRule::Free,
+        (true, false) => ModelRule::EffortNeedsModel,
+    }
 }
 
 /// 한 위치(이 PC 또는 WSL 배포판)에서 에이전트를 찾은 결과.
@@ -263,6 +280,7 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 profile: a.profile,
                 provider: a.profile.and_then(Profile::provider),
                 can_bypass: !a.bypass.is_empty(),
+                model_rule: model_rule(a.profile),
                 places: std::iter::once(pc).chain(inside).collect(),
             }
         })
@@ -328,16 +346,17 @@ pub fn install(dir: &Path) -> std::io::Result<()> {
     profiles().try_for_each(|p| adapter(p).install(dir))
 }
 
-pub fn version_warnings(read: &[(&str, Option<&str>)]) -> HashMap<Profile, VersionMismatch> {
+pub fn versions() -> HashMap<Profile, String> {
     pinned()
         .into_iter()
-        .filter_map(|(profile, cmd)| {
-            let output = match read.iter().find(|(read_cmd, _)| *read_cmd == cmd) {
-                Some((_, output)) => output.map(str::to_owned),
-                None => installed_version(cmd),
-            }?;
-            Some((profile, version_warning(profile, &output)?))
-        })
+        .filter_map(|(profile, cmd)| Some((profile, installed_version(cmd)?)))
+        .collect()
+}
+
+pub fn version_warnings(versions: &HashMap<Profile, String>) -> HashMap<Profile, VersionMismatch> {
+    versions
+        .iter()
+        .filter_map(|(profile, output)| Some((*profile, version_warning(*profile, output)?)))
         .collect()
 }
 
@@ -380,7 +399,7 @@ pub fn reads_screen(profile: Option<Profile>) -> bool {
 pub fn wait(
     profile: Option<Profile>,
     screen: &Screen,
-    session: Session,
+    session: SessionStart,
 ) -> Option<(WaitKind, String)> {
     match profile.map(|p| adapter(p).screen()) {
         Some(Some((_, dialogs))) => screen::find(dialogs, &screen.text, session),
@@ -397,6 +416,10 @@ pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt>
         Some(None) => None,
         None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
     }
+}
+
+pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen> {
+    adapter(profile?).input_seen(screen)
 }
 
 pub fn profile_of(id: &AgentId) -> Option<Profile> {
@@ -421,7 +444,7 @@ pub enum Start {
         /// 이어 갈 세션(`nodes.session`). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
         #[serde(skip)]
         #[ts(skip)]
-        resume: Option<crate::protocol::Session>,
+        resume: Option<Session>,
     },
     /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
     Command { line: String },
@@ -451,41 +474,42 @@ pub struct VersionMismatch {
     pub pinned: String,
 }
 
-pub fn command(
+pub async fn command(
     start: &Start,
-    cwd: &Path,
-    inside: Option<&Inside>,
-    remote: Option<Remote<'_>>,
-    bypass_off: &[AgentId],
+    at: &Serve<'_>,
     plugin: &Path,
-    launch: Launch,
-) -> Result<CommandBuilder, LaunchError> {
-    let mut cmd = match start {
+    bypass_off: &[AgentId],
+) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
+    let (mut cmd, server) = match start {
         Start::Agent {
             agent,
             brief,
             choice,
             resume,
-        } => agent_command(
-            agent,
-            brief,
-            choice,
-            resume.as_ref(),
-            inside,
-            remote,
-            bypass_off,
-            plugin,
-            launch,
-        )?,
-        Start::Command { line } => match inside {
-            Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
-            None if line.trim().is_empty() => CommandBuilder::new_default_prog(),
-            None => shell(line),
-        },
+        } => {
+            agent_command(
+                agent,
+                brief,
+                choice,
+                resume.as_ref(),
+                at,
+                bypass_off,
+                plugin,
+            )
+            .await?
+        }
+        Start::Command { line } => (
+            match at.inside {
+                Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
+                None if line.trim().is_empty() => CommandBuilder::new_default_prog(),
+                None => shell(line),
+            },
+            None,
+        ),
     };
-    cmd.cwd(cwd);
+    cmd.cwd(at.cwd);
     crate::process_tree::color_terminal(&mut cmd);
-    Ok(cmd)
+    Ok((cmd, server))
 }
 
 pub fn is_launcher_env(key: &str) -> bool {
@@ -503,26 +527,23 @@ pub fn is_launcher_env(key: &str) -> bool {
         )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn agent_command(
+async fn agent_command(
     id: &AgentId,
     brief: &str,
     choice: &ModelChoice,
-    resume: Option<&crate::protocol::Session>,
-    inside: Option<&Inside>,
-    remote: Option<Remote<'_>>,
+    resume: Option<&Session>,
+    at: &Serve<'_>,
     bypass_off: &[AgentId],
     plugin: &Path,
-    launch: Launch,
-) -> Result<CommandBuilder, LaunchError> {
+) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
     let not_installed = || LaunchError::NotInstalled {
         agent: agent.label.clone(),
         command: agent.cmd.clone(),
-        distro: inside.map(|i| i.distro.name().to_owned()),
+        distro: at.inside.map(|i| i.distro.name().to_owned()),
     };
-    let argv = match inside {
+    let argv = match at.inside {
         Some(inside) => vec![
             inside
                 .find(std::iter::once(&agent.cmd).chain(&agent.aliases))
@@ -537,45 +558,44 @@ fn agent_command(
             limit: BRIEF_LIMIT_BYTES,
         });
     }
+    let typed = brief.trim_end();
+    let prompt = match (&agent.prompt, typed.is_empty()) {
+        (_, true) => Vec::new(),
+        (Prompt::Argv, false) => vec![typed],
+        (Prompt::ArgvAfter(sep) | Prompt::Flag(sep), false) => vec![sep.as_str(), typed],
+        (Prompt::None, false) => return Err(LaunchError::NoBrief(agent.label.clone())),
+    };
     let mut cmd = CommandBuilder::from_argv(argv);
     let bypass: &[String] = if bypass_off.contains(id) {
         &[]
     } else {
         &agent.bypass
     };
-    match agent.profile.map(adapter) {
+    let server = match agent.profile.map(adapter) {
         Some(adapter) => {
             cmd.args(adapter.leading_args(resume, bypass));
-            adapter
-                .command(
-                    &mut cmd,
-                    adapter::Command {
-                        plugin,
-                        launch,
-                        brief,
-                        remote,
-                    },
-                )
-                .map_err(|NoServer| LaunchError::NoServer(agent.label.clone()))?;
+            adapter.command(
+                &mut cmd,
+                adapter::Command {
+                    plugin,
+                    launch: at.launch,
+                    brief,
+                },
+            );
+            match adapter.serve(at, resume, bypass, &mut cmd) {
+                Some(serving) => Some(serving.await?),
+                None => None,
+            }
         }
         None => {
             cmd.args(bypass);
             cmd.args(&agent.args);
+            None
         }
-    }
+    };
     cmd.args(choice_args);
-    let brief = brief.trim_end();
-    if brief.is_empty() {
-        return Ok(cmd);
-    }
-    match &agent.prompt {
-        Prompt::Argv => cmd.arg(brief),
-        Prompt::ArgvAfter(sep) | Prompt::Flag(sep) => cmd.args([sep.as_str(), brief]),
-        Prompt::None => {
-            return Err(LaunchError::NoBrief(agent.label.clone()));
-        }
-    }
-    Ok(cmd)
+    cmd.args(prompt);
+    Ok((cmd, server))
 }
 
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
@@ -655,7 +675,7 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .join(crate::protocol::BATCH_SEPARATOR)
 }
 
-fn session_id(session: &crate::protocol::Session) -> String {
+fn session_id(session: &Session) -> String {
     Path::new(&session.0)
         .file_stem()
         .map_or_else(|| session.0.clone(), |s| s.to_string_lossy().into_owned())

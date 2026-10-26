@@ -114,8 +114,7 @@ impl App {
             setup,
             token,
             profile,
-            codex,
-            opencode2,
+            server,
             first_input,
             account: _,
             inside,
@@ -125,7 +124,7 @@ impl App {
         self.first_inputs.launched(id, first_input);
         self.turn_ends.launched(id);
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
-        let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
+        let on_exit = self.on_exit(id, distro, &token, server.clone());
         let at = match (&inside, &self.linux_loom) {
             (Some(inside), Some(loom)) => {
                 let name = loom.file_name().unwrap_or_default().to_string_lossy();
@@ -142,7 +141,7 @@ impl App {
         match self.host.resume(id, &at, on_exit) {
             Ok(()) => {
                 self.follow_screen(id, profile, &token);
-                self.follow_servers(id, codex, opencode2, &token);
+                self.follow_server(id, server, &token);
                 self.ptys_changed.notify_waiters();
             }
             Err(node_host::Unattached::Unreached(cause)) => {
@@ -181,43 +180,30 @@ impl App {
             return Ok(());
         }
         let place_distro = self.place_distro(node.id);
-        let (codex, opencode2) = match (node.server.clone(), &node.session) {
-            (Some(ServerLink::Codex { url, pid }), thread) => {
-                let served = self.served(pid, place_distro.clone());
-                match CodexServer::reconnect(url, served, thread.as_ref()).await {
-                    Ok(server) => (Some(Arc::new(server)), None),
-                    Err(e) => {
-                        eprintln!(
-                            "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
-                            node.id.0
-                        );
-                        (None, None)
-                    }
+        let profile = node.agent.as_ref().and_then(profile::profile_of);
+        let server = match node.server.as_ref().zip(profile) {
+            Some((record, profile)) => {
+                let served = self.served(record.pid, place_distro.clone());
+                match profile::adapter(profile).reconnect(
+                    &record.state,
+                    served,
+                    node.session.as_ref(),
+                ) {
+                    Some(connect) => connect
+                        .await
+                        .inspect_err(|e| {
+                            eprintln!("loom: 노드 {}의 서버에 다시 붙지 못했다: {e}", node.id.0)
+                        })
+                        .ok(),
+                    None => None,
                 }
             }
-            (Some(ServerLink::OpenCode2 { url, pid, password }), Some(session)) => (
-                None,
-                Some(Arc::new(opencode2::Node::reconnect(
-                    url,
-                    self.served(pid, place_distro.clone()),
-                    session.clone(),
-                    password,
-                ))),
-            ),
-            (Some(ServerLink::OpenCode2 { .. }), None) => {
-                eprintln!(
-                    "loom: 노드 {}에는 OpenCode 2 세션이 없어 서버에 다시 붙지 않는다",
-                    node.id.0
-                );
-                (None, None)
-            }
-            (None, _) => (None, None),
+            None => None,
         };
-        let profile = node.agent.as_ref().and_then(profile::profile_of);
         let distro = place_distro
             .as_deref()
             .and_then(|name| self.distro(name).ok());
-        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
+        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, server.clone());
         let app = self.clone();
         let id = node.id;
         let address = self.graph.host_of(id)?;
@@ -264,7 +250,7 @@ impl App {
             return Ok(());
         }
         self.follow_screen(node.id, profile, &node.token);
-        self.follow_servers(node.id, codex, opencode2, &node.token);
+        self.follow_server(node.id, server, &node.token);
         self.ptys_changed.notify_waiters();
         if self.graph.sleeping(node.id)? {
             self.sleep_again_after_start(node);
@@ -355,17 +341,16 @@ impl App {
         id: NodeId,
         distro: Option<Distro>,
         token: &str,
-        codex: &Option<Arc<CodexServer>>,
-        opencode2: &Option<Arc<opencode2::Node>>,
+        server: Option<Arc<dyn Server>>,
     ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
-        let discard = discarder(codex, opencode2);
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
-            app.codex.lock().unwrap().remove(&id);
-            app.opencode2.lock().unwrap().remove(&id);
-            discard();
+            app.servers.lock().unwrap().remove(&id);
+            if let Some(server) = &server {
+                server.stop();
+            }
             if exit != Exit::Lost
                 && let Some(distro) = distro
             {
@@ -445,70 +430,28 @@ impl App {
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                if profile == Some(Profile::Claude)
-                    && profile::claude::input(&now.undimmed) == Some("")
-                {
+                if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);
                 }
             }
         });
     }
 
-    fn follow_servers(
-        self: &Arc<Self>,
-        id: NodeId,
-        codex: Option<Arc<CodexServer>>,
-        opencode2: Option<Arc<opencode2::Node>>,
-        token: &str,
-    ) {
-        if let Some(server) = codex {
-            self.codex.lock().unwrap().insert(id, server.clone());
-            let (app, mut limited) = (self.clone(), server.limited());
-            tokio::spawn(async move {
-                while limited.changed().await.is_ok() {
-                    app.rate_limited(id, crate::protocol::Provider::Codex);
-                }
-            });
-            tokio::spawn(follow_codex_model(
-                self.graph.clone(),
-                id,
-                token.to_owned(),
-                server.clone(),
-            ));
-            let (app, mut thread, token) = (self.clone(), server.thread(), token.to_owned());
-            tokio::spawn(async move {
-                if thread.wait_for(Option::is_some).await.is_ok() {
-                    app.sessions.started(id, &token);
-                }
-            });
-            let current = Arc::downgrade(&server);
-            tokio::spawn(self.clone().deliver_loop(
-                id,
-                codex::adapter(server),
-                move |app: &App| {
-                    let now = app.codex.lock().unwrap().get(&id).map(Arc::downgrade);
-                    now.is_some_and(|now| now.ptr_eq(&current))
-                },
-            ));
-        }
-        if let Some(node) = opencode2 {
-            self.opencode2.lock().unwrap().insert(id, node.clone());
-            tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
-            tokio::spawn(follow_permission(
-                self.graph.clone(),
-                id,
-                token.to_owned(),
-                node.clone(),
-            ));
-            let current = Arc::downgrade(&node);
-            tokio::spawn(
-                self.clone()
-                    .deliver_loop(id, node.adapter(), move |app: &App| {
-                        let now = app.opencode2.lock().unwrap().get(&id).map(Arc::downgrade);
-                        now.is_some_and(|now| now.ptr_eq(&current))
-                    }),
-            );
-        }
+    fn follow_server(self: &Arc<Self>, id: NodeId, server: Option<Arc<dyn Server>>, token: &str) {
+        let Some(server) = server else {
+            return;
+        };
+        self.servers.lock().unwrap().insert(id, server.clone());
+        let current = Arc::downgrade(&server);
+        tokio::spawn(self.clone().deliver_loop(
+            id,
+            token.to_owned(),
+            server.link(),
+            move |app: &App| {
+                let now = app.servers.lock().unwrap().get(&id).map(Arc::downgrade);
+                now.is_some_and(|now| now.ptr_eq(&current))
+            },
+        ));
     }
 
     pub(super) fn caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
@@ -602,62 +545,19 @@ impl App {
             )
             .map_err(internal)?;
         }
-        let codex = match profile {
-            Some(Profile::Codex) => {
-                let config: Vec<String> = self
-                    .codex_config
-                    .iter()
-                    .cloned()
-                    .chain(codex::server_args(launch))
-                    .collect();
-                let server = CodexServer::start(cwd, inside, &env, &config)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: "codex app-server".into(),
-                        cause,
-                    })?;
-                let call = |method, params| server.call(method, params);
-                if let Err(e) = codex::add_skills(call, &skills).await {
-                    eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
-                }
-                Some(Arc::new(server))
-            }
-            _ => None,
-        };
-        let opencode2 = match profile {
-            Some(Profile::OpenCode2) => {
-                let password = new_token().map_err(internal)?;
-                let resume = match start {
-                    Start::Agent { resume, .. } => resume.as_ref(),
-                    Start::Command { .. } => None,
-                };
-                let node =
-                    opencode2::Node::start(cwd, inside, &env, &skills, password, launch, resume)
-                        .await
-                        .map_err(|cause| LaunchError::Server {
-                            program: format!("{} serve", opencode2::CMD),
-                            cause,
-                        })?;
-                Some(Arc::new(node))
-            }
-            _ => None,
-        };
-        let remote = match (&codex, &opencode2) {
-            (Some(server), _) => Some(Remote::Codex { url: server.url() }),
-            (_, Some(node)) => Some(node.remote()),
-            _ => None,
-        };
-        let discard = discarder(&codex, &opencode2);
-        let mut cmd = profile::command(
-            start,
+        let serve = Serve {
             cwd,
             inside,
-            remote,
-            &settings.bypass_off,
-            &plugin,
+            env: &env,
+            skills: &skills,
             launch,
-        )
-        .inspect_err(|_| discard())?;
+            version: profile
+                .and_then(|p| self.versions.get(&p))
+                .map(String::as_str),
+            node_ip: self.node_ip,
+        };
+        let (mut cmd, server) =
+            profile::command(start, &serve, &plugin, &settings.bypass_off).await?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
@@ -672,8 +572,7 @@ impl App {
             account: account.cloned(),
             rules: profile.map(|p| profile::start_digests(p, launch)),
             profile,
-            codex,
-            opencode2,
+            server,
             position,
             first_input: match start {
                 Start::Agent { brief, .. } => !brief.trim().is_empty(),
@@ -750,22 +649,20 @@ impl App {
         }
     }
 
-    fn stop_server(&self, node: NodeId, server: &ServerLink) {
+    fn stop_server(&self, node: NodeId, server: &ServerRecord) {
         self.served_by(node, server).stop();
     }
 
-    pub(super) async fn end_server(&self, node: NodeId, server: &ServerLink) -> Result<(), String> {
+    pub(super) async fn end_server(
+        &self,
+        node: NodeId,
+        server: &ServerRecord,
+    ) -> Result<(), String> {
         self.served_by(node, server).end().await
     }
 
-    pub(super) async fn served_record(&self, node: NodeId, thread: &Session) -> Option<String> {
-        let server = self.codex.lock().unwrap().get(&node).cloned()?;
-        server.rollout(&thread.0).await.ok().flatten()
-    }
-
-    pub(super) fn served_by(&self, node: NodeId, server: &ServerLink) -> Served {
-        let (ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) = server;
-        self.served(*pid, self.place_distro(node))
+    pub(super) fn served_by(&self, node: NodeId, server: &ServerRecord) -> Served {
+        self.served(server.pid, self.place_distro(node))
     }
 
     fn place_distro(&self, node: NodeId) -> Option<String> {
@@ -808,8 +705,7 @@ pub(super) struct Prepared {
     pub(super) account: Option<AccountId>,
     pub(super) rules: Option<crate::protocol::StartDigests>,
     pub(super) profile: Option<Profile>,
-    pub(super) codex: Option<Arc<CodexServer>>,
-    pub(super) opencode2: Option<Arc<opencode2::Node>>,
+    pub(super) server: Option<Arc<dyn Server>>,
     pub(super) position: Position,
     pub(super) first_input: bool,
 }
@@ -818,12 +714,8 @@ impl Prepared {
     pub(super) fn launched(&self) -> Launched {
         Launched {
             token: self.token.clone(),
-            server: match (&self.codex, &self.opencode2) {
-                (Some(server), _) => Some(server.link()),
-                (_, Some(node)) => Some(node.link()),
-                _ => None,
-            },
-            session: self.opencode2.as_ref().map(|node| node.session()),
+            server: self.server.as_ref().map(|s| s.record()),
+            session: self.server.as_ref().and_then(|s| s.session()),
             account: self.account.clone(),
             rules: self.rules.clone(),
         }
@@ -837,17 +729,19 @@ impl Prepared {
     }
 
     pub(super) fn discarder(&self) -> impl Fn() + use<> {
-        discarder(&self.codex, &self.opencode2)
+        let server = self.server.clone();
+        move || {
+            if let Some(server) = &server {
+                server.stop();
+            }
+        }
     }
 
-    pub(super) async fn open_session(&self, thread: &Session, bypass: bool) -> Result<(), String> {
-        let Some(server) = &self.codex else {
-            return Ok(());
-        };
-        let call = |method, params| server.call(method, params);
-        codex::resume(call, thread, bypass).await?;
-        server.follow_thread(thread.0.clone()).await;
-        Ok(())
+    pub(super) async fn resume_server(&self) -> Result<(), String> {
+        match &self.server {
+            Some(server) => server.resume().await,
+            None => Ok(()),
+        }
     }
 }
 
@@ -865,68 +759,6 @@ fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: Distro, t
             eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
         }
     });
-}
-
-fn discarder(
-    codex: &Option<Arc<CodexServer>>,
-    opencode2: &Option<Arc<opencode2::Node>>,
-) -> impl Fn() + use<> {
-    let (codex, opencode2) = (codex.clone(), opencode2.clone());
-    move || {
-        if let Some(server) = &codex {
-            server.stop();
-        }
-        if let Some(node) = &opencode2 {
-            node.stop();
-        }
-    }
-}
-
-async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receiver<Model>) {
-    while model.changed().await.is_ok() {
-        let now = model.borrow_and_update().clone();
-        if let Err(e) = graph.set_model(node, &now) {
-            eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
-        }
-    }
-}
-
-async fn follow_permission(
-    graph: Arc<Graph>,
-    id: NodeId,
-    token: String,
-    node: Arc<opencode2::Node>,
-) {
-    let mut changed = node.permission_changed();
-    let show = |now: Option<opencode2::Permission>| {
-        let summary = now.as_ref().map(|p| p.summary());
-        let wait = now
-            .zip(summary.as_deref())
-            .map(|(p, s)| (WaitKind::Approval, s, Some(p.prompt())));
-        if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
-            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
-        }
-    };
-    loop {
-        changed.borrow_and_update();
-        match node.open_permission().await {
-            Ok(now) => show(now),
-            Err(e) => {
-                eprintln!("loom: 노드 {}의 승인 요청을 읽지 못했다: {e}", id.0);
-                let text = format!(
-                    "Could not read the permission request: {e}. Answer it in the node terminal."
-                );
-                let wait = Some((WaitKind::Approval, text.as_str(), None));
-                if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
-                    eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
-                }
-            }
-        }
-        if changed.changed().await.is_err() {
-            break;
-        }
-    }
-    show(None);
 }
 
 fn unserved_protocol(headers: &HeaderMap) -> Option<String> {
@@ -987,42 +819,6 @@ fn unauthorized() -> AgentError {
         StatusCode::UNAUTHORIZED,
         "Run this only inside a loom node.".into(),
     )
-}
-
-async fn follow_codex_model(
-    graph: Arc<Graph>,
-    node: NodeId,
-    token: String,
-    server: Arc<CodexServer>,
-) {
-    let mut thread = server.thread();
-    while thread.changed().await.is_ok() {
-        let Some((id, waiting)) = thread
-            .borrow_and_update()
-            .as_ref()
-            .map(|t| (t.id.clone(), t.waiting))
-        else {
-            continue;
-        };
-        if let Err(e) = graph.set_wait(
-            &token,
-            WaitSource::Codex,
-            waiting.map(|kind| (kind, "", None)),
-        ) {
-            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
-        }
-        if let Err(e) = graph.set_session(&token, &Session(id.clone())) {
-            eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
-        }
-        let call = |method, params| server.call(method, params);
-        let saved = match codex::model(call, &id).await {
-            Ok(model) => graph.set_model(node, &model).map_err(|e| e.to_string()),
-            Err(e) => Err(e),
-        };
-        if let Err(e) = saved {
-            eprintln!("loom: 노드 {}의 모델을 읽지 못했다: {e}", node.0);
-        }
-    }
 }
 
 fn new_token() -> Result<String, String> {

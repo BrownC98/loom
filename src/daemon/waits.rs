@@ -67,16 +67,15 @@ async fn choose_wait(
 ) -> Result<Json<()>, Problem> {
     let wait = WaitId(wait);
     let (node, _) = app.graph.dialog(wait)?;
-    let server = app.opencode2.lock().unwrap().get(&node).cloned();
-    match server {
-        Some(server) => {
-            let decision = server
-                .decide(&req.prompt, req.option)
-                .await
-                .map_err(internal)?
-                .ok_or(Refusal::PromptChanged(wait))?;
-            server.reply(decision).await.map_err(internal)?;
-        }
+    let server = app.servers.lock().unwrap().get(&node).cloned();
+    match server
+        .as_deref()
+        .and_then(|s| s.choose(&req.prompt, req.option))
+    {
+        Some(chosen) => match chosen.await.map_err(internal)? {
+            Chosen::Sent => {}
+            Chosen::PromptChanged => return Err(Refusal::PromptChanged(wait).into()),
+        },
         None => choose(&app.graph, &app.host, wait, &req)?,
     }
     Ok(Json(()))

@@ -17,7 +17,7 @@ use super::protocol::{
 };
 use crate::process_tree::{self, Snapshot};
 use crate::profile::process::Served;
-use crate::protocol::{ServerLink, Session, WaitKind};
+use crate::protocol::{Session, WaitKind};
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -141,11 +141,8 @@ impl CodexServer {
         serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))
     }
 
-    pub fn link(&self) -> ServerLink {
-        ServerLink::Codex {
-            url: self.url.clone(),
-            pid: self.process.pid,
-        }
+    pub fn pid(&self) -> Option<u32> {
+        self.process.pid
     }
 
     async fn connect(url: String, process: Served) -> Result<Self, String> {

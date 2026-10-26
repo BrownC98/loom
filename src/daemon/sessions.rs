@@ -4,16 +4,16 @@ use std::sync::Mutex;
 use tokio::sync::watch;
 
 use crate::graph::NodeId;
-use crate::screen::Session;
+use crate::screen::SessionStart;
 
 #[derive(Default)]
 pub struct Sessions {
-    nodes: Mutex<HashMap<NodeId, (String, watch::Sender<Session>)>>,
+    nodes: Mutex<HashMap<NodeId, (String, watch::Sender<SessionStart>)>>,
 }
 
 impl Sessions {
-    pub fn launched(&self, node: NodeId, token: &str) -> watch::Receiver<Session> {
-        let (session, started) = watch::channel(Session::NotStarted);
+    pub fn launched(&self, node: NodeId, token: &str) -> watch::Receiver<SessionStart> {
+        let (session, started) = watch::channel(SessionStart::NotStarted);
         self.nodes
             .lock()
             .unwrap()
@@ -29,8 +29,9 @@ impl Sessions {
             .get(&node)
             .filter(|(current, _)| current == token)
         {
-            session
-                .send_if_modified(|s| std::mem::replace(s, Session::Started) != Session::Started);
+            session.send_if_modified(|s| {
+                std::mem::replace(s, SessionStart::Started) != SessionStart::Started
+            });
         }
     }
 

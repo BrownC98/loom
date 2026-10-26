@@ -501,9 +501,7 @@ impl App {
     }
 
     pub(super) fn run_unless_busy(self: &Arc<Self>, node: NodeId) -> bool {
-        let app = self.clone();
-        let idle: Guard = Arc::new(move |_: &Screen| !app.busy(node));
-        self.run_claimed(node, Some(idle), |now| !now.busy)
+        self.run_claimed(node, None, |now| !now.busy)
     }
 
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {

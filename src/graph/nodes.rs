@@ -653,7 +653,6 @@ impl Graph {
 }
 
 impl Graph {
-    /// Returns the children of the removed node. They are roots now.
     pub fn remove(&self, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -816,7 +815,6 @@ impl Graph {
         Ok(())
     }
 
-    /// Returns true when the child was a root before: it is a child now.
     pub fn adopt(
         &self,
         parent: NodeId,

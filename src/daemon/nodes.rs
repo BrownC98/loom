@@ -426,8 +426,6 @@ async fn send_size(
 }
 
 impl App {
-    /// A node that became a root or a child starts again at its turn end, so its start text
-    /// follows its place. A node that cannot start again keeps its text.
     pub(super) fn position_changed(self: &Arc<Self>, nodes: &[NodeId]) {
         let active = self.graph.active().unwrap_or_default();
         for node in active

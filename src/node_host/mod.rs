@@ -47,6 +47,7 @@ pub enum Exit {
     Command(u32),
     Setup(u32),
     Lost,
+    Gone,
 }
 
 impl Exit {
@@ -54,7 +55,7 @@ impl Exit {
         match self {
             Exit::Command(code) => Frame::Exit(code),
             Exit::Setup(code) => Frame::SetupFailed(code),
-            Exit::Lost => Frame::Exit(LOST_CODE),
+            Exit::Lost | Exit::Gone => Frame::Exit(LOST_CODE),
         }
     }
 }
@@ -320,7 +321,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             pty.send(&Frame::Kill);
         }
         let host = self.clone();
-        let carried_by_distro = matches!(at, Address::Distro { .. });
         std::thread::spawn(move || {
             let exit = loop {
                 match wire::read(&mut reader) {
@@ -346,8 +346,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Err(_) => break None,
                 }
             };
-            let on_exit = match exit {
-                None if carried_by_distro => match host.link(id, at, on_exit, Some(pty.clone())) {
+            let (on_exit, exit) = match exit {
+                Some(exit) => (on_exit, exit),
+                None => match host.link(id, at, on_exit, Some(pty.clone())) {
                     Ok(()) => return,
                     Err((Unattached::Unreached(cause), _)) => {
                         let mut nodes = host.nodes.write().unwrap();
@@ -361,11 +362,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                         }
                         return;
                     }
-                    Err((_, on_exit)) => on_exit,
+                    Err((Unattached::Gone, on_exit)) => (on_exit, Exit::Gone),
+                    Err((Unattached::Failed(_), on_exit)) => (on_exit, Exit::Lost),
                 },
-                _ => on_exit,
             };
-            on_exit(exit.unwrap_or(Exit::Lost));
+            on_exit(exit);
         });
         Ok(())
     }

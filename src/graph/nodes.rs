@@ -254,16 +254,29 @@ impl Graph {
     }
 
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
-        let what = |node| MessageKind::Exited {
-            node,
-            code: Some(code),
+        let what = |node| {
+            Some(MessageKind::Exited {
+                node,
+                code: Some(code),
+            })
         };
         self.end_process(id, ProcessOutcome::Exited { code }, what, String::new())
     }
 
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
-        let what = |node| MessageKind::Exited { node, code: None };
+        let what = |node| Some(MessageKind::Exited { node, code: None });
         self.end_process(id, ProcessOutcome::Lost, what, String::new())
+    }
+
+    pub fn host_gone(&self, id: NodeId) -> rusqlite::Result<()> {
+        self.end_process(id, ProcessOutcome::HostGone, |_| None, String::new())
+    }
+
+    pub fn hosts_gone(&self) -> rusqlite::Result<Vec<NodeId>> {
+        self.lock()
+            .prepare("SELECT id FROM nodes WHERE process ->> 'kind' = 'hostGone' ORDER BY id")?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect()
     }
 
     pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
@@ -271,7 +284,7 @@ impl Graph {
         while !output.is_char_boundary(start) {
             start += 1;
         }
-        let what = |node| MessageKind::SetupFailed { node, code };
+        let what = |node| Some(MessageKind::SetupFailed { node, code });
         let output = output[start..].to_owned();
         self.end_process(id, ProcessOutcome::SetupFailed { code }, what, output)
     }
@@ -280,7 +293,7 @@ impl Graph {
         &self,
         id: NodeId,
         ended: ProcessOutcome,
-        what: impl FnOnce(String) -> MessageKind,
+        what: impl FnOnce(String) -> Option<MessageKind>,
         notice: String,
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
@@ -291,7 +304,7 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process = ?2, wait = NULL WHERE id = ?1 AND process IS NULL",
+            "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL WHERE id = ?1 AND process IS NULL",
             params![id.0, to_json(&ended)],
         )?;
         if changed == 0 {
@@ -301,21 +314,24 @@ impl Graph {
         waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
         note_state(&tx, id, state.clone())?;
-        if state == NodeState::Running {
-            let what = what(name_of(&tx, id)?);
+        let what = match state {
+            NodeState::Running => what(name_of(&tx, id)?),
+            _ => None,
+        };
+        if let Some(what) = &what {
             mailbox::enqueue(
                 &tx,
                 id,
                 parent,
                 Kind::Queue,
-                &what,
+                what,
                 &notice,
                 Default::default(),
             )?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
-        if state == NodeState::Running
+        if what.is_some()
             && let Some(parent) = parent
         {
             self.publish_node(&db, parent)?;
@@ -349,7 +365,7 @@ impl Graph {
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL
-             WHERE id = ?1 AND process IS NULL AND state ->> 'kind' = 'done'",
+             WHERE id = ?1 AND process IS NULL AND sleeping = 1 AND state ->> 'kind' = 'done'",
             params![id.0, to_json(&ProcessOutcome::Asleep)],
         )?;
         if changed == 0 {
@@ -363,16 +379,22 @@ impl Graph {
         Ok(true)
     }
 
-    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 1 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 1 WHERE id = ?1 AND sleeping = 0 AND process IS NULL",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
-    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 0 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 0 WHERE id = ?1 AND sleeping = 1",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
     pub fn sleeping(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -424,7 +446,7 @@ impl Graph {
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, state = ?3
-             WHERE id = ?1 AND process IS NOT NULL AND state ->> 'kind' = 'done'",
+             WHERE id = ?1 AND process ->> 'kind' IN ('asleep', 'hostGone')",
             params![
                 id.0,
                 to_json(&ProcessOutcome::Lost),

@@ -204,6 +204,10 @@ impl Graph {
         Ok(())
     }
 
+    pub fn attempts_forgotten(&self, cause: Attempt) -> rusqlite::Result<()> {
+        forget_attempts(&self.lock(), cause)
+    }
+
     pub fn attempt_held(&self, node: NodeId, cause: Attempt) -> rusqlite::Result<bool> {
         Ok(cursor(&self.lock(), node, cause)?.is_some())
     }
@@ -239,9 +243,13 @@ pub(super) fn settle_at_start(db: &Connection) -> rusqlite::Result<()> {
         "UPDATE relaunch_plans SET phase = ?1 WHERE phase = ?2",
         params![to_json(&Phase::AtTurnEnd), to_json(&Phase::Running)],
     )?;
+    forget_attempts(db, Attempt::Wake)
+}
+
+fn forget_attempts(db: &Connection, cause: Attempt) -> rusqlite::Result<()> {
     db.execute(
         "DELETE FROM recovery_attempts WHERE cause = ?1",
-        [to_json(&Attempt::Wake)],
+        [to_json(&cause)],
     )?;
     Ok(())
 }

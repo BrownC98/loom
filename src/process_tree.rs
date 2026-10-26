@@ -46,12 +46,26 @@ fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     Some(vec![node.into(), dir.join(script).into()])
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Identity {
+    pub pid: u32,
+    pub birth: i64,
+}
+
 pub struct Snapshot {
     system: System,
     parents: HashMap<u32, u32>,
 }
 
 impl Snapshot {
+    pub fn identity(&self, pid: u32) -> Option<Identity> {
+        let started = self.system.process(Pid::from_u32(pid))?.start_time();
+        Some(Identity {
+            pid,
+            birth: i64::try_from(started).ok()?,
+        })
+    }
+
     pub fn now() -> Self {
         let mut system = System::new();
         system.refresh_processes_specifics(
@@ -250,17 +264,6 @@ pub async fn until_listening(exited: impl Future<Output = ()>, port: u16) -> Res
             _ = tokio::time::sleep(POLL) => {}
         }
     }
-}
-
-pub fn alive(pids: &mut Vec<u32>) {
-    let list: Vec<Pid> = pids.iter().map(|&p| Pid::from_u32(p)).collect();
-    let mut system = System::new();
-    system.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&list),
-        true,
-        ProcessRefreshKind::nothing(),
-    );
-    pids.retain(|&p| system.process(Pid::from_u32(p)).is_some());
 }
 
 fn child_on_path(parents: &HashMap<u32, u32>, root: u32, pid: u32) -> Option<u32> {

@@ -5,13 +5,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Step, Via};
-use super::waits;
 use super::{
     Graph, HUMAN, NodeId, NodeState, REACHABLE, Toward, Work, ambiguous, from_json, optional_json,
     parent_of, set_work, state_of, to_json,
 };
+use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
+use crate::process_tree::Identity;
 use crate::protocol::{
     AgentId, BATCH_SEPARATOR, BRIEF_LIMIT_BYTES, Delivery, Kind, LOOM, MAILBOX_LIMIT, MessageId,
     MessageKind, Question, Refusal, SUMMARY_LIMIT_BYTES, WaitDoc,
@@ -73,7 +74,7 @@ impl Graph {
                 body,
                 via,
             },
-            |_| {},
+            |_, _| Ok(()),
         )
     }
 
@@ -83,9 +84,10 @@ impl Graph {
         to: &str,
         body: &str,
         via: Option<&Via>,
-        stop: impl FnOnce(NodeId),
-    ) -> Result<Sent, Refusal> {
-        self.post(
+        stop: impl FnOnce(NodeId, &[Identity]),
+    ) -> Result<(Sent, Vec<Identity>), Refusal> {
+        let mut shells = Vec::new();
+        let sent = self.post(
             from,
             to,
             Outgoing {
@@ -94,8 +96,13 @@ impl Graph {
                 body,
                 via,
             },
-            stop,
-        )
+            |db, to| {
+                shells = hosts::guarded(db, to)?;
+                stop(to, &shells);
+                Ok(())
+            },
+        )?;
+        Ok((sent, shells))
     }
 
     pub fn ask_parent(
@@ -120,7 +127,7 @@ impl Graph {
                 body: question,
                 via,
             },
-            |_| {},
+            |_, _| Ok(()),
         )
     }
 
@@ -153,7 +160,7 @@ impl Graph {
                 body,
                 via,
             },
-            |_| {},
+            |_, _| Ok(()),
         )
     }
 
@@ -162,7 +169,7 @@ impl Graph {
         from: NodeId,
         to: &str,
         message: Outgoing<'_>,
-        before_delivery: impl FnOnce(NodeId),
+        before_delivery: impl FnOnce(&Connection, NodeId) -> rusqlite::Result<()>,
     ) -> Result<Sent, Refusal> {
         let Outgoing {
             kind,
@@ -200,7 +207,7 @@ impl Graph {
         };
         let id = enqueue(&tx, from, to_id, kind, &what, body, stamp)?;
         if let Some(to_id) = to_id {
-            before_delivery(to_id);
+            before_delivery(&tx, to_id)?;
         }
         tx.commit()?;
         match to_id {

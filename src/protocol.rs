@@ -714,42 +714,32 @@ pub const BATCH_SEPARATOR: &str = "\n\n";
 impl Delivery {
     pub fn text(&self) -> String {
         let mode = match self.kind {
-            Kind::Queue => None,
-            Kind::Steer => Some("steer"),
+            Kind::Queue => "",
+            Kind::Steer => ", mode: steer",
             Kind::Interrupt => {
-                Some("interrupt. Stop your current work and do what this message says")
+                ", mode: interrupt. Stop your current work and do what this message says"
             }
         };
-        message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
+        let note = MessageKind::Note;
+        let what = self.what.as_ref().unwrap_or(&note);
+        let from = if what.by_loom() { LOOM } else { &self.from };
+        let mut lines = vec![format!(
+            "loom message #{} (from: {from}, kind: {}{mode})",
+            self.id.0,
+            what.word()
+        )];
+        let repeated = what.repeats_file(&self.body);
+        lines.extend(
+            what.fields()
+                .into_iter()
+                .filter(|(name, _)| !(repeated && *name == Field::File))
+                .map(|(name, value)| format!("{}: {value}", name.word())),
+        );
+        if !self.body.is_empty() {
+            lines.push(self.body.clone());
+        }
+        lines.join("\n")
     }
-}
-
-pub fn message_text(
-    id: u32,
-    from: &str,
-    what: Option<&MessageKind>,
-    mode: Option<&str>,
-    body: &str,
-) -> String {
-    let note = MessageKind::Note;
-    let what = what.unwrap_or(&note);
-    let from = if what.by_loom() { LOOM } else { from };
-    let mode = mode.map(|m| format!(", mode: {m}")).unwrap_or_default();
-    let mut lines = vec![format!(
-        "loom message #{id} (from: {from}, kind: {}{mode})",
-        what.word()
-    )];
-    let repeated = what.repeats_file(body);
-    lines.extend(
-        what.fields()
-            .into_iter()
-            .filter(|(name, _)| !(repeated && *name == Field::File))
-            .map(|(name, value)| format!("{}: {value}", name.word())),
-    );
-    if !body.is_empty() {
-        lines.push(body.to_owned());
-    }
-    lines.join("\n")
 }
 
 pub struct GateFacts {

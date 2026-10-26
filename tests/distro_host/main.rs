@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 const LOOM: &str = env!("CARGO_BIN_EXE_loom");
 const LIMIT: Duration = Duration::from_secs(10);
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 const HELLO: u8 = 0;
 const DATA: u8 = 1;

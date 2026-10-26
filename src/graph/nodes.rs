@@ -584,7 +584,7 @@ impl Graph {
 
     pub fn set_server(&self, id: NodeId, server: &ServerLink) -> rusqlite::Result<()> {
         self.lock().execute(
-            "UPDATE nodes SET server = ?2 WHERE id = ?1",
+            "UPDATE nodes SET server = ?2 WHERE id = ?1 AND server IS NOT ?2",
             params![id.0, to_json(server)],
         )?;
         Ok(())

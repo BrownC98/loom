@@ -63,7 +63,7 @@ impl Logins {
     }
 
     pub fn end_others(&self) {
-        self.host.end_others();
+        self.host.end_others(&[]);
     }
 }
 

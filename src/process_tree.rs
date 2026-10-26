@@ -148,6 +148,8 @@ pub fn own_exe() -> Result<std::path::PathBuf, String> {
         .map_or(exe.clone(), std::path::PathBuf::from))
 }
 
+const ANNOUNCE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String, String> {
     use std::io::{BufRead, Write};
     cmd.stdin(std::process::Stdio::piped())
@@ -160,12 +162,27 @@ pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String,
         .take()
         .expect("stdin을 piped로 열었다")
         .write_all(input);
-    let mut line = String::new();
     let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
-    let read = std::io::BufReader::new(stdout).read_line(&mut line);
+    let (read, line) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let got = std::io::BufReader::new(stdout).read_line(&mut line);
+        let _ = read.send(got.map(|_| line));
+    });
+    let announced = line.recv_timeout(ANNOUNCE_WAIT);
+    if announced.is_err() {
+        let _ = child.kill();
+    }
     std::thread::spawn(move || child.wait());
-    sent.and(read).map_err(|e| e.to_string())?;
-    Ok(line.trim().to_owned())
+    let line = announced.map_err(|_| {
+        format!(
+            "did not announce its address within {} seconds",
+            ANNOUNCE_WAIT.as_secs()
+        )
+    })?;
+    sent.and(line)
+        .map(|line| line.trim().to_owned())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(unix)]

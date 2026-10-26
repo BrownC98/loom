@@ -264,12 +264,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         replacing: Option<Arc<Pty>>,
     ) -> Result<(), (Unattached, OnExit)> {
         let file = self.file(id);
-        let connected =
-            Address::read(&file).and_then(|at| Ok((self.connect(&at, wire::greet)?, at)));
+        let address = Address::read(&file);
+        let distro = matches!(address, Ok(Address::Distro { .. }));
+        let connected = address.and_then(|at| Ok((self.connect(&at, wire::greet)?, at)));
         let ((mut reader, greeted), at) = match connected {
             Ok(found) => found,
             Err(e) => {
-                let _ = std::fs::remove_file(&file);
+                if !distro || e == Unattached::Gone {
+                    let _ = std::fs::remove_file(&file);
+                }
                 return Err((e, on_exit));
             }
         };
@@ -399,7 +402,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         Ok((stream, greeted))
     }
 
-    pub fn end_others(&self) {
+    pub fn has_address(&self, id: K) -> bool {
+        self.file(id).is_file()
+    }
+
+    pub fn end_others(&self, keep: &[K]) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return;
         };
@@ -408,6 +415,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .read()
             .unwrap()
             .keys()
+            .chain(keep)
             .map(|id| id.to_string())
             .collect();
         for entry in entries.flatten() {

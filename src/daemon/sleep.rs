@@ -328,6 +328,22 @@ impl App {
                 waking.push(id);
             }
         }
+        for node in self.graph.active()? {
+            let id = node.id;
+            if self.host.attach(id).is_some() || !self.host.has_address(id) {
+                continue;
+            }
+            let newest = self.graph.newest_mail(id)?;
+            if knocked.contains(&id) || self.sleeps.mail_since_unwoken(id, newest) {
+                self.sleeps.unwoken(id, newest);
+                let app = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = app.resume_node(node).await {
+                        eprintln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
+                    }
+                });
+            }
+        }
         for id in knocked {
             if !waking.contains(&id) && self.graph.asleep(id)? {
                 waking.push(id);

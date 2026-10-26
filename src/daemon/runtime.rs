@@ -1,6 +1,6 @@
 use super::*;
 use crate::distro::Distro;
-use crate::graph::Entry;
+use crate::graph::{Active, Entry};
 use crate::profile::process::Served;
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
@@ -143,89 +143,112 @@ impl App {
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
+        let mut kept = Vec::new();
         for node in self.graph.active()? {
-            if !self.graph.active()?.iter().any(|n| n.id == node.id) {
-                continue;
-            }
-            let (codex, opencode2) = match node.server.clone() {
-                Some(ServerLink::Codex {
-                    url,
-                    pid,
-                    distro,
-                    thread,
-                }) => match CodexServer::reconnect(url, self.served(pid, distro), thread).await {
-                    Ok(server) => (Some(Arc::new(server)), None),
-                    Err(e) => {
-                        eprintln!(
-                            "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
-                            node.id.0
-                        );
-                        (None, None)
-                    }
-                },
-                Some(ServerLink::OpenCode2 {
-                    url,
-                    pid,
-                    distro,
-                    session,
-                    password,
-                }) => (
-                    None,
-                    Some(Arc::new(opencode2::Node::reconnect(
-                        url,
-                        self.served(pid, distro),
-                        session,
-                        password,
-                    ))),
-                ),
-                None => (None, None),
-            };
-            let profile = node.agent.as_ref().and_then(profile::profile_of);
-            let distro = self
-                .node_wsl(Some(node.id))
-                .ok()
-                .flatten()
-                .and_then(|at| self.distro(&at.distro).ok());
-            let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
-            let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
-            if let Err(unattached) = self.host.resume(node.id, on_exit) {
-                self.sleeps.exited(node.id);
-                if let Some(server) = &node.server {
-                    self.stop_server(server);
-                }
-                if !(sleeping && self.graph.slept(node.id)?) {
-                    self.graph.lost(node.id)?;
-                }
-                if unattached == node_host::Unattached::Gone
-                    && let Some(distro) = distro
-                {
-                    end_leftovers(
-                        &tokio::runtime::Handle::current(),
-                        node.id,
-                        distro,
-                        node.token,
-                    );
-                }
-                continue;
-            }
-            if !self.graph.active()?.iter().any(|n| n.id == node.id) {
-                self.sleeps.exited(node.id);
-                self.host.kill(node.id);
-                if let Some(server) = &node.server {
-                    self.stop_server(server);
-                }
-                continue;
-            }
-            self.follow_screen(node.id, profile, &node.token);
-            self.follow_servers(node.id, codex, opencode2, &node.token);
-            self.ptys_changed.notify_waiters();
-            if sleeping {
-                self.sleep_again_after_start(node);
-            }
+            kept.extend(self.resume_node(node).await?);
         }
-        self.host.end_others();
+        self.host.end_others(&kept);
         self.logins.end_others();
         Ok(())
+    }
+
+    pub(super) async fn resume_node(
+        self: &Arc<Self>,
+        node: Active,
+    ) -> rusqlite::Result<Option<NodeId>> {
+        if !self.graph.active()?.iter().any(|n| n.id == node.id) {
+            return Ok(None);
+        }
+        let (codex, opencode2) = match node.server.clone() {
+            Some(ServerLink::Codex {
+                url,
+                pid,
+                distro,
+                thread,
+            }) => match CodexServer::reconnect(url, self.served(pid, distro), thread).await {
+                Ok(server) => (Some(Arc::new(server)), None),
+                Err(e) => {
+                    eprintln!(
+                        "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
+                        node.id.0
+                    );
+                    (None, None)
+                }
+            },
+            Some(ServerLink::OpenCode2 {
+                url,
+                pid,
+                distro,
+                session,
+                password,
+            }) => (
+                None,
+                Some(Arc::new(opencode2::Node::reconnect(
+                    url,
+                    self.served(pid, distro),
+                    session,
+                    password,
+                ))),
+            ),
+            None => (None, None),
+        };
+        let profile = node.agent.as_ref().and_then(profile::profile_of);
+        let distro = self
+            .node_wsl(Some(node.id))
+            .ok()
+            .flatten()
+            .and_then(|at| self.distro(&at.distro).ok());
+        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
+        let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
+        let app = self.clone();
+        let id = node.id;
+        let attached = tokio::task::spawn_blocking(move || app.host.resume(id, on_exit))
+            .await
+            .unwrap_or_else(|e| Err(node_host::Unattached::Silent(e.to_string())));
+        if let Err(unattached) = attached {
+            self.sleeps.exited(node.id);
+            if matches!(unattached, node_host::Unattached::Silent(_))
+                && self.host.has_address(node.id)
+            {
+                eprintln!(
+                    "loom: 노드 {}의 배포판 호스트에 닿지 못했다. 주소를 두고 다음 사건에 다시 붙는다: {unattached}",
+                    node.id.0
+                );
+                return Ok(Some(node.id));
+            }
+            if let Some(server) = &node.server {
+                self.stop_server(server);
+            }
+            if !(sleeping && self.graph.slept(node.id)?) {
+                self.graph.lost(node.id)?;
+            }
+            if unattached == node_host::Unattached::Gone
+                && let Some(distro) = distro
+            {
+                end_leftovers(
+                    &tokio::runtime::Handle::current(),
+                    node.id,
+                    distro,
+                    node.token,
+                );
+            }
+            return Ok(None);
+        }
+        if !self.graph.active()?.iter().any(|n| n.id == node.id) {
+            self.sleeps.exited(node.id);
+            self.host.kill(node.id);
+            if let Some(server) = &node.server {
+                self.stop_server(server);
+            }
+            return Ok(None);
+        }
+        self.follow_screen(node.id, profile, &node.token);
+        self.follow_servers(node.id, codex, opencode2, &node.token);
+        self.ptys_changed.notify_waiters();
+        if sleeping {
+            self.sleep_again_after_start(node);
+        }
+        Ok(None)
     }
 
     pub(super) async fn carry_links(

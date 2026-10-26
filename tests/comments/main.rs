@@ -101,9 +101,14 @@ fn grammar(lang: Lang) -> Language {
 
 fn comments(lang: Lang, text: &str) -> Result<Vec<Comment>, String> {
     let spans = match lang {
-        Lang::HashLines => line_comments(text, |line| line.starts_with('#')),
-        Lang::Properties => line_comments(text, |line| line.trim_start().starts_with(['#', '!'])),
-        Lang::Sql => line_comments(text, |line| line.contains("--") || line.contains("/*")),
+        Lang::HashLines => line_comments(text, |line| line.starts_with('#').then_some(0)),
+        Lang::Properties => line_comments(text, |line| {
+            let lead = line.len() - line.trim_start().len();
+            line[lead..].starts_with(['#', '!']).then_some(lead)
+        }),
+        Lang::Sql => line_comments(text, |line| {
+            ["--", "/*"].iter().filter_map(|m| line.find(m)).min()
+        }),
         Lang::Nsis => nsis_comments(text),
         _ => {
             let mut found = Vec::new();
@@ -184,14 +189,13 @@ fn tree_comments(
     Ok(())
 }
 
-fn line_comments(text: &str, is_comment: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
+fn line_comments(text: &str, comment_at: impl Fn(&str) -> Option<usize>) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut at = 0;
     for line in text.split_inclusive('\n') {
         let body = line.trim_end();
-        if is_comment(body) {
-            let lead = body.len() - body.trim_start().len();
-            spans.push((at + lead, at + body.len()));
+        if let Some(start) = comment_at(body) {
+            spans.push((at + start, at + body.len()));
         }
         at += line.len();
     }

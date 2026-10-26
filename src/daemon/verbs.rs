@@ -452,14 +452,10 @@ pub(super) async fn agent_adopt(
         .map_err(Problem::from)
         .and_then(|child| {
             let limits = app.tree_limits()?;
-            Ok((app.graph.adopt(parent, child, limits)?, child))
+            app.graph.adopt(parent, child, limits)?;
+            Ok(child)
         })
-        .map(|(was_root, child)| {
-            if was_root {
-                app.position_changed(&[child]);
-            }
-            app.parent_changed(&[child]);
-        });
+        .map(|child| app.parent_changed(&[child]));
     traced(&app, parent, Attempt::verb(&req.name), &via, adopted)
 }
 
@@ -474,10 +470,7 @@ pub(super) async fn agent_detach(
         .graph
         .any_node(caller, &req.name)
         .and_then(|child| app.graph.detach(child).map(|()| child))
-        .map(|child| {
-            app.position_changed(&[child]);
-            app.parent_changed(&[child]);
-        })
+        .map(|child| app.parent_changed(&[child]))
         .map_err(Problem::from);
     traced(&app, caller, Attempt::verb(&req.name), &via, detached)
 }

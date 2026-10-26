@@ -115,6 +115,9 @@ impl App {
     }
 
     pub(super) fn parent_changed(self: &Arc<Self>, owners: &[NodeId]) {
+        for &owner in owners {
+            self.run_unless_busy(owner);
+        }
         let app = self.clone();
         let owners = owners.to_vec();
         tokio::spawn(async move {

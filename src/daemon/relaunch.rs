@@ -204,6 +204,13 @@ impl App {
         self.change_plan(node, |_| (None, ()));
     }
 
+    fn finish_plan(&self, node: NodeId) {
+        self.change_plan(node, |now| match now.pending {
+            Some((Phase::Running, _)) => (None, ()),
+            kept => (kept, ()),
+        });
+    }
+
     fn change_plan<R: Default>(
         &self,
         node: NodeId,
@@ -338,7 +345,7 @@ impl App {
         })
         .await
         .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
-        self.drop_plan(id);
+        self.finish_plan(id);
         let kept = match &result {
             Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
             Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
@@ -572,7 +579,7 @@ impl App {
         if result == Ok(Stop::Kept) {
             return result;
         }
-        self.drop_plan(id);
+        self.finish_plan(id);
         if result.is_err() {
             self.release_mail(id);
         }

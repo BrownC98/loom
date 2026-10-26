@@ -399,7 +399,10 @@ pub(super) async fn agent_turn_end(
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
     app.feed(node, AgentEvent::TurnEnded);
-    Ok(Json(app.turn_ended(node, EndedTurn::default())))
+    let nudge = app
+        .turn_ended(node, EndedTurn::default())
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    Ok(Json(nudge))
 }
 
 async fn agent_hook_wait(

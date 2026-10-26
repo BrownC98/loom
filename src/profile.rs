@@ -104,11 +104,28 @@ pub enum Signal {
     HumanInput,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Status {
+    Idle,
+    Busy,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Change {
+    pub before: Status,
+    pub now: Status,
+}
+
 pub trait ServerAdapter: Send {
-    fn takes(&self) -> &'static [&'static [Kind]];
-    fn signal(&mut self) -> impl Future<Output = Option<Signal>> + Send;
+    fn takes(&self, now: Status) -> &'static [&'static [Kind]];
+    fn status(&self) -> Option<Status>;
+    fn signal(&mut self, change: Option<Change>) -> impl Future<Output = Option<Signal>> + Send;
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
-    fn inject(&mut self, taken: &[Delivery]) -> impl Future<Output = Result<(), String>> + Send;
+    fn inject(
+        &mut self,
+        taken: &[Delivery],
+        now: Status,
+    ) -> impl Future<Output = Result<(), String>> + Send;
     fn stop_shells(&self) -> impl Future<Output = ()> + Send;
     fn start_turn(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn steer(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;

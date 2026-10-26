@@ -479,39 +479,32 @@ impl App {
                 }
             });
             let current = Arc::downgrade(&server);
-            tokio::spawn(follow_server_turns(
-                self.clone(),
+            tokio::spawn(self.clone().deliver_loop(
                 id,
-                server.thread(),
-                |thread| thread.as_ref().map(|t| t.status == Status::Busy),
+                codex::adapter(server),
                 move |app: &App| {
                     let now = app.codex.lock().unwrap().get(&id).map(Arc::downgrade);
                     now.is_some_and(|now| now.ptr_eq(&current))
                 },
             ));
-            tokio::spawn(self.clone().deliver_loop(id, codex::adapter(server)));
         }
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
-            let current = Arc::downgrade(&node);
-            tokio::spawn(follow_server_turns(
-                self.clone(),
-                id,
-                node.working(),
-                |working| Some(*working),
-                move |app: &App| {
-                    let now = app.opencode2.lock().unwrap().get(&id).map(Arc::downgrade);
-                    now.is_some_and(|now| now.ptr_eq(&current))
-                },
-            ));
             tokio::spawn(follow_permission(
                 self.graph.clone(),
                 id,
                 token.to_owned(),
                 node.clone(),
             ));
-            tokio::spawn(self.clone().deliver_loop(id, node.adapter()));
+            let current = Arc::downgrade(&node);
+            tokio::spawn(
+                self.clone()
+                    .deliver_loop(id, node.adapter(), move |app: &App| {
+                        let now = app.opencode2.lock().unwrap().get(&id).map(Arc::downgrade);
+                        now.is_some_and(|now| now.ptr_eq(&current))
+                    }),
+            );
         }
     }
 
@@ -855,35 +848,6 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
         let now = model.borrow_and_update().clone();
         if let Err(e) = graph.set_model(node, &now) {
             eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
-        }
-    }
-}
-
-pub(super) async fn follow_server_turns<T>(
-    app: Arc<App>,
-    node: NodeId,
-    mut status: watch::Receiver<T>,
-    busy: fn(&T) -> Option<bool>,
-    current: impl Fn(&App) -> bool,
-) {
-    let mut fed = None;
-    loop {
-        let now = busy(&status.borrow_and_update());
-        if let Some(busy) = now
-            && now != fed
-            && current(&app)
-        {
-            match busy {
-                true => app.feed(node, AgentEvent::ServerBusy),
-                false => app.feed(node, AgentEvent::ServerIdle),
-            }
-            fed = now;
-        }
-        if status.changed().await.is_err() {
-            if current(&app) {
-                app.feed(node, AgentEvent::ServerLost);
-            }
-            return;
         }
     }
 }

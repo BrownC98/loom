@@ -355,7 +355,7 @@ impl App {
         };
         let hooked = profile_of(&node).is_some_and(Profile::hooked);
         if hooked && !self.graph.sleeping(id)? {
-            self.idle.lose_unheld(id);
+            self.graph.end_old_idle(id)?;
         }
         Ok(())
     }

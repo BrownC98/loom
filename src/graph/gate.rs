@@ -1162,23 +1162,47 @@ fn close(db: &Connection, id: BatchId) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub(super) fn owns_round(db: &Connection, owner: NodeId) -> Result<(), Refusal> {
-    let branch: Option<String> = db
-        .query_row(
-            "SELECT branch FROM gates WHERE owner = ?1
-             AND (state IN (?2, ?3) OR batch IS NOT NULL) LIMIT 1",
+pub(super) fn close_owned(
+    tx: &Transaction,
+    owner: NodeId,
+    linked: fn(&AgentId) -> bool,
+) -> Result<Vec<NodeId>, Refusal> {
+    let open: Vec<(RepoId, String)> = tx
+        .prepare("SELECT repo, branch FROM gates WHERE owner = ?1 AND state IN (?2, ?3)")?
+        .query_map(
             params![
                 owner.0,
                 to_json(&GateState::Ready),
                 to_json(&GateState::Passed)
             ],
-            |r| r.get(0),
-        )
-        .optional()?;
-    match branch {
-        Some(branch) => Err(Refusal::OwnsRound(branch)),
-        None => Ok(()),
+            |r| Ok((RepoId(r.get(0)?), r.get(1)?)),
+        )?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut sent = Vec::new();
+    for (repo, branch) in open {
+        let row = load(tx, repo, &branch)?.expect("방금 찾은 관문 줄");
+        release(tx, repo, &branch)?;
+        update(tx, repo, &branch, GateState::Working)?;
+        tx.execute(
+            "UPDATE gates SET queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
+            params![repo.0, branch],
+        )?;
+        tx.execute(
+            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+            params![repo.0, branch],
+        )?;
+        let trace = trace(
+            tx,
+            Caller::Loom,
+            GateVerb::Queue,
+            &branch,
+            Some(row.state),
+            Some(GateState::Working),
+            Vec::new(),
+        )?;
+        sent.extend(withdraw(tx, Caller::Loom, &row, &branch, &trace, linked)?);
     }
+    Ok(sent)
 }
 
 pub(super) struct OpenGate {

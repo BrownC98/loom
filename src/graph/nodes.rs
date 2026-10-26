@@ -641,7 +641,7 @@ impl Graph {
     pub fn remove(&self, id: NodeId) -> Result<Vec<NodeId>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        super::gate::owns_round(&tx, id)?;
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
         let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(Vec::new());
@@ -650,10 +650,11 @@ impl Graph {
         tx.commit()?;
         let children = removal.children.clone();
         removal.publish(self, &db)?;
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok(children)
     }
 
-    pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
+    pub fn remove_childless_child(&self, id: NodeId) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let removable: bool = tx
@@ -665,14 +666,16 @@ impl Graph {
             )
             .optional()?
             .unwrap_or(false);
-        if !removable || super::gate::owns_round(&tx, id).is_err() {
+        if !removable {
             return Ok(false);
         }
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(false);
         };
         tx.commit()?;
         removal.publish(self, &db)?;
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok(true)
     }
 
@@ -688,7 +691,7 @@ impl Graph {
         if id == caller {
             return Err(Refusal::NotFound(name.to_owned()));
         }
-        super::gate::owns_round(&tx, id)?;
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
         let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
         let mut adoptions = Vec::new();
@@ -719,7 +722,19 @@ impl Graph {
         for adoption in adoptions {
             adoption.publish(self, &db)?;
         }
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok((id, moved))
+    }
+
+    fn publish_withdrawn(&self, db: &Connection, sent: Vec<NodeId>) -> rusqlite::Result<()> {
+        if sent.is_empty() {
+            return Ok(());
+        }
+        for to in sent {
+            self.publish_node(db, to)?;
+        }
+        self.mail.notify_waiters();
+        Ok(())
     }
 
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {

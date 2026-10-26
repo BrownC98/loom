@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::App;
 use crate::git;
 use crate::graph::{NodeId, Reclaim};
+use crate::protocol::Refusal;
 use crate::worktree::merge::{delete_merged, dirty, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
 
@@ -47,7 +48,7 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
         return Ok(());
     };
     for reviewer in &round.reviewers {
-        remove(app, *reviewer).map_err(text)?;
+        remove(app, *reviewer).map_err(|e| e.to_string())?;
     }
     let path = git::from_git_path(dir, &round.worktree);
     let own = match worktree::find(dir, &path).await {
@@ -79,7 +80,7 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
             .note_reclaim(&round, &kept(branch, &round))
             .map_err(text);
     }
-    remove(app, round.owner).map_err(text)?;
+    remove(app, round.owner).map_err(|e| e.to_string())?;
     if let Some(own) = own
         && alone(app, None)?
         && let Err(e) = worktree::remove_clean(dir, &own).await
@@ -97,7 +98,7 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
     Ok(())
 }
 
-fn remove(app: &App, node: NodeId) -> rusqlite::Result<()> {
+fn remove(app: &App, node: NodeId) -> Result<(), Refusal> {
     if app.graph.remove_childless_child(node)? {
         app.host.kill(node);
     }

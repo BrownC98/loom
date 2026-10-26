@@ -328,15 +328,15 @@ impl App {
                 waking.push(id);
             }
         }
-        let unattached = self.host.unattached();
+        let unreached = self.graph.unreached_hosts()?;
         for node in self.graph.active()? {
             let id = node.id;
-            if !unattached.contains(&id) {
+            if !unreached.contains(&id) {
                 continue;
             }
             let newest = self.graph.newest_mail(id)?;
             if (knocked.contains(&id) || self.sleeps.mail_since_unwoken(id, newest))
-                && self.host.take_unattached(id)
+                && self.graph.claim_unreached(id)?
             {
                 self.sleeps.unwoken(id, newest);
                 let app = self.clone();

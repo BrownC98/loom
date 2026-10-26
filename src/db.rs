@@ -315,6 +315,13 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN turn_flags INTEGER NOT NULL DEFAULT 0;",
     ),
     M::up("ALTER TABLE nodes DROP COLUMN branched_from;"),
+    M::up(
+        "CREATE TABLE node_hosts (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            unreached TEXT
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

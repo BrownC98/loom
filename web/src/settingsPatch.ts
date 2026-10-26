@@ -20,17 +20,3 @@ function diff(before: Json, after: Json): Json | undefined {
 export function settingsPatch(before: SettingsView, after: SettingsView): SettingsPatch | null {
   return (diff(before, after) as SettingsPatch | undefined) ?? null;
 }
-
-function apply(target: Json, patch: Json): Json {
-  if (!isObject(patch)) return patch;
-  const out: Record<string, Json> = isObject(target) ? { ...target } : {};
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null) delete out[key];
-    else out[key] = apply(out[key], value);
-  }
-  return out;
-}
-
-export function applySettingsPatch(view: SettingsView, patch: SettingsPatch): SettingsView {
-  return apply(view, patch) as SettingsView;
-}

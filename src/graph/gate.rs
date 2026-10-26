@@ -1,14 +1,16 @@
+mod policy;
+
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::events::{self, Entry, GateTrace, Via};
 use super::mailbox::{self, Stamp};
 use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{
-    self, AgentId, Finding, GateCall, GateState, GateVerb, Judgment, Kind, MergeEnd, MessageKind,
-    Peer, Receiver, Refusal, Sender, Target,
+    self, AgentId, Finding, GateState, GateVerb, Judgment, Kind, MessageKind, Refusal,
 };
 use crate::task;
 use crate::worktree::RepoId;
+use policy::{GateCall, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
 
@@ -344,11 +346,31 @@ impl Graph {
         Ok(row.state)
     }
 
-    pub fn gate_merges(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<String>> {
-        self.lock()
+    pub fn out_of_gate(
+        &self,
+        repo: RepoId,
+        target: &str,
+        listed: &str,
+    ) -> rusqlite::Result<Vec<Finding>> {
+        let known: Vec<String> = self
+            .lock()
             .prepare("SELECT sha FROM gate_merges WHERE repo = ?1 AND target = ?2")?
             .query_map(params![repo.0, target], |r| r.get(0))?
-            .collect()
+            .collect::<rusqlite::Result<_>>()?;
+        let listed: Vec<&str> = listed
+            .lines()
+            .map(str::trim)
+            .filter(|sha| !sha.is_empty())
+            .collect();
+        let Some(last) = listed.iter().position(|sha| known.iter().any(|k| k == sha)) else {
+            return Ok(Vec::new());
+        };
+        Ok(listed[..last]
+            .iter()
+            .map(|sha| Finding::OutOfGate {
+                commit: (*sha).to_owned(),
+            })
+            .collect())
     }
 
     pub fn audit(&self, owner: NodeId, since: i64) -> Result<Vec<Finding>, Refusal> {
@@ -513,7 +535,7 @@ impl Graph {
             Some(row.state),
             Vec::new(),
         )?;
-        let body = protocol::next_step(
+        let body = policy::next_step(
             GateCall::Ready,
             Receiver::Gate,
             row.target_kind(),
@@ -798,10 +820,10 @@ impl Graph {
             };
             let mut body = Vec::new();
             if let (true, Some(head)) = (*id == node, &head) {
-                body.push(protocol::first_round_step(&branch, head));
+                body.push(policy::first_round_step(&branch, head));
             }
             if !peers.is_empty() {
-                body.push(protocol::peers_step(&branch, &peers));
+                body.push(policy::peers_step(&branch, &peers));
             }
             if body.is_empty() {
                 continue;
@@ -837,7 +859,7 @@ impl Graph {
         let old = load(&tx, repo, branch)?;
         let from = old.as_ref().map_or(GateState::Working, |row| row.state);
         allowed_caller(&tx, caller, old.as_ref(), call.verb(), branch)?;
-        let to = protocol::step(from, call)?;
+        let to = policy::step(from, call)?;
         let row = match old {
             Some(row) => Row { state: to, ..row },
             None => Row {
@@ -870,7 +892,7 @@ impl Graph {
                 _ => Vec::new(),
             };
             let target = row.target_kind();
-            for receiver in protocol::receivers(call, target) {
+            for receiver in policy::receivers(call, target) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
                     Receiver::Owner => row.owner,
@@ -885,8 +907,8 @@ impl Graph {
                 }
                 let mut body = lines.clone();
                 body.push(match held.is_empty() {
-                    true => protocol::next_step(call, *receiver, target, branch, &row.head),
-                    false => protocol::held_step(*receiver, &held),
+                    true => policy::next_step(call, *receiver, target, branch, &row.head),
+                    false => policy::held_step(*receiver, &held),
                 });
                 post(
                     &tx,
@@ -902,7 +924,7 @@ impl Graph {
             }
             if let (true, Caller::Node(me)) = (sent.is_empty(), caller) {
                 let mut body = lines;
-                body.push(protocol::KEPT_FOR_CALLER.to_owned());
+                body.push(policy::KEPT_FOR_CALLER.to_owned());
                 post(
                     &tx,
                     caller,
@@ -927,9 +949,9 @@ impl Graph {
                     let mut body = Vec::new();
                     let peers = peers_of(&tx, &seated, *reviewer, branch)?;
                     if !peers.is_empty() {
-                        body.push(protocol::peers_step(branch, &peers));
+                        body.push(policy::peers_step(branch, &peers));
                     }
-                    body.push(protocol::review_again_step(
+                    body.push(policy::review_again_step(
                         branch,
                         &row.head,
                         judged.as_deref(),
@@ -983,7 +1005,7 @@ fn allowed_caller(
             gate: name_of(db, row.gate)?,
         })
     };
-    match (caller, row, protocol::sender(verb)) {
+    match (caller, row, policy::sender(verb)) {
         (Caller::Loom, _, Sender::Loom) | (Caller::Node(_), _, Sender::Owner) => Ok(()),
         (_, None, _) => Err(Refusal::NoRound(branch.to_owned())),
         (Caller::Loom, Some(row), _) => not_gate(row),
@@ -1051,7 +1073,7 @@ fn withdraw(
     };
     for (node, name, agent) in &reviewers {
         let body =
-            protocol::withdrawn_step(branch, row.state, &findings_of(tx, *node, name, branch)?);
+            policy::withdrawn_step(branch, row.state, &findings_of(tx, *node, name, branch)?);
         mailbox::enqueue_from_loom(
             tx,
             *node,

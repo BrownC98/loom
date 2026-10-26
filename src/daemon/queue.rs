@@ -540,9 +540,12 @@ impl Batch<'_> {
                 .filter(|f| !f.stops())
                 .collect();
             if into_base {
-                let known = self.app.graph.gate_merges(self.repo, &self.target)?;
                 let listed = merge::first_parents(&self.dir, &sha).await?;
-                findings.extend(protocol::out_of_gate(&listed, &known));
+                findings.extend(
+                    self.app
+                        .graph
+                        .out_of_gate(self.repo, &self.target, &listed)?,
+                );
             }
             let mut lines = self.lines();
             lines.extend(deploy.clone());

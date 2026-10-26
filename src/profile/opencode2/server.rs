@@ -160,6 +160,11 @@ impl Server {
         self.call("POST", &path, Some(body)).await.map(drop)
     }
 
+    pub async fn permissions(&self, session: &str) -> Result<Value, String> {
+        self.call("GET", &format!("/api/session/{session}/permission"), None)
+            .await
+    }
+
     pub async fn reply_permission(
         &self,
         session: &str,

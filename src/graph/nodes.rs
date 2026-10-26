@@ -10,8 +10,8 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Prompt, Refusal, ServerLink,
-    StartDigests, TreeLimits,
+    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerLink, StartDigests,
+    TreeLimits,
 };
 
 pub struct NewChild<'a> {
@@ -226,7 +226,6 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        self.prompts.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         Ok(())
     }
@@ -275,7 +274,6 @@ impl Graph {
         notice: String,
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
-        self.prompts.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
             return Ok(());
         };
@@ -352,7 +350,6 @@ impl Graph {
         hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         tx.commit()?;
-        self.prompts.lock().unwrap().remove(&id);
         self.publish_node(&db, id)?;
         Ok(true)
     }
@@ -638,20 +635,6 @@ impl Graph {
         }
         Ok(())
     }
-
-    pub fn set_prompt(&self, id: NodeId, prompt: Option<Prompt>) -> rusqlite::Result<()> {
-        let db = self.lock();
-        let mut prompts = self.prompts.lock().unwrap();
-        let changed = match prompt {
-            Some(prompt) => prompts.insert(id, prompt.clone()) != Some(prompt),
-            None => prompts.remove(&id).is_some(),
-        };
-        drop(prompts);
-        if changed {
-            self.publish_node(&db, id)?;
-        }
-        Ok(())
-    }
 }
 
 impl Graph {
@@ -842,7 +825,6 @@ struct Removal {
 
 impl Removal {
     fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        graph.prompts.lock().unwrap().remove(&self.id);
         let _ = graph.events.send(GraphEvent::Removed { id: self.id });
         for child in self.children {
             graph.publish_node(db, child)?;

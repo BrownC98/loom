@@ -72,12 +72,10 @@ async fn choose_wait(
         Some(server) => {
             let decision = server
                 .decide(&req.prompt, req.option)
+                .await
+                .map_err(internal)?
                 .ok_or(Refusal::PromptChanged(wait))?;
             server.reply(decision).await.map_err(internal)?;
-            match app.graph.dismiss(wait) {
-                Ok(()) | Err(Refusal::NoWait(_)) => {}
-                Err(e) => return Err(e.into()),
-            }
         }
         None => choose(&app.graph, &app.host, wait, &req)?,
     }

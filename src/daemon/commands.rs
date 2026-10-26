@@ -412,7 +412,9 @@ async fn agent_hook_wait(
         .set_wait(
             bearer(&headers)?,
             WaitSource::Hook,
-            req.wait.as_ref().map(|(kind, text)| (*kind, text.as_str())),
+            req.wait
+                .as_ref()
+                .map(|(kind, text)| (*kind, text.as_str(), None)),
         )
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))

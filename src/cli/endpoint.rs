@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ureq::Error;
@@ -11,13 +12,19 @@ use ureq::unversioned::transport::{
 pub const URL: &str = "http://127.0.0.1";
 
 #[derive(Debug)]
-pub struct Connector(pub PathBuf);
+pub struct Connector {
+    pub at: PathBuf,
+    pub close: Option<Close>,
+}
 
 impl ureq::unversioned::transport::Connector for Connector {
     type Out = Socket;
 
     fn connect(&self, details: &ConnectionDetails, _: Option<()>) -> Result<Option<Socket>, Error> {
-        let wire = open(&self.0).map_err(|_| Error::ConnectionFailed)?;
+        let wire = open(&self.at).map_err(|_| Error::ConnectionFailed)?;
+        if let Some(close) = &self.close {
+            close.hold(wire.as_ref())?;
+        }
         let config = details.config;
         Ok(Some(Socket {
             wire,
@@ -26,8 +33,41 @@ impl ureq::unversioned::transport::Connector for Connector {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Close(Arc<Mutex<Shut>>);
+
+#[derive(Debug, Default)]
+struct Shut {
+    closed: bool,
+    wire: Option<Shutter>,
+}
+
+impl Close {
+    pub fn close(&self) {
+        let mut shut = self.0.lock().unwrap();
+        shut.closed = true;
+        if let Some(wire) = &shut.wire {
+            wire.shut();
+        }
+    }
+
+    pub fn closed(&self) -> bool {
+        self.0.lock().unwrap().closed
+    }
+
+    fn hold(&self, wire: &dyn Wire) -> io::Result<()> {
+        let mut shut = self.0.lock().unwrap();
+        if shut.closed {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
+        shut.wire = Some(wire.shutter()?);
+        Ok(())
+    }
+}
+
 trait Wire: Read + Write + Send + Sync + Debug + 'static {
     fn limit(&mut self, read: Option<Duration>, write: Option<Duration>) -> io::Result<()>;
+    fn shutter(&self) -> io::Result<Shutter>;
 }
 
 #[cfg(unix)]
@@ -36,12 +76,30 @@ fn open(at: &std::path::Path) -> io::Result<Box<dyn Wire>> {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
+struct Shutter(std::os::unix::net::UnixStream);
+
+#[cfg(unix)]
+impl Shutter {
+    fn shut(&self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+#[cfg(unix)]
 impl Wire for std::os::unix::net::UnixStream {
     fn limit(&mut self, read: Option<Duration>, write: Option<Duration>) -> io::Result<()> {
         self.set_read_timeout(read)?;
         self.set_write_timeout(write)
     }
+
+    fn shutter(&self) -> io::Result<Shutter> {
+        self.try_clone().map(Shutter)
+    }
 }
+
+#[cfg(windows)]
+use pipe::Shutter;
 
 #[cfg(windows)]
 fn open(at: &std::path::Path) -> io::Result<Box<dyn Wire>> {
@@ -55,9 +113,10 @@ fn open(at: &std::path::Path) -> io::Result<Box<dyn Wire>> {
             .custom_flags(FILE_FLAG_OVERLAPPED),
     )?;
     Ok(Box::new(pipe::Pipe {
-        file,
+        file: Arc::new(file),
         read: None,
         write: None,
+        shut: Arc::default(),
     }))
 }
 
@@ -65,6 +124,7 @@ fn open(at: &std::path::Path) -> io::Result<Box<dyn Wire>> {
 mod pipe {
     use std::io::{self, Read, Write};
     use std::os::windows::io::AsRawHandle;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use windows_sys::Win32::Foundation::{
@@ -79,9 +139,24 @@ mod pipe {
 
     #[derive(Debug)]
     pub struct Pipe {
-        pub file: std::fs::File,
+        pub file: Arc<std::fs::File>,
         pub read: Option<Duration>,
         pub write: Option<Duration>,
+        pub shut: Arc<Mutex<bool>>,
+    }
+
+    #[derive(Debug)]
+    pub struct Shutter {
+        file: Arc<std::fs::File>,
+        shut: Arc<Mutex<bool>>,
+    }
+
+    impl Shutter {
+        pub fn shut(&self) {
+            let mut shut = self.shut.lock().unwrap();
+            *shut = true;
+            unsafe { CancelIoEx(self.file.as_raw_handle(), std::ptr::null()) };
+        }
     }
 
     impl Pipe {
@@ -92,12 +167,17 @@ mod pipe {
         ) -> io::Result<usize> {
             let handle = self.file.as_raw_handle();
             let mut overlapped = OVERLAPPED::default();
+            let shut = self.shut.lock().unwrap();
+            if *shut {
+                return Err(io::ErrorKind::ConnectionAborted.into());
+            }
             if start(handle, &mut overlapped) == 0 {
                 let e = io::Error::last_os_error();
                 if e.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
                     return Err(e);
                 }
             }
+            drop(shut);
             let wait = limit.map_or(INFINITE, |limit| {
                 u32::try_from(limit.as_millis()).map_or(INFINITE - 1, |ms| ms.min(INFINITE - 1))
             });
@@ -125,6 +205,13 @@ mod pipe {
             self.read = read;
             self.write = write;
             Ok(())
+        }
+
+        fn shutter(&self) -> io::Result<Shutter> {
+            Ok(Shutter {
+                file: self.file.clone(),
+                shut: self.shut.clone(),
+            })
         }
     }
 

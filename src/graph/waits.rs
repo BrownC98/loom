@@ -307,7 +307,7 @@ impl Graph {
         )? > 0)
     }
 
-    pub fn typed(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn typed(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let changed = tx.execute(
@@ -315,11 +315,12 @@ impl Graph {
             [id.0],
         )?;
         if changed == 0 {
-            return Ok(());
+            return Ok(false);
         }
         agent_state::apply(&tx, id, AgentEvent::DialogCleared)?;
         tx.commit()?;
-        self.publish_node(&db, id)
+        self.publish_node(&db, id)?;
+        Ok(true)
     }
 
     pub fn dismiss(&self, wait: WaitId) -> Result<(), Refusal> {

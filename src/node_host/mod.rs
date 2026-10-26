@@ -320,7 +320,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn detach(&self) {
         for pty in self.nodes.write().unwrap().drain().map(|(_, pty)| pty) {
             pty.detached
@@ -800,7 +800,7 @@ fn report_len(seq: &[u8]) -> Option<usize> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn old_in_process(dir: &std::path::Path, id: impl Display, screen: &[u8]) {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     std::fs::create_dir_all(dir).unwrap();

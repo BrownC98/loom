@@ -178,7 +178,9 @@ async fn worktree_changes(
 ) -> Result<Json<Vec<String>>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
     match worktree::find(&repo, &req.path).await {
-        Ok(listed) => Ok(Json(worktree::changes(&listed).await?)),
+        Ok(listed) => Ok(Json(
+            worktree::changes(std::path::Path::new(&listed.path)).await?,
+        )),
         Err(RepoProblem::NotInRepo(_)) => Ok(Json(Vec::new())),
         Err(e) => Err(e.into()),
     }

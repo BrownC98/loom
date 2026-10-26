@@ -2,23 +2,26 @@ mod server;
 
 use std::ffi::OsString;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use futures_util::future::BoxFuture;
 
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
+use crate::accounts::{AccountId, Site};
 use crate::profile::process::Served;
 use crate::protocol::{
-    Delivery, Kind, MessageId, Model, PermissionReply, Prompt, PromptKey, PromptOption,
+    Delivery, Kind, MessageId, Model, PermissionReply, Prompt, PromptKey, PromptOption, Session,
 };
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Command, Facts, InputSeen, NoServer};
+use super::adapter::{Carry, Command, Facts, InputSeen, NoServer, ResumeError};
 use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::protocol::ModelChoice;
 use crate::screen::{Dialog, Grammar, Screen};
@@ -55,7 +58,7 @@ impl super::adapter::Adapter for OpenCode2 {
         }
     }
 
-    fn leading_args(&self, _: Option<&str>, bypass: &[String]) -> Vec<String> {
+    fn leading_args(&self, _: Option<&Session>, bypass: &[String]) -> Vec<String> {
         bypass.to_vec()
     }
 
@@ -96,6 +99,23 @@ impl super::adapter::Adapter for OpenCode2 {
             installed: installed.to_owned(),
             pinned: PINNED_VERSION.to_owned(),
         })
+    }
+
+    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
+        Ok(())
+    }
+
+    fn end_detached<'a>(
+        &'a self,
+        _: &'a Session,
+        _: &'a Site,
+        _: Option<&'a AccountId>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn record(&self, _: &Session) -> Option<PathBuf> {
+        None
     }
 }
 
@@ -239,7 +259,7 @@ impl Node {
         skills: &Path,
         password: String,
         launch: Launch,
-        resume: Option<&str>,
+        resume: Option<&Session>,
     ) -> Result<Self, String> {
         let config = serde_json::json!({ "skills": [skills] }).to_string();
         let mut env = node_env.to_vec();
@@ -247,7 +267,7 @@ impl Node {
         let server = Server::start(CMD, cwd, inside, &env, password).await?;
         let directory = inside.map_or(cwd, |inside| Path::new(inside.cwd()));
         let created = match resume {
-            Some(session) => Ok(session.to_owned()),
+            Some(session) => Ok(session.0.clone()),
             None => server.create_session(directory).await,
         };
         let session = match created {
@@ -267,17 +287,20 @@ impl Node {
         Ok(Self::follow(server, session))
     }
 
-    pub fn reconnect(url: String, process: Served, session: String, password: String) -> Self {
-        Self::follow(Server::connect(url, password, process), session)
+    pub fn reconnect(url: String, process: Served, session: Session, password: String) -> Self {
+        Self::follow(Server::connect(url, password, process), session.0)
     }
 
     pub fn link(&self) -> crate::protocol::ServerLink {
         crate::protocol::ServerLink::OpenCode2 {
             url: self.server.url().to_owned(),
             pid: self.server.process().pid,
-            session: self.session.clone(),
             password: self.server.password().to_owned(),
         }
+    }
+
+    pub fn session(&self) -> Session {
+        Session(self.session.clone())
     }
 
     fn follow(server: Server, session: String) -> Self {

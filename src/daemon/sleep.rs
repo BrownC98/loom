@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,7 +14,6 @@ use crate::graph::{
 };
 use crate::process_tree::Snapshot;
 use crate::profile::{self, Profile};
-use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
@@ -355,17 +353,6 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
-        let Some(transcript) = &node.transcript else {
-            return Ok(None);
-        };
-        let place = self.graph.place_of(node.id)?;
-        Ok(Some(crate::wsl::from_node(
-            PathBuf::from(transcript),
-            Path::new(&place.worktree),
-        )))
-    }
-
     fn restart_guard(self: &Arc<Self>, node: &Active) -> Guard {
         let (app, id, profile) = (self.clone(), node.id, profile_of(node));
         Arc::new(move |screen: &Screen| {
@@ -401,14 +388,9 @@ impl App {
             return false;
         }
         match profile_of(node) {
-            Some(profile) if profile.hooked() => node.transcript.is_some(),
-            Some(Profile::Codex) => matches!(
-                node.server,
-                Some(ServerLink::Codex {
-                    thread: Some(_),
-                    ..
-                })
-            ),
+            Some(profile) if profile.hooked() || profile == Profile::Codex => {
+                node.session.is_some()
+            }
             Some(_) | None => false,
         }
     }
@@ -449,7 +431,7 @@ impl App {
                 && self.listening(id)
         };
         let stopped = match still() {
-            true => self.stop_old_claude(&node).await,
+            true => self.end_detached(&node).await,
             false => Ok(()),
         };
         if let Err(e) = &stopped {

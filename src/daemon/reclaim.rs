@@ -7,7 +7,7 @@ use super::App;
 use crate::git;
 use crate::graph::{NodeId, Reclaim};
 use crate::protocol::Refusal;
-use crate::worktree::merge::{delete_merged, dirty, still_merged};
+use crate::worktree::merge::{delete_merged, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
 
 pub(super) async fn run(app: Arc<App>) {
@@ -26,11 +26,7 @@ pub(super) async fn run(app: Arc<App>) {
         };
         if !held {
             if let Entry::Vacant(missing) = branches.entry(repo) {
-                let listed = git::run(&dir, &["branch", "--format=%(refname:short)"])
-                    .await
-                    .map(|out| out.lines().map(str::to_owned).collect())
-                    .unwrap_or_default();
-                missing.insert(listed);
+                missing.insert(worktree::branches(&dir).await);
             }
             if !branches[&repo].contains(&branch) {
                 continue;
@@ -68,13 +64,18 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
         Some(w) if alone(app, Some(round.owner))? => Some(w),
         _ => None,
     };
-    if !still_merged(dir, only_owner, branch, &round.target).await? {
+    let on = only_owner.map(|w| w.branch.as_deref());
+    if !still_merged(dir, on, branch, &round.target).await? {
         return app
             .graph
             .note_reclaim(&round, &moved(branch, &round))
             .map_err(text);
     }
-    if only_owner.is_some() && dirty(&path).await? {
+    if only_owner.is_some()
+        && worktree::dirty(Path::new(&path))
+            .await
+            .map_err(|e| e.to_string())?
+    {
         return app
             .graph
             .note_reclaim(&round, &kept(branch, &round))

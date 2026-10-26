@@ -41,12 +41,10 @@ pub enum ServerLink {
     Codex {
         url: String,
         pid: Option<u32>,
-        thread: Option<String>,
     },
     OpenCode2 {
         url: String,
         pid: Option<u32>,
-        session: String,
         password: String,
     },
 }

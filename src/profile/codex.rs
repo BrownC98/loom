@@ -9,13 +9,15 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Command, Facts, InputSeen, NoServer};
+use super::adapter::{Carry, Command, Facts, InputSeen, NoServer, ResumeError};
 use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
+use crate::accounts::{AccountId, Site};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 use server::CodexServer;
@@ -66,6 +68,8 @@ fn usage(launch: Launch) -> String {
 }
 
 pub const CMD: &str = "codex";
+const DATE_DIRS: usize = 3;
+const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 
 pub struct Codex;
 
@@ -81,9 +85,9 @@ impl super::adapter::Adapter for Codex {
         }
     }
 
-    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+    fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {
         match resume {
-            Some(thread) => vec!["resume".into(), thread.into()],
+            Some(thread) => vec!["resume".into(), thread.0.clone()],
             None => bypass.to_vec(),
         }
     }
@@ -127,6 +131,58 @@ impl super::adapter::Adapter for Codex {
             pinned: PINNED_VERSION.to_owned(),
         })
     }
+
+    fn carry(&self, thread: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
+        let root = |account| {
+            to.site
+                .login_dir(Provider::Codex, account)
+                .ok_or("홈 폴더를 찾지 못했다".to_owned())
+        };
+        let (old_root, new_root) = (root(to.from)?, root(to.to)?);
+        if old_root == new_root {
+            return Ok(());
+        }
+        let rollout = rollout(&old_root, &thread.0)
+            .ok_or_else(|| format!("스레드 {}의 기록 파일이 없다", thread.0))?;
+        Ok(super::copy_session(&rollout, ROLLOUT_DEPTH, &new_root)?)
+    }
+
+    fn end_detached<'a>(
+        &'a self,
+        _: &'a Session,
+        _: &'a Site,
+        _: Option<&'a AccountId>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn record(&self, _: &Session) -> Option<PathBuf> {
+        None
+    }
+}
+
+fn rollout(root: &Path, thread: &str) -> Option<PathBuf> {
+    let name = format!("-{thread}.jsonl");
+    let mut dirs = vec![root.join("sessions")];
+    for _ in 0..DATE_DIRS {
+        dirs = dirs
+            .iter()
+            .flat_map(|dir| children(dir))
+            .filter(|path| path.is_dir())
+            .collect();
+    }
+    dirs.iter()
+        .flat_map(|dir| children(dir))
+        .find(|file| file.to_string_lossy().ends_with(&name))
+}
+
+fn children(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect()
 }
 
 pub fn server_args(launch: Launch) -> Vec<String> {
@@ -134,7 +190,7 @@ pub fn server_args(launch: Launch) -> Vec<String> {
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
-pub async fn resume<F, Fut>(call: F, thread: &str, bypass: bool) -> Result<(), String>
+pub async fn resume<F, Fut>(call: F, thread: &Session, bypass: bool) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -144,7 +200,7 @@ where
         false => ("workspace-write", "on-request"),
     };
     let params = serde_json::json!({
-        "threadId": thread,
+        "threadId": thread.0,
         "sandbox": sandbox,
         "approvalPolicy": approval,
         "excludeTurns": true,

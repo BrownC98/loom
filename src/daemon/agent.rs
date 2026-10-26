@@ -5,18 +5,19 @@ use super::relaunch::provider_of;
 use super::{AgentError, App, EndedTurn, IdleReply, IdleRequest, TakeRequest, Taken, for_agent};
 use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Change, NotTaken, ServerAdapter, Signal, Status};
-use crate::protocol::{Delivery, Kind, MessageId, Refusal};
+use crate::protocol::{Delivery, Kind, MessageId, Refusal, Session};
 use axum::http::StatusCode;
 
 impl App {
     pub(super) fn take_now(
         self: &Arc<Self>,
         node: NodeId,
+        token: &str,
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
         self.idle.turn_started(node, req.hook);
         self.turn_ends.stepped(node, req.turn.as_deref());
-        self.keep_transcript(node, req.transcript.as_deref())?;
+        self.keep_session(token, req.session.as_ref())?;
         let messages = self.unheld(node, || self.graph.take(node, &req.kinds, req.limit_bytes))?;
         let note = match req.human_input {
             true => self.human_input(node, req.prompt.as_deref())?,
@@ -103,11 +104,12 @@ impl App {
     pub(super) async fn wait_idle(
         self: &Arc<Self>,
         node: NodeId,
+        token: &str,
         req: IdleRequest,
         arrival: Option<super::arrival::Arrival>,
         current: impl Fn() -> bool,
     ) -> Result<IdleReply, AgentError> {
-        self.keep_transcript(node, req.transcript.as_deref())
+        self.keep_session(token, req.session.as_ref())
             .map_err(for_agent)?;
         let after_turn = req.turn_end.is_some();
         if let Some(ended) = req.turn_end
@@ -309,9 +311,12 @@ impl App {
         self.host.stop(node);
     }
 
-    fn keep_transcript(&self, node: NodeId, path: Option<&str>) -> Result<(), Refusal> {
-        match path {
-            Some(path) => self.graph.set_transcript(node, path).map_err(Refusal::from),
+    fn keep_session(&self, token: &str, session: Option<&Session>) -> Result<(), Refusal> {
+        match session {
+            Some(session) => self
+                .graph
+                .set_session(token, session)
+                .map_err(Refusal::from),
             None => Ok(()),
         }
     }

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use super::App;
 use super::gate::target_of;
 use crate::git;
-use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Queued};
-use crate::protocol::{self, Finding, MergeEnd, Refusal, SHIP_DEPLOY_FAILED};
+use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Outcome, Queued};
+use crate::protocol::{self, Finding, Refusal, SHIP_DEPLOY_FAILED};
 use crate::worktree::merge::{
     self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
     base_branch, bringing_merge, merge_commit, script,
@@ -136,8 +136,7 @@ fn batch_lines(id: BatchId) -> Vec<String> {
 
 fn failed(cause: String, log: Option<String>, lines: Vec<String>) -> Ended<'static> {
     Ended {
-        end: MergeEnd::Failed,
-        merged: None,
+        outcome: Outcome::Failed,
         cause: Some(cause),
         log,
         lines,
@@ -199,10 +198,9 @@ impl Batch<'_> {
                 let found = worktree::find(&self.dir, worktree)
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?;
-                if !worktree::changes(&found)
+                if worktree::dirty(Path::new(&found.path))
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?
-                    .is_empty()
                 {
                     self.dirty(&members, worktree);
                     return Ok(());
@@ -385,14 +383,13 @@ impl Batch<'_> {
 
     async fn screen(&self, member: &Queued) -> Result<bool, Refusal> {
         let findings = self.audit(member).await?;
-        let Some(end) = protocol::audit_end(&findings) else {
+        if !findings.iter().any(Finding::stops) {
             return Ok(true);
-        };
+        }
         self.settle(
             member,
             Ended {
-                end,
-                merged: None,
+                outcome: Outcome::Rework,
                 cause: None,
                 log: None,
                 lines: self.lines(),
@@ -540,7 +537,7 @@ impl Batch<'_> {
                 .graph
                 .audit(m.owner, m.since)?
                 .into_iter()
-                .filter(|f| f.end().is_none())
+                .filter(|f| !f.stops())
                 .collect();
             if into_base {
                 let known = self.app.graph.gate_merges(self.repo, &self.target)?;
@@ -552,8 +549,7 @@ impl Batch<'_> {
             self.settle(
                 m,
                 Ended {
-                    end: MergeEnd::Merged,
-                    merged: Some(Merge {
+                    outcome: Outcome::Merged(Merge {
                         sha: &sha,
                         target: &self.target,
                     }),
@@ -678,8 +674,7 @@ impl Batch<'_> {
 
     fn rework(&self, cause: String, log: Option<String>) -> Ended<'static> {
         Ended {
-            end: MergeEnd::Rework,
-            merged: None,
+            outcome: Outcome::Rework,
             cause: Some(cause),
             log,
             lines: self.lines(),

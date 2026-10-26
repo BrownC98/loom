@@ -17,7 +17,7 @@ use super::protocol::{
 };
 use crate::process_tree::{self, Snapshot};
 use crate::profile::process::Served;
-use crate::protocol::{ServerLink, WaitKind};
+use crate::protocol::{ServerLink, Session, WaitKind};
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -102,11 +102,11 @@ impl CodexServer {
     pub async fn reconnect(
         url: String,
         process: Served,
-        thread: Option<String>,
+        thread: Option<&Session>,
     ) -> Result<Self, String> {
         let server = Self::connect(url, process).await?;
         if let Some(id) = thread {
-            server.follow_thread(id).await;
+            server.follow_thread(id.0.clone()).await;
         }
         Ok(server)
     }
@@ -145,7 +145,6 @@ impl CodexServer {
         ServerLink::Codex {
             url: self.url.clone(),
             pid: self.process.pid,
-            thread: self.thread.borrow().as_ref().map(|t| t.id.clone()),
         }
     }
 

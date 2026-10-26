@@ -304,7 +304,7 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process = ?2, wait = NULL WHERE id = ?1 AND process IS NULL",
+            "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL WHERE id = ?1 AND process IS NULL",
             params![id.0, to_json(&ended)],
         )?;
         if changed == 0 {
@@ -365,7 +365,7 @@ impl Graph {
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL
-             WHERE id = ?1 AND process IS NULL AND state ->> 'kind' = 'done'",
+             WHERE id = ?1 AND process IS NULL AND sleeping = 1 AND state ->> 'kind' = 'done'",
             params![id.0, to_json(&ProcessOutcome::Asleep)],
         )?;
         if changed == 0 {
@@ -379,16 +379,22 @@ impl Graph {
         Ok(true)
     }
 
-    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 1 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 1 WHERE id = ?1 AND sleeping = 0 AND process IS NULL",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
-    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 0 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 0 WHERE id = ?1 AND sleeping = 1",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
     pub fn sleeping(&self, id: NodeId) -> rusqlite::Result<bool> {

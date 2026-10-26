@@ -341,6 +341,10 @@ const STEPS: &[M] = &[
             WHERE entry ->> 'kind' = 'agentStateDisagreed' AND entry ->> '$.state.kind' IN ('asleep', 'ended');"#,
     ),
     M::up("ALTER TABLE nodes ADD COLUMN setup INTEGER NOT NULL DEFAULT 0;"),
+    M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn required brief heads.'))
+            WHERE entry ->> '$.reason.code' = 'missingHeads';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

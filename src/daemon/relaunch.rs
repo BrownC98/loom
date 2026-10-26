@@ -15,7 +15,8 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{
-    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan, Who,
+    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan,
+    ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
@@ -309,7 +310,7 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let asleep = self.graph.asleep(id).map_err(internal)?;
+        let asleep = self.graph.process(id).map_err(internal)? == Some(ProcessOutcome::Asleep);
         let notice = match asleep {
             true => WOKEN_NOTICE,
             false => REVIVED_NOTICE,

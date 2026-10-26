@@ -119,7 +119,8 @@ impl Graph {
                             }),
                         )?;
                         tx.commit()?;
-                        return self.publish_node(&db, id);
+                        self.publish_nodes();
+                        return Ok(());
                     }
                     Some(_) | None => {}
                 }
@@ -141,7 +142,8 @@ impl Graph {
         };
         agent_state::apply(&tx, id, event)?;
         tx.commit()?;
-        self.publish_node(&db, id)
+        self.publish_nodes();
+        Ok(())
     }
 
     pub fn ask(&self, id: NodeId, question: &str, doc: Option<WaitDoc>) -> Result<WaitId, Refusal> {
@@ -172,7 +174,7 @@ impl Graph {
         };
         events::write(&tx, &entry, None)?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        self.publish_nodes();
         Ok(asked)
     }
 
@@ -236,7 +238,7 @@ impl Graph {
         let entry = record(events::who(&tx, node)?, wait, text.to_owned(), count);
         events::write(&tx, &entry, None)?;
         tx.commit()?;
-        self.publish_node(&db, node)?;
+        self.publish_nodes();
         self.mail.notify_waiters();
         Ok(node)
     }
@@ -261,7 +263,7 @@ impl Graph {
         }
         tx.commit()?;
         if !closing.is_empty() {
-            self.publish_node(&db, id)?;
+            self.publish_nodes();
         }
         Ok(closing)
     }
@@ -335,7 +337,7 @@ impl Graph {
         }
         agent_state::apply(&tx, id, AgentEvent::DialogCleared)?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        self.publish_nodes();
         Ok(true)
     }
 
@@ -350,7 +352,7 @@ impl Graph {
             )
             .optional()?;
         let asked = node.is_some();
-        let node = match node.map(NodeId) {
+        match node.map(NodeId) {
             Some(node) => {
                 mailbox::enqueue_human(
                     &tx,
@@ -359,7 +361,6 @@ impl Graph {
                     &format!("{wait} was closed without an answer."),
                 )?;
                 unanswered(&tx, node, wait, ClosedBy::Human)?;
-                node
             }
             None => match done_node(&tx, wait) {
                 Ok(node) => {
@@ -369,7 +370,6 @@ impl Graph {
                         wait,
                     };
                     events::write(&tx, &entry, None)?;
-                    node
                 }
                 Err(Refusal::NoWait(_)) => {
                     let node = tx
@@ -382,16 +382,16 @@ impl Graph {
                         .map(NodeId)
                         .ok_or(Refusal::NoWait(wait))?;
                     agent_state::apply(&tx, node, AgentEvent::DialogCleared)?;
-                    node
                 }
                 Err(e) => return Err(e),
             },
-        };
+        }
         tx.commit()?;
         if asked {
             self.mail.notify_waiters();
         }
-        Ok(self.publish_node(&db, node)?)
+        self.publish_nodes();
+        Ok(())
     }
 
     pub fn done_image(&self, wait: WaitId, index: usize) -> Result<PathBuf, Refusal> {

@@ -14,12 +14,15 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import java.io.IOException
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -29,12 +32,15 @@ import org.json.JSONObject
 
 class Watch : Service() {
     private val main = Handler(Looper.getMainLooper())
-    private val board = Board()
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val manager by lazy { getSystemService(NotificationManager::class.java) }
     private val again = Runnable { connect() }
     private val quiet = Runnable { dropped() }
     private var socket: WebSocket? = null
+    private var nodes: (() -> Call)? = null
+    private var reading: Call? = null
+    private var stale = false
+    private var waits: List<Wait>? = null
     private var limit: Long? = CONNECT_MS
     private var turn = 0
     private var at = 0
@@ -60,10 +66,9 @@ class Watch : Service() {
 
     override fun onDestroy() {
         stopped = true
-        turn++
         net.stop()
+        drop()
         main.removeCallbacksAndMessages(null)
-        socket?.cancel()
         manager.activeNotifications.filter { it.tag == WAIT_TAG }.forEach { manager.cancel(WAIT_TAG, it.id) }
         super.onDestroy()
     }
@@ -92,9 +97,11 @@ class Watch : Service() {
         val host = hosts[at % hosts.size]
         val pin = prefs.getString(Prefs.PIN, null)?.takeIf { host in doors }
         val cookie = Door.deviceCookie(host) ?: doors.firstNotNullOfOrNull(Door::deviceCookie)
-        val request = Request.Builder().url("wss://$host/api/events").apply { cookie?.let { header("Cookie", it) } }.build()
+        fun at(path: String) = Request.Builder().url(path).apply { cookie?.let { header("Cookie", it) } }.build()
+        val http = client(pin)
+        nodes = { http.newCall(at("https://$host/api/nodes")) }
         val mine = ++turn
-        socket = client(pin).newWebSocket(request, object : WebSocketListener() {
+        socket = http.newWebSocket(at("wss://$host/api/events"), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(BACK_FRAME)
                 main.post {
@@ -105,7 +112,7 @@ class Watch : Service() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                main.post { if (mine == turn) heard(board.apply(text), text) }
+                main.post { if (mine == turn) heard(Waits.heard(text), text) }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -122,7 +129,35 @@ class Watch : Service() {
     private fun heard(heard: Heard, text: String) {
         if (heard == Heard.BEAT) limit = runCatching { JSONObject(text).getLong("quietMs") }.getOrNull()
         awaitFrame()
-        if (heard == Heard.WAITS) show()
+        if (heard == Heard.NODES) read()
+    }
+
+    private fun read() {
+        if (reading != null) return run { stale = true }
+        val call = nodes?.invoke() ?: return
+        reading = call
+        call.enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                val read = runCatching { response.use { if (it.isSuccessful) Waits.read(it.body.string()) else null } }.getOrNull()
+                main.post { answered(call, read) }
+            }
+
+            override fun onFailure(call: Call, e: IOException) {
+                main.post { answered(call, null) }
+            }
+        })
+    }
+
+    private fun answered(call: Call, read: List<Wait>?) {
+        if (call !== reading) return
+        reading = null
+        if (stale) {
+            stale = false
+            return read()
+        }
+        if (read == null) return dropped()
+        waits = read
+        show()
     }
 
     private fun awaitFrame() {
@@ -142,6 +177,9 @@ class Watch : Service() {
         main.removeCallbacks(quiet)
         socket?.cancel()
         socket = null
+        reading?.cancel()
+        reading = null
+        stale = false
         limit = CONNECT_MS
     }
 
@@ -158,10 +196,10 @@ class Watch : Service() {
     }
 
     private fun show() {
-        if (!board.ready) return
+        val waits = waits ?: return
         val shown = manager.activeNotifications.filter { it.tag == WAIT_TAG }.map { it.id.toLong() }.toSet()
         val seen = prefs.getString(Prefs.NOTIFY_SEEN, null)?.let { text -> text.split(',').mapNotNull { it.toLongOrNull() }.toSet() }
-        val plan = Waits.plan(board.waits, seen, shown, switches(prefs), front)
+        val plan = Waits.plan(waits, seen, shown, switches(prefs), front)
         plan.cancel.forEach { manager.cancel(WAIT_TAG, it.toInt()) }
         plan.post.forEach(::post)
         prefs.edit().putString(Prefs.NOTIFY_SEEN, plan.seen.joinToString(",")).apply()

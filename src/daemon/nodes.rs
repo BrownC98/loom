@@ -5,7 +5,7 @@ use super::*;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
-        .route("/api/nodes", post(create_node))
+        .route("/api/nodes", get(list_nodes).post(create_node))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/detach", post(detach_node))
@@ -24,6 +24,10 @@ pub(super) fn routes() -> Router<Arc<App>> {
             "/api/pastes/{name}",
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
+}
+
+async fn list_nodes(State(app): State<Arc<App>>) -> Result<Json<Vec<NodeView>>, Problem> {
+    app.graph.views().map(Json).map_err(internal)
 }
 
 #[derive(Deserialize, TS)]

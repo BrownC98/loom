@@ -29,6 +29,7 @@ import type { NewNode } from './gen/NewNode';
 import type { NewRepo } from './gen/NewRepo';
 import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
+import type { NodeView } from './gen/NodeView';
 import type { OpenFile } from './gen/OpenFile';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
@@ -49,7 +50,7 @@ import type { UpdateView } from './gen/UpdateView';
 import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
-import { reconnecting } from './link';
+import { reconnecting, type Link } from './link';
 
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
@@ -75,6 +76,7 @@ export const savePastedFile = (file: File, node: NodeId | null) =>
     data: file,
   });
 
+export const getNodes = () => call<NodeView[]>('GET', '/api/nodes');
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}`);
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
@@ -164,7 +166,7 @@ function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
 }
 
-export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): () => void {
+export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): Pick<Link, 'reopen' | 'close'> {
   const link = reconnecting(socketUrl('/api/events'), {
     onOpen: () => onLink(true),
     onMessage: (e) => {
@@ -174,7 +176,7 @@ export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: bo
     },
     onDrop: () => onLink(false),
   });
-  return link.close;
+  return link;
 }
 
 export async function newBuildServed(): Promise<boolean> {

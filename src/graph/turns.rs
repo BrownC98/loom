@@ -69,7 +69,7 @@ impl Graph {
         )? > 0;
         tx.commit()?;
         if changed {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
         }
         Ok(())
     }

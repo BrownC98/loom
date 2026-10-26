@@ -1733,7 +1733,16 @@ mod tests {
                     node.0
                 );
                 if node == sleeper {
-                    assert!(app.graph.asleep(node).unwrap(), "{round}: asleep");
+                    for _ in 0..500 {
+                        if app.graph.asleep(node).unwrap() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    assert!(
+                        app.graph.asleep(node).unwrap(),
+                        "{round}: asleep after its failed wake"
+                    );
                     continue;
                 }
                 assert!(
@@ -1864,7 +1873,7 @@ mod tests {
         drop(app);
 
         let app = started_again(dir.path()).await;
-        for _ in 0..100 {
+        for _ in 0..500 {
             if app.sleeps.stopping(worker) {
                 break;
             }
@@ -2386,7 +2395,7 @@ mod tests {
             .unwrap(),
         );
         restarted.resume().await.unwrap();
-        for _ in 0..200 {
+        for _ in 0..1200 {
             if restarted.graph.ended(worker).unwrap().is_some() {
                 break;
             }

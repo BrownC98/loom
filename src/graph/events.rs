@@ -291,7 +291,7 @@ pub enum IdleEnd {
     Error,
 }
 
-/// 다시 일하게 한 턴 끝 검사(`daemon::turn_end`).
+/// 다시 일하게 한 턴 끝 검사(`graph::turns`).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

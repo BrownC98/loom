@@ -568,11 +568,12 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
             Err(e) => Answer::Failed(e),
         },
         Ask::End(roots) => match tokio::task::spawn_blocking(move || {
-            process_tree::Snapshot::now().kill_trees(roots)
+            process_tree::Snapshot::now().end_trees(roots)
         })
         .await
         {
-            Ok(_) => Answer::Ended,
+            Ok(Ok(())) => Answer::Ended,
+            Ok(Err(e)) => Answer::Failed(e),
             Err(e) => Answer::Failed(e.to_string()),
         },
         Ask::Serve(command) => {

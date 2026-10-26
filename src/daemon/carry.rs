@@ -66,11 +66,19 @@ impl App {
                 None => None,
             })
             .collect();
-        wsl::end_hosts(&distro, &home, &servers).await?;
         let mut carried = Carried {
             relaunched: Vec::new(),
             ended: Vec::new(),
         };
+        if let Err(e) = wsl::end_hosts(&distro, &home, &servers).await {
+            for node in active {
+                let _ = self.graph.lost(node.id);
+                carried
+                    .ended
+                    .push(format!("{}: 옛 프로세스가 끝나지 않았다: {e}", node.name));
+            }
+            return Ok(carried);
+        }
         for node in active {
             let who = Who {
                 id: Some(node.id),

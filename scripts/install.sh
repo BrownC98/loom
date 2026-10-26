@@ -11,7 +11,11 @@ is_web_install() {
 
 point_bin_to() {
   mkdir -p "$(dirname "$bin")"
-  printf '#!/bin/sh\nexec "%s" "$@"\n' "$1" >"$bin.new"
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    printf '#!/bin/sh\ncase $1 in serve|start|stop|open) [ "$HOME" = '"'%s'"' ] || { echo "loom: this command would act on the human'"'"'s Windows daemon; build a Linux test binary instead (see AGENTS.md \\"데몬 띄우기(시험)\\")" >&2; exit 2; } ;; esac\nexec "%s" "$@"\n' "$(printf %s "$HOME" | sed "s/'/'\\\\''/g")" "$1"
+  else
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$1"
+  fi >"$bin.new"
   chmod +x "$bin.new"
   mv "$bin.new" "$bin"
   echo "loom 명령이 $1을 부릅니다: $bin"

@@ -16,7 +16,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Who } from './gen/Who';
-import { useShowNodes } from './Graph';
+import { useShowNodes } from './camera';
 import { DocText } from './DocText';
 import { plainText } from './links';
 import { clockTime } from './i18n';

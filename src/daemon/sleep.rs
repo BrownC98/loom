@@ -238,6 +238,13 @@ impl App {
                     kept(&app, id);
                     app.refused(id);
                 }
+                Err(e) if app.host.attach(id).is_some() => {
+                    eprintln!(
+                        "loom: 듣지 못하는 노드 {}를 살리지 못했다. 옛 프로세스를 두고 다음 사건에 다시 해 본다: {e}",
+                        id.0
+                    );
+                    app.refused(id);
+                }
                 Err(e) => {
                     eprintln!("loom: 듣지 못하는 노드 {}를 살리지 못했다: {e}", id.0);
                     app.host.stop(id);
@@ -1173,9 +1180,10 @@ mod tests {
         assert_eq!(t.app.agent_state(busy), Some(AgentState::Turn));
         assert_eq!(t.app.agent_state(fresh), Some(AgentState::Turn));
         assert_eq!(t.app.agent_state(heard), Some(AgentState::Listening));
-        while t.app.graph.ended(deaf).unwrap().is_none() {
+        while !t.app.relaunches.held(deaf) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        assert!(t.app.graph.ended(deaf).unwrap().is_none());
         t.app.end_unhooked_turns().unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(missed(&t).len(), 6, "each turn end is noted once");
@@ -1425,12 +1433,12 @@ mod tests {
         while !relaunched() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        while t.app.graph.ended(node).unwrap().is_none() {
+        while !t.app.relaunches.held(node) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(
-            !t.app.relaunches.held(node),
-            "a failed recovery ends the node"
+            t.app.graph.ended(node).unwrap().is_none(),
+            "a failed recovery keeps the old process for the next event"
         );
     }
 
@@ -1510,7 +1518,6 @@ mod tests {
         std::fs::remove_file(t.dir.path().join("hinted.jsonl")).unwrap();
         drop(t.app.idle.open(node));
         relaunched(&t, node).await;
-        assert!(!t.app.relaunches.held(node));
     }
 
     #[cfg(unix)]
@@ -1876,14 +1883,19 @@ mod tests {
             Path::new(&format!("/proc/{hook}")).exists(),
             "the hook still lives"
         );
-        while t.app.graph.ended(node).unwrap().is_none() {
+        while !t.app.relaunches.held(node) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        assert!(t.app.graph.ended(node).unwrap().is_none());
 
         let late = t.app.idle.open(node);
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!t.app.relaunches.held(node));
-        assert_eq!(t.app.agent_state(node), Some(AgentState::Ended));
+        assert_eq!(
+            t.app.agent_state(node),
+            Some(AgentState::Listening),
+            "the kept process's hook hears again"
+        );
         assert_eq!(missed(&t), [(node, true)], "one relaunch");
         drop(late);
         let _ = std::process::Command::new("kill")

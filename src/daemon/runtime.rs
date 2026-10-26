@@ -328,7 +328,7 @@ impl App {
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
-                app.sleeps.changed();
+                app.sleeps.settled(id);
             }
         });
     }

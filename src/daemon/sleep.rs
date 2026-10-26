@@ -29,6 +29,7 @@ pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
     stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
+    settled: Mutex<HashMap<NodeId, Instant>>,
     changed: Notify,
 }
 
@@ -53,6 +54,7 @@ impl Sleeps {
     pub fn exited(&self, node: NodeId) {
         self.stopping.lock().unwrap().remove(&node);
         self.resting.lock().unwrap().remove(&node);
+        self.settled.lock().unwrap().remove(&node);
     }
 
     pub fn knocked(&self, node: NodeId) {
@@ -62,6 +64,21 @@ impl Sleeps {
 
     pub fn changed(&self) {
         self.changed.notify_one();
+    }
+
+    pub fn settled(&self, node: NodeId) {
+        self.settled.lock().unwrap().insert(node, now());
+        self.changed();
+    }
+
+    fn settle_due(&self, node: NodeId, now: Instant) -> Option<Instant> {
+        let mut settled = self.settled.lock().unwrap();
+        let due = *settled.get(&node)? + STOP_HOOK_GRACE;
+        if due > now {
+            return Some(due);
+        }
+        settled.remove(&node);
+        None
     }
 
     fn rest_again(&self, node: NodeId) -> bool {
@@ -175,16 +192,7 @@ impl App {
             if self.agent_state(id) != Some(AgentState::Deaf) {
                 continue;
             }
-            let Some(mut screen) = self.host.attach(id).filter(|a| a.backlog.is_empty()) else {
-                self.recover(id);
-                continue;
-            };
-            let app = self.clone();
-            tokio::spawn(async move {
-                if !matches!(screen.output.recv().await, Err(RecvError::Closed)) {
-                    app.recover(id);
-                }
-            });
+            self.recover(id);
         }
         Ok(())
     }
@@ -196,6 +204,15 @@ impl App {
     }
 
     fn recover_typed_from(self: &Arc<Self>, id: NodeId, typed_from: TypedFrom) {
+        if let Some(mut screen) = self.host.attach(id).filter(|a| a.backlog.is_empty()) {
+            let app = self.clone();
+            tokio::spawn(async move {
+                if !matches!(screen.output.recv().await, Err(RecvError::Closed)) {
+                    app.recover_typed_from(id, typed_from);
+                }
+            });
+            return;
+        }
         let (node, plan, guard, kept) = match self.recovering(id, typed_from) {
             Ok(Some(recovery)) => recovery,
             Ok(None) => return,
@@ -335,6 +352,10 @@ impl App {
                 _ => self.turn_ends.reply_age(id),
             };
             let Some(quiet) = quiet else {
+                next = next
+                    .into_iter()
+                    .chain(self.sleeps.settle_due(id, now()))
+                    .min();
                 continue;
             };
             if let Some(left) = STOP_HOOK_GRACE.checked_sub(quiet)
@@ -363,7 +384,7 @@ impl App {
         let Some(path) = self.transcript(node)? else {
             return Ok(None);
         };
-        let Some(began) = self.graph.turn_began_before(node.id)? else {
+        let Some(began) = self.graph.turn_began(node.id)? else {
             return Ok(None);
         };
         Ok(std::fs::metadata(&path)
@@ -780,6 +801,135 @@ mod tests {
         t.app.end_unhooked_turns().unwrap();
         assert_eq!(missed(&t), []);
         assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
+    }
+
+    #[tokio::test]
+    async fn a_current_turn_that_ends_in_its_start_second_still_recovers() {
+        while SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .subsec_millis()
+            > 400
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let t = fixture();
+        let node = add_worker(&t, "quick");
+        let path = t.dir.path().join("quick.jsonl");
+        t.app
+            .graph
+            .set_transcript(node, path.to_str().unwrap())
+            .unwrap();
+        t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        std::fs::write(&path, ENDED).unwrap();
+        let finished = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let began = t.app.graph.turn_began(node).unwrap().unwrap();
+        let second = |at: SystemTime| at.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        assert!(finished > began, "the turn wrote its end after it began");
+        assert_eq!(second(finished), second(began), "in the start second");
+        t.app.graph.backdate_agent_state(node, STOP_HOOK_GRACE * 2);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(finished - STOP_HOOK_GRACE * 2)
+            .unwrap();
+        t.app.end_unhooked_turns().unwrap();
+        assert_eq!(
+            missed(&t),
+            [(node, false)],
+            "current-turn completion is evidence even in the start second"
+        );
+        assert_eq!(t.app.agent_state(node), Some(AgentState::Deaf));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transcript_write_after_the_screen_settles_is_seen_at_the_settle_deadline() {
+        let t = fixture();
+        let node = add_worker(&t, "late_write");
+        let path = t.dir.path().join("late_write.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let set_modified = |at| {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(at)
+                .unwrap()
+        };
+        set_modified(SystemTime::now() - STOP_HOOK_GRACE * 4);
+        t.app
+            .graph
+            .set_transcript(node, path.to_str().unwrap())
+            .unwrap();
+        t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        t.app.graph.backdate_agent_state(node, STOP_HOOK_GRACE * 3);
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        run_ready().await;
+        assert_eq!(
+            t.app.end_unhooked_turns().unwrap(),
+            None,
+            "no deadline while the evidence is from the previous turn"
+        );
+        t.app.sleeps.settled(node);
+        run_ready().await;
+        let settled = now();
+        assert_eq!(
+            t.app.end_unhooked_turns().unwrap(),
+            Some(settled + STOP_HOOK_GRACE)
+        );
+        std::fs::write(&path, ENDED).unwrap();
+        set_modified(SystemTime::now() - STOP_HOOK_GRACE * 2);
+        tokio::time::sleep(STOP_HOOK_GRACE / 2).await;
+        assert_eq!(missed(&t), [], "nothing before the deadline");
+        tokio::time::sleep(STOP_HOOK_GRACE / 2 + Duration::from_secs(1)).await;
+        run_ready().await;
+        assert_eq!(missed(&t), [(node, false)]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_lost_wait_at_attach_waits_for_the_first_screen() {
+        let t = fixture();
+        let node = unheard(&t, "late_attach", ENDED);
+        t.app.feed(node, AgentEvent::WaitOpened);
+        let go = t.dir.path().join("show-screen");
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "stty -icanon -echo; while [ ! -e \"$GO\" ]; do sleep 0.01; done; printf '%s' \"$SCREEN\"; exec cat >/dev/null"]);
+        cmd.env("GO", &go);
+        cmd.env("SCREEN", boxed("❯ "));
+        crate::node_host::in_process(&t.dir.path().join("pty/nodes"), node, cmd);
+        t.app.resume().await.unwrap();
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        assert!(t.app.host.attach(node).unwrap().backlog.is_empty());
+        t.app.hear_lost_wait(node).unwrap();
+        run_ready().await;
+        assert_eq!(t.app.agent_state(node), Some(AgentState::Deaf));
+        std::fs::remove_file(t.dir.path().join("late_attach.jsonl")).unwrap();
+        std::fs::write(&go, "").unwrap();
+        while claude::input(&t.app.host.screen(node).undimmed) != Some("") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        let without_event = missed(&t).contains(&(node, true));
+        t.app.recover(node);
+        let control = tokio::time::timeout(Duration::from_secs(5), async {
+            while !missed(&t).contains(&(node, true)) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        t.app.host.stop(node);
+        assert!(
+            control.is_ok(),
+            "control: the first screen now permits recovery if called"
+        );
+        assert!(
+            without_event,
+            "the first screen must retry recovery after an attach detected the lost wait"
+        );
     }
 
     fn missed(t: &Fixture) -> Vec<(NodeId, bool)> {

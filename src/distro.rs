@@ -42,6 +42,7 @@ enum Ask {
     Reach(SocketAddr),
     Run(Command),
     Serve(Command),
+    End(Vec<u32>),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +54,7 @@ enum Answer {
     Ran(Ran),
     Spawned(u32),
     Exited(Option<i32>),
+    Ended,
     Failed(String),
 }
 
@@ -187,6 +189,13 @@ impl Distros {
         }
     }
 
+    pub fn end(&self, distro: &str, roots: Vec<u32>) -> Result<(), String> {
+        match self.answer(distro, &Ask::End(roots))? {
+            Answer::Ended => Ok(()),
+            other => Err(unexpected(other)),
+        }
+    }
+
     fn answer(&self, distro: &str, ask: &Ask) -> Result<Answer, String> {
         let mut link = self.ask(distro, ask)?;
         read_answer(&mut link).map_err(|e| format!("distro host: {e}"))
@@ -258,6 +267,10 @@ impl Distro {
 
     pub fn serve(&self, command: Command) -> Result<Serving, String> {
         self.distros.serve(&self.name, command)
+    }
+
+    pub fn end(&self, roots: Vec<u32>) -> Result<(), String> {
+        self.distros.end(&self.name, roots)
     }
 }
 
@@ -553,6 +566,14 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
                 Err(e) => Answer::Failed(format!("{}: {e}", command.argv[0])),
             },
             Err(e) => Answer::Failed(e),
+        },
+        Ask::End(roots) => match tokio::task::spawn_blocking(move || {
+            process_tree::Snapshot::now().kill_trees(roots)
+        })
+        .await
+        {
+            Ok(_) => Answer::Ended,
+            Err(e) => Answer::Failed(e.to_string()),
         },
         Ask::Serve(command) => {
             match process(&command).and_then(|cmd| spawn_detached(cmd, &command)) {

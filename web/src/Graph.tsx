@@ -512,6 +512,7 @@ export function Graph(props: {
   const minimapFolded = props.settings.minimapFolded;
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
+  const repoOf = (spot: Spot) => (spot.kind === 'node' ? props.views.get(spot.node)?.place.repo : spot.repo);
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
   const { alwaysArrange } = props.settings;
   const keepsArranged = (repo: RepoId) => alwaysArrange || arrangedRepos.has(repo);
@@ -601,7 +602,7 @@ export function Graph(props: {
       ];
       const local = unpiled(settle(items, placedIn, FREE_GAP), items);
       for (const v of members) {
-        spotOf.set(String(v.id), { kind: 'node', repo: repo.id, node: v.id });
+        spotOf.set(String(v.id), { kind: 'node', node: v.id });
         branchOf.set(String(v.id), v.parent !== null && members.some((m) => m.id === v.parent) ? String(v.parent) : 'root');
       }
       for (const k of kids) {
@@ -1067,7 +1068,7 @@ export function Graph(props: {
   const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
     if (done.size === 0) return;
     const placed = place(done);
-    const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : [p.spot.repo])));
+    const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : (repoOf(p.spot) ?? []))));
     if (alwaysArrange) return keepArranged([...inside], placed, after);
     setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
     after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
@@ -1111,7 +1112,7 @@ export function Graph(props: {
   const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);
   const clearRepos = (ids: readonly RepoId[]) => {
     setOrder((prev) => new Map([...prev, ...onScreen()]));
-    setSpots((prev) => new Map([...prev].filter(([, p]) => !ids.includes(p.spot.repo))));
+    setSpots((prev) => new Map([...prev].filter(([, p]) => !ids.some((id) => id === repoOf(p.spot)))));
     setArrangedRepos((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
   };
   useEffect(() => {

@@ -21,6 +21,7 @@ enum Lang {
     Nsis,
     HashLines,
     Properties,
+    Sql,
 }
 
 enum Kind {
@@ -58,6 +59,7 @@ fn kind_of(path: &str) -> Option<Kind> {
             "html" => Lang::Html,
             "nsh" | "nsi" => Lang::Nsis,
             "properties" => Lang::Properties,
+            "sql" => Lang::Sql,
             ext if UNCHECKED_EXTENSIONS.contains(&ext) => return Some(Kind::Unchecked),
             _ => return None,
         },
@@ -93,7 +95,7 @@ fn grammar(lang: Lang) -> Language {
         Lang::Xml => tree_sitter_xml::LANGUAGE_XML.into(),
         Lang::Css => tree_sitter_css::LANGUAGE.into(),
         Lang::Html => tree_sitter_html::LANGUAGE.into(),
-        Lang::Nsis | Lang::HashLines | Lang::Properties => unreachable!("line formats"),
+        Lang::Nsis | Lang::HashLines | Lang::Properties | Lang::Sql => unreachable!("line formats"),
     }
 }
 
@@ -101,6 +103,7 @@ fn comments(lang: Lang, text: &str) -> Result<Vec<Comment>, String> {
     let spans = match lang {
         Lang::HashLines => line_comments(text, |line| line.starts_with('#')),
         Lang::Properties => line_comments(text, |line| line.trim_start().starts_with(['#', '!'])),
+        Lang::Sql => line_comments(text, |line| line.trim_start().starts_with("--")),
         Lang::Nsis => nsis_comments(text),
         _ => {
             let mut found = Vec::new();
@@ -277,6 +280,7 @@ fn judge(lang: Lang, text: &str, at_file_start: bool, node: Option<(Node, &str)>
 fn body_of(text: &str) -> &str {
     text.trim_start_matches(['/', '#', ';', '*', '!'])
         .trim_start_matches("<!--")
+        .trim_start_matches("--")
         .trim()
 }
 

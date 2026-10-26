@@ -17,8 +17,10 @@ use crate::protocol::{
     MessageKind, Question, Refusal, SUMMARY_LIMIT_BYTES, WaitDoc,
 };
 
-fn wakes(delivery: &Delivery) -> bool {
-    delivery.kind != Kind::Queue || delivery.what.as_ref().is_none_or(MessageKind::wakes)
+const NOTICE: &str = "what ->> 'kind' IN ('exited', 'removed', 'adopted')";
+
+fn wakes() -> String {
+    format!(r#"(kind != '"queue"' OR what IS NULL OR NOT {NOTICE})"#)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,7 +33,6 @@ struct Outgoing<'a> {
     kind: Kind,
     what: MessageKind,
     body: &'a str,
-    reply_to: Option<MessageId>,
     via: Option<&'a Via>,
 }
 
@@ -70,7 +71,6 @@ impl Graph {
                 kind,
                 what: MessageKind::Note,
                 body,
-                reply_to: None,
                 via,
             },
             |_| {},
@@ -92,7 +92,6 @@ impl Graph {
                 kind: Kind::Interrupt,
                 what: MessageKind::Note,
                 body,
-                reply_to: None,
                 via,
             },
             stop,
@@ -119,7 +118,6 @@ impl Graph {
                 kind: Kind::Queue,
                 what: MessageKind::Ask,
                 body: question,
-                reply_to: None,
                 via,
             },
             |_| {},
@@ -153,7 +151,6 @@ impl Graph {
                     question: Question::Message { id: request.0 },
                 },
                 body,
-                reply_to: Some(request),
                 via,
             },
             |_| {},
@@ -171,7 +168,6 @@ impl Graph {
             kind,
             what,
             body,
-            reply_to,
             via,
         } = message;
         if body.len() > BRIEF_LIMIT_BYTES {
@@ -182,7 +178,6 @@ impl Graph {
             Ok(to_id) => Some(to_id),
             Err(Refusal::NotFound(_))
                 if kind == Kind::Queue
-                    && reply_to.is_none()
                     && (to == PARENT || node_id(&db, from, to)?.is_none())
                     && parent_of(&db, from)?.is_none() =>
             {
@@ -204,19 +199,6 @@ impl Graph {
             gate: None,
         };
         let id = enqueue(&tx, from, to_id, kind, &what, body, stamp)?;
-        if let Some(request) = reply_to {
-            let valid: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND recipient = ?2 AND sender = ?3)",
-                params![request.0, from.0, to_id.map(|id| id.0)], |row| row.get(0),
-            )?;
-            if !valid {
-                return Err(Refusal::NotFound(format!("메시지 #{}", request.0)));
-            }
-            tx.execute(
-                "UPDATE messages SET reply_to = ?2 WHERE id = ?1",
-                params![id.0, request.0],
-            )?;
-        }
         if let Some(to_id) = to_id {
             before_delivery(to_id);
         }
@@ -272,7 +254,9 @@ impl Graph {
                 .lock()
                 .query_row(
                     "SELECT id, sender_name, kind, body, what FROM messages
-                     WHERE recipient = ?1 AND reply_to = ?2 ORDER BY id LIMIT 1",
+                     WHERE recipient = ?1 AND what ->> 'kind' = 'answer'
+                     AND what ->> '$.question.in' = 'message' AND what ->> '$.question.id' = ?2
+                     ORDER BY id LIMIT 1",
                     params![node.0, request.0],
                     read_delivery,
                 )
@@ -330,7 +314,7 @@ impl Graph {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, |queued| queued.iter().any(wakes))
+        self.take_if(node, kinds, limit_bytes, |wakes| wakes.contains(&true))
     }
 
     fn take_if(
@@ -338,22 +322,27 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
-        wanted: impl FnOnce(&[Delivery]) -> bool,
+        wanted: impl FnOnce(&[bool]) -> bool,
     ) -> Result<Vec<Delivery>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let kinds = serde_json::to_string(&kinds.iter().map(to_json).collect::<Vec<_>>())
             .expect("문자열 목록은 늘 직렬화된다");
-        let queued = tx
-            .prepare(
-                "SELECT id, sender_name, kind, body, what FROM messages
+        let (queued, wakes): (Vec<Delivery>, Vec<bool>) = tx
+            .prepare(&format!(
+                "SELECT id, sender_name, kind, body, what, {} FROM messages
                  WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
                  AND kind IN (SELECT value FROM json_each(?2))
                  AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1) ORDER BY id",
-            )?
-            .query_map(params![node.0, kinds], read_delivery)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if !wanted(&queued) {
+                wakes()
+            ))?
+            .query_map(params![node.0, kinds], |row| {
+                Ok((read_delivery(row)?, row.get::<_, bool>(5)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .unzip();
+        if !wanted(&wakes) {
             return Ok(Vec::new());
         }
         let mut taken = Vec::new();
@@ -378,27 +367,19 @@ impl Graph {
     }
 
     pub fn sleepers_with_mail(&self) -> rusqlite::Result<Vec<NodeId>> {
-        let db = self.lock();
-        let sleepers = db
-            .prepare(
-                "SELECT DISTINCT n.id FROM nodes n JOIN messages m ON m.recipient = n.id
-                 WHERE n.process ->> 'kind' = 'asleep' AND m.delivered = 0 ORDER BY n.id",
-            )?
+        self.lock()
+            .prepare(&format!(
+                "SELECT id FROM nodes n WHERE process ->> 'kind' = 'asleep' AND EXISTS(SELECT 1 FROM messages
+                 WHERE recipient = n.id AND delivered = 0 AND {}) ORDER BY id", wakes()
+            ))?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut waking = Vec::new();
-        for node in sleepers {
-            if queued(&db, node)? > 0 {
-                waking.push(node);
-            }
-        }
-        Ok(waking)
+            .collect()
     }
 
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let steered = steer_where(&tx, node, |d| !wakes(d))?;
+        let steered = steer(&tx, node, NOTICE)?;
         let resumed = resume(&tx, node)?;
         tx.commit()?;
         if resumed || steered > 0 {
@@ -420,23 +401,18 @@ impl Graph {
             .flatten();
         if !agent.as_ref().is_some_and(self.linked) {
             let notices: Vec<MessageId> = db
-                .prepare(
-                    "SELECT id, sender_name, kind, body, what FROM messages
-                     WHERE recipient = ?1 AND delivered = 0",
-                )?
-                .query_map([node.0], read_delivery)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-                .into_iter()
-                .filter(|d| d.what.as_ref().is_some_and(|w| !w.wakes()))
-                .map(|d| d.id)
-                .collect();
+                .prepare(&format!(
+                    "SELECT id FROM messages WHERE recipient = ?1 AND delivered = 0 AND {NOTICE}"
+                ))?
+                .query_map([node.0], |row| Ok(MessageId(row.get(0)?)))?
+                .collect::<rusqlite::Result<_>>()?;
             drop(db);
             if notices.is_empty() {
                 return Ok(());
             }
             return self.ack(node, &notices);
         }
-        steer_where(&db, node, |_| true)?;
+        steer(&db, node, "1")?;
         drop(db);
         self.mail.notify_waiters();
         Ok(())
@@ -522,13 +498,7 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_work(
-            &tx,
-            node,
-            &Work::Done {
-                summary: summary.to_owned(),
-            },
-        )?;
+        set_work(&tx, node, &Work::Done)?;
         match asked {
             Some(asked) if parent.is_none() => {
                 waits::put_done(&tx, node, asked, summary, images, doc)?
@@ -680,53 +650,43 @@ pub(super) fn requeue_unread(db: &Connection, node: NodeId) -> rusqlite::Result<
 }
 
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
-    let done = matches!(state_of(db, node), Ok(NodeState::Done { .. }));
+    let done = matches!(state_of(db, node), Ok(NodeState::Done));
     if done {
         set_work(db, node, &Work::Running)?;
     }
     Ok(done)
 }
 
-fn steer_where(
-    db: &Connection,
-    node: NodeId,
-    wanted: impl Fn(&Delivery) -> bool,
-) -> rusqlite::Result<usize> {
-    let queued = db
-        .prepare(
-            "SELECT id, sender_name, kind, body, what FROM messages
-             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?2",
-        )?
-        .query_map(params![node.0, to_json(&Kind::Queue)], read_delivery)?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut steered = 0;
-    for delivery in queued.iter().filter(|d| wanted(d)) {
-        db.execute(
-            "UPDATE messages SET kind = ?2 WHERE id = ?1",
-            params![delivery.id.0, to_json(&Kind::Steer)],
-        )?;
-        steered += 1;
-    }
-    Ok(steered)
+fn steer(db: &Connection, node: NodeId, only: &str) -> rusqlite::Result<usize> {
+    db.execute(
+        &format!(
+            "UPDATE messages SET kind = ?3
+             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?2 AND {only}"
+        ),
+        params![node.0, to_json(&Kind::Queue), to_json(&Kind::Steer)],
+    )
 }
 
 fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
-    Ok(waking(db, to)?.len() as u32)
+    db.query_row(
+        &format!(
+            "SELECT count(*) FROM messages WHERE recipient = ?1 AND delivered = 0 AND {}",
+            wakes()
+        ),
+        [to.0],
+        |row| row.get(0),
+    )
 }
 
 pub(super) fn newest(db: &Connection, to: NodeId) -> rusqlite::Result<Option<u32>> {
-    Ok(waking(db, to)?.iter().map(|d| d.id.0).max())
-}
-
-fn waking(db: &Connection, to: NodeId) -> rusqlite::Result<Vec<Delivery>> {
-    let queued = db
-        .prepare(
-            "SELECT id, sender_name, kind, body, what FROM messages
-             WHERE recipient = ?1 AND delivered = 0",
-        )?
-        .query_map([to.0], read_delivery)?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(queued.into_iter().filter(wakes).collect())
+    db.query_row(
+        &format!(
+            "SELECT max(id) FROM messages WHERE recipient = ?1 AND delivered = 0 AND {}",
+            wakes()
+        ),
+        [to.0],
+        |row| row.get(0),
+    )
 }
 
 fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {

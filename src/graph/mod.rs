@@ -52,10 +52,7 @@ impl fmt::Display for NodeId {
 #[ts(export)]
 pub enum NodeState {
     Running,
-    /// `summary`는 부모에게 보낸 요약이나 결과 파일 경로다.
-    Done {
-        summary: String,
-    },
+    Done,
     /// `code`가 없으면 데몬이 다시 시작했을 때 프로세스가 사라졌던 노드다.
     Exited {
         code: Option<u32>,
@@ -70,7 +67,7 @@ pub enum NodeState {
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum Work {
     Running,
-    Done { summary: String },
+    Done,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -85,7 +82,7 @@ pub enum ProcessOutcome {
 
 fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
     match (work, process) {
-        (Work::Done { summary }, _) => NodeState::Done { summary },
+        (Work::Done, _) => NodeState::Done,
         (Work::Running, None | Some(ProcessOutcome::Asleep | ProcessOutcome::HostGone)) => {
             NodeState::Running
         }
@@ -417,8 +414,8 @@ fn view_from_row(
     let id = NodeId(row.get(0)?);
     let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
     let agent: Option<AgentId> = from_json(row, 2)?;
-    let offered = agent.as_ref().is_some_and(linked)
-        && matches!(state, NodeState::Running | NodeState::Done { .. });
+    let offered =
+        agent.as_ref().is_some_and(linked) && matches!(state, NodeState::Running | NodeState::Done);
     let relaunch = offered.then_some(match row.get(17)? {
         true => RelaunchOffer::Queued,
         false => RelaunchOffer::Ready,

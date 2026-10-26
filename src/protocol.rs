@@ -742,66 +742,6 @@ impl Delivery {
     }
 }
 
-pub struct GateFacts {
-    pub branch: String,
-    pub head: String,
-    pub worktree: String,
-    pub target: String,
-    pub findings: Option<String>,
-    pub reviewer: Option<String>,
-    pub sha: Option<String>,
-    pub cause: Option<String>,
-    pub log: Option<String>,
-}
-
-pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
-    let GateFacts {
-        branch,
-        head,
-        worktree,
-        target,
-        findings,
-        reviewer,
-        sha,
-        cause,
-        log,
-    } = facts;
-    Some(match call {
-        GateCall::Ready => MessageKind::Ready {
-            branch,
-            head,
-            worktree,
-            target,
-        },
-        GateCall::Verdict(judgment) => MessageKind::Verdict {
-            branch,
-            head,
-            judgment,
-            findings,
-            reviewer,
-        },
-        GateCall::Requeue => return None,
-        GateCall::End(MergeEnd::Merged) => MessageKind::Merged {
-            branch,
-            head,
-            sha: sha.unwrap_or_default(),
-            log,
-        },
-        GateCall::End(MergeEnd::Rework) => MessageKind::Rework {
-            branch,
-            head,
-            cause,
-            log,
-        },
-        GateCall::End(MergeEnd::Failed) => MessageKind::Failed {
-            branch,
-            head,
-            cause,
-            log,
-        },
-    })
-}
-
 pub struct KindWord {
     pub word: &'static str,
     pub verb: &'static str,
@@ -877,7 +817,7 @@ pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
 
-/// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
+/// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`stops`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -905,12 +845,12 @@ pub enum Finding {
 }
 
 impl Finding {
-    pub fn end(&self) -> Option<MergeEnd> {
+    pub fn stops(&self) -> bool {
         match self {
             Finding::RawGateWord { .. }
             | Finding::HeadMoved { .. }
-            | Finding::SourceDirty { .. } => Some(MergeEnd::Rework),
-            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => None,
+            | Finding::SourceDirty { .. } => true,
+            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => false,
         }
     }
 }
@@ -959,10 +899,6 @@ pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
             commit: (*sha).to_owned(),
         })
         .collect()
-}
-
-pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
-    findings.iter().find_map(Finding::end)
 }
 
 #[macro_export]

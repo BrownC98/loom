@@ -370,7 +370,8 @@ impl Graph {
             .prepare(
                 "SELECT id, sender_name, kind, body, what FROM messages
                  WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
-                 AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
+                 AND kind IN (SELECT value FROM json_each(?2))
+                 AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1) ORDER BY id",
             )?
             .query_map(params![node.0, kinds], read_delivery)?
             .collect::<rusqlite::Result<Vec<_>>>()?;

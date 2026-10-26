@@ -174,11 +174,14 @@ impl App {
                 .flatten()
                 .map(|at| at.distro);
             let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
+            let sleeping = self.graph.sleeping(node.id)?;
             if let Err(unattached) = self.host.resume(node.id, on_exit) {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
-                self.graph.lost(node.id)?;
+                if !(sleeping && self.graph.slept(node.id)?) {
+                    self.graph.lost(node.id)?;
+                }
                 if unattached == node_host::Unattached::Gone
                     && let Some(distro) = distro
                 {
@@ -200,6 +203,9 @@ impl App {
             }
             self.follow_screen(node.id, profile, &node.token);
             self.follow_servers(node.id, codex, opencode2, &node.token);
+            if sleeping {
+                self.sleep_again_after_start(node);
+            }
         }
         self.host.end_others();
         self.logins.end_others();
@@ -275,7 +281,7 @@ impl App {
                 return;
             }
             let slept = matches!(exit, Exit::Command(_))
-                && app.sleeps.stopping(id)
+                && (app.sleeps.stopping(id) || app.graph.sleeping(id).unwrap_or(false))
                 && app.graph.slept(id).unwrap_or(false);
             if slept && let Err(e) = app.host.keep(id) {
                 eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
@@ -334,6 +340,11 @@ impl App {
                 let prompt = profile::prompt(profile, &now);
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
+                }
+                if profile == Some(Profile::Claude)
+                    && profile::claude::input(&now.undimmed) == Some("")
+                {
+                    app.draft_ended(id);
                 }
                 app.sleeps.settled(id);
             }

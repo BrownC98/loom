@@ -185,7 +185,6 @@ function whoOf(entry: Entry): Who[] {
     case 'nudged':
     case 'idleOpened':
     case 'idleEnded':
-    case 'noIdleWait':
     case 'endpointFailed':
     case 'agentStateChanged':
     case 'agentStateDisagreed':
@@ -208,7 +207,7 @@ export function involved(entry: Entry): NodeId[] {
 }
 
 function inConsole(record: EventRecord): boolean {
-  return !['idleOpened', 'idleEnded', 'noIdleWait', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed'].includes(record.entry.kind);
+  return !['idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed'].includes(record.entry.kind);
 }
 
 export function useEventLog(open: boolean): { records: EventRecord[] | null; onRecord: (record: EventRecord) => void } {
@@ -405,7 +404,6 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
       );
     case 'idleOpened':
     case 'idleEnded':
-    case 'noIdleWait':
     case 'endpointFailed':
     case 'agentStateChanged':
     case 'agentStateDisagreed':

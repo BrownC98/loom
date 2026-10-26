@@ -15,14 +15,6 @@ const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
-const CONVERSATION_TYPES: [&str; 5] = [
-    "user",
-    "assistant",
-    "attachment",
-    "queue-operation",
-    "system",
-];
-const TURN_ENDS: [&str; 3] = ["stop_hook_summary", "turn_duration", "away_summary"];
 const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
@@ -100,11 +92,14 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
             "PostToolUseFailure": hook,
             "Stop": idle,
             "StopFailure": idle,
-            "Notification": [{ "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
-                "type": "command",
-                "command": "loom hook",
-                "timeout": HOOK_TIMEOUT_SECS,
-            }] }],
+            "Notification": [
+                { "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
+                    "type": "command",
+                    "command": "loom hook",
+                    "timeout": HOOK_TIMEOUT_SECS,
+                }] },
+                { "matcher": IDLE_NOTIFICATION, "hooks": idle[0]["hooks"] },
+            ],
         },
     });
     vec![
@@ -163,6 +158,7 @@ pub const DIALOGS: [Dialog; 6] = [
 ];
 
 const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
+const IDLE_NOTIFICATION: &str = "idle_prompt";
 const ASK_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
@@ -190,7 +186,7 @@ impl HookEvent for Hook {
                 .then(|| self.last_assistant_message.clone()),
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
-            reports: (main || wait.is_some())
+            reports: ((main && !self.event.idle_prompt()) || wait.is_some())
                 .then_some(Report::Wait(wait))
                 .into_iter()
                 .collect(),
@@ -290,6 +286,7 @@ impl Event {
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
+            Event::Notification { .. } if self.idle_prompt() => Take::WhenIdle,
             Event::Notification { .. } => return None,
         })
     }
@@ -315,6 +312,7 @@ impl Event {
             Event::PreToolUse { tool_name, .. } if tool_name == PLAN_TOOL => {
                 Some((WaitKind::Approval, String::new()))
             }
+            Event::Notification { .. } if self.idle_prompt() => None,
             Event::Notification {
                 notification_type,
                 message,
@@ -328,6 +326,10 @@ impl Event {
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
+    }
+
+    fn idle_prompt(&self) -> bool {
+        matches!(self, Event::Notification { notification_type, .. } if notification_type == IDLE_NOTIFICATION)
     }
 
     pub fn rate_limited(&self) -> bool {
@@ -406,25 +408,6 @@ fn last_model(tail: &str) -> Option<Model> {
                 model: Some(model),
                 effort: e.effort,
             })
-        })
-}
-
-pub fn turn_ended(transcript: &Path) -> bool {
-    transcript_tail(transcript).is_some_and(|tail| ends_turn(&tail))
-}
-
-fn ends_turn(tail: &str) -> bool {
-    #[derive(Deserialize)]
-    struct Entry {
-        r#type: String,
-        subtype: Option<String>,
-    }
-    tail.lines()
-        .rev()
-        .filter_map(|line| serde_json::from_str::<Entry>(line).ok())
-        .find(|e| CONVERSATION_TYPES.contains(&e.r#type.as_str()))
-        .is_some_and(|e| {
-            e.r#type == "system" && e.subtype.is_some_and(|s| TURN_ENDS.contains(&s.as_str()))
         })
 }
 

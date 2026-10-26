@@ -103,7 +103,7 @@ fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Permission {
     id: String,
     action: String,
@@ -172,26 +172,12 @@ fn decide(asked: Option<&Permission>, chosen: &Prompt, option: usize) -> Option<
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum PermissionEvent {
-    Asked(Permission),
-    Replied { request: String },
-}
-
-fn permission_event(event: &Value, session: &str) -> Option<PermissionEvent> {
-    let data = &event["data"];
-    if data["sessionID"] != session {
-        return None;
-    }
-    match event["type"].as_str()? {
-        "permission.asked" => Permission::deserialize(data)
-            .ok()
-            .map(PermissionEvent::Asked),
-        "permission.replied" => Some(PermissionEvent::Replied {
-            request: data["requestID"].as_str()?.to_owned(),
-        }),
-        _ => None,
-    }
+fn permission_event(event: &Value, session: &str) -> bool {
+    event["data"]["sessionID"] == session
+        && matches!(
+            event["type"].as_str(),
+            Some("permission.asked" | "permission.replied")
+        )
 }
 
 pub struct Node {
@@ -199,7 +185,7 @@ pub struct Node {
     session: String,
     model: watch::Receiver<Model>,
     working: watch::Receiver<bool>,
-    permission: watch::Receiver<Option<Permission>>,
+    permission: watch::Receiver<()>,
     turns: Mutex<Option<mpsc::UnboundedReceiver<Signal>>>,
     sent: Arc<Mutex<HashSet<String>>>,
 }
@@ -257,36 +243,20 @@ impl Node {
     fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
         let (tx_working, working) = watch::channel(false);
-        let (tx_permission, permission) = watch::channel(None);
+        let (tx_permission, permission) = watch::channel(());
         let (tx_turns, turns) = mpsc::unbounded_channel();
         let sent = Arc::new(Mutex::new(HashSet::new()));
         let ours = session.clone();
         let ours_sent = sent.clone();
         let mut said = None;
-        let mut asked: Vec<Permission> = Vec::new();
         server.follow_events(move |event| {
             if let Some(selected) = selected_model(&event, &ours) {
                 tx.send_replace(selected);
             }
-            match permission_event(&event, &ours) {
-                Some(PermissionEvent::Asked(p)) if !asked.iter().any(|a| a.id == p.id) => {
-                    asked.push(p)
-                }
-                Some(PermissionEvent::Replied { request }) => asked.retain(|a| a.id != request),
-                Some(PermissionEvent::Asked(_)) | None => {}
-            }
             let turn = turn_event(&event, &ours);
-            if turn == Some(TurnEvent::Stopped) {
-                asked.clear();
+            if permission_event(&event, &ours) || turn == Some(TurnEvent::Stopped) {
+                tx_permission.send_replace(());
             }
-            tx_permission.send_if_modified(|now| {
-                let next = asked.first();
-                let changed = now.as_ref() != next;
-                if changed {
-                    *now = next.cloned();
-                }
-                changed
-            });
             match turn {
                 Some(TurnEvent::Started) => {
                     said = None;
@@ -327,12 +297,25 @@ impl Node {
         self.working.clone()
     }
 
-    pub fn permission(&self) -> watch::Receiver<Option<Permission>> {
+    pub fn permission_changed(&self) -> watch::Receiver<()> {
         self.permission.clone()
     }
 
-    pub fn decide(&self, chosen: &Prompt, option: usize) -> Option<Decision> {
-        decide(self.permission.borrow().as_ref(), chosen, option)
+    pub async fn open_permission(&self) -> Result<Option<Permission>, String> {
+        let reply = self.server.permissions(&self.session).await?;
+        reply["data"]
+            .get(0)
+            .map(Permission::deserialize)
+            .transpose()
+            .map_err(|e| format!("permission list: {e}"))
+    }
+
+    pub async fn decide(&self, chosen: &Prompt, option: usize) -> Result<Option<Decision>, String> {
+        Ok(decide(
+            self.open_permission().await?.as_ref(),
+            chosen,
+            option,
+        ))
     }
 
     pub async fn reply(&self, decision: Decision) -> Result<(), String> {

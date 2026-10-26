@@ -211,10 +211,6 @@ pub enum Entry {
         node: Who,
         by: IdleEnd,
     },
-    /// Claude 기록 파일이 턴 끝을 적은 뒤 `STOP_HOOK_GRACE`가 지나도 stop 훅이 데몬에 닿지 않았다. 데몬이 노드에 `TurnEnded`를 적용하고 같은 세션으로 다시 띄운다. 그 결과는 다음 `Relaunched`다. 화면 이벤트 콘솔은 보이지 않는다.
-    NoIdleWait {
-        node: Who,
-    },
     /// 노드의 접속점(`LOOM_SOCKET`)이 요청을 받지 못한다. 노드의 CLI는 `LOOM_URL`로 간다. 화면 이벤트 콘솔은 보이지 않는다.
     EndpointFailed {
         node: Who,
@@ -540,7 +536,7 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
 pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     let records = db
         .prepare(&format!(
-            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'noIdleWait', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
+            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
         ))?
         .query_map([RECENT], record_from_row)?
         .collect::<rusqlite::Result<_>>()?;

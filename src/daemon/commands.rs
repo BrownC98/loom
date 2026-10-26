@@ -378,7 +378,6 @@ pub(super) async fn agent_said(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.turn_ends.said(node, req.text, req.turn.as_deref());
-    app.sleeps.changed();
     Ok(Json(()))
 }
 
@@ -413,7 +412,9 @@ async fn agent_hook_wait(
         .set_wait(
             bearer(&headers)?,
             WaitSource::Hook,
-            req.wait.as_ref().map(|(kind, text)| (*kind, text.as_str())),
+            req.wait
+                .as_ref()
+                .map(|(kind, text)| (*kind, text.as_str(), None)),
         )
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))

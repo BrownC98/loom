@@ -10,7 +10,7 @@ use tokio::sync::broadcast::error::RecvError;
 use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
 use crate::graph::{
-    Active, AgentChange, AgentEvent, AgentState, Attempt, Entry, IdleEnd, NodeId, Phase, Plan,
+    Active, AgentChange, AgentEvent, AgentState, Attempt, IdleEnd, NodeId, Phase, Plan,
     ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
@@ -19,7 +19,6 @@ use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
-const STOP_HOOK_GRACE: Duration = Duration::from_secs(60);
 const RUNNING_STATUS: &str = "esc to interrupt";
 
 type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
@@ -28,14 +27,12 @@ type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
 pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
     knocked: Mutex<HashSet<NodeId>>,
-    settled: Mutex<HashMap<NodeId, Instant>>,
     changed: Notify,
 }
 
 impl Sleeps {
     pub fn exited(&self, node: NodeId) {
         self.resting.lock().unwrap().remove(&node);
-        self.settled.lock().unwrap().remove(&node);
     }
 
     pub fn knocked(&self, node: NodeId) {
@@ -45,21 +42,6 @@ impl Sleeps {
 
     pub fn changed(&self) {
         self.changed.notify_one();
-    }
-
-    pub fn settled(&self, node: NodeId) {
-        self.settled.lock().unwrap().insert(node, now());
-        self.changed();
-    }
-
-    fn settle_due(&self, node: NodeId, now: Instant) -> Option<Instant> {
-        let mut settled = self.settled.lock().unwrap();
-        let due = *settled.get(&node)? + STOP_HOOK_GRACE;
-        if due > now {
-            return Some(due);
-        }
-        settled.remove(&node);
-        None
     }
 
     fn rest_again(&self, node: NodeId) {
@@ -111,10 +93,6 @@ impl App {
                     eprintln!("loom: 잠든 노드를 보지 못했다: {e}");
                 }
                 app.recover_held_with_mail();
-                let turns = app.end_unhooked_turns().unwrap_or_else(|e| {
-                    eprintln!("loom: stop 훅이 닿지 않은 노드를 보지 못했다: {e}");
-                    None
-                });
                 let resting = app.sleep_resting().unwrap_or_else(|e| {
                     eprintln!("loom: 쉬는 노드를 보지 못했다: {e}");
                     None
@@ -123,7 +101,7 @@ impl App {
                     () = mail => {}
                     () = changed => {}
                     () = app.distro_up() => app.attempts_forgotten(Attempt::Wake),
-                    () = until(turns.into_iter().chain(resting).min()) => {}
+                    () = until(resting) => {}
                 }
             }
         });
@@ -285,7 +263,7 @@ impl App {
         if profile_of(&node).is_none() {
             return Ok(None);
         }
-        let guard = self.restart_guard(&node)?;
+        let guard = self.restart_guard(&node);
         if !guard(&self.host.screen(id)) {
             self.refused(id);
             eprintln!(
@@ -382,72 +360,6 @@ impl App {
         Ok(())
     }
 
-    fn end_unhooked_turns(self: &Arc<Self>) -> rusqlite::Result<Option<Instant>> {
-        let mut next = None;
-        for node in self.graph.active()? {
-            let id = node.id;
-            let profile = profile_of(&node);
-            if !profile.is_some_and(Profile::ends_turns_by_stop_hook)
-                || self.graph.sleeping(id)?
-                || self.agent_state(id) != Some(AgentState::Turn)
-            {
-                continue;
-            }
-            let quiet = match profile {
-                Some(Profile::Claude) => self.transcript_quiet(&node)?,
-                _ => self.turn_ends.reply_age(id),
-            };
-            let Some(quiet) = quiet else {
-                next = next
-                    .into_iter()
-                    .chain(self.sleeps.settle_due(id, now()))
-                    .min();
-                continue;
-            };
-            if let Some(left) = STOP_HOOK_GRACE.checked_sub(quiet)
-                && !left.is_zero()
-            {
-                next = next.into_iter().chain([now() + left]).min();
-                continue;
-            }
-            if profile == Some(Profile::Claude) && !self.claude_turn_ended(&node)? {
-                continue;
-            }
-            eprintln!("loom: 노드 {}의 턴이 끝났는데 stop 훅이 닿지 않았다", id.0);
-            if let Err(e) = self
-                .graph
-                .record_about(id, |node| Entry::NoIdleWait { node })
-            {
-                eprintln!("loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}", id.0);
-            }
-            self.feed(id, AgentEvent::TurnEnded);
-            self.recover(id);
-        }
-        Ok(next)
-    }
-
-    fn transcript_quiet(&self, node: &Active) -> rusqlite::Result<Option<Duration>> {
-        let Some(path) = self.transcript(node)? else {
-            return Ok(None);
-        };
-        let Some(began) = self.graph.turn_began(node.id)? else {
-            return Ok(None);
-        };
-        Ok(std::fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .ok()
-            .filter(|at| *at > began)
-            .map(|at| at.elapsed().unwrap_or_default()))
-    }
-
-    fn claude_turn_ended(&self, node: &Active) -> rusqlite::Result<bool> {
-        let ended = self.at_turn_end(node.id)
-            || self
-                .transcript(node)?
-                .is_some_and(|path| claude::turn_ended(&path));
-        Ok(ended && !turn_shown(&self.host.screen(node.id).text))
-    }
-
     pub(super) fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
         let Some(transcript) = &node.transcript else {
             return Ok(None);
@@ -459,15 +371,9 @@ impl App {
         )))
     }
 
-    fn restart_guard(self: &Arc<Self>, node: &Active) -> rusqlite::Result<Guard> {
+    fn restart_guard(self: &Arc<Self>, node: &Active) -> Guard {
         let (app, id, profile) = (self.clone(), node.id, profile_of(node));
-        let path = self.transcript(node)?;
-        let modified = |path: &Option<PathBuf>| {
-            path.as_ref()
-                .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
-        };
-        let changed = modified(&path);
-        Ok(Arc::new(move |screen: &Screen| {
+        Arc::new(move |screen: &Screen| {
             let quiet = match profile {
                 Some(Profile::Claude) => {
                     claude::input(&screen.undimmed) == Some("") && !turn_shown(&screen.text)
@@ -475,11 +381,10 @@ impl App {
                 _ => true,
             };
             quiet
-                && modified(&path) == changed
                 && app.agent_state(id) == Some(AgentState::Deaf)
                 && !app.graph.drafted(id).unwrap_or(true)
                 && profile::prompt(profile, screen).is_none()
-        }))
+        })
     }
 
     fn sleep_resting(self: &Arc<Self>) -> rusqlite::Result<Option<Instant>> {

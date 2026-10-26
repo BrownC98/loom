@@ -132,10 +132,6 @@ impl App {
         self.pending(node).is_some()
     }
 
-    pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
-        self.pending(node) == Some(Phase::AtTurnEnd)
-    }
-
     pub(super) fn relaunching(&self, node: NodeId) -> bool {
         self.pending(node).is_some_and(Phase::started)
     }

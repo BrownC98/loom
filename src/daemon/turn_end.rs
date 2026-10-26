@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use super::App;
 use crate::graph::{Entry, Graph, NodeId, TurnCheck};
@@ -18,7 +17,6 @@ const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. T
 
 pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
-    said_at: Mutex<HashMap<NodeId, Instant>>,
     turn: Mutex<HashMap<NodeId, String>>,
     ended_turns: Mutex<HashMap<NodeId, HashSet<String>>>,
     question_box: Mutex<HashSet<NodeId>>,
@@ -29,7 +27,6 @@ impl TurnEnds {
     pub fn new(graph: Arc<Graph>) -> Self {
         TurnEnds {
             said: Mutex::default(),
-            said_at: Mutex::default(),
             turn: Mutex::default(),
             ended_turns: Mutex::default(),
             question_box: Mutex::default(),
@@ -44,10 +41,6 @@ impl TurnEnds {
     }
 
     pub fn said(&self, node: NodeId, text: String, turn: Option<&str>) {
-        self.said_at(node, text, turn, Instant::now());
-    }
-
-    pub(super) fn said_at(&self, node: NodeId, text: String, turn: Option<&str>, at: Instant) {
         let current = self.turn.lock().unwrap();
         let ended = self.ended_turns.lock().unwrap();
         if turn.is_some_and(|said| {
@@ -57,12 +50,10 @@ impl TurnEnds {
             return;
         }
         self.said.lock().unwrap().insert(node, text);
-        self.said_at.lock().unwrap().insert(node, at);
     }
 
     pub fn stepped(&self, node: NodeId, turn: Option<&str>) {
         let mut current = self.turn.lock().unwrap();
-        self.said_at.lock().unwrap().remove(&node);
         if let Some(turn) = turn {
             current.insert(node, turn.to_owned());
         }
@@ -75,14 +66,6 @@ impl TurnEnds {
             ended.entry(node).or_default().insert(turn.to_owned());
             drop(current);
         }
-    }
-
-    pub fn reply_age(&self, node: NodeId) -> Option<Duration> {
-        self.said_at
-            .lock()
-            .unwrap()
-            .get(&node)
-            .map(Instant::elapsed)
     }
 
     pub fn human(&self, node: NodeId) {
@@ -120,7 +103,6 @@ impl TurnEnds {
     ) -> rusqlite::Result<TurnEnd> {
         let flags = self.graph.take_turn_flags(node)?;
         let reply = self.said.lock().unwrap().remove(&node);
-        self.said_at.lock().unwrap().remove(&node);
         let mut current = self.turn.lock().unwrap();
         if let Some(turn) = current.remove(&node) {
             let mut ended = self.ended_turns.lock().unwrap();

@@ -103,7 +103,7 @@ fn comments(lang: Lang, text: &str) -> Result<Vec<Comment>, String> {
     let spans = match lang {
         Lang::HashLines => line_comments(text, |line| line.starts_with('#')),
         Lang::Properties => line_comments(text, |line| line.trim_start().starts_with(['#', '!'])),
-        Lang::Sql => line_comments(text, |line| line.trim_start().starts_with("--")),
+        Lang::Sql => line_comments(text, |line| line.contains("--") || line.contains("/*")),
         Lang::Nsis => nsis_comments(text),
         _ => {
             let mut found = Vec::new();

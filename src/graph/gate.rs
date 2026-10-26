@@ -118,13 +118,17 @@ impl Caller {
 impl Graph {
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
-        match parent_of(&db, owner)? {
-            Some(parent) => Ok(GateChoice::Parent {
-                gate: parent,
-                worktree: place_of(&db, parent)?.worktree,
-            }),
-            None => Ok(GateChoice::Owner),
+        let Some(parent) = parent_of(&db, owner)? else {
+            return Ok(GateChoice::Owner);
+        };
+        let (mine, theirs) = (place_of(&db, owner)?, place_of(&db, parent)?);
+        if mine.repo != theirs.repo {
+            return Ok(GateChoice::Owner);
         }
+        Ok(GateChoice::Parent {
+            gate: parent,
+            worktree: theirs.worktree,
+        })
     }
 
     pub fn ready(

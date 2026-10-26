@@ -49,6 +49,7 @@ pub struct Stale {
 
 pub struct Reclaim {
     pub owner: NodeId,
+    pub gate: NodeId,
     pub target: String,
     pub worktree: String,
     pub reviewers: Vec<NodeId>,
@@ -520,14 +521,15 @@ impl Graph {
         let db = self.lock();
         let found = db
             .query_row(
-                "SELECT g.owner, g.target, g.worktree FROM gates g
+                "SELECT g.owner, g.gate, g.target, g.worktree FROM gates g
                  WHERE g.repo = ?1 AND g.branch = ?2 AND g.state = ?3",
                 params![repo.0, branch, to_json(&GateState::Merged)],
                 |r| {
                     Ok(Reclaim {
                         owner: NodeId(r.get(0)?),
-                        target: r.get(1)?,
-                        worktree: r.get(2)?,
+                        gate: NodeId(r.get(1)?),
+                        target: r.get(2)?,
+                        worktree: r.get(3)?,
                         reviewers: Vec::new(),
                     })
                 },
@@ -546,22 +548,15 @@ impl Graph {
         Ok(Some(found))
     }
 
-    pub fn note_reclaim(&self, repo: RepoId, branch: &str, body: &str) -> rusqlite::Result<()> {
+    pub fn note_reclaim(&self, round: &Reclaim, body: &str) -> rusqlite::Result<()> {
         let db = self.lock();
-        let to = db
-            .query_row(
-                "SELECT coalesce(n.parent, g.gate)
-                 FROM gates g LEFT JOIN nodes n ON n.id = g.owner
-                 WHERE g.repo = ?1 AND g.branch = ?2",
-                params![repo.0, branch],
-                |r| r.get::<_, Option<u32>>(0),
-            )
-            .optional()?
+        let to = parent_of(&db, round.owner)
+            .ok()
             .flatten()
-            .map(NodeId);
-        let Some(to) = to.filter(|to| exists(&db, *to).unwrap_or(false)) else {
+            .unwrap_or(round.gate);
+        if !exists(&db, to)? {
             return Ok(());
-        };
+        }
         mailbox::enqueue_from_loom(&db, to, Kind::Queue, &MessageKind::Note, body, None)?;
         self.publish_node(&db, to)?;
         self.mail.notify_waiters();

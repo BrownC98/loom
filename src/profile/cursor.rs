@@ -358,27 +358,36 @@ impl Hook {
 impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let text = |key: &str| self.input[key].as_str().map(str::to_owned);
-        let reports = match &self.event {
-            Event::AfterAgentResponse { text } => vec![Report::Said(text.clone())],
+        let turn = text("generation_id").filter(|id| !id.is_empty());
+        let notice = match &self.event {
+            Event::AfterAgentResponse { text } => Some(Report::Said {
+                text: text.clone(),
+                turn: turn.clone(),
+            }),
             Event::Stop { .. } => match self.used_question_box() {
-                Ok(true) => vec![Report::QuestionBox],
-                Ok(false) => Vec::new(),
+                Ok(true) => Some(Report::QuestionBox),
+                Ok(false) => None,
                 Err(e) => {
                     eprintln!("loom: could not read the transcript: {e}");
-                    Vec::new()
+                    None
                 }
             },
-            _ => Vec::new(),
+            _ => None,
         };
         Signals {
             hook: text("hook_event_name").unwrap_or_default(),
-            model: self.event.model(),
             take: self.event.take(),
             session: text("transcript_path").map(Session),
             human_input: matches!(self.event, Event::BeforeSubmitPrompt { .. }),
-            turn: text("generation_id").filter(|id| !id.is_empty()),
+            turn,
             turn_end: matches!(self.event, Event::Stop { .. }).then_some(None),
-            reports,
+            reports: self
+                .event
+                .model()
+                .map(Report::Model)
+                .into_iter()
+                .chain(notice)
+                .collect(),
             ..Signals::default()
         }
     }

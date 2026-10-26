@@ -17,9 +17,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, Model, ModelChoice,
-    OpenQuestion, Prompt as ScreenPrompt, Provider, Report as ServerReport, Session, StartDigests,
-    WaitKind,
+    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
+    Prompt as ScreenPrompt, Provider, Report, Session, StartDigests, WaitKind,
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
@@ -47,12 +46,6 @@ pub enum Profile {
 pub enum Take {
     Now(&'static [Kind]),
     WhenIdle,
-}
-
-pub enum Report {
-    Wait(Option<(WaitKind, String)>),
-    Said(String),
-    QuestionBox,
 }
 
 pub enum Handed {
@@ -84,7 +77,6 @@ pub struct Shown {
 #[derive(Default)]
 pub struct Signals {
     pub hook: String,
-    pub model: Option<Model>,
     pub take: Option<Take>,
     pub session: Option<Session>,
     pub prompt: Option<String>,
@@ -105,7 +97,7 @@ pub enum Signal {
     TurnEnded(Option<String>),
     Stopped,
     HumanInput,
-    Report(ServerReport),
+    Report(Report),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

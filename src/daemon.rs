@@ -31,9 +31,9 @@ mod waits;
 
 pub use commands::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked,
-    DetachRequest, DoneRequest, EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest,
-    NoteRequest, RelaunchRequest, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun,
-    TakeRequest, Taken, WaitRequest,
+    DetachRequest, DoneRequest, EndedTurn, GuardRequest, IdleReply, IdleRequest, NoteRequest,
+    RelaunchRequest, RemoveRequest, Reported, SpawnRequest, SpawnRun, TakeRequest, Taken,
+    WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;

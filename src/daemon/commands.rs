@@ -28,6 +28,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/answered", post(agent_answered))
         .route("/api/agent/said", post(agent_said))
         .route("/api/agent/question-box", post(agent_question_box))
+        .route("/api/agent/report", post(agent_report))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/detach", post(agent_detach))
@@ -210,16 +211,16 @@ struct QuestionState {
     answered: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SaidRequest {
-    pub text: String,
+#[derive(Deserialize)]
+struct SaidRequest {
+    text: String,
     #[serde(default)]
-    pub turn: Option<String>,
+    turn: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct HookWaitRequest {
-    pub wait: Option<(WaitKind, String)>,
+#[derive(Deserialize)]
+struct HookWaitRequest {
+    wait: Option<(WaitKind, String)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -402,7 +403,7 @@ async fn agent_wait(
     Ok(Json(result.map_err(for_agent)?))
 }
 
-pub(super) async fn agent_said(
+async fn agent_said(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<SaidRequest>,
@@ -412,12 +413,22 @@ pub(super) async fn agent_said(
     Ok(Json(()))
 }
 
-pub(super) async fn agent_question_box(
+async fn agent_question_box(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.turn_ends.question_box(node);
+    Ok(Json(()))
+}
+
+async fn agent_report(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(report): Json<crate::protocol::Report>,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.report(node, bearer(&headers)?, WaitSource::Hook, report);
     Ok(Json(()))
 }
 

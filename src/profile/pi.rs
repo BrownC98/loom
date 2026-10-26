@@ -11,8 +11,8 @@ use super::process::Served as Process;
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{
-    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, ServerState,
-    Session,
+    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Report,
+    ServerState, Session,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
@@ -366,12 +366,12 @@ impl HookEvent for Request {
         let event = &self.event;
         Signals {
             hook: event.name().to_owned(),
-            model: event.model(),
             take: event.take(),
             session: event.transcript().map(Session),
             prompt: event.prompt().map(str::to_owned),
             human_input: event.prompt().is_some(),
             turn_end: event.turn_ends(),
+            reports: event.model().map(Report::Model).into_iter().collect(),
             ..Signals::default()
         }
     }

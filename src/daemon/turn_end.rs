@@ -1,9 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::App;
-use crate::graph::{Entry, NodeId, TurnCheck};
+use crate::graph::{Entry, Graph, NodeId, TurnCheck};
+
+const HUMAN: u8 = 1;
+const CALLED: u8 = 2;
+const KIND_NUDGED: u8 = 4;
+const ASKED: u8 = 8;
 
 const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
@@ -22,9 +27,48 @@ pub struct TurnEnds {
     kind_nudged: Mutex<HashSet<NodeId>>,
     question_box: Mutex<HashSet<NodeId>>,
     asked: Mutex<HashSet<NodeId>>,
+    store: Option<Arc<Graph>>,
 }
 
 impl TurnEnds {
+    pub fn stored(graph: Arc<Graph>) -> rusqlite::Result<Self> {
+        let ends = TurnEnds::default();
+        for (node, flags) in graph.turn_flags()? {
+            for (bit, set) in ends.flag_sets() {
+                if flags & bit != 0 {
+                    set.lock().unwrap().insert(node);
+                }
+            }
+        }
+        Ok(TurnEnds {
+            store: Some(graph),
+            ..ends
+        })
+    }
+
+    fn flag_sets(&self) -> [(u8, &Mutex<HashSet<NodeId>>); 4] {
+        [
+            (HUMAN, &self.human),
+            (CALLED, &self.called),
+            (KIND_NUDGED, &self.kind_nudged),
+            (ASKED, &self.asked),
+        ]
+    }
+
+    fn save(&self, node: NodeId) {
+        let Some(graph) = &self.store else {
+            return;
+        };
+        let flags = self
+            .flag_sets()
+            .iter()
+            .filter(|(_, set)| set.lock().unwrap().contains(&node))
+            .fold(0, |flags, (bit, _)| flags | bit);
+        if let Err(e) = graph.set_turn_flags(node, flags) {
+            eprintln!("loom: 노드 {}의 턴 표시를 쓰지 못했다: {e}", node.0);
+        }
+    }
+
     pub fn said(&self, node: NodeId, text: String, turn: Option<&str>) {
         self.said_at(node, text, turn, Instant::now());
     }
@@ -68,11 +112,15 @@ impl TurnEnds {
     }
 
     pub fn human(&self, node: NodeId) {
-        self.human.lock().unwrap().insert(node);
+        if self.human.lock().unwrap().insert(node) {
+            self.save(node);
+        }
     }
 
     pub fn called(&self, node: NodeId) {
-        self.called.lock().unwrap().insert(node);
+        if self.called.lock().unwrap().insert(node) {
+            self.save(node);
+        }
     }
 
     pub fn question_box(&self, node: NodeId) {
@@ -80,7 +128,9 @@ impl TurnEnds {
     }
 
     pub fn asked(&self, node: NodeId) {
-        self.asked.lock().unwrap().insert(node);
+        if self.asked.lock().unwrap().insert(node) {
+            self.save(node);
+        }
     }
 
     pub fn launched(&self, node: NodeId) {
@@ -88,7 +138,9 @@ impl TurnEnds {
         current.remove(&node);
         self.ended_turns.lock().unwrap().remove(&node);
         drop(current);
-        self.asked.lock().unwrap().remove(&node);
+        if self.asked.lock().unwrap().remove(&node) {
+            self.save(node);
+        }
         self.question_box.lock().unwrap().remove(&node);
     }
 
@@ -110,6 +162,9 @@ impl TurnEnds {
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);
         let asked = self.asked.lock().unwrap().remove(&node);
+        if human || called || nudged || asked {
+            self.save(node);
+        }
         if self.question_box.lock().unwrap().remove(&node) && !asked {
             return TurnEnd {
                 reply,
@@ -129,6 +184,7 @@ impl TurnEnds {
             });
         let nudge = if kind_line {
             self.kind_nudged.lock().unwrap().insert(node);
+            self.save(node);
             Some(TurnCheck::KindLine)
         } else {
             (human
@@ -219,6 +275,71 @@ mod tests {
         turns.human(node);
         turns.said(node, " \n".into(), None);
         assert_eq!(turns.ended(node, || true, || true).nudge, None);
+    }
+
+    #[test]
+    fn the_turn_flags_survive_a_daemon_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("loom.db");
+        let database = crate::db::open(&path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let graph = Arc::new(Graph::open(database, crate::profile::linked).unwrap());
+        let place = crate::graph::Place {
+            repo: crate::worktree::RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let launched = crate::graph::Launched {
+            token: "t".into(),
+            server: None,
+            account: None,
+            rules: None,
+        };
+        let node = graph
+            .add_root(&place, None, None, &launched, |_| Ok(()))
+            .unwrap();
+        let restarted = || TurnEnds::stored(graph.clone()).unwrap();
+
+        restarted().human(node);
+        let turns = restarted();
+        turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into(), None);
+        assert_eq!(
+            turns.ended(node, || false, || true).nudge,
+            Some(TurnCheck::Unreported),
+            "the human flag came back"
+        );
+        let turns = restarted();
+        turns.said(node, "끝.".into(), None);
+        assert_eq!(
+            turns.ended(node, || false, || true).nudge,
+            None,
+            "taken once"
+        );
+
+        turns.said(node, "QUESTION: 지울까?".into(), None);
+        assert_eq!(
+            turns.ended(node, || false, || false).nudge,
+            Some(TurnCheck::KindLine)
+        );
+        let turns = restarted();
+        turns.said(node, "QUESTION: 지울까?".into(), None);
+        assert_eq!(
+            turns.ended(node, || false, || false).nudge,
+            None,
+            "no second kind nudge after a restart"
+        );
+
+        restarted().called(node);
+        let turns = restarted();
+        turns.said(node, "STATUS: 50%".into(), None);
+        assert_eq!(turns.ended(node, || false, || false).nudge, None, "called");
+        restarted().asked(node);
+        let turns = restarted();
+        turns.question_box(node);
+        assert_eq!(turns.ended(node, || false, || false).nudge, None, "asked");
+        assert!(graph.turn_flags().unwrap().is_empty());
     }
 
     #[test]

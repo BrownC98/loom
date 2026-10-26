@@ -276,7 +276,38 @@ impl Graph {
             .collect())
     }
 
-    pub fn typed(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn drafted(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock()
+            .query_row(
+                "SELECT drafted = 1 FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|drafted| drafted.unwrap_or(false))
+    }
+
+    pub fn begin_draft(&self, id: NodeId) -> rusqlite::Result<()> {
+        if !self.drafted(id)? {
+            self.lock().execute(
+                "UPDATE nodes SET drafted = 1 WHERE id = ?1 AND drafted = 0",
+                [id.0],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn end_draft(&self, id: NodeId) -> rusqlite::Result<bool> {
+        if !self.drafted(id)? {
+            return Ok(false);
+        }
+        Ok(self.lock().execute(
+            "UPDATE nodes SET drafted = 0 WHERE id = ?1 AND drafted = 1",
+            [id.0],
+        )? > 0)
+    }
+
+    pub fn typed(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let changed = tx.execute(
@@ -284,11 +315,12 @@ impl Graph {
             [id.0],
         )?;
         if changed == 0 {
-            return Ok(());
+            return Ok(false);
         }
         agent_state::apply(&tx, id, AgentEvent::DialogCleared)?;
         tx.commit()?;
-        self.publish_node(&db, id)
+        self.publish_node(&db, id)?;
+        Ok(true)
     }
 
     pub fn dismiss(&self, wait: WaitId) -> Result<(), Refusal> {

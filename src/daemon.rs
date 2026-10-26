@@ -401,6 +401,7 @@ impl App {
             ))
         });
         let host = NodeHost::new(pty_dir.join("nodes")).with_links(links);
+        let turn_ends = turn_end::TurnEnds::stored(graph.clone()).map_err(std::io::Error::other)?;
         Ok(App {
             repos,
             host: match &distros {
@@ -435,7 +436,7 @@ impl App {
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             repo_list: one_flight::OneFlight::default(),
-            turn_ends: turn_end::TurnEnds::default(),
+            turn_ends,
             merge_queue: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =

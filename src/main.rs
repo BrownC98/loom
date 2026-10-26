@@ -65,6 +65,8 @@ enum Cli {
         /// 데몬이 듣는 주소.
         #[arg(long, default_value_t = launch::DEFAULT_LISTEN)]
         listen: SocketAddr,
+        #[arg(long, hide = true)]
+        ready_to: Option<SocketAddr>,
     },
     /// 데몬이 있으면 붙고 없으면 띄운다. 도는 데몬이 옛 판이면 이 판으로 바꾼다. 주소를 `loom: <주소>`로 출력한다. 데스크톱 앱이 부른다.
     Start {
@@ -240,10 +242,10 @@ enum Cli {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli {
-        Cli::Serve { listen } => {
+        Cli::Serve { listen, ready_to } => {
             forget_launcher_env();
             tokio::runtime::Runtime::new()
-                .and_then(|rt| rt.block_on(daemon::serve(listen)))
+                .and_then(|rt| rt.block_on(daemon::serve(listen, ready_to)))
                 .map_err(|e| e.to_string())
         }
         Cli::Start { listen } => launch::start(listen),

@@ -65,7 +65,8 @@ impl App {
                 None => None,
             })
             .collect();
-        wsl::end_hosts(&at.distro, &home, &servers).await?;
+        let distro = self.distro(&at.distro).map_err(|e| e.to_string())?;
+        wsl::end_hosts(&distro, &home, &servers).await?;
         let mut carried = Carried {
             relaunched: Vec::new(),
             ended: Vec::new(),

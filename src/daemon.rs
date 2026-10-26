@@ -129,7 +129,6 @@ struct App {
     linux_loom: Option<PathBuf>,
     distros: Option<Arc<crate::distro::Distros>>,
     run_dir: PathBuf,
-    homes: wsl::Homes,
     version_warnings: HashMap<Profile, VersionMismatch>,
     codex_config: Vec<String>,
     url: String,
@@ -449,7 +448,6 @@ impl App {
             linux_loom,
             distros,
             run_dir: db_path.with_file_name("run"),
-            homes: wsl::Homes::default(),
             version_warnings: profile::version_warnings(codex_version),
             codex_config: match (codex_version, node_door) {
                 (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),

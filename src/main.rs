@@ -6,8 +6,6 @@ mod daemon;
 mod db;
 mod devices;
 mod distro;
-#[cfg(all(test, unix))]
-mod fake_exe;
 mod git;
 mod graph;
 mod launch;

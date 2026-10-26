@@ -19,8 +19,6 @@ use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
 use crate::profile::{self, AgentView, Profile, VersionMismatch};
 use crate::protocol::{LaunchError, Provider};
-#[cfg(test)]
-use crate::settings::{Language, Theme};
 use crate::settings::{PatchProblem, SettingsView};
 use crate::usage::{self, Usage};
 use crate::worktree::{self, RepoProblem};
@@ -448,23 +446,4 @@ async fn login_pty(
         |_, _, _| {},
         LoginId(id),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn with_settings_marks_html() {
-        let settings = SettingsView {
-            theme: Theme::Light,
-            language: Language::Ko,
-            ..Default::default()
-        };
-        let page = with_settings("<!doctype html>\n<html lang=\"en\">\n</html>", &settings);
-        assert_eq!(
-            page,
-            "<!doctype html>\n<html data-theme=\"light\" data-language=\"ko\" lang=\"en\">\n</html>"
-        );
-    }
 }

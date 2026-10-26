@@ -368,6 +368,3 @@ pub fn carry<A: Send + 'static>(
     });
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

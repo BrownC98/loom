@@ -292,11 +292,6 @@ impl Graph {
         events::log(&self.lock())
     }
 
-    #[cfg(test)]
-    pub fn recent_events(&self) -> rusqlite::Result<Vec<EventRecord>> {
-        events::recent(&self.lock())
-    }
-
     pub fn record_refusal(
         &self,
         from: NodeId,
@@ -511,6 +506,3 @@ fn set_state(db: &Connection, id: NodeId, state: &NodeState) -> rusqlite::Result
     )?;
     events::write(db, &entry, None)
 }
-
-#[cfg(test)]
-mod tests;

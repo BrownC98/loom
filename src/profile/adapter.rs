@@ -12,13 +12,13 @@ use crate::accounts::{AccountId, Site};
 use crate::protocol::{
     LaunchError, ModelChoice, Prompt, Provider, ServerRecord, ServerState, Session,
 };
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
 pub struct Facts {
     pub provider: Option<Provider>,
-    pub hooked: bool,
+    pub sleeps: bool,
     pub listens_at_start: bool,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
@@ -39,6 +39,11 @@ pub struct Serve<'a> {
     pub launch: Launch,
     pub version: Option<&'a str>,
     pub node_ip: Option<IpAddr>,
+}
+
+pub struct InputSeen {
+    pub empty: bool,
+    pub turn_shown: bool,
 }
 
 pub struct Carry<'a> {
@@ -91,6 +96,7 @@ pub trait Adapter: Sync {
     ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>>;
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>>;
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])>;
+    fn input_seen(&self, screen: &Screen) -> Option<InputSeen>;
     fn install(&self, dir: &Path) -> std::io::Result<()>;
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch>;
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError>;

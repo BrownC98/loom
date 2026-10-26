@@ -18,7 +18,7 @@ use crate::graph::{
 };
 use crate::process_tree::Snapshot;
 use crate::profile::adapter::{Carry, ResumeError};
-use crate::profile::{self, Profile, Start};
+use crate::profile::{self, ModelRule, Profile, Start};
 use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
@@ -826,9 +826,10 @@ impl App {
         let start = Start::Agent {
             agent: agent.clone(),
             brief,
-            choice: match profile::adapter(profile).choice_args(&choice) {
-                Some(_) => choice,
-                None => ModelChoice::default(),
+            choice: match profile::model_rule(Some(profile)) {
+                ModelRule::Free => choice,
+                ModelRule::EffortNeedsModel if choice.model.is_some() => choice,
+                ModelRule::Fixed | ModelRule::EffortNeedsModel => ModelChoice::default(),
             },
             resume: Some(resume.clone()),
         };

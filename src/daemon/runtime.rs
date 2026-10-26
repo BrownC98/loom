@@ -430,9 +430,7 @@ impl App {
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                if profile == Some(Profile::Claude)
-                    && profile::claude::input(&now.undimmed) == Some("")
-                {
+                if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);
                 }
             }

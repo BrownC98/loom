@@ -5,11 +5,11 @@ use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
-use super::adapter::{Adapter, Carry, Command, Facts, ResumeError, Serve, Server};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
 use super::process::Served;
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{LaunchError, ModelChoice, ServerState, Session};
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("omp-loom.ts");
@@ -55,7 +55,7 @@ impl Adapter for Omp {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/omp",
@@ -111,6 +111,10 @@ impl Adapter for Omp {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[], &[]))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

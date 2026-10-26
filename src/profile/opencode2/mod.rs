@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Carry, Chosen, Command, Facts, ResumeError, Serve};
+use super::adapter::{Carry, Chosen, Command, Facts, InputSeen, ResumeError, Serve};
 use super::process::Served;
 use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::accounts::{AccountId, Site};
@@ -18,7 +18,7 @@ use crate::protocol::{
     Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PermissionReply, Prompt, PromptKey,
     PromptOption, Report, ServerRecord, ServerState, Session, WaitKind,
 };
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 use server::Server;
 
@@ -45,7 +45,7 @@ impl super::adapter::Adapter for OpenCode2 {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: false,
+            sleeps: false,
             listens_at_start: true,
             pinned: Some(CMD),
             usage_part: "usage/opencode2",
@@ -98,6 +98,10 @@ impl super::adapter::Adapter for OpenCode2 {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        None
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
 

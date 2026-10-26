@@ -227,10 +227,10 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
     if req.mode != Kind::Queue {
         let (to, agent) = app.graph.agent_at(from, &req.to)?;
         let target = format!("#{}", to.0);
-        let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
+        if !agent.as_ref().is_some_and(profile::linked) {
             return Err(Refusal::NotSteerable(req.to.clone()));
-        };
-        if req.mode == Kind::Interrupt && profile.hooked() {
+        }
+        if req.mode == Kind::Interrupt {
             let inside = app.wsl_at(to)?;
             let mut stopped = false;
             let (sent, shells) =

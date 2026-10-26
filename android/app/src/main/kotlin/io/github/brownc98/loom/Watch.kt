@@ -35,7 +35,7 @@ class Watch : Service() {
     private val again = Runnable { connect() }
     private val quiet = Runnable { dropped() }
     private var socket: WebSocket? = null
-    private var quietMs: Long? = null
+    private var limit: Long? = CONNECT_MS
     private var turn = 0
     private var at = 0
     private var linked = false
@@ -120,14 +120,14 @@ class Watch : Service() {
     }
 
     private fun heard(heard: Heard, text: String) {
-        if (heard == Heard.BEAT) quietMs = runCatching { JSONObject(text).getLong("quietMs") }.getOrNull() ?: quietMs
+        if (heard == Heard.BEAT) limit = runCatching { JSONObject(text).getLong("quietMs") }.getOrNull()
         awaitFrame()
         if (heard == Heard.WAITS) show()
     }
 
     private fun awaitFrame() {
         main.removeCallbacks(quiet)
-        quietMs?.let { main.postDelayed(quiet, it) }
+        limit?.let { main.postDelayed(quiet, it) }
     }
 
     private fun linked(on: Boolean) {
@@ -142,7 +142,7 @@ class Watch : Service() {
         main.removeCallbacks(quiet)
         socket?.cancel()
         socket = null
-        quietMs = null
+        limit = CONNECT_MS
     }
 
     private fun dropped() {

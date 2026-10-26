@@ -547,7 +547,10 @@ export function Graph(props: {
         setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }])));
         setPending((prev) => new Map([...prev].filter(([, d]) => d.after > asked)));
       },
-      (err: Error) => setRefusal(err.message),
+      (err: Error) => {
+        setRefusal(err.message);
+        if (asked === reads.current) setPending((prev) => new Map([...prev].filter(([, d]) => d.after > asked)));
+      },
     );
     return asked;
   };
@@ -1099,14 +1102,16 @@ export function Graph(props: {
     for (let s: Step | null = { key, level, mover }; s !== null; s = shellOf(s, done)) pushOverlaps(s, done);
     return done;
   };
-  const save = (moved: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+  const save = (moved: ReadonlyMap<string, XYPosition>) => {
     const done = new Map(
       [...moved].filter(([k, p]) => {
         const draft = draftAt.get(k);
         return draft === undefined || !samePoint(draft, p);
       }),
     );
-    if (done.size === 0) return;
+    if (done.size > 0) saveAfter(done, Promise.resolve());
+  };
+  const saveAfter = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown>) => {
     const placed = place(done);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : (repoOf(p.spot) ?? []))));
     if (alwaysArrange) return keepArranged([...inside], { spots: done }, after);
@@ -1140,7 +1145,7 @@ export function Graph(props: {
     const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
     holdOrder();
     const after = clearSpots(r.repo.id);
-    save(kept, after);
+    saveAfter(kept, after);
     setArranging({ scope: { kind: 'repo', id: r.repo.id }, after });
   };
   useEffect(() => {

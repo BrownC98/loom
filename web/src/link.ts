@@ -5,7 +5,7 @@ export const CONNECT_LIMIT_MS = 5000;
 
 export interface Link {
   send: (data: string | Uint8Array<ArrayBuffer>) => void;
-  beat: (quietMs: number) => void;
+  beat: (quietMs: number | undefined) => void;
   close: () => void;
 }
 
@@ -21,13 +21,13 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let hiddenAt: number | undefined;
-  let quietMs: number | undefined;
+  let limit: number | undefined;
   const watch = (ms: number | undefined) => {
     clearTimeout(watchdog);
     watchdog = ms === undefined ? undefined : setTimeout(restart, ms);
   };
   const pace = () => {
-    if (quietMs === undefined || socket?.readyState !== WebSocket.OPEN) return;
+    if (socket?.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ pace: document.visibilityState === 'hidden' ? 'back' : 'front' } satisfies Pace));
   };
   const open = () => {
@@ -36,14 +36,15 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
     if (stopped) return;
     const ws = new WebSocket(url);
     socket = ws;
-    quietMs = undefined;
+    limit = CONNECT_LIMIT_MS;
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
-      watch(quietMs);
+      watch(limit);
+      pace();
       handlers.onOpen();
     };
     ws.onmessage = (e) => {
-      watch(quietMs);
+      watch(limit);
       handlers.onMessage(e);
     };
     ws.onclose = () => {
@@ -53,7 +54,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
       handlers.onDrop?.();
       retry = setTimeout(open, RECONNECT_MS);
     };
-    watch(CONNECT_LIMIT_MS);
+    watch(limit);
   };
   const abandon = () => {
     const ws = socket;
@@ -76,7 +77,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
     }
     const away = hiddenAt === undefined ? 0 : Date.now() - hiddenAt;
     hiddenAt = undefined;
-    if (quietMs !== undefined && away >= quietMs) restart();
+    if (limit !== undefined && away >= limit) restart();
     else if (retry !== undefined) open();
   };
   const onPageShow = (e: PageTransitionEvent) => {
@@ -91,10 +92,8 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
       if (socket?.readyState === WebSocket.OPEN) socket.send(data);
     },
     beat: (ms) => {
-      const first = quietMs === undefined;
-      quietMs = ms;
-      watch(quietMs);
-      if (first) pace();
+      limit = ms;
+      watch(limit);
     },
     close: () => {
       stopped = true;

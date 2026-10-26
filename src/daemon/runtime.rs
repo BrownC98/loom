@@ -100,9 +100,10 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    pub(super) fn remove(self: &Arc<Self>, node: NodeId) -> Result<Vec<NodeId>, Refusal> {
         let children = self.graph.remove(node)?;
         self.host.kill(node);
+        self.parent_changed(&children);
         Ok(children)
     }
 

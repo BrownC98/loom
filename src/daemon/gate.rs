@@ -65,7 +65,9 @@ impl App {
     pub(super) async fn unreadied(&self, node: NodeId) -> Result<Option<String>, Refusal> {
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
-        if Path::new(&place.worktree) == repo || self.gate_of(node, &repo).await?.0 != node {
+        if Path::new(&place.worktree) == repo
+            || matches!(self.graph.gate_for(node)?, GateChoice::Parent { .. })
+        {
             return Ok(None);
         }
         branch_warning(&repo, &place.worktree, |branch, head| {
@@ -104,20 +106,44 @@ impl App {
     }
 
     async fn gate_of(&self, node: NodeId, repo: &Path) -> Result<(NodeId, String), Refusal> {
-        let base = base_branch(repo).await?;
         match self.graph.gate_for(node)? {
             GateChoice::Parent { gate, worktree } => {
-                let from = worktree::find(repo, &worktree)
-                    .await
-                    .map_err(git_problem)?
-                    .branch;
-                match from {
-                    Some(target) if target != base => Ok((gate, target)),
-                    _ => Ok((node, base)),
+                Ok((gate, target_of(repo, Some(&worktree)).await?))
+            }
+            GateChoice::Owner => Ok((node, target_of(repo, None).await?)),
+        }
+    }
+
+    pub(super) fn parent_changed(self: &Arc<Self>, owners: &[NodeId]) {
+        let app = self.clone();
+        let owners = owners.to_vec();
+        tokio::spawn(async move {
+            for owner in owners {
+                if let Err(e) = app.tell_new_gate(owner).await {
+                    eprintln!("loom: gate of node {}: {e}", owner.0);
                 }
             }
-            GateChoice::Owner => Ok((node, base)),
+        });
+    }
+
+    async fn tell_new_gate(&self, owner: NodeId) -> Result<(), Refusal> {
+        let rounds = self.graph.waiting_rounds(owner)?;
+        if rounds.is_empty() {
+            return Ok(());
         }
+        let gate_worktree = match self.graph.gate_for(owner)? {
+            GateChoice::Parent { worktree, .. } => Some(worktree),
+            GateChoice::Owner => None,
+        };
+        for (repo, branch) in rounds {
+            let dir = self
+                .repos
+                .path(repo)
+                .map_err(|e| Refusal::Git(e.to_string()))?;
+            let target = target_of(&dir, gate_worktree.as_deref()).await?;
+            self.graph.tell_gate(repo, &branch, &target)?;
+        }
+        Ok(())
     }
 
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {
@@ -163,10 +189,28 @@ impl App {
             head: &mine.head,
         };
         let gate = match self.gated_repo(node)? {
-            true => self.graph.ready(node, &round, gate, Some(via))?,
+            true => self.graph.ready(node, &round, Some(via))?,
             false => self.graph.announce_ready(node, &round, gate, Some(via))?,
         };
         Ok(Readied { gate, target })
+    }
+}
+
+pub(super) async fn target_of(repo: &Path, gate_worktree: Option<&str>) -> Result<String, Refusal> {
+    let base = base_branch(repo).await?;
+    let Some(worktree) = gate_worktree else {
+        return Ok(base);
+    };
+    match worktree::find(repo, worktree)
+        .await
+        .map_err(git_problem)?
+        .branch
+    {
+        Some(branch) if branch != base => Ok(branch),
+        branch => Err(Refusal::Git(format!(
+            "the gate worktree {worktree} is {}; the gate must have its own branch there",
+            branch.map_or_else(|| "detached".to_owned(), |b| format!("on {b}"))
+        ))),
     }
 }
 

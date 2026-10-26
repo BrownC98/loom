@@ -57,9 +57,14 @@ pub struct Reclaim {
     pub reviewers: Vec<NodeId>,
 }
 
+pub struct Merge<'a> {
+    pub sha: &'a str,
+    pub target: &'a str,
+}
+
 pub struct Ended<'a> {
     pub end: MergeEnd,
-    pub merged: Option<&'a str>,
+    pub merged: Option<Merge<'a>>,
     pub cause: Option<String>,
     pub log: Option<String>,
     pub lines: Vec<String>,
@@ -69,7 +74,6 @@ pub struct Ended<'a> {
 struct Row {
     owner: NodeId,
     gate: NodeId,
-    target: String,
     worktree: String,
     state: GateState,
     head: String,
@@ -86,6 +90,7 @@ impl Row {
 
 #[derive(Default)]
 struct Detail {
+    target: String,
     findings_file: Option<String>,
     sha: Option<String>,
     cause: Option<String>,
@@ -111,17 +116,21 @@ impl Caller {
 
 impl Graph {
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
-        let db = self.lock();
-        let Some(parent) = parent_of(&db, owner)? else {
-            return Ok(GateChoice::Owner);
-        };
-        let (mine, theirs) = (place_of(&db, owner)?, place_of(&db, parent)?);
-        if mine.repo != theirs.repo {
-            return Ok(GateChoice::Owner);
-        }
-        Ok(GateChoice::Parent {
-            gate: parent,
-            worktree: theirs.worktree,
+        let found = self.lock().query_row(
+            &format!(
+                "SELECT {}, {}",
+                parent_gate("?1", "id"),
+                parent_gate("?1", "worktree")
+            ),
+            [owner.0],
+            |r| Ok((r.get::<_, Option<u32>>(0)?, r.get::<_, Option<String>>(1)?)),
+        )?;
+        Ok(match found {
+            (Some(gate), Some(worktree)) => GateChoice::Parent {
+                gate: NodeId(gate),
+                worktree,
+            },
+            _ => GateChoice::Owner,
         })
     }
 
@@ -129,10 +138,12 @@ impl Graph {
         &self,
         owner: NodeId,
         round: &Round,
-        gate: NodeId,
         via: Option<&Via>,
     ) -> Result<String, Refusal> {
-        let detail = Detail::default();
+        let detail = Detail {
+            target: round.target.to_owned(),
+            ..Detail::default()
+        };
         let repo = place_of(&self.lock(), owner)?.repo;
         let row = self.apply(
             Caller::Node(owner),
@@ -149,16 +160,14 @@ impl Graph {
                     return Err(Refusal::SameHead(round.branch.to_owned()));
                 }
                 tx.execute(
-                    "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch())
-                     ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
-                        state = ?7, head = ?8, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch()",
+                    "INSERT INTO gates (repo, branch, owner, worktree, state, head, opened)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch())
+                     ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, worktree = ?4,
+                        state = ?5, head = ?6, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch()",
                     params![
                         repo.0,
                         round.branch,
                         owner.0,
-                        gate.0,
-                        round.target,
                         round.worktree,
                         to_json(&row.state),
                         round.head
@@ -343,10 +352,11 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    pub fn queued_targets(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
+    pub fn queued_gates(&self) -> rusqlite::Result<Vec<(RepoId, Option<String>)>> {
         self.lock()
             .prepare(&format!(
-                "SELECT repo, target FROM gates WHERE {} GROUP BY repo, target ORDER BY min(seq)",
+                "SELECT repo, {} AS into_worktree FROM gates WHERE {} GROUP BY repo, into_worktree ORDER BY min(seq)",
+                parent_gate("gates.owner", "worktree"),
                 settled()
             ))?
             .query_map([], |r| Ok((RepoId(r.get(0)?), r.get(1)?)))?
@@ -356,16 +366,18 @@ impl Graph {
     pub fn batch_open(
         &self,
         repo: RepoId,
+        gate_worktree: Option<&str>,
         target: &str,
     ) -> rusqlite::Result<Option<(BatchId, Vec<Queued>)>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let queue: Vec<Queued> = tx
             .prepare(&format!(
-                "{QUEUED} WHERE repo = ?1 AND target = ?2 AND {} ORDER BY seq",
+                "{QUEUED} WHERE repo = ?1 AND {} IS ?2 AND {} ORDER BY seq",
+                parent_gate("gates.owner", "worktree"),
                 settled()
             ))?
-            .query_map(params![repo.0, target], read_queued)?
+            .query_map(params![repo.0, gate_worktree], read_queued)?
             .collect::<rusqlite::Result<_>>()?;
         if queue.is_empty() {
             return Ok(None);
@@ -385,11 +397,91 @@ impl Graph {
         Ok(Some((id, queue)))
     }
 
-    pub fn batch_members(&self, id: BatchId) -> rusqlite::Result<Vec<String>> {
+    pub fn batch_members(&self, id: BatchId) -> rusqlite::Result<Vec<(String, Option<String>)>> {
         self.lock()
-            .prepare("SELECT branch FROM gates WHERE batch = ?1")?
-            .query_map([id.0], |r| r.get(0))?
+            .prepare(&format!(
+                "SELECT branch, {} FROM gates WHERE batch = ?1",
+                parent_gate("gates.owner", "worktree")
+            ))?
+            .query_map([id.0], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect()
+    }
+
+    pub fn waiting_rounds(&self, owner: NodeId) -> rusqlite::Result<Vec<(RepoId, String)>> {
+        self.lock()
+            .prepare(
+                "SELECT repo, branch FROM gates WHERE owner = ?1 AND state IN (?2, ?3) AND batch IS NULL ORDER BY rowid",
+            )?
+            .query_map(
+                params![
+                    owner.0,
+                    to_json(&GateState::Ready),
+                    to_json(&GateState::Passed)
+                ],
+                |r| Ok((RepoId(r.get(0)?), r.get(1)?)),
+            )?
+            .collect()
+    }
+
+    pub fn tell_gate(&self, repo: RepoId, branch: &str, target: &str) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let Some(row) = load(&tx, repo, branch)? else {
+            return Ok(());
+        };
+        if !matches!(row.state, GateState::Ready | GateState::Passed) || !exists(&tx, row.gate)? {
+            return Ok(());
+        }
+        let what = MessageKind::Ready {
+            branch: branch.to_owned(),
+            head: row.head.clone(),
+            worktree: row.worktree.clone(),
+            target: target.to_owned(),
+        };
+        let trace = trace(
+            &tx,
+            Caller::Loom,
+            GateVerb::Ready,
+            branch,
+            Some(row.state),
+            Some(row.state),
+            Vec::new(),
+        )?;
+        let body = protocol::next_step(
+            GateCall::Ready,
+            Receiver::Gate,
+            row.target_kind(),
+            branch,
+            &row.head,
+        );
+        post(
+            &tx,
+            Caller::Loom,
+            row.gate,
+            Kind::Queue,
+            &what,
+            &body,
+            None,
+            &trace,
+        )?;
+        tx.commit()?;
+        self.publish_node(&db, row.gate)?;
+        self.mail.notify_waiters();
+        Ok(())
+    }
+
+    pub fn open_round(&self, repo: RepoId, branch: &str) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM gates WHERE repo = ?1 AND branch = ?2
+             AND (state IN (?3, ?4) OR batch IS NOT NULL))",
+            params![
+                repo.0,
+                branch,
+                to_json(&GateState::Ready),
+                to_json(&GateState::Passed)
+            ],
+            |r| r.get(0),
+        )
     }
 
     pub fn target_moves(&self, repo: RepoId, target: &str) -> rusqlite::Result<u32> {
@@ -505,7 +597,7 @@ impl Graph {
         } = ended;
         lines.extend(findings.iter().map(|f| format!("audit: {f}")));
         let detail = Detail {
-            sha: merged.map(str::to_owned),
+            sha: merged.as_ref().map(|m| m.sha.to_owned()),
             cause,
             log,
             lines,
@@ -525,10 +617,14 @@ impl Graph {
                     "UPDATE gates SET batch = NULL, queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch],
                 )?;
-                if let Some(sha) = merged {
+                if let Some(merged) = &merged {
                     tx.execute(
                         "INSERT OR IGNORE INTO gate_merges (repo, target, sha) VALUES (?1, ?2, ?3)",
-                        params![repo.0, row.target, sha],
+                        params![repo.0, merged.target, merged.sha],
+                    )?;
+                    tx.execute(
+                        "UPDATE gates SET merged_into = ?3 WHERE repo = ?1 AND branch = ?2",
+                        params![repo.0, branch, merged.target],
                     )?;
                 }
                 Ok(())
@@ -544,7 +640,7 @@ impl Graph {
                     (SELECT 1 FROM nodes o WHERE o.id = gates.owner AND o.parent IS NOT NULL
                      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = o.id))
                  OR EXISTS (SELECT 1 FROM nodes n WHERE {}) FROM gates WHERE state = ?1 ORDER BY rowid",
-                of_round("gates.gate", "gates.owner", "gates.branch")
+                of_round(&gate_of("gates.owner"), "gates.owner", "gates.branch")
             ))?
             .query_map([to_json(&GateState::Merged)], |r| {
                 Ok((RepoId(r.get(0)?), r.get(1)?, r.get(2)?))
@@ -556,8 +652,11 @@ impl Graph {
         let db = self.lock();
         let found = db
             .query_row(
-                "SELECT g.owner, g.gate, g.target, g.worktree, g.head FROM gates g
-                 WHERE g.repo = ?1 AND g.branch = ?2 AND g.state = ?3",
+                &format!(
+                    "SELECT owner, {}, merged_into, worktree, head FROM gates
+                     WHERE repo = ?1 AND branch = ?2 AND state = ?3 AND merged_into IS NOT NULL",
+                    gate_of("gates.owner")
+                ),
                 params![repo.0, branch, to_json(&GateState::Merged)],
                 |r| {
                     Ok(Reclaim {
@@ -577,7 +676,7 @@ impl Graph {
         found.reviewers = db
             .prepare(&format!(
                 "SELECT n.id FROM nodes n, gates WHERE gates.repo = ?1 AND gates.branch = ?2 AND {} ORDER BY n.id",
-                of_round("gates.gate", "gates.owner", "gates.branch")
+                of_round(&gate_of("gates.owner"), "gates.owner", "gates.branch")
             ))?
             .query_map(params![repo.0, branch], |r| Ok(NodeId(r.get(0)?)))?
             .collect::<rusqlite::Result<_>>()?;
@@ -683,7 +782,6 @@ impl Graph {
             None => Row {
                 owner: caller.node().expect("only loom ready opens a row"),
                 gate: caller.node().expect("only loom ready opens a row"),
-                target: String::new(),
                 worktree: String::new(),
                 state: to,
                 head: String::new(),
@@ -707,7 +805,7 @@ impl Graph {
                 branch: branch.to_owned(),
                 head: row.head.clone(),
                 worktree: row.worktree.clone(),
-                target: row.target.clone(),
+                target: detail.target,
                 findings: detail.findings_file,
                 reviewer: trace.agent.as_ref().map(|agent| match &trace.model {
                     Some(model) => format!("{} {model}", agent.0),
@@ -1064,6 +1162,112 @@ fn close(db: &Connection, id: BatchId) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub(super) fn close_owned(
+    tx: &Transaction,
+    owner: NodeId,
+    linked: fn(&AgentId) -> bool,
+) -> Result<Vec<NodeId>, Refusal> {
+    let open: Vec<(RepoId, String)> = tx
+        .prepare("SELECT repo, branch FROM gates WHERE owner = ?1 AND state IN (?2, ?3)")?
+        .query_map(
+            params![
+                owner.0,
+                to_json(&GateState::Ready),
+                to_json(&GateState::Passed)
+            ],
+            |r| Ok((RepoId(r.get(0)?), r.get(1)?)),
+        )?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut sent = Vec::new();
+    for (repo, branch) in open {
+        let row = load(tx, repo, &branch)?.expect("방금 찾은 관문 줄");
+        release(tx, repo, &branch)?;
+        update(tx, repo, &branch, GateState::Working)?;
+        tx.execute(
+            "UPDATE gates SET queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
+            params![repo.0, branch],
+        )?;
+        tx.execute(
+            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+            params![repo.0, branch],
+        )?;
+        let trace = trace(
+            tx,
+            Caller::Loom,
+            GateVerb::Queue,
+            &branch,
+            Some(row.state),
+            Some(GateState::Working),
+            Vec::new(),
+        )?;
+        sent.extend(withdraw(tx, Caller::Loom, &row, &branch, &trace, linked)?);
+    }
+    Ok(sent)
+}
+
+pub(super) struct OpenGate {
+    repo: RepoId,
+    branch: String,
+    gate: u32,
+}
+
+pub(super) fn open_gates(db: &Connection, owners: &[NodeId]) -> rusqlite::Result<Vec<OpenGate>> {
+    let owners = serde_json::to_string(&owners.iter().map(|n| n.0).collect::<Vec<_>>())
+        .expect("번호 목록은 늘 직렬화된다");
+    db.prepare(&format!(
+        "SELECT repo, branch, {} FROM gates WHERE owner IN (SELECT value FROM json_each(?1))
+         AND state IN (?2, ?3)",
+        gate_of("gates.owner")
+    ))?
+    .query_map(
+        params![
+            owners,
+            to_json(&GateState::Ready),
+            to_json(&GateState::Passed)
+        ],
+        |r| {
+            Ok(OpenGate {
+                repo: RepoId(r.get(0)?),
+                branch: r.get(1)?,
+                gate: r.get(2)?,
+            })
+        },
+    )?
+    .collect()
+}
+
+pub(super) fn regate(db: &Connection, before: Vec<OpenGate>) -> Result<(), Refusal> {
+    for open in before {
+        let now: u32 = db.query_row(
+            &format!(
+                "SELECT {} FROM gates WHERE repo = ?1 AND branch = ?2",
+                gate_of("gates.owner")
+            ),
+            params![open.repo.0, open.branch],
+            |r| r.get(0),
+        )?;
+        if now == open.gate {
+            continue;
+        }
+        release(db, open.repo, &open.branch)?;
+        db.execute(
+            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+            params![open.repo.0, open.branch],
+        )?;
+        db.execute(
+            "UPDATE gates SET state = ?3, queued = NULL, seq = NULL
+             WHERE repo = ?1 AND branch = ?2 AND state = ?4",
+            params![
+                open.repo.0,
+                open.branch,
+                to_json(&GateState::Ready),
+                to_json(&GateState::Passed)
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 fn release(db: &Connection, repo: RepoId, branch: &str) -> Result<(), Refusal> {
     let checked: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM gates g JOIN batches b ON b.id = g.batch
@@ -1152,9 +1356,20 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
 fn settled() -> String {
     format!(
         "state = '\"passed\"' AND batch IS NULL AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
-        in_round("gates.gate", "gates.owner", "gates.branch"),
+        in_round(&gate_of("gates.owner"), "gates.owner", "gates.branch"),
         voted("gates.repo", "gates.branch")
     )
+}
+
+fn parent_gate(owner: &str, column: &str) -> String {
+    format!(
+        "(SELECT p.{column} FROM nodes o JOIN nodes p ON p.id = o.parent JOIN repos r ON r.id = p.repo
+          WHERE o.id = {owner} AND p.repo = o.repo AND p.worktree != r.path)"
+    )
+}
+
+fn gate_of(owner: &str) -> String {
+    format!("coalesce({}, {owner})", parent_gate(owner, "id"))
 }
 
 const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0), worktree FROM gates";
@@ -1172,17 +1387,19 @@ fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
 
 fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Row>> {
     db.query_row(
-        "SELECT owner, gate, target, worktree, CASE WHEN batch IS NULL THEN state ELSE '\"merging\"' END, head
-         FROM gates WHERE repo = ?1 AND branch = ?2",
+        &format!(
+            "SELECT owner, {}, worktree, CASE WHEN batch IS NULL THEN state ELSE '\"merging\"' END, head
+             FROM gates WHERE repo = ?1 AND branch = ?2",
+            gate_of("gates.owner")
+        ),
         params![repo.0, branch],
         |row| {
             Ok(Row {
                 owner: NodeId(row.get(0)?),
                 gate: NodeId(row.get(1)?),
-                target: row.get(2)?,
-                worktree: row.get(3)?,
-                state: from_json(row, 4)?,
-                head: row.get(5)?,
+                worktree: row.get(2)?,
+                state: from_json(row, 3)?,
+                head: row.get(4)?,
             })
         },
     )

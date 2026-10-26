@@ -192,6 +192,11 @@ async fn rename_worktree(
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
     let listed = worktree::find(&repo, &req.path).await?;
+    if let Some(branch) = &listed.branch
+        && app.graph.open_round(id, branch).map_err(internal)?
+    {
+        return Err(RepoProblem::OpenRound(branch.clone()).into());
+    }
     worktree::rename(&repo, &listed, &req.name).await?;
     Ok(Json(app.repo_view(id, &repo).await))
 }
@@ -212,7 +217,7 @@ async fn delete_worktree(
         return Err(RepoProblem::Original.into());
     }
     for node in app.graph.nodes_in(&req.path).map_err(internal)? {
-        let children = app.remove(node).map_err(internal)?;
+        let children = app.remove(node)?;
         app.position_changed(&children);
     }
     app.spots.forget_worktree(id, &req.path).map_err(internal)?;

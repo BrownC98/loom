@@ -83,7 +83,7 @@ async fn remove_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    let children = app.remove(NodeId(id)).map_err(internal)?;
+    let children = app.remove(NodeId(id))?;
     app.position_changed(&children);
     Ok(Json(()))
 }
@@ -96,6 +96,7 @@ async fn adopt_node(
     if app.graph.adopt(NodeId(parent), NodeId(id), limits)? {
         app.position_changed(&[NodeId(id)]);
     }
+    app.parent_changed(&[NodeId(id)]);
     Ok(Json(()))
 }
 
@@ -105,6 +106,7 @@ async fn detach_node(
 ) -> Result<Json<()>, Problem> {
     app.graph.detach(NodeId(id))?;
     app.position_changed(&[NodeId(id)]);
+    app.parent_changed(&[NodeId(id)]);
     Ok(Json(()))
 }
 

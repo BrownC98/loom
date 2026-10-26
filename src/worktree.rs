@@ -108,6 +108,8 @@ pub enum RepoProblem {
     Original,
     /// 분리된 HEAD 워크트리다. 이름을 바꿀 브랜치가 없다.
     Detached,
+    /// 이 브랜치의 `loom ready` 차례가 열려 있다. 차례가 끝난 뒤 이름을 바꾼다.
+    OpenRound(String),
     EmptyBranch,
     /// 첫 커밋 전 저장소에서는 워크트리를 만들지 못한다.
     NoCommit,
@@ -144,6 +146,10 @@ impl fmt::Display for RepoProblem {
                 write!(f, "The original checkout cannot be removed or renamed.")
             }
             RepoProblem::Detached => write!(f, "Detached HEAD. There is no branch to rename."),
+            RepoProblem::OpenRound(branch) => write!(
+                f,
+                "{branch} has an open loom ready round. Rename it after the round ends."
+            ),
             RepoProblem::EmptyBranch => write!(f, "Give a branch name."),
             RepoProblem::NoCommit => write!(
                 f,

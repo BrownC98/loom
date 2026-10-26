@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::App;
+use super::gate::target_of;
 use crate::git;
-use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued};
+use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Queued};
 use crate::protocol::{self, Finding, MergeEnd, Refusal, SHIP_DEPLOY_FAILED};
 use crate::worktree::merge::{
     self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
@@ -20,19 +21,22 @@ pub(super) async fn run(app: Arc<App>) {
     tokio::spawn(super::reclaim::run(app.clone()));
     loop {
         recover(&app, CHECK_LOCK).await;
-        loop {
-            let next = match app.graph.queued_targets() {
-                Ok(targets) => targets.into_iter().next(),
+        'next: loop {
+            let gates = match app.graph.queued_gates() {
+                Ok(gates) => gates,
                 Err(e) => {
                     eprintln!("loom: merge queue: {e}");
-                    None
+                    break;
                 }
             };
-            let Some((repo, target)) = next else { break };
-            if let Err(e) = batch(&app, repo, &target, CHECK_LOCK).await {
-                eprintln!("loom: merge queue {target}: {e}");
-                break;
+            for (repo, gate) in gates {
+                match batch(&app, repo, gate.as_deref(), CHECK_LOCK).await {
+                    Ok(true) => continue 'next,
+                    Ok(false) => {}
+                    Err(e) => eprintln!("loom: merge queue: {e}"),
+                }
             }
+            break;
         }
         tokio::select! {
             () = app.merge_queue.notified() => {}
@@ -43,27 +47,30 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-async fn batch(app: &Arc<App>, repo: RepoId, target: &str, lock: &str) -> Result<(), Refusal> {
-    let Some((id, queue)) = app.graph.batch_open(repo, target)? else {
-        return Ok(());
+async fn batch(
+    app: &Arc<App>,
+    repo: RepoId,
+    gate: Option<&str>,
+    lock: &str,
+) -> Result<bool, Refusal> {
+    let dir = repo_path(app, repo)?;
+    let target = target_of(&dir, gate).await?;
+    let Some((id, queue)) = app.graph.batch_open(repo, gate, &target)? else {
+        return Ok(false);
     };
-    match repo_path(app, repo) {
-        Ok(dir) => {
-            let run = Batch {
-                app,
-                id,
-                repo,
-                dir,
-                target: target.to_owned(),
-                lock,
-            };
-            if let Err(e) = run.run(queue.clone()).await {
-                fail_all(app, repo, id, &queue, &e.to_string());
-            }
-        }
-        Err(e) => fail_all(app, repo, id, &queue, &e.to_string()),
+    let run = Batch {
+        app,
+        id,
+        repo,
+        dir,
+        target,
+        lock,
+    };
+    if let Err(e) = run.run(queue.clone()).await {
+        fail_all(app, repo, id, &queue, &e.to_string());
     }
-    Ok(app.graph.batch_ended(id)?)
+    app.graph.batch_ended(id)?;
+    Ok(true)
 }
 
 async fn recover(app: &Arc<App>, lock: &str) {
@@ -398,8 +405,15 @@ impl Batch<'_> {
     async fn unchanged(&self, members: &[Queued]) -> Result<bool, Refusal> {
         let held = self.app.graph.batch_members(self.id)?;
         let mut kept = Vec::new();
-        for m in members.iter().filter(|m| held.contains(&m.branch)) {
-            if self.screen(m).await? {
+        for m in members {
+            let Some((_, gate)) = held.iter().find(|(branch, _)| *branch == m.branch) else {
+                continue;
+            };
+            if target_of(&self.dir, gate.as_deref()).await.ok().as_deref()
+                != Some(self.target.as_str())
+            {
+                self.requeue(m);
+            } else if self.screen(m).await? {
                 kept.push(m);
             }
         }
@@ -539,7 +553,10 @@ impl Batch<'_> {
                 m,
                 Ended {
                     end: MergeEnd::Merged,
-                    merged: Some(&sha),
+                    merged: Some(Merge {
+                        sha: &sha,
+                        target: &self.target,
+                    }),
                     cause: None,
                     log: None,
                     lines,

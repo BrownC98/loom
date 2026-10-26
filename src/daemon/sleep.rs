@@ -356,6 +356,9 @@ impl App {
                 tokio::spawn(async move {
                     if let Err(e) = app.resume_node(node).await {
                         eprintln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
+                    } else if app.graph.process(id).ok().flatten() == Some(ProcessOutcome::HostGone)
+                    {
+                        app.wake(id);
                     }
                 });
             }
@@ -376,15 +379,19 @@ impl App {
         }
         for id in waking {
             self.sleeps.unwoken(id, self.graph.newest_mail(id)?);
-            let app = self.clone();
-            tokio::spawn(async move {
-                match app.relaunch_by_id(id, Plan::Resume).await {
-                    Ok(_) => drop(app.sleeps.unwoken.lock().unwrap().remove(&id)),
-                    Err(e) => eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
-                }
-            });
+            self.wake(id);
         }
         Ok(())
+    }
+
+    fn wake(self: &Arc<Self>, id: NodeId) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            match app.relaunch_by_id(id, Plan::Resume).await {
+                Ok(_) => drop(app.sleeps.unwoken.lock().unwrap().remove(&id)),
+                Err(e) => eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
+            }
+        });
     }
 
     pub(super) fn hear_lost_wait(&self, id: NodeId) -> rusqlite::Result<()> {

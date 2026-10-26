@@ -347,6 +347,17 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' IN ('notRelated', 'notChild');"#,
     ),
     M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn required brief heads.'))
+            WHERE entry ->> '$.reason.code' = 'missingHeads';",
+    ),
+    M::up(
+        "CREATE TABLE node_hosts (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            unreached TEXT
+        );",
+    ),
+    M::up(
         "CREATE TABLE recovery_attempts (
             node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
             cause TEXT NOT NULL,

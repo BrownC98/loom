@@ -336,14 +336,14 @@ impl App {
                 waking.push(id);
             }
         }
-        let unattached = self.host.unattached();
+        let unreached = self.graph.unreached_hosts()?;
         for node in self.graph.active()? {
             let id = node.id;
-            if !unattached.contains(&id) {
+            if !unreached.contains(&id) {
                 continue;
             }
             if (knocked.contains(&id) || self.graph.mail_since_attempt(id, Attempt::Wake)?)
-                && self.host.take_unattached(id)
+                && self.graph.claim_unreached(id)?
             {
                 self.graph.attempted(id, Attempt::Wake)?;
                 let app = self.clone();

@@ -48,7 +48,7 @@ impl Served {
                 cmd.args(&argv[1..])
                     .current_dir(cwd)
                     .envs(env.iter().map(|(k, v)| (k, v)));
-                process_tree::detach(&mut cmd);
+                crate::timed::own_group(&mut cmd);
                 let mut child = tokio::process::Command::from(cmd)
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())

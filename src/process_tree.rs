@@ -200,14 +200,6 @@ pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String,
         .map_err(|e| e.to_string())
 }
 
-#[cfg(unix)]
-pub fn detach(cmd: &mut std::process::Command) {
-    std::os::unix::process::CommandExt::process_group(cmd, 0);
-}
-
-#[cfg(not(unix))]
-pub fn detach(_: &mut std::process::Command) {}
-
 pub fn free_port() -> Result<u16, String> {
     std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .and_then(|l| l.local_addr())

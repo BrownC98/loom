@@ -411,6 +411,9 @@ export function App() {
         case 'recorded':
           log.onRecord(event.record);
           notice.onRecord(event.record);
+          break;
+        default:
+          event satisfies never;
       }
     }, linked);
     return graph.close;

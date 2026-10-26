@@ -23,7 +23,7 @@ use crate::protocol::{
 use crate::screen::{self, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-use adapter::{Adapter, NoServer};
+use adapter::{Adapter, InputSeen, NoServer};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -162,8 +162,8 @@ impl Profile {
         adapter(self).facts().provider
     }
 
-    pub fn hooked(self) -> bool {
-        adapter(self).facts().hooked
+    pub fn sleeps(self) -> bool {
+        adapter(self).facts().sleeps
     }
 
     pub fn listens_at_start(self) -> bool {
@@ -224,8 +224,34 @@ pub struct AgentView {
     pub provider: Option<Provider>,
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
     pub can_bypass: bool,
+    pub model_rule: ModelRule,
     /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
     pub places: Vec<AgentAt>,
+}
+
+/// 모델과 추론 강도를 고르는 규칙.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ModelRule {
+    Fixed,
+    Free,
+    EffortNeedsModel,
+}
+
+pub fn model_rule(profile: Option<Profile>) -> ModelRule {
+    let takes = |model: Option<&str>, effort: Option<&str>| {
+        let choice = ModelChoice {
+            model: model.map(str::to_owned),
+            effort: effort.map(str::to_owned),
+        };
+        profile.is_some_and(|p| adapter(p).choice_args(&choice).is_some())
+    };
+    match (takes(Some("model"), None), takes(None, Some("effort"))) {
+        (false, _) => ModelRule::Fixed,
+        (true, true) => ModelRule::Free,
+        (true, false) => ModelRule::EffortNeedsModel,
+    }
 }
 
 /// 한 위치(이 PC 또는 WSL 배포판)에서 에이전트를 찾은 결과.
@@ -263,6 +289,7 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 profile: a.profile,
                 provider: a.profile.and_then(Profile::provider),
                 can_bypass: !a.bypass.is_empty(),
+                model_rule: model_rule(a.profile),
                 places: std::iter::once(pc).chain(inside).collect(),
             }
         })
@@ -397,6 +424,10 @@ pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt>
         Some(None) => None,
         None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
     }
+}
+
+pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen> {
+    adapter(profile?).input_seen(screen)
 }
 
 pub fn profile_of(id: &AgentId) -> Option<Profile> {

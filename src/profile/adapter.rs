@@ -6,12 +6,12 @@ use portable_pty::CommandBuilder;
 use super::{Remote, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{ModelChoice, Provider, Session};
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 pub struct Facts {
     pub provider: Option<Provider>,
-    pub hooked: bool,
+    pub sleeps: bool,
     pub listens_at_start: bool,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
@@ -26,6 +26,11 @@ pub struct Command<'a> {
 }
 
 pub struct NoServer;
+
+pub struct InputSeen {
+    pub empty: bool,
+    pub turn_shown: bool,
+}
 
 pub struct Carry<'a> {
     pub site: &'a Site,
@@ -59,6 +64,7 @@ pub trait Adapter: Sync {
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer>;
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>>;
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])>;
+    fn input_seen(&self, screen: &Screen) -> Option<InputSeen>;
     fn install(&self, dir: &Path) -> std::io::Result<()>;
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch>;
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError>;

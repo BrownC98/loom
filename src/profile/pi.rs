@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, NoServer, ResumeError};
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{
     Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Session,
 };
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
@@ -37,7 +37,7 @@ impl Adapter for Pi {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/pi",
@@ -64,6 +64,10 @@ impl Adapter for Pi {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[], &[]))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

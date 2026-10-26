@@ -6,11 +6,11 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, NoServer, ResumeError};
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
 pub const PROMPT: Grammar = Grammar {
@@ -179,7 +179,7 @@ impl Adapter for Cursor {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/cursor",
@@ -216,6 +216,10 @@ impl Adapter for Cursor {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

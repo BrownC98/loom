@@ -23,7 +23,7 @@ use crate::protocol::{
 use crate::screen::{self, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-use adapter::{Adapter, NoServer};
+use adapter::{Adapter, InputSeen, NoServer};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -224,6 +224,10 @@ pub struct AgentView {
     pub provider: Option<Provider>,
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
     pub can_bypass: bool,
+    /// 역할 설정에서 모델과 노력을 고를 수 있다.
+    pub chooses_model: bool,
+    /// 노력만 고르면 거절한다. 모델도 골라야 한다.
+    pub effort_needs_model: bool,
     /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
     pub places: Vec<AgentAt>,
 }
@@ -256,6 +260,14 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 path: inside.find(names()).map(str::to_owned),
                 version_warning: None,
             });
+            let accepts = |model: Option<&str>, effort: Option<&str>| {
+                let choice = ModelChoice {
+                    model: model.map(str::to_owned),
+                    effort: effort.map(str::to_owned),
+                };
+                choice_args(a, &choice).is_ok()
+            };
+            let chooses_model = accepts(Some("model"), None);
             AgentView {
                 id: a.id.clone(),
                 label: a.label.clone(),
@@ -263,6 +275,8 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 profile: a.profile,
                 provider: a.profile.and_then(Profile::provider),
                 can_bypass: !a.bypass.is_empty(),
+                chooses_model,
+                effort_needs_model: chooses_model && !accepts(None, Some("effort")),
                 places: std::iter::once(pc).chain(inside).collect(),
             }
         })
@@ -397,6 +411,10 @@ pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt>
         Some(None) => None,
         None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
     }
+}
+
+pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen> {
+    adapter(profile?).input_seen(screen)
 }
 
 pub fn profile_of(id: &AgentId) -> Option<Profile> {

@@ -13,10 +13,10 @@ use std::path::Path;
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Command, Facts, NoServer};
+use super::adapter::{Command, Facts, InputSeen, NoServer};
 use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 use server::CodexServer;
 
@@ -110,6 +110,10 @@ impl super::adapter::Adapter for Codex {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, _: &Path) -> std::io::Result<()> {

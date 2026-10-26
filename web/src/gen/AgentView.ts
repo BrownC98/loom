@@ -17,6 +17,14 @@ provider: Provider | null,
  */
 canBypass: boolean, 
 /**
+ * 역할 설정에서 모델과 노력을 고를 수 있다.
+ */
+choosesModel: boolean, 
+/**
+ * 노력만 고르면 거절한다. 모델도 골라야 한다.
+ */
+effortNeedsModel: boolean, 
+/**
  * 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
  */
 places: Array<AgentAt>, };

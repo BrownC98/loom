@@ -4,7 +4,7 @@ use portable_pty::CommandBuilder;
 
 use super::{Remote, VersionMismatch};
 use crate::protocol::{ModelChoice, Provider};
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 pub struct Facts {
@@ -25,12 +25,18 @@ pub struct Command<'a> {
 
 pub struct NoServer;
 
+pub struct InputSeen {
+    pub empty: bool,
+    pub turn_shown: bool,
+}
+
 pub trait Adapter: Sync {
     fn facts(&self) -> Facts;
     fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String>;
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer>;
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>>;
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])>;
+    fn input_seen(&self, screen: &Screen) -> Option<InputSeen>;
     fn install(&self, dir: &Path) -> std::io::Result<()>;
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch>;
 }

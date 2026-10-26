@@ -5,7 +5,7 @@ import { FieldReset } from './FieldReset';
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
 import type { SettingsView } from './gen/SettingsView';
-import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
+import { blankToNull, canChooseModel, effortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
 
 type Editing = number | 'new' | null;
 
@@ -86,7 +86,7 @@ function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agent
   const picks = canChooseModel(props.agents.find((a) => a.id === draft.agent));
   const taken = nameTaken(draft.name, props.others);
   const duplicate = draft.name.trim() !== '' && taken;
-  const needsModel = cursorEffortWithoutModel(props.agents.find((a) => a.id === draft.agent), model, effort);
+  const needsModel = effortWithoutModel(props.agents.find((a) => a.id === draft.agent), model, effort);
   return (
     <div className="edit">
       <div className="line">

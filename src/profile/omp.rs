@@ -3,9 +3,9 @@ use std::path::Path;
 use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
-use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::adapter::{Adapter, Command, Facts, InputSeen, NoServer};
 use crate::protocol::ModelChoice;
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("omp-loom.ts");
@@ -89,6 +89,10 @@ impl Adapter for Omp {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[], &[]))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

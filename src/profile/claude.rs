@@ -6,10 +6,10 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::adapter::{Adapter, Command, Facts, InputSeen, NoServer};
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 
 const HOOK_TIMEOUT_SECS: u64 = 10;
@@ -21,6 +21,7 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
+const RUNNING_STATUS: &str = "esc to interrupt";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -95,6 +96,13 @@ impl Adapter for Claude {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, screen: &Screen) -> Option<InputSeen> {
+        Some(InputSeen {
+            empty: input(&screen.undimmed) == Some(""),
+            turn_shown: turn_shown(&screen.text),
+        })
     }
 
     fn install(&self, _: &Path) -> std::io::Result<()> {
@@ -454,7 +462,7 @@ fn last_model(tail: &str) -> Option<Model> {
         })
 }
 
-pub fn input(screen: &str) -> Option<&str> {
+fn input(screen: &str) -> Option<&str> {
     let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
     lines.windows(3).rev().find_map(|w| match w {
         [above, input, below] if is_rule(above) && is_rule(below) => {
@@ -480,4 +488,30 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     let mut input = input.clone();
     input["command"] = format!("{GUARD}\n{command}").into();
     Some(input)
+}
+
+fn turn_shown(screen: &str) -> bool {
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|&i| !lines[i].is_empty() && lines[i].chars().all(|c| c == '─'))
+        .collect();
+    let (above, footer) = match rules[..] {
+        [.., top, bottom] => (&lines[..top], &lines[bottom + 1..]),
+        _ => (&lines[..], &lines[..0]),
+    };
+    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
+}
+
+fn spinner(line: &str) -> bool {
+    let mut chars = line.chars();
+    let glyph = chars
+        .next()
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace() && !"❯●⎿─".contains(c));
+    let rest = chars.as_str();
+    glyph
+        && rest.starts_with(' ')
+        && rest[1..]
+            .split(' ')
+            .next()
+            .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
 }

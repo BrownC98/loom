@@ -14,12 +14,11 @@ use crate::graph::{
     ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
-use crate::profile::{self, Profile, claude};
+use crate::profile::{self, Profile};
 use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
-const RUNNING_STATUS: &str = "esc to interrupt";
 
 type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
 
@@ -350,11 +349,7 @@ impl App {
     }
 
     pub(super) fn hear_lost_wait(&self, id: NodeId) -> rusqlite::Result<()> {
-        let Some(node) = self.graph.active()?.into_iter().find(|n| n.id == id) else {
-            return Ok(());
-        };
-        let hooked = profile_of(&node).is_some_and(Profile::hooked);
-        if hooked && !self.graph.sleeping(id)? {
+        if self.graph.active()?.iter().any(|n| n.id == id) && !self.graph.sleeping(id)? {
             self.graph.end_old_idle(id)?;
         }
         Ok(())
@@ -374,13 +369,7 @@ impl App {
     fn restart_guard(self: &Arc<Self>, node: &Active) -> Guard {
         let (app, id, profile) = (self.clone(), node.id, profile_of(node));
         Arc::new(move |screen: &Screen| {
-            let quiet = match profile {
-                Some(Profile::Claude) => {
-                    claude::input(&screen.undimmed) == Some("") && !turn_shown(&screen.text)
-                }
-                _ => true,
-            };
-            quiet
+            profile::input_seen(profile, screen).is_none_or(|seen| seen.empty && !seen.turn_shown)
                 && app.agent_state(id) == Some(AgentState::Deaf)
                 && !app.graph.drafted(id).unwrap_or(true)
                 && profile::prompt(profile, screen).is_none()
@@ -485,30 +474,4 @@ impl App {
             self.graph.wake_mail();
         }
     }
-}
-
-fn turn_shown(screen: &str) -> bool {
-    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
-    let rules: Vec<usize> = (0..lines.len())
-        .filter(|&i| !lines[i].is_empty() && lines[i].chars().all(|c| c == '─'))
-        .collect();
-    let (above, footer) = match rules[..] {
-        [.., top, bottom] => (&lines[..top], &lines[bottom + 1..]),
-        _ => (&lines[..], &lines[..0]),
-    };
-    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
-}
-
-fn spinner(line: &str) -> bool {
-    let mut chars = line.chars();
-    let glyph = chars
-        .next()
-        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace() && !"❯●⎿─".contains(c));
-    let rest = chars.as_str();
-    glyph
-        && rest.starts_with(' ')
-        && rest[1..]
-            .split(' ')
-            .next()
-            .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
 }

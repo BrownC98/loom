@@ -18,10 +18,10 @@ use crate::wsl::Inside;
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Command, Facts, NoServer};
+use super::adapter::{Command, Facts, InputSeen, NoServer};
 use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::protocol::ModelChoice;
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
@@ -78,6 +78,10 @@ impl super::adapter::Adapter for OpenCode2 {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        None
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
 

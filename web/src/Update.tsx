@@ -115,7 +115,11 @@ function useDaemonUpdates(viewVersion: number): Updates {
   const [view, setView] = useState<UpdateView>({ checks: false, latest: null, step: null });
   const [closed, setClosed] = useState<string | null>(null);
   useEffect(() => {
-    getUpdate().then(setView, () => {});
+    let latest = true;
+    getUpdate().then((next) => latest && setView(next), () => {});
+    return () => {
+      latest = false;
+    };
   }, [viewVersion]);
 
   const install = () => {

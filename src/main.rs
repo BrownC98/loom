@@ -194,6 +194,8 @@ enum Cli {
     Fail { branch: String, cause: String },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
+    /// `name` 노드(이름이나 `#번호`)의 부모를 비워 다시 뿌리 노드로 만든다. 그 노드의 이후 질문은 사람 받은편지함으로 간다.
+    Detach { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
     Rm { name: String },
     /// 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다.
@@ -339,6 +341,7 @@ fn main() -> ExitCode {
         } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
         Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
+        Cli::Detach { name } => cli::detach(name),
         Cli::Rm { name } => cli::remove(name),
         Cli::Relaunch {
             name,

@@ -52,6 +52,8 @@ pub enum Refusal {
     NotChild(String),
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
+    /// `loom detach`의 대상이 이미 뿌리다.
+    AlreadyRoot(String),
     Ended(String),
     HeldFull,
     Cycle,
@@ -218,6 +220,9 @@ impl fmt::Display for Refusal {
                 f,
                 "{name}: not your child. `loom rm`, `loom relaunch` and `loom done --keep` act only on your own children."
             ),
+            Refusal::AlreadyRoot(name) => {
+                write!(f, "{name}: already a root node. It has no parent.")
+            }
             Refusal::ChildrenStay(list) => write!(
                 f,
                 "{list}. These children cannot move to you, so nothing changed. Remove or move them first."

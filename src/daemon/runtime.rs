@@ -237,7 +237,7 @@ impl App {
                 self.stop_server(server);
             }
             let gone = unattached == node_host::Unattached::Gone;
-            match self.graph.slept(node.id)? {
+            match self.graph.slept(node.id)? || self.graph.stop_lost(node.id)? {
                 true => {}
                 false if gone => self.graph.host_gone(node.id)?,
                 false => self.graph.lost(node.id)?,
@@ -364,7 +364,11 @@ impl App {
             {
                 end_leftovers(&runtime, id, distro, token);
             }
-            if app.relaunches.exited(id) {
+            if app.graph.stop_exited(id).unwrap_or_else(|e| {
+                eprintln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
+                false
+            }) {
+                app.relaunch_exits.notify_waiters();
                 return;
             }
             app.sessions.exited(id);

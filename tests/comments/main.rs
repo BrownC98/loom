@@ -280,6 +280,7 @@ fn judge(lang: Lang, text: &str, at_file_start: bool, node: Option<(Node, &str)>
 fn body_of(text: &str) -> &str {
     text.trim_start_matches(['/', '#', ';', '*', '!'])
         .trim_start_matches("<!--")
+        .trim_start_matches("--")
         .trim()
 }
 

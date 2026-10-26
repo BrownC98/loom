@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served;
 use crate::accounts::{AccountId, Site};
-use crate::protocol::{ModelChoice, Session};
+use crate::protocol::{LaunchError, ModelChoice, ServerState, Session};
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
@@ -69,7 +71,7 @@ impl Adapter for Omp {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         let plugin = at.plugin.to_string_lossy();
         cmd.args([
             "--extension".into(),
@@ -82,7 +84,25 @@ impl Adapter for Omp {
         if at.brief.trim().is_empty() {
             cmd.arg(super::pi::IDLE_FLAG);
         }
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Served,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {

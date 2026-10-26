@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -6,10 +7,13 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served;
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
+use crate::protocol::{
+    Delivery, Kind, LaunchError, Model, ModelChoice, ServerState, Session, WaitKind,
+};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -195,14 +199,32 @@ impl Adapter for Cursor {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args([
             "--plugin-dir".into(),
             at.plugin.to_string_lossy().into_owned(),
         ]);
         cmd.env(POSITION_ENV, position_value(at.launch.position));
         cmd.env(SKILLS_ENV, skills_value(at.launch.skills));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Served,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {

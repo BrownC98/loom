@@ -48,7 +48,7 @@ pub enum Refusal {
     MailboxFull(String),
     /// 조정·중단의 대상이 부르는 노드의 부모나 자식이 아니다.
     NotRelated(String),
-    /// `loom rm`·`loom relaunch`의 대상이 부르는 노드의 자식이 아니다.
+    /// `loom rm`·`loom done --keep`의 대상이 부르는 노드의 자식이 아니다.
     NotChild(String),
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
@@ -216,7 +216,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotChild(name) => write!(
                 f,
-                "{name}: not your child. `loom rm`, `loom relaunch` and `loom done --keep` act only on your own children."
+                "{name}: not your child. `loom rm` and `loom done --keep` act only on your own children."
             ),
             Refusal::ChildrenStay(list) => write!(
                 f,

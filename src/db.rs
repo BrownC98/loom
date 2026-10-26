@@ -346,6 +346,10 @@ const STEPS: &[M] = &[
             'Old rule: steer, interrupt, loom rm and loom done --keep went only to a parent or child: ' || (entry ->> '$.reason.value')))
             WHERE entry ->> '$.reason.code' IN ('notRelated', 'notChild');"#,
     ),
+    M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn required brief heads.'))
+            WHERE entry ->> '$.reason.code' = 'missingHeads';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

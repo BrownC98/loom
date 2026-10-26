@@ -6,33 +6,6 @@ pub const RESULT: &str = "result.md";
 pub const REVIEW: &str = "review";
 pub const LOGS: &str = "logs";
 
-pub const BRIEF_HEADS: [&str; 6] = ["Goal", "Facts", "Scope", "Done when", "Checks", "Time"];
-
-pub fn missing_heads(brief: &str) -> Vec<&'static str> {
-    let heads: Vec<String> = brief.lines().filter_map(head).collect();
-    BRIEF_HEADS
-        .into_iter()
-        .filter(|want| !heads.iter().any(|h| h.eq_ignore_ascii_case(want)))
-        .collect()
-}
-
-fn head(line: &str) -> Option<String> {
-    let line = line.trim();
-    if let Some(title) = line.strip_prefix('#') {
-        let title = title.trim_start_matches('#');
-        return title.starts_with([' ', '\t']).then(|| {
-            title
-                .trim()
-                .trim_end_matches('#')
-                .trim()
-                .trim_end_matches(':')
-                .trim()
-                .to_owned()
-        });
-    }
-    line.split_once(':').map(|(word, _)| word.trim().to_owned())
-}
-
 pub fn findings(branch: &str, reviewer: &str) -> String {
     format!("{REVIEW}/{}-{}.md", folder(branch), folder(reviewer))
 }

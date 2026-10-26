@@ -461,6 +461,7 @@ function cover(contents: readonly Box[], inset: { top: number; side: number }): 
 
 type Level = { boxes: Sibling[]; lead: ReadonlyMap<string, XYPosition>; parent: string | null };
 type Step = { key: string; level: Level; mover: Box };
+type Draft = { spots?: ReadonlyMap<string, XYPosition>; size?: { id: NodeId; size: Size }; clearing?: readonly RepoId[] };
 
 export type Lit = { keys: ReadonlySet<string>; current: string | null };
 
@@ -514,7 +515,13 @@ export function Graph(props: {
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
   const repoOf = (spot: Spot) => (spot.kind === 'node' ? props.views.get(spot.node)?.place.repo : spot.repo);
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
-  const [clearing, setClearing] = useState<ReadonlySet<RepoId>>(new Set());
+  const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);
+  const arrangingRepos = arranging === null ? [] : arranging.scope.kind === 'repo' ? [arranging.scope.id] : props.repos.map((r) => r.id);
+  const [pending, setPending] = useState<ReadonlyMap<number, Draft & { after: number }>>(new Map());
+  const drafts = [...pending.values()];
+  const clearing = new Set([...drafts.flatMap((d) => d.clearing ?? []), ...arrangingRepos]);
+  const draftAt = new Map(drafts.flatMap((d) => [...(d.spots ?? [])]));
+  const draftSize = new Map(drafts.flatMap((d): [NodeId, Size][] => (d.size ? [[d.size.id, d.size.size]] : [])));
   const arrangedNow = (repo: RepoId) => arrangedRepos.has(repo) && !clearing.has(repo);
   const { alwaysArrange } = props.settings;
   const keepsArranged = (repo: RepoId) => alwaysArrange || arrangedNow(repo);
@@ -523,40 +530,50 @@ export function Graph(props: {
     const repo = saved && repoOf(saved.spot);
     return repo !== undefined && clearing.has(repo) ? undefined : saved;
   };
+  const spotAt = (key: string) => draftAt.get(key) ?? savedSpot(key)?.at;
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
   const swaps = useRef<{ key: string; swap: Swap } | null>(null);
   const [sizes, setSizes] = useState<ReadonlyMap<NodeId, Size>>(new Map());
+  const savedSize = (id: NodeId) => draftSize.get(id) ?? sizes.get(id);
   const [resizing, setResizing] = useState<{ id: NodeId; size: Size } | null>(null);
-  const readLayout = () =>
-    Promise.all([
-      getSpots().then((layout) => {
+  const reads = useRef(0);
+  const readLayout = () => {
+    const asked = ++reads.current;
+    Promise.all([getSpots(), getSizes()]).then(
+      ([layout, all]) => {
+        if (asked !== reads.current) return;
         setSpots(new Map(layout.placed.map((p) => [flowId(p.spot), p])));
         setArrangedRepos(new Set(layout.arranged));
-      }),
-      getSizes().then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }])))),
-    ]).catch((err: Error) => setRefusal(err.message));
+        setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }])));
+        setPending((prev) => new Map([...prev].filter(([, d]) => d.after > asked)));
+      },
+      (err: Error) => setRefusal(err.message),
+    );
+    return asked;
+  };
   useEffect(() => void readLayout(), [props.viewVersion]);
-  const writes = useRef(0);
-  const commit = (write: Promise<unknown>) => {
-    writes.current += 1;
+  const commits = useRef(0);
+  const commit = (write: Promise<unknown>, draft: Draft) => {
+    const id = ++commits.current;
+    setPending((prev) => new Map(prev).set(id, { ...draft, after: Infinity }));
     void write
       .catch((err: Error) => setRefusal(err.message))
-      .then(readLayout)
       .then(() => {
-        writes.current -= 1;
-        if (writes.current > 0) return;
-        setMoving(new Map());
-        setResizing(null);
-        setClearing(new Set());
+        const after = readLayout();
+        setPending((prev) => {
+          const d = prev.get(id);
+          return d ? new Map(prev).set(id, { ...d, after }) : prev;
+        });
       });
   };
   const { direction } = props;
   const outers = useRef<ReadonlyMap<string, string>>(new Map());
-  const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? (stale.has(key) ? undefined : savedSpot(key)?.at);
+  const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? (stale.has(key) ? undefined : spotAt(key));
 
   const [order, setOrder] = useState<ReadonlyMap<string, number>>(new Map());
+  const holdOrder = () => setOrder((prev) => new Map([...prev, ...onScreen()]));
   const rank = (key: string) => {
-    const saved = savedSpot(key)?.at;
+    const saved = spotAt(key);
     return saved ? (direction === 'down' || direction === 'up' ? saved.x : saved.y) : (order.get(key) ?? Infinity);
   };
   const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
@@ -569,7 +586,7 @@ export function Graph(props: {
   useEffect(() => {
     if (zoomed !== null && !standard(zoomed)) setExpanded(null);
   });
-  const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : sizes.get(id));
+  const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : savedSize(id));
   const size = (id: NodeId): Size => {
     const measured = flowState.get(String(id))?.measured;
     return measured?.width && measured.height ? { width: measured.width, height: measured.height } : (chosenSize(id) ?? CARD_SIZE[viewOf(id)]);
@@ -691,15 +708,15 @@ export function Graph(props: {
     arrange: () => {
       const shown = props.repos.map((r) => r.id);
       setMoving(new Map());
-      clearRepos(shown);
+      holdOrder();
       setArranging({ scope: { kind: 'shown' }, after: Promise.all(shown.map(clearSpots)) });
     },
-    hasSizes: () => views.some((v) => standard(v.id) && sizes.has(v.id)),
-    resetSizes: () => resetSizes(views.filter((v) => standard(v.id) && sizes.has(v.id)).map((v) => v.id)),
+    hasSizes: () => views.some((v) => standard(v.id) && savedSize(v.id) !== undefined),
+    resetSizes: () => resetSizes(views.filter((v) => standard(v.id) && savedSize(v.id) !== undefined).map((v) => v.id)),
   }));
   const resetSizes = (ids: NodeId[]) => {
     if (ids.length === 0) return;
-    commit(clearSizes(ids));
+    commit(clearSizes(ids), {});
   };
   const resizeFrom = useRef<{ key: string; at: XYPosition } | null>(null);
   const resizeTo = (key: string, step: Resized, done: ReadonlyMap<string, XYPosition>) => {
@@ -893,7 +910,7 @@ export function Graph(props: {
         ...(chosen && { width: chosen.width, height: chosen.height, className: [base.className, 'sized'].filter(Boolean).join(' ') }),
         data: {
           ...data,
-          sized: sizes.has(view.id),
+          sized: savedSize(view.id) !== undefined,
           onResizeStart: () => {
             const key = String(view.id);
             resizeFrom.current = { key, at: levels.get(key)!.boxes.find((b) => b.key === key)!.at };
@@ -904,8 +921,9 @@ export function Graph(props: {
           },
           onResized: (step) => {
             const rounded = { shift: { x: Math.round(step.shift.x), y: Math.round(step.shift.y) }, size: { width: Math.round(step.size.width), height: Math.round(step.size.height) } };
-            setResizing({ id: view.id, size: rounded.size });
-            commit(putSizes([{ node: view.id, ...rounded.size }]));
+            setResizing(null);
+            setMoving(new Map());
+            commit(putSizes([{ node: view.id, ...rounded.size }]), { size: { id: view.id, size: rounded.size } });
             save(resizeTo(String(view.id), rounded, moving));
             resizeFrom.current = null;
           },
@@ -1054,6 +1072,7 @@ export function Graph(props: {
   };
   const onDrop = (key: string, level: Level, dragged: Box) => {
     swaps.current = null;
+    setMoving(new Map());
     save(spread(key, level, dragged, new Map([...moving, [key, originOf(level, key, dragged.at)]])));
   };
   const placed = (level: Level, done: ReadonlyMap<string, XYPosition>) =>
@@ -1080,19 +1099,24 @@ export function Graph(props: {
     for (let s: Step | null = { key, level, mover }; s !== null; s = shellOf(s, done)) pushOverlaps(s, done);
     return done;
   };
-  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+  const save = (moved: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+    const done = new Map(
+      [...moved].filter(([k, p]) => {
+        const draft = draftAt.get(k);
+        return draft === undefined || !samePoint(draft, p);
+      }),
+    );
     if (done.size === 0) return;
     const placed = place(done);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : (repoOf(p.spot) ?? []))));
-    if (alwaysArrange) return keepArranged([...inside], placed, after);
-    commit(after.then(() => putSpots(placed)));
+    if (alwaysArrange) return keepArranged([...inside], { spots: done }, after);
+    commit(after.then(() => putSpots(placed)), { spots: done });
   };
-  const saveArranged = (ids: readonly RepoId[], done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => keepArranged(ids, place(done), after);
-  const keepArranged = (ids: readonly RepoId[], placed: Placed[], after: Promise<unknown>) => commit(after.then(() => putArranged({ repos: [...ids], placed })));
-  const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => {
-    setMoving((prev) => new Map([...prev, ...done]));
-    return [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
+  const keepArranged = (ids: readonly RepoId[], draft: Draft & { spots: ReadonlyMap<string, XYPosition> }, after: Promise<unknown> = Promise.resolve()) => {
+    const placed = place(draft.spots);
+    commit(after.then(() => putArranged({ repos: [...ids], placed })), draft);
   };
+  const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
   const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
     const level = levels.get(key)!;
     const self = level.boxes.find((b) => b.key === key)!;
@@ -1100,7 +1124,7 @@ export function Graph(props: {
   };
   const [ordering, setOrdering] = useState<string | null>(null);
   const arrangeGroup = (path: string) => {
-    setOrder((prev) => new Map([...prev, ...onScreen()]));
+    holdOrder();
     setOrdering(path);
   };
   useEffect(() => {
@@ -1109,20 +1133,15 @@ export function Graph(props: {
     const g = groups.find((g) => g.group.path === ordering);
     if (!g) return;
     const done = new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]);
-    if (arrangedNow(g.repo)) saveArranged([g.repo], done);
+    if (arrangedNow(g.repo)) keepArranged([g.repo], { spots: done });
     else save(done);
   });
   const arrangeRepo = (r: (typeof repos)[number]) => {
     const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
-    clearRepos([r.repo.id]);
+    holdOrder();
     const after = clearSpots(r.repo.id);
     save(kept, after);
     setArranging({ scope: { kind: 'repo', id: r.repo.id }, after });
-  };
-  const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);
-  const clearRepos = (ids: readonly RepoId[]) => {
-    setOrder((prev) => new Map([...prev, ...onScreen()]));
-    setClearing((prev) => new Set([...prev, ...ids]));
   };
   useEffect(() => {
     if (arranging === null) return;
@@ -1130,11 +1149,8 @@ export function Graph(props: {
     const { scope } = arranging;
     const done = scope.kind === 'shown' ? repos : repos.filter((r) => r.repo.id === scope.id);
     const boxes = scope.kind === 'shown' && framed ? repos.map((r): [string, XYPosition] => [r.key, { x: repoAuto.get(r.key)!.x - r.lead.x, y: repoAuto.get(r.key)!.y - r.lead.y }]) : [];
-    saveArranged(
-      done.map((r) => r.repo.id),
-      new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]),
-      arranging.after,
-    );
+    const ids = done.map((r) => r.repo.id);
+    keepArranged(ids, { spots: new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]), clearing: ids }, arranging.after);
   });
   useEffect(() => {
     outers.current = outerNow;

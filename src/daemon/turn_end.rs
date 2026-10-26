@@ -16,55 +16,29 @@ const KIND_NUDGE: &str = "Your last reply has a line that starts with a kind wor
 
 const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. The human answers only loom ask, and loom keeps no record of that box or its answer. Ask the same question again with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskQuestion again.";
 
-#[derive(Default)]
 pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
     said_at: Mutex<HashMap<NodeId, Instant>>,
     turn: Mutex<HashMap<NodeId, String>>,
     ended_turns: Mutex<HashMap<NodeId, HashSet<String>>>,
-    human: Mutex<HashSet<NodeId>>,
-    called: Mutex<HashSet<NodeId>>,
-    kind_nudged: Mutex<HashSet<NodeId>>,
     question_box: Mutex<HashSet<NodeId>>,
-    asked: Mutex<HashSet<NodeId>>,
-    store: Option<Arc<Graph>>,
+    graph: Arc<Graph>,
 }
 
 impl TurnEnds {
-    pub fn stored(graph: Arc<Graph>) -> rusqlite::Result<Self> {
-        let ends = TurnEnds::default();
-        for (node, flags) in graph.turn_flags()? {
-            for (bit, set) in ends.flag_sets() {
-                if flags & bit != 0 {
-                    set.lock().unwrap().insert(node);
-                }
-            }
+    pub fn new(graph: Arc<Graph>) -> Self {
+        TurnEnds {
+            said: Mutex::default(),
+            said_at: Mutex::default(),
+            turn: Mutex::default(),
+            ended_turns: Mutex::default(),
+            question_box: Mutex::default(),
+            graph,
         }
-        Ok(TurnEnds {
-            store: Some(graph),
-            ..ends
-        })
     }
 
-    fn flag_sets(&self) -> [(u8, &Mutex<HashSet<NodeId>>); 4] {
-        [
-            (HUMAN, &self.human),
-            (CALLED, &self.called),
-            (KIND_NUDGED, &self.kind_nudged),
-            (ASKED, &self.asked),
-        ]
-    }
-
-    fn save(&self, node: NodeId) {
-        let Some(graph) = &self.store else {
-            return;
-        };
-        let flags = self
-            .flag_sets()
-            .iter()
-            .filter(|(_, set)| set.lock().unwrap().contains(&node))
-            .fold(0, |flags, (bit, _)| flags | bit);
-        if let Err(e) = graph.set_turn_flags(node, flags) {
+    fn mark(&self, node: NodeId, bit: u8) {
+        if let Err(e) = self.graph.add_turn_flag(node, bit) {
             eprintln!("loom: 노드 {}의 턴 표시를 쓰지 못했다: {e}", node.0);
         }
     }
@@ -112,15 +86,11 @@ impl TurnEnds {
     }
 
     pub fn human(&self, node: NodeId) {
-        if self.human.lock().unwrap().insert(node) {
-            self.save(node);
-        }
+        self.mark(node, HUMAN);
     }
 
     pub fn called(&self, node: NodeId) {
-        if self.called.lock().unwrap().insert(node) {
-            self.save(node);
-        }
+        self.mark(node, CALLED);
     }
 
     pub fn question_box(&self, node: NodeId) {
@@ -128,9 +98,7 @@ impl TurnEnds {
     }
 
     pub fn asked(&self, node: NodeId) {
-        if self.asked.lock().unwrap().insert(node) {
-            self.save(node);
-        }
+        self.mark(node, ASKED);
     }
 
     pub fn launched(&self, node: NodeId) {
@@ -138,8 +106,8 @@ impl TurnEnds {
         current.remove(&node);
         self.ended_turns.lock().unwrap().remove(&node);
         drop(current);
-        if self.asked.lock().unwrap().remove(&node) {
-            self.save(node);
+        if let Err(e) = self.graph.clear_turn_flag(node, ASKED) {
+            eprintln!("loom: 노드 {}의 턴 표시를 지우지 못했다: {e}", node.0);
         }
         self.question_box.lock().unwrap().remove(&node);
     }
@@ -158,13 +126,16 @@ impl TurnEnds {
             ended.entry(node).or_default().insert(turn);
         }
         drop(current);
-        let human = self.human.lock().unwrap().remove(&node);
-        let called = self.called.lock().unwrap().remove(&node);
-        let nudged = self.kind_nudged.lock().unwrap().remove(&node);
-        let asked = self.asked.lock().unwrap().remove(&node);
-        if human || called || nudged || asked {
-            self.save(node);
-        }
+        let flags = self.graph.take_turn_flags(node).unwrap_or_else(|e| {
+            eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0);
+            0
+        });
+        let (human, called, nudged, asked) = (
+            flags & HUMAN != 0,
+            flags & CALLED != 0,
+            flags & KIND_NUDGED != 0,
+            flags & ASKED != 0,
+        );
         if self.question_box.lock().unwrap().remove(&node) && !asked {
             return TurnEnd {
                 reply,
@@ -183,8 +154,7 @@ impl TurnEnds {
                 .is_some()
             });
         let nudge = if kind_line {
-            self.kind_nudged.lock().unwrap().insert(node);
-            self.save(node);
+            self.mark(node, KIND_NUDGED);
             Some(TurnCheck::KindLine)
         } else {
             (human

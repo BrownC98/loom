@@ -232,16 +232,18 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
         };
         if req.mode == Kind::Interrupt && profile.hooked() {
             let inside = app.wsl_at(to)?;
+            let mut stopped = false;
             let (sent, shells) =
                 app.graph
                     .interrupt(from, &target, &req.body, Some(via), |to, shells| {
-                        if inside.is_none() {
-                            app.host.stop_guarded(to, shells);
+                        if inside.is_none() && !shells.is_empty() {
+                            stopped = app.host.stop_guarded(to, shells);
                         }
                     })?;
             match inside {
                 Some(at) => app.end_guarded_inside(to, &at, shells),
-                None => app.release_guarded(to, &shells),
+                None if stopped => app.release_guarded(to, &shells),
+                None => {}
             }
             return Ok(sent);
         }

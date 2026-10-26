@@ -536,9 +536,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         snapshot.identity(snapshot.child_on_path(root, caller)?)
     }
 
-    pub fn stop_guarded(&self, id: K, shells: &[Identity]) {
-        let Some(root) = self.pid(id).filter(|_| !shells.is_empty()) else {
-            return;
+    pub fn stop_guarded(&self, id: K, shells: &[Identity]) -> bool {
+        let Some(root) = self.pid(id) else {
+            return false;
         };
         let snapshot = Snapshot::now();
         snapshot.kill_trees(
@@ -550,6 +550,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 })
                 .map(|shell| shell.pid),
         );
+        true
     }
 
     pub fn pid(&self, id: K) -> Option<u32> {

@@ -47,7 +47,7 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         name: &name,
         worktree: made,
         agent: start.agent(),
-        role: Some(role),
+        role,
         task: &dir.folder,
         review,
     };

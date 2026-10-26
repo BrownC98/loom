@@ -970,7 +970,7 @@ pub(super) fn check_review(
     parent: NodeId,
     repo: RepoId,
     branch: &str,
-    role: Option<&str>,
+    role: &str,
 ) -> Result<(), Refusal> {
     match load(db, repo, branch)? {
         None => Err(Refusal::NoRound(branch.to_owned())),
@@ -982,7 +982,7 @@ pub(super) fn check_review(
         Some(_) => match seated(db, parent, branch, role)? {
             Some(reviewer) => Err(Refusal::ReviewerSeated {
                 branch: branch.to_owned(),
-                role: role.unwrap_or_default().to_owned(),
+                role: role.to_owned(),
                 reviewer,
             }),
             None => Ok(()),
@@ -994,10 +994,10 @@ fn seated(
     db: &Connection,
     gate: NodeId,
     branch: &str,
-    role: Option<&str>,
+    role: &str,
 ) -> rusqlite::Result<Option<String>> {
     db.query_row(
-        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role IS ?3 ORDER BY id",
+        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role = ?3 ORDER BY id",
         params![gate.0, branch, role],
         |row| row.get(0),
     )

@@ -18,7 +18,7 @@ pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
-    pub role: Option<&'a str>,
+    pub role: &'a str,
     pub task: &'a str,
     pub review: Option<&'a str>,
 }
@@ -119,14 +119,12 @@ impl Graph {
         }
         check_children(&tx, parent, limits)?;
         let place = place_of(&tx, parent)?;
-        match (review, role) {
-            (Some(branch), role) => {
-                super::gate::check_review(&tx, parent, place.repo, branch, role)?;
-            }
-            (None, Some(role)) if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
+        match review {
+            Some(branch) => super::gate::check_review(&tx, parent, place.repo, branch, role)?,
+            None if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
                 return Err(Refusal::LeadChildNeedsWorktree(role.to_owned()));
             }
-            (None, _) => {}
+            None => {}
         }
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?2

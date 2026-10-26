@@ -452,12 +452,13 @@ pub(super) async fn agent_adopt(
         .map_err(Problem::from)
         .and_then(|child| {
             let limits = app.tree_limits()?;
-            Ok(app.graph.adopt(parent, child, limits)?.then_some(child))
+            Ok((app.graph.adopt(parent, child, limits)?, child))
         })
-        .map(|child| {
-            if let Some(child) = child {
+        .map(|(was_root, child)| {
+            if was_root {
                 app.position_changed(&[child]);
             }
+            app.parent_changed(&[child]);
         });
     traced(&app, parent, Attempt::verb(&req.name), &via, adopted)
 }
@@ -473,7 +474,10 @@ pub(super) async fn agent_detach(
         .graph
         .any_node(caller, &req.name)
         .and_then(|child| app.graph.detach(child).map(|()| child))
-        .map(|child| app.position_changed(&[child]))
+        .map(|child| {
+            app.position_changed(&[child]);
+            app.parent_changed(&[child]);
+        })
         .map_err(Problem::from);
     traced(&app, caller, Attempt::verb(&req.name), &via, detached)
 }
@@ -488,7 +492,9 @@ pub(super) async fn agent_remove(
     let removed = app.tree_limits().and_then(|limits| {
         let (removed, moved) = app.graph.remove_child(caller, &req.name, limits)?;
         app.host.kill(removed);
-        Ok(moved)
+        let (ids, names): (Vec<NodeId>, Vec<String>) = moved.into_iter().unzip();
+        app.parent_changed(&ids);
+        Ok(names)
     });
     traced(&app, caller, Attempt::verb(&req.name), &via, removed)
 }

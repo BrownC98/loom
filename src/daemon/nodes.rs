@@ -96,6 +96,7 @@ async fn adopt_node(
     if app.graph.adopt(NodeId(parent), NodeId(id), limits)? {
         app.position_changed(&[NodeId(id)]);
     }
+    app.parent_changed(&[NodeId(id)]);
     Ok(Json(()))
 }
 
@@ -105,6 +106,7 @@ async fn detach_node(
 ) -> Result<Json<()>, Problem> {
     app.graph.detach(NodeId(id))?;
     app.position_changed(&[NodeId(id)]);
+    app.parent_changed(&[NodeId(id)]);
     Ok(Json(()))
 }
 

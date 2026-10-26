@@ -314,6 +314,7 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN sleeping INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE nodes ADD COLUMN turn_flags INTEGER NOT NULL DEFAULT 0;",
     ),
+    M::up("ALTER TABLE nodes DROP COLUMN branched_from;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

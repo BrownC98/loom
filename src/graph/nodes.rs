@@ -17,7 +17,6 @@ use crate::protocol::{
 pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
-    pub branched_from: Option<&'a str>,
     pub agent: Option<AgentId>,
     pub brief: &'a str,
     pub role: Option<&'a str>,
@@ -84,7 +83,6 @@ impl Graph {
         let NewChild {
             name,
             worktree,
-            branched_from,
             agent,
             brief,
             role,
@@ -128,8 +126,8 @@ impl Graph {
         };
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
         tx.execute(
-            "UPDATE nodes SET role = ?2, task = ?3, review = ?4, branched_from = ?5 WHERE id = ?1",
-            params![id.0, role, task, review, branched_from],
+            "UPDATE nodes SET role = ?2, task = ?3, review = ?4 WHERE id = ?1",
+            params![id.0, role, task, review],
         )?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {

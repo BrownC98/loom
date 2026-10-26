@@ -20,11 +20,7 @@ pub struct Round<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
-    Parent {
-        gate: NodeId,
-        worktree: String,
-        branched_from: Option<String>,
-    },
+    Parent { gate: NodeId, worktree: String },
     Owner,
 }
 
@@ -126,11 +122,6 @@ impl Graph {
             Some(parent) => Ok(GateChoice::Parent {
                 gate: parent,
                 worktree: place_of(&db, parent)?.worktree,
-                branched_from: db.query_row(
-                    "SELECT branched_from FROM nodes WHERE id = ?1",
-                    [owner.0],
-                    |row| row.get(0),
-                )?,
             }),
             None => Ok(GateChoice::Owner),
         }

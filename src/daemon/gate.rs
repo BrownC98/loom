@@ -111,20 +111,11 @@ impl App {
     async fn gate_of(&self, node: NodeId, repo: &Path) -> Result<(NodeId, String), Refusal> {
         let base = base_branch(repo).await?;
         match self.graph.gate_for(node)? {
-            GateChoice::Parent {
-                gate,
-                worktree,
-                branched_from,
-            } => {
-                let from = match branched_from {
-                    Some(branch) => Some(branch),
-                    None => {
-                        worktree::find(repo, &worktree)
-                            .await
-                            .map_err(git_problem)?
-                            .branch
-                    }
-                };
+            GateChoice::Parent { gate, worktree } => {
+                let from = worktree::find(repo, &worktree)
+                    .await
+                    .map_err(git_problem)?
+                    .branch;
                 match from {
                     Some(target) if target != base => Ok((gate, target)),
                     _ => Ok((node, base)),

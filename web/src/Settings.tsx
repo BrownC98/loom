@@ -41,7 +41,6 @@ const TAB_SETTINGS = {
 const ALL_SETTINGS = Object.values(TAB_SETTINGS).flat();
 const nulls = (keys: readonly (keyof SettingsView)[]): SettingsPatch => Object.fromEntries(keys.map((key) => [key, null]));
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-const LOGIN_POLL_MS = 1000;
 
 export function Settings(props: {
   tab: SettingsTab;
@@ -73,7 +72,7 @@ export function Settings(props: {
       )}
       {tab === 'phone' && <PhoneTab viewVersion={props.viewVersion} />}
       {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
-      {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
+      {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} viewVersion={props.viewVersion} />}
       {tab === 'display' && <DisplayTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'graph' && <GraphTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
@@ -439,7 +438,7 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
 
 type OpenLogin = { target: LoginTarget; id: LoginId; title: string };
 
-function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage; onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void }) {
+function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage; onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void; viewVersion: number }) {
   const { t } = useTranslation();
   const { settings, usage } = props;
   const [login, setLogin] = useState<OpenLogin | null>(null);
@@ -509,6 +508,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       {login && (
         <LoginDialog
           login={login}
+          viewVersion={props.viewVersion}
           onDone={() => {
             setLogin(null);
             usage.refresh();
@@ -604,7 +604,7 @@ function ProviderAccounts(props: { provider: Provider; distro: string | null; se
   );
 }
 
-function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
+function LoginDialog(props: { login: OpenLogin; viewVersion: number; onDone: () => void }) {
   const { t } = useTranslation();
   const { login } = props;
   const [failed, setFailed] = useState(false);
@@ -613,24 +613,15 @@ function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
 
   useEffect(() => {
     let stopped = false;
-    const finish = () => {
-      stopped = true;
-      closeLogin(login.id).finally(() => onDone.current());
-    };
-    const timer = window.setInterval(async () => {
-      const state = await getLogin(login.id).catch(() => 'failed' as const);
+    getLogin(login.id).then((state) => {
       if (stopped) return;
-      if (state === 'succeeded') finish();
-      else if (state === 'failed') {
-        stopped = true;
-        setFailed(true);
-      }
-    }, LOGIN_POLL_MS);
+      if (state === 'succeeded') closeLogin(login.id).finally(() => onDone.current());
+      else if (state === 'failed') setFailed(true);
+    }, () => {});
     return () => {
       stopped = true;
-      clearInterval(timer);
     };
-  }, [login.id]);
+  }, [login.id, props.viewVersion]);
 
   const cancel = () => closeLogin(login.id).finally(() => onDone.current());
 

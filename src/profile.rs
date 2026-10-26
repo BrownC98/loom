@@ -118,7 +118,7 @@ pub struct Change {
 
 pub trait ServerAdapter: Send {
     fn takes(&self, now: Status) -> &'static [&'static [Kind]];
-    fn status(&self) -> Option<Status>;
+    fn status(&mut self) -> Option<Status>;
     fn signal(&mut self, change: Option<Change>) -> impl Future<Output = Option<Signal>> + Send;
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
     fn inject(

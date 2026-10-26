@@ -357,7 +357,7 @@ impl<A: Api> ServerAdapter for Adapter<A> {
         &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]]
     }
 
-    fn status(&self) -> Option<Status> {
+    fn status(&mut self) -> Option<Status> {
         match self.pending.as_ref()? {
             Seen::Started => Some(Status::Busy),
             Seen::Connected | Seen::Succeeded(_) | Seen::Stopped => Some(Status::Idle),

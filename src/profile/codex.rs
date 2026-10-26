@@ -210,8 +210,8 @@ where
         self.thread().map_or(&[], |_| kinds(now))
     }
 
-    fn status(&self) -> Option<Status> {
-        self.thread.borrow().as_ref().map(|t| t.status)
+    fn status(&mut self) -> Option<Status> {
+        self.thread.borrow_and_update().as_ref().map(|t| t.status)
     }
 
     async fn signal(&mut self, change: Option<Change>) -> Option<Signal> {

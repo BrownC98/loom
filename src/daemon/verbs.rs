@@ -247,10 +247,7 @@ fn refusal_of(problem: &Problem) -> Option<Refusal> {
 fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
     app.kind_word(from, &req.body)?;
     if req.mode != Kind::Queue {
-        let (to, agent) = match req.mode {
-            Kind::Interrupt => app.graph.related(from, &req.to)?,
-            _ => app.graph.steerable(from, &req.to)?,
-        };
+        let (to, agent) = app.graph.agent_at(from, &req.to)?;
         let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));

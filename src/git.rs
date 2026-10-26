@@ -2,7 +2,6 @@ use std::path::Path;
 
 use tokio::process::Command;
 
-use crate::process_tree;
 use crate::wsl::{self, WslPath};
 
 pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -101,6 +100,6 @@ fn clone_command(url: &str, target: &Path) -> Command {
         .env_remove("WAYLAND_DISPLAY")
         .env("GCM_INTERACTIVE", "never")
         .stdin(std::process::Stdio::null());
-    process_tree::new_session(cmd.as_std_mut());
+    crate::timed::own_session(cmd.as_std_mut());
     cmd
 }

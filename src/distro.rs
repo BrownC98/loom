@@ -18,8 +18,6 @@ const MAX_FRAME: usize = 16 << 20;
 const MAX_TEXT: usize = 64 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GREET_TIMEOUT: Duration = Duration::from_secs(2);
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Command {
@@ -390,8 +388,7 @@ pub fn outer() -> Result<(), String> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        crate::timed::own_session(cmd.as_std_mut());
         let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         let to_inner = child.stdin.take().expect("stdin을 piped로 열었다");
         let mut from_inner = child.stdout.take().expect("stdout을 piped로 열었다");
@@ -599,7 +596,6 @@ fn spawn_detached(
 ) -> Result<tokio::process::Child, String> {
     cmd.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    #[cfg(unix)]
-    cmd.process_group(0);
+    crate::timed::own_group(cmd.as_std_mut());
     cmd.spawn().map_err(|e| format!("{}: {e}", command.argv[0]))
 }

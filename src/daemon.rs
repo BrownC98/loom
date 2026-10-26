@@ -565,4 +565,92 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_node_removed_during_startup_is_not_attached_after_its_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                tokio::sync::mpsc::unbounded_channel().0,
+            )
+            .unwrap(),
+        );
+        let place = Place {
+            repo: crate::worktree::RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let mut nodes = Vec::new();
+        for name in ["blocked", "removed"] {
+            let launched = crate::graph::Launched {
+                token: name.into(),
+                server: None,
+                account: None,
+                rules: None,
+            };
+            nodes.push(
+                app.graph
+                    .add_root(&place, None, None, &launched, |_| Ok(()))
+                    .unwrap(),
+            );
+        }
+        let [blocked, removed] = nodes[..] else {
+            unreachable!()
+        };
+        let hosts = dir.path().join("pty/nodes");
+        std::fs::create_dir_all(&hosts).unwrap();
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std::fs::write(
+            hosts.join(blocked.0.to_string()),
+            silent.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let blocker = std::thread::spawn(move || {
+            let (link, _) = silent.accept().unwrap();
+            entered.send(()).unwrap();
+            gate.recv().unwrap();
+            drop(link);
+        });
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'still here'; exec cat >/dev/null"]);
+        crate::node_host::in_process(&hosts, removed, cmd);
+        app.start_nodes();
+        tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            app.host.attach(removed).is_none(),
+            "resume is still at the first host"
+        );
+        app.remove(removed).unwrap();
+        assert!(!app.graph.active().unwrap().iter().any(|n| n.id == removed));
+        release.send(()).unwrap();
+        let resumed = tokio::time::timeout(Duration::from_secs(3), async {
+            while app.host.attach(removed).is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        app.host.kill(removed);
+        app.host.kill(blocked);
+        blocker.join().unwrap();
+        assert!(
+            !resumed,
+            "startup attached a deleted node and kept its process outside the graph"
+        );
+    }
 }

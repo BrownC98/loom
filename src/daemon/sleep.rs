@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use tokio::sync::Notify;
 use tokio::sync::broadcast::error::RecvError;
@@ -22,7 +22,6 @@ const STOP_HOOK_GRACE: Duration = Duration::from_secs(60);
 const RUNNING_STATUS: &str = "esc to interrupt";
 
 type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
-type TypedFrom = fn(&App, &Active) -> Option<SystemTime>;
 
 #[derive(Default)]
 pub struct Sleeps {
@@ -210,22 +209,16 @@ impl App {
     }
 
     fn recover(self: &Arc<Self>, id: NodeId) {
-        self.recover_typed_from(id, |app, node| {
-            app.relaunches.held(node.id).then(SystemTime::now)
-        });
-    }
-
-    fn recover_typed_from(self: &Arc<Self>, id: NodeId, typed_from: TypedFrom) {
         if let Some(mut screen) = self.host.attach(id).filter(|a| a.backlog.is_empty()) {
             let app = self.clone();
             tokio::spawn(async move {
                 if !matches!(screen.output.recv().await, Err(RecvError::Closed)) {
-                    app.recover_typed_from(id, typed_from);
+                    app.recover(id);
                 }
             });
             return;
         }
-        let (node, plan, guard, kept) = match self.recovering(id, typed_from) {
+        let (node, plan, guard, kept) = match self.recovering(id) {
             Ok(Some(recovery)) => recovery,
             Ok(None) => return,
             Err(e) => return eprintln!("loom: 듣지 못하는 노드 {}를 보지 못했다: {e}", id.0),
@@ -238,7 +231,7 @@ impl App {
                     kept(&app, id);
                     app.refused(id);
                 }
-                Err(e) if app.host.attach(id).is_some() => {
+                Err(e) if app.graph.ended(id).is_ok_and(|ended| ended.is_none()) => {
                     eprintln!(
                         "loom: 듣지 못하는 노드 {}를 살리지 못했다. 옛 프로세스를 두고 다음 사건에 다시 해 본다: {e}",
                         id.0
@@ -257,6 +250,14 @@ impl App {
         });
     }
 
+    pub(super) fn draft_ended(self: &Arc<Self>, id: NodeId) {
+        match self.graph.end_draft(id) {
+            Ok(true) if self.relaunches.held(id) => self.recover(id),
+            Ok(_) => {}
+            Err(e) => eprintln!("loom: 노드 {}의 입력 중 표시를 지우지 못했다: {e}", id.0),
+        }
+    }
+
     fn refused(&self, id: NodeId) {
         let newest = self.graph.newest_mail(id).ok().flatten();
         self.relaunches.refused(id, newest);
@@ -268,17 +269,11 @@ impl App {
             .mail_since_refused(|id| self.graph.newest_mail(id).ok().flatten());
         for id in mailed {
             self.refused(id);
-            self.recover_typed_from(id, |_, node| {
-                (profile_of(node) == Some(Profile::Claude)).then(SystemTime::now)
-            });
+            self.recover(id);
         }
     }
 
-    fn recovering(
-        self: &Arc<Self>,
-        id: NodeId,
-        typed_from: TypedFrom,
-    ) -> rusqlite::Result<Option<Recovery>> {
+    fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
         if self.agent_state(id) != Some(AgentState::Deaf) || self.sleeps.stopping(id) {
             return Ok(None);
         }
@@ -288,7 +283,7 @@ impl App {
         if profile_of(&node).is_none() {
             return Ok(None);
         }
-        let guard = self.restart_guard(&node, typed_from(self, &node))?;
+        let guard = self.restart_guard(&node)?;
         if !guard(&self.host.screen(id)) {
             self.refused(id);
             eprintln!(
@@ -439,11 +434,7 @@ impl App {
         )))
     }
 
-    fn restart_guard(
-        self: &Arc<Self>,
-        node: &Active,
-        since: Option<SystemTime>,
-    ) -> rusqlite::Result<Guard> {
+    fn restart_guard(self: &Arc<Self>, node: &Active) -> rusqlite::Result<Guard> {
         let (app, id, profile) = (self.clone(), node.id, profile_of(node));
         let path = self.transcript(node)?;
         let modified = |path: &Option<PathBuf>| {
@@ -451,7 +442,6 @@ impl App {
                 .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
         };
         let changed = modified(&path);
-        let typed_after = since.or(changed).unwrap_or_else(SystemTime::now);
         Ok(Arc::new(move |screen: &Screen| {
             let quiet = match profile {
                 Some(Profile::Claude) => {
@@ -462,7 +452,7 @@ impl App {
             quiet
                 && modified(&path) == changed
                 && app.agent_state(id) == Some(AgentState::Deaf)
-                && !app.idle.typed_since(id, typed_after)
+                && !app.graph.drafted(id).unwrap_or(true)
                 && profile::prompt(profile, screen).is_none()
         }))
     }
@@ -580,6 +570,7 @@ mod tests {
     use crate::graph::{Launched, NewChild, NodeState, Place, Report};
     use crate::protocol::{AgentId, Kind, TreeLimits};
     use crate::worktree::RepoId;
+    use std::time::SystemTime;
 
     fn launched(token: &str) -> Launched {
         Launched {
@@ -1069,7 +1060,7 @@ mod tests {
             .filter(|n| [drafted, typed, spoke, quiet].contains(&n.id))
             .map(|n| {
                 t.app.feed(n.id, AgentEvent::TurnEnded);
-                let guard = t.app.restart_guard(&n, None).unwrap();
+                let guard = t.app.restart_guard(&n).unwrap();
                 assert!(
                     guard(&t.app.host.screen(n.id)),
                     "the sweep decides to restart"
@@ -1087,7 +1078,7 @@ mod tests {
         while claude::input(&t.app.host.screen(drafted).text) != Some("고쳐 줘") {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        human_typed(&t.app, typed);
+        human_typed(&t.app, typed, b"x");
         let log = t.dir.path().join("spoke.jsonl");
         std::fs::write(&log, format!("{ENDED}{ENDED}")).unwrap();
 
@@ -1138,7 +1129,7 @@ mod tests {
         }
         screen(&t, draft, "❯ 고쳐 줘");
         let _wait = t.app.idle.open(heard);
-        human_typed(&t.app, typing);
+        human_typed(&t.app, typing, b"x");
         std::fs::File::options()
             .write(true)
             .open(t.dir.path().join("fresh.jsonl"))
@@ -1410,7 +1401,7 @@ mod tests {
         t.app
             .host
             .write_if(node, |_| {
-                human_typed(&t.app, node);
+                human_typed(&t.app, node, b"x");
                 Ok::<_, std::convert::Infallible>(b"\x7f".to_vec())
             })
             .unwrap();
@@ -1430,6 +1421,9 @@ mod tests {
             .set_wait("queued", crate::graph::WaitSource::Hook, None)
             .unwrap();
         std::fs::remove_file(t.dir.path().join("queued.jsonl")).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!relaunched(), "the stored draft holds the node");
+        t.app.draft_ended(node);
         while !relaunched() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -1482,7 +1476,7 @@ mod tests {
         t.app
             .host
             .write_if(node, |_| {
-                human_typed(&t.app, node);
+                human_typed(&t.app, node, b"x");
                 Ok::<_, std::convert::Infallible>(b"\x7f".to_vec())
             })
             .unwrap();
@@ -1491,12 +1485,16 @@ mod tests {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!restarted(), "no mail, no try");
+        assert!(t.app.graph.drafted(node).unwrap(), "the keys began a draft");
 
         std::fs::remove_file(t.dir.path().join("drafted.jsonl")).unwrap();
         t.app
             .graph
             .note(t.lead, "drafted", Kind::Queue, "third", None)
             .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!restarted(), "the stored draft holds the node against mail");
+        t.app.draft_ended(node);
         relaunched(&t, node).await;
     }
 
@@ -1541,7 +1539,7 @@ mod tests {
             .unwrap();
         t.app.idle.turn_started(node, "UserPromptSubmit".into());
         screen(&t, node, "❯ ");
-        human_typed(&t.app, node);
+        human_typed(&t.app, node, b"x");
         drop(t.app.idle.open(node));
         while !t.app.relaunches.held(node) {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1656,7 +1654,23 @@ mod tests {
                 .note(t.lead, name, Kind::Queue, "work", None)
                 .unwrap();
         }
-        let nodes = [turning, listening, deaf, old, sleeper, server];
+        let typer = add_agent(&t, "typer", "pi");
+        t.app.graph.set_transcript(typer, "/t/pi.jsonl").unwrap();
+        t.app.feed(typer, AgentEvent::WaitOpened);
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'pi> 고쳐'; exec cat >/dev/null"]);
+        crate::node_host::in_process(&hosts, typer, cmd);
+        human_typed(&t.app, typer, "고쳐".as_bytes());
+        t.app
+            .graph
+            .note(t.lead, "typer", Kind::Queue, "work", None)
+            .unwrap();
+        let nodes = [turning, listening, deaf, old, sleeper, server, typer];
+        let relaunched = |app: &App, node: NodeId| {
+            app.graph.recent_events().unwrap().iter().any(
+                |r| matches!(&r.entry, Entry::Relaunched { node: who, .. } if who.id == Some(node)),
+            )
+        };
 
         let Fixture { dir, app, lead: _ } = t;
         app.host.detach();
@@ -1681,12 +1695,29 @@ mod tests {
                 );
             }
             assert_eq!(app.agent_state(turning), Some(AgentState::Turn), "{round}");
-            for node in [listening, deaf, old] {
+            for node in [listening, deaf, old, typer] {
                 assert_eq!(app.agent_state(node), Some(AgentState::Deaf), "{round}");
                 assert!(
                     app.relaunches.held(node),
                     "{round}: the draft holds node {}",
                     node.0
+                );
+            }
+            assert!(
+                !relaunched(&app, typer),
+                "{round}: the stored pi draft holds"
+            );
+            if round == "binary swap" {
+                app.human_input(typer, None).unwrap();
+                for _ in 0..500 {
+                    if relaunched(&app, typer) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                assert!(
+                    relaunched(&app, typer),
+                    "sending the draft retries the recovery"
                 );
             }
             app.host.detach();

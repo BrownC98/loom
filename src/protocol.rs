@@ -42,7 +42,7 @@ pub const NODE_CALLS: Versions = Versions { now: 1, oldest: 1 };
 pub const NODE_CALLS_HEADER: &str = "loom-protocol";
 pub const STREAMS: Versions = Versions { now: 2, oldest: 1 };
 pub const PI_HOOK: u32 = 2;
-pub const DISTRO_HOST: u32 = 2;
+pub const DISTRO_HOST: u32 = 3;
 
 /// 관문 동사. `Queue`만 빼고 각각 `loom <동사>` 명령 하나다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]

@@ -460,12 +460,12 @@ impl Batch<'_> {
     ) -> Result<(), Refusal> {
         let mut last = None;
         for m in members.iter().rev() {
-            if merge_commit(&self.dir, &m.head, tip).await?.is_some() {
-                last = Some(m);
+            if let Some(sha) = merge_commit(&self.dir, &m.head, tip).await? {
+                last = Some((m, sha));
                 break;
             }
         }
-        let Some(last) = last else {
+        let Some((last, merged)) = last else {
             return self.merged(members, base, tip, None, &Dest::Base).await;
         };
         let args = [
@@ -474,7 +474,7 @@ impl Batch<'_> {
             base.to_owned(),
             tip.to_owned(),
             last.branch.clone(),
-            last.head.clone(),
+            merged,
         ];
         let (code, out) = script(&self.dir, PUBLISH, &args).await?;
         let lines = Lines::read(&out);

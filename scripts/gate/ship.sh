@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -uo pipefail
-sha=$2
+merged=$2
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 base=$(git symbolic-ref --quiet --short HEAD) || { echo "the main checkout is not on a branch"; exit 1; }
 published=origin/$base
 git fetch --quiet origin "$base" || { echo "git fetch failed; the merge queue already published, so tell the root to check the deploy"; exit 12; }
-git merge-base --is-ancestor "$sha" "$published" || { echo "$sha is not in $published; the merge queue publishes before ship.sh, so tell the root"; exit 12; }
-merged=$(git log --first-parent --format='%H %P' "$published" | awk -v h="$sha" '{ for (i = 3; i <= NF; i++) if ($i == h) { print $1; exit } }')
-[ -n "$merged" ] || { echo "$sha is in $published without a gate merge commit; tell the root"; exit 12; }
+git merge-base --is-ancestor "$merged" "$published" || { echo "$merged is not in $published; the merge queue publishes before ship.sh, so tell the root"; exit 12; }
 
 sleep 20
 deployed() {

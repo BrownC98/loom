@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
@@ -65,8 +65,6 @@ pub struct Spec {
     env: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     setup: Option<Vec<OsString>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    endpoint: Option<OsString>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     while_linked: bool,
 }
@@ -81,7 +79,6 @@ impl Spec {
                 .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect(),
             setup: setup.map(|s| s.get_argv().clone()),
-            endpoint: cmd.get_env(ENDPOINT_ENV).map(Into::into),
             while_linked: false,
         }
     }
@@ -110,12 +107,11 @@ impl Spec {
 }
 
 pub fn run() -> Result<(), String> {
-    let mut spec: Spec =
+    let spec: Spec =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("command: {e}"))?;
-    let endpoint = spec.endpoint.take();
     let while_linked = spec.while_linked;
     let (cmd, setup) = spec.commands();
-    let started = start(cmd, setup, endpoint.as_deref())?;
+    let started = start(cmd, setup)?;
     started.host.state.lock().unwrap().while_linked = while_linked;
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{}", started.address)
@@ -133,13 +129,9 @@ pub struct Started {
     delivered: mpsc::Receiver<()>,
 }
 
-pub fn start(
-    cmd: CommandBuilder,
-    setup: Option<CommandBuilder>,
-    endpoint: Option<&OsStr>,
-) -> Result<Started, String> {
+pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Started, String> {
     let reported = Arc::new(OnceLock::<Weak<Host>>::new());
-    let opened = endpoint.map(|at| {
+    let opened = cmd.get_env(ENDPOINT_ENV).map(|at| {
         let to = reported.clone();
         let report = move |e: String| {
             if let Some(host) = to.get().and_then(Weak::upgrade) {

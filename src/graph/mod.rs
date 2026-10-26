@@ -52,10 +52,7 @@ impl fmt::Display for NodeId {
 #[ts(export)]
 pub enum NodeState {
     Running,
-    /// `summary`는 부모에게 보낸 요약이나 결과 파일 경로다.
-    Done {
-        summary: String,
-    },
+    Done,
     /// `code`가 없으면 데몬이 다시 시작했을 때 프로세스가 사라졌던 노드다.
     Exited {
         code: Option<u32>,
@@ -70,7 +67,7 @@ pub enum NodeState {
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum Work {
     Running,
-    Done { summary: String },
+    Done,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -85,7 +82,7 @@ pub enum ProcessOutcome {
 
 fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
     match (work, process) {
-        (Work::Done { summary }, _) => NodeState::Done { summary },
+        (Work::Done, _) => NodeState::Done,
         (Work::Running, None | Some(ProcessOutcome::Asleep | ProcessOutcome::HostGone)) => {
             NodeState::Running
         }

@@ -1,7 +1,5 @@
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use portable_pty::CommandBuilder;
 
@@ -179,29 +177,14 @@ fn read_list(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
-#[derive(Default)]
-pub struct Homes(Mutex<HashMap<String, String>>);
-
-impl Homes {
-    pub async fn get(&self, distro: &Distro) -> Result<String, InsideError> {
-        if let Some(home) = self.0.lock().unwrap().get(distro.name()) {
-            return Ok(home.clone());
-        }
-        let text = values(distro, sh(r#"printf '\036%s' "$HOME""#, [])).await?;
-        let home = match text.split_once(SEP) {
-            Some((_, home)) if home.starts_with('/') => home.to_owned(),
-            _ => {
-                return Err(InsideError::Start {
-                    distro: distro.name().into(),
-                    cause: "$HOME is not an absolute path".into(),
-                });
-            }
-        };
-        self.0
-            .lock()
-            .unwrap()
-            .insert(distro.name().into(), home.clone());
-        Ok(home)
+pub async fn home(distro: &Distro) -> Result<String, InsideError> {
+    let text = values(distro, sh(r#"printf '\036%s' "$HOME""#, [])).await?;
+    match text.split_once(SEP) {
+        Some((_, home)) if home.starts_with('/') => Ok(home.to_owned()),
+        _ => Err(InsideError::Start {
+            distro: distro.name().into(),
+            cause: "$HOME is not an absolute path".into(),
+        }),
     }
 }
 
@@ -268,74 +251,67 @@ fn caller() -> Option<WslPath> {
     std::env::current_dir().ok().and_then(|dir| of(&dir))
 }
 
-pub async fn end_hosts(distro: &str, home: &str, servers: &[u32]) -> Result<(), String> {
-    let script = format!(
-        r#"home=$1; shift; servers=" $* " roots=
+pub async fn end_hosts(distro: &Distro, home: &str, servers: &[u32]) -> Result<(), String> {
+    let script = r#"home=$1; shift; servers=" $* "
 for d in /proc/[0-9]*; do
-  pid=${{d#/proc/}}
+  pid=${d#/proc/}
   case $servers in *" $pid "*) ;; *) [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue ;; esac
-  tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" || continue
-  roots="$roots $pid"
+  tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" && echo "$pid"
 done
-{END_TREES}"#
-    );
-    let out = tokio::process::Command::new("wsl.exe")
-        .args(["-d", distro, "-e", "sh", "-c", &script, "sh", home])
-        .args(servers.iter().map(u32::to_string))
-        .env("WSL_UTF8", "1")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-    match out.status.success() {
-        true => Ok(()),
-        false => Err(failure(&out)),
-    }
-}
-
-const END_TREES: &str = r#"[ -n "$roots" ] || exit 0
-all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
-  { parent[$1] = $2 }
-  END { do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew); for (p in keep) print p }')
-kill -TERM $all 2>/dev/null
-sleep 2
-kill -KILL $all 2>/dev/null
 exit 0"#;
+    let servers: Vec<String> = servers.iter().map(u32::to_string).collect();
+    let args = std::iter::once(home).chain(servers.iter().map(String::as_str));
+    end_found(distro, sh(script, args)).await
+}
 
 const MARKS: &str = r#"started() { s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${s##*) }; shift 19; echo "$1"; }
 marks=/tmp/loom-guard-$(id -u)"#;
 
 pub async fn end_shells(distro: &Distro, token: &str) -> Result<(), String> {
-    bounded(distro, sh(&end_shells_script(), [token])).await
+    end_found(distro, sh(&end_shells_script(), [token])).await
 }
 
 fn end_shells_script() -> String {
     format!(
         r#"{MARKS}
-token=$1 dir=$marks/$1 roots=
+token=$1 dir=$marks/$1
 [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || exit 0
 for f in "$dir"/*.*; do
   [ -e "$f" ] || continue
   m=${{f##*/}} pid=${{m%.*}}
   rm -f "$f"
   [ "$(started "$pid")" = "${{m#*.}}" ] || continue
-  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && roots="$roots $pid"
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && echo "$pid"
 done
-{END_TREES}"#
+exit 0"#
     )
 }
 
+async fn end_found(distro: &Distro, find: distro::Command) -> Result<(), String> {
+    let found = bounded(distro, find).await?;
+    let roots: Vec<u32> = found
+        .stdout
+        .split_whitespace()
+        .filter_map(|pid| pid.parse().ok())
+        .collect();
+    if roots.is_empty() {
+        return Ok(());
+    }
+    let distro = distro.clone();
+    tokio::task::spawn_blocking(move || distro.end(roots))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub async fn end_token(distro: &Distro, token: &str) -> Result<(), String> {
-    bounded(distro, sh(END_TOKEN, [token])).await
+    bounded(distro, sh(END_TOKEN, [token])).await.map(drop)
 }
 
 pub fn end_trees(distro: &Distro, roots: &[u32]) {
-    let roots: Vec<String> = roots.iter().map(u32::to_string).collect();
-    let script = format!("roots=\"$*\"\n{END_TREES}");
-    let command = sh(&script, roots.iter().map(String::as_str));
+    let roots = roots.to_vec();
     let distro = distro.clone();
     std::thread::spawn(move || {
-        if let Err(e) = distro.run(command) {
+        if let Err(e) = distro.end(roots) {
             eprintln!("loom: {}의 프로세스를 끝내지 못했다: {e}", distro.name());
         }
     });
@@ -381,11 +357,11 @@ exit 0"#;
 
 const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-async fn bounded(distro: &Distro, command: distro::Command) -> Result<(), String> {
+async fn bounded(distro: &Distro, command: distro::Command) -> Result<distro::Ran, String> {
     match tokio::time::timeout(END_TOKEN_WAIT, run(distro, command)).await {
         Err(_) => Err(format!("{}초 안에 끝나지 않았다", END_TOKEN_WAIT.as_secs())),
         Ok(Err(e)) => Err(e),
-        Ok(Ok(ran)) if ran.code == Some(0) => Ok(()),
+        Ok(Ok(ran)) if ran.code == Some(0) => Ok(ran),
         Ok(Ok(ran)) => Err(ran_failure(&ran)),
     }
 }
@@ -469,17 +445,6 @@ async fn values(distro: &Distro, command: distro::Command) -> Result<String, Ins
         true => Ok(ran.stdout),
         false => Err(start(ran_failure(&ran))),
     }
-}
-
-fn failure(out: &std::process::Output) -> String {
-    let text: Vec<String> = [&out.stdout, &out.stderr]
-        .map(|bytes| decode(bytes).trim().to_owned())
-        .into_iter()
-        .filter(|t| !t.is_empty())
-        .collect();
-    format!("{} ({})", text.join(" "), out.status)
-        .trim_start()
-        .to_owned()
 }
 
 fn read_inside(at: &WslPath, distro: Distro, find: &[&str], text: &str) -> Option<Inside> {

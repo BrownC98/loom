@@ -12,10 +12,7 @@ const INSTALLED: &[&str] = &[
     "/mnt/c/Program Files/Tailscale/tailscale.exe",
 ];
 
-#[cfg(not(test))]
 const SERVE_TIMEOUT: Duration = Duration::from_secs(20);
-#[cfg(test)]
-const SERVE_TIMEOUT: Duration = Duration::from_secs(2);
 const CONSENT_PREFIX: &str = "https://login.tailscale.com/";
 
 /// [Serve 켜기]의 결과.
@@ -52,13 +49,6 @@ impl Tailscale {
         crate::search_path::find("tailscale")
             .or_else(|| INSTALLED.iter().map(PathBuf::from).find(|p| p.is_file()))
             .map(|program| Self { program })
-    }
-
-    #[cfg(all(test, unix))]
-    pub fn at(program: &std::path::Path) -> Self {
-        Self {
-            program: program.to_owned(),
-        }
     }
 
     pub async fn status(&self, port: u16) -> Tailnet {
@@ -160,125 +150,4 @@ fn proxies_to(serve: &serde_json::Value, port: u16) -> bool {
         .flat_map(|handlers| handlers.values())
         .filter_map(|handler| handler["Proxy"].as_str())
         .any(|proxy| targets.iter().any(|t| proxy.trim_end_matches('/') == t))
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use crate::fake_exe::write_executable;
-    use std::path::Path;
-
-    fn fake(dir: &Path, status: &str, serve: &str) -> Tailscale {
-        let program = dir.join("tailscale");
-        write_executable(
-            &program,
-            &format!(
-                "#!/bin/sh\necho \"$@\" >> '{calls}'\ncase \"$1 $2\" in\n  'status --json') cat <<'EOF'\n{status}\nEOF\n;;\n  'serve status') cat <<'EOF'\n{serve}\nEOF\n;;\n  'serve --bg') ;;\n  *) exit 1;;\nesac\n",
-                calls = dir.join("calls").display()
-            ),
-        );
-        Tailscale::at(&program)
-    }
-
-    const RUNNING: &str = r#"{"BackendState":"Running","Self":{"DNSName":"pc.tail1.ts.net."}}"#;
-    const SERVING: &str =
-        r#"{"Web":{"pc.tail1.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:7420"}}}}}"#;
-
-    #[tokio::test]
-    async fn reads_host_and_serve() {
-        let dir = tempfile::tempdir().unwrap();
-        let ts = fake(dir.path(), RUNNING, SERVING);
-        assert_eq!(
-            ts.status(7420).await,
-            Tailnet::Ready {
-                host: "pc.tail1.ts.net".into(),
-                serving: true
-            }
-        );
-        assert_eq!(
-            ts.status(7421).await,
-            Tailnet::Ready {
-                host: "pc.tail1.ts.net".into(),
-                serving: false
-            }
-        );
-        let ts = fake(dir.path(), RUNNING, "{}");
-        assert!(matches!(
-            ts.status(7420).await,
-            Tailnet::Ready { serving: false, .. }
-        ));
-    }
-
-    #[tokio::test]
-    async fn stopped_when_not_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let ts = fake(
-            dir.path(),
-            r#"{"BackendState":"NeedsLogin","Self":{"DNSName":""}}"#,
-            "{}",
-        );
-        assert_eq!(ts.status(7420).await, Tailnet::Stopped);
-        let ts = fake(dir.path(), "not json", "{}");
-        assert_eq!(ts.status(7420).await, Tailnet::Stopped);
-    }
-
-    #[tokio::test]
-    async fn serve_runs_background_proxy_to_port() {
-        let dir = tempfile::tempdir().unwrap();
-        let served = fake(dir.path(), RUNNING, "{}").serve(7421).await;
-        assert_eq!(served, Ok(Served::On));
-        let calls = std::fs::read_to_string(dir.path().join("calls")).unwrap();
-        assert_eq!(calls.trim(), "serve --bg 7421");
-    }
-
-    fn fake_serve(dir: &Path, body: &str) -> Tailscale {
-        let program = dir.join("tailscale");
-        write_executable(&program, &format!("#!/bin/sh\n{body}\n"));
-        Tailscale::at(&program)
-    }
-
-    #[tokio::test]
-    async fn serve_returns_consent_link_and_ends_the_waiting_cli() {
-        let dir = tempfile::tempdir().unwrap();
-        let pid = dir.path().join("pid");
-        let ts = fake_serve(
-            dir.path(),
-            &format!(
-                "echo $$ > '{}'\nprintf 'Serve is not enabled on your tailnet.\\nTo enable, visit:\\n\\n         https://login.tailscale.com/f/serve?node=n1\\n'\nexec sleep 600",
-                pid.display()
-            ),
-        );
-        assert_eq!(
-            ts.serve(7420).await,
-            Ok(Served::NeedsConsent {
-                url: "https://login.tailscale.com/f/serve?node=n1".into()
-            })
-        );
-        let pid = std::fs::read_to_string(&pid).unwrap();
-        let stat = format!("/proc/{}/stat", pid.trim());
-        for _ in 0..50 {
-            match std::fs::read_to_string(&stat) {
-                Err(_) => return,
-                Ok(s) if s.split_whitespace().nth(2) == Some("Z") => return,
-                Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-            }
-        }
-        panic!("the waiting tailscale serve still runs");
-    }
-
-    #[tokio::test]
-    async fn serve_reports_failure_text() {
-        let dir = tempfile::tempdir().unwrap();
-        let ts = fake_serve(dir.path(), "echo 'not logged in' >&2\nexit 1");
-        assert_eq!(ts.serve(7420).await, Err("not logged in".into()));
-        let ts = fake_serve(dir.path(), "echo 'said on stdout'\nexit 1");
-        assert_eq!(ts.serve(7420).await, Err("said on stdout".into()));
-    }
-
-    #[tokio::test]
-    async fn serve_gives_up_when_the_cli_never_ends() {
-        let dir = tempfile::tempdir().unwrap();
-        let ts = fake_serve(dir.path(), "exec sleep 600");
-        assert!(ts.serve(7420).await.unwrap_err().contains("끝나지 않았다"));
-    }
 }

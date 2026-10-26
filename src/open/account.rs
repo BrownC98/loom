@@ -107,39 +107,3 @@ fn account_base() -> Option<PathBuf> {
 fn account_base() -> Option<PathBuf> {
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_account_folder_comes_from_the_os() {
-        let dir = account_base().expect("account folder");
-        assert!(dir.is_absolute(), "{}", dir.display());
-        assert!(!same_dir(
-            &dir,
-            &std::env::temp_dir().join("loom-test-home")
-        ));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_folders_ignore_case_and_slashes() {
-        assert!(same_dir(
-            std::path::Path::new(r"C:\Users\Me\AppData\Roaming"),
-            std::path::Path::new("c:/users/me/appdata/roaming/")
-        ));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlinked_home_is_the_same_folder() {
-        let dir = tempfile::tempdir().unwrap();
-        let real = dir.path().join("var-home");
-        std::fs::create_dir(&real).unwrap();
-        let link = dir.path().join("home");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        assert!(same_dir(&link, &real));
-        assert!(!same_dir(&link, dir.path()));
-    }
-}

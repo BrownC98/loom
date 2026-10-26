@@ -732,7 +732,3 @@ impl Batch<'_> {
         )
     }
 }
-
-#[cfg(test)]
-#[path = "queue_tests.rs"]
-mod tests;

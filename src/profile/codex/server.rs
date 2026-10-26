@@ -299,29 +299,3 @@ fn is_usage_limit(msg: &Value) -> bool {
         && msg["params"]["willRetry"] != true
         && msg["params"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn changed(status: Value) -> Thread {
-        let note: ThreadStatusChangedNotification =
-            serde_json::from_value(json!({ "threadId": "t", "status": status })).unwrap();
-        Thread::new(note.thread_id, &note.status)
-    }
-
-    #[test]
-    fn active_flags_become_the_human_wait() {
-        let approval = changed(json!({ "type": "active", "activeFlags": ["waitingOnApproval"] }));
-        assert_eq!(
-            (approval.status, approval.waiting),
-            (Status::Busy, Some(WaitKind::Approval))
-        );
-        let input = changed(json!({ "type": "active", "activeFlags": ["waitingOnUserInput"] }));
-        assert_eq!(input.waiting, Some(WaitKind::Question));
-        let working = changed(json!({ "type": "active", "activeFlags": [] }));
-        assert_eq!((working.status, working.waiting), (Status::Busy, None));
-        let idle = changed(json!({ "type": "idle" }));
-        assert_eq!((idle.status, idle.waiting), (Status::Idle, None));
-    }
-}

@@ -12,7 +12,7 @@ function* files(dir) {
 const seen = new Map();
 let found = 0;
 for (const path of files('src')) {
-  const key = path.replace(/(\.test)?\.tsx?$/, '$1').toLowerCase();
+  const key = path.replace(/\.tsx?$/, '').toLowerCase();
   const other = seen.get(key);
   if (other) {
     console.error(`${other} and ${path} differ only in letter case. Windows sees one module.`);

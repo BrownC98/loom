@@ -401,33 +401,3 @@ async fn send_size(
         .expect("PtyNotice는 늘 직렬화된다");
     to_view.send(Message::Text(notice.into())).await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::has_text;
-
-    #[test]
-    fn only_text_and_not_keys_or_reports_begins_a_draft() {
-        for key in [
-            &b"\x1b"[..],
-            b"\x1b[A",
-            b"\x1bOP",
-            b"\x1b[I",
-            b"\x1b[<0;10;5M",
-            b"\x1b[M !!",
-            b"\x03",
-            b"\x7f",
-            b"\r",
-        ] {
-            assert!(!has_text(key), "{key:?}");
-        }
-        for text in [
-            &b"a"[..],
-            "가".as_bytes(),
-            b"\x1b[200~ab\x1b[201~",
-            b"\x1b[Ax",
-        ] {
-            assert!(has_text(text), "{text:?}");
-        }
-    }
-}

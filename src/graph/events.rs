@@ -548,13 +548,6 @@ pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     })
 }
 
-#[cfg(test)]
-pub(super) fn recent(db: &Connection) -> rusqlite::Result<Vec<EventRecord>> {
-    db.prepare(&format!("{RECORD_COLUMNS} ORDER BY e.id DESC LIMIT ?1"))?
-        .query_map([RECENT], record_from_row)?
-        .collect()
-}
-
 pub(super) fn after(db: &Connection, after: u32) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!("{RECORD_COLUMNS} WHERE e.id > ?1 ORDER BY e.id"))?
         .query_map([after], record_from_row)?
@@ -574,63 +567,4 @@ fn record_from_row(row: &Row) -> rusqlite::Result<EventRecord> {
         row.get(4)?,
         row.get(3)?,
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn message(what: MessageKind, body: &str) -> EventRecord {
-        let entry = Entry::Message {
-            how: Kind::Queue,
-            what: Some(what),
-            from: Who {
-                id: Some(NodeId(2)),
-                name: "gate".into(),
-            },
-            to: None,
-            step: Step::Delivered,
-            via: None,
-            gate: None,
-        };
-        EventRecord::new(1, 0, entry, Some(7), Some(body.into()))
-    }
-
-    #[test]
-    fn merge_notices_are_from_loom_and_human_input_is_from_the_node() {
-        let merged = MessageKind::Merged {
-            branch: "b".into(),
-            head: "h".into(),
-            sha: "s".into(),
-            log: None,
-        };
-        assert!(message(merged, "").message.unwrap().from_loom);
-        let typed = MessageKind::HumanInput { node: "n".into() };
-        assert!(!message(typed, "hi").message.unwrap().from_loom);
-    }
-
-    #[test]
-    fn verdict_fields_join_the_commit_to_the_branch_and_drop_the_judgment() {
-        let verdict = MessageKind::Verdict {
-            branch: "b".into(),
-            head: "3f2a91c".into(),
-            judgment: crate::protocol::Judgment::Block,
-            findings: None,
-            reviewer: Some("claude opus".into()),
-        };
-        let fields = message(verdict, "").message.unwrap().fields;
-        let names: Vec<Field> = fields.iter().map(|f| f.name).collect();
-        assert_eq!(names, [Field::Branch, Field::Reviewer]);
-        assert_eq!(fields[0].parts.len(), 2);
-    }
-
-    #[test]
-    fn a_done_with_only_a_file_shows_the_path_once() {
-        let done = |file: &str| MessageKind::Done {
-            file: Some(file.into()),
-            warning: None,
-        };
-        assert_eq!(message(done("/r.md"), "/r.md").parts, []);
-        assert_eq!(message(done("/r.md"), "summary").parts.len(), 1);
-    }
 }

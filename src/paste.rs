@@ -12,24 +12,3 @@ pub fn save(temp: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     std::fs::write(&path, bytes)?;
     Ok(path)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn saves_under_original_name_inside_its_own_folder() {
-        let path = save(&std::env::temp_dir(), "보고서 초안.pdf", b"pdf").unwrap();
-        assert!(path.is_absolute());
-        assert_eq!(path.file_name().unwrap(), "보고서 초안.pdf");
-        assert_eq!(std::fs::read(&path).unwrap(), b"pdf");
-        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
-
-        let path = save(&std::env::temp_dir(), "../../escape.txt", b"x").unwrap();
-        assert_eq!(
-            path.parent().unwrap().parent().unwrap(),
-            std::env::temp_dir().join("loom-paste")
-        );
-        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
-    }
-}

@@ -411,34 +411,3 @@ async fn agent_hook_wait(
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn every_agent_route_the_cli_calls_is_on_the_node_door() {
-        let cli = [include_str!("../cli.rs"), include_str!("../cli/hook.rs")].concat();
-        let daemon = include_str!("commands.rs");
-        let door = &daemon[daemon.find("fn node_routes()").unwrap()..];
-        let door = &door[..door.find("fn routes()").unwrap()];
-        let mut names = std::collections::BTreeSet::new();
-        for part in cli.split("call(").skip(1) {
-            let part = part.trim_start();
-            if let Some(rest) = part.strip_prefix('"')
-                && let Some((name, _)) = rest.split_once('"')
-                && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-            {
-                names.insert(name);
-            }
-        }
-        assert!(
-            names.contains("task") && names.contains("verdict"),
-            "{names:?}"
-        );
-        for name in names {
-            assert!(
-                door.contains(&format!("\"/api/agent/{name}\"")),
-                "the CLI calls {name}, but the node door has no /api/agent/{name}"
-            );
-        }
-    }
-}

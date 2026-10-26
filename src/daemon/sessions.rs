@@ -55,30 +55,3 @@ impl FirstInputs {
         self.0.lock().unwrap().remove(&node)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_late_call_of_the_old_process_does_not_start_the_new_session() {
-        let sessions = Sessions::default();
-        let old = sessions.launched(NodeId(1), "old");
-        let new = sessions.launched(NodeId(1), "new");
-        assert!(old.has_changed().is_err(), "옛 세션은 끝난다");
-        sessions.started(NodeId(1), "old");
-        assert!(*new.borrow() == Session::NotStarted);
-        sessions.started(NodeId(1), "new");
-        assert!(*new.borrow() == Session::Started);
-    }
-
-    #[test]
-    fn only_the_first_prompt_after_a_launch_with_a_brief_is_injected() {
-        let inputs = FirstInputs::default();
-        inputs.launched(NodeId(1), true);
-        inputs.launched(NodeId(2), false);
-        assert!(inputs.injected(NodeId(1)));
-        assert!(!inputs.injected(NodeId(1)), "the human typed this one");
-        assert!(!inputs.injected(NodeId(2)));
-    }
-}

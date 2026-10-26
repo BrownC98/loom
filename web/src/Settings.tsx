@@ -339,7 +339,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                 </a>
                 {a.canBypass ? (
                   <label className="switch">
-                    <input type="checkbox" checked={canBypass(a, settings)} aria-label={t('settings.bypassLabel', { agent: a.label })} onChange={(e) => toggle(a, e.target.checked)} />
+                    <input type="checkbox" checked={canBypass(a, settings.bypassOff)} aria-label={t('settings.bypassLabel', { agent: a.label })} onChange={(e) => toggle(a, e.target.checked)} />
                     {t('settings.bypass')}
                   </label>
                 ) : (
@@ -365,7 +365,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
         </details>
       </section>
       <SkillsSection settings={settings} onSettings={props.onSettings} />
-      <RoleSettings agents={agents} settings={settings} onSettings={props.onSettings} />
+      <RoleSettings agents={agents} roles={settings.roles} oMode={settings.alwaysOn.oMode} onRoles={(roles) => props.onSettings({ ...settings, roles })} />
       <TreeLimitsSection settings={settings} onSettings={props.onSettings} />
     </>
   );

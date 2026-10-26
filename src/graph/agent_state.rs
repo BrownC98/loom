@@ -129,37 +129,26 @@ pub struct AgentChange {
     pub by: AgentEvent,
 }
 
-struct Stored {
-    state: Option<AgentState>,
-    seq: i64,
-}
-
-fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
+fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Option<AgentState>>> {
     db.query_row(
-        "SELECT s.state, coalesce(s.seq, 0)
-         FROM nodes n LEFT JOIN agent_states s ON s.node = n.id WHERE n.id = ?1",
+        "SELECT s.state FROM nodes n LEFT JOIN agent_states s ON s.node = n.id WHERE n.id = ?1",
         [node.0],
-        |row| {
-            Ok(Stored {
-                state: optional_json(row, 0)?,
-                seq: row.get(1)?,
-            })
-        },
+        |row| optional_json(row, 0),
     )
     .optional()
 }
 
-fn store(db: &Connection, node: NodeId, state: &AgentState, seq: i64) -> rusqlite::Result<()> {
+fn store(db: &Connection, node: NodeId, state: &AgentState) -> rusqlite::Result<()> {
     db.execute(
-        "INSERT INTO agent_states (node, state, seq) VALUES (?1, ?2, ?3)
-         ON CONFLICT (node) DO UPDATE SET state = excluded.state, seq = excluded.seq",
-        params![node.0, to_json(state), seq],
+        "INSERT INTO agent_states (node, state) VALUES (?1, ?2)
+         ON CONFLICT (node) DO UPDATE SET state = excluded.state",
+        params![node.0, to_json(state)],
     )?;
     Ok(())
 }
 
 pub(super) fn start(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
-    store(db, node, &AgentState::Starting, 0)
+    store(db, node, &AgentState::Starting)
 }
 
 pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlite::Result<usize> {
@@ -167,14 +156,14 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         return Ok(0);
     };
     let moved = move_mail(db, node, &event)?;
-    let to = match now.state.clone() {
+    let to = match now.clone() {
         Some(state) => state.next(&event),
         None if event == AgentEvent::Relaunched => Some(AgentState::Starting),
         None => None,
     };
     let turn_began = to == Some(AgentState::Turn)
         && !matches!(
-            &now.state,
+            &now,
             Some(
                 AgentState::Turn
                     | AgentState::Blocked { before: _ }
@@ -191,16 +180,16 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
             [node.0],
         )?;
     }
-    if to == now.state {
+    if to == now {
         return Ok(moved);
     }
     match &to {
-        Some(state) => store(db, node, state, now.seq + 1)?,
+        Some(state) => store(db, node, state)?,
         None => drop(db.execute("DELETE FROM agent_states WHERE node = ?1", [node.0])?),
     }
     let entry = Entry::AgentStateChanged {
         node: events::who(db, node)?,
-        from: now.state,
+        from: now,
         to,
         by: event,
     };
@@ -225,7 +214,7 @@ fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Res
 }
 
 pub(super) fn state_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
-    Ok(load(db, node)?.and_then(|s| s.state))
+    Ok(load(db, node)?.flatten())
 }
 
 impl Graph {

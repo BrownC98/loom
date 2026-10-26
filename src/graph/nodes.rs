@@ -26,7 +26,6 @@ pub struct NewChild<'a> {
 }
 
 const SHELL_NAME: &str = "shell";
-/// `loom detach` 알림의 `parent` 칸 값.
 const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
@@ -826,7 +825,6 @@ impl Graph {
         Ok(adoption.publish(self, &db)?)
     }
 
-    /// 부모를 비워 노드를 다시 뿌리로 만든다. 이미 뿌리면 거절한다.
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;

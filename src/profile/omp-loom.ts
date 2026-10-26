@@ -10,6 +10,7 @@ type Context = {
   sessionManager: { getSessionFile(): string | undefined };
 };
 type AgentEnd = { messages: (Message & { stopReason?: string })[]; willContinue?: boolean; awaitingAsyncWork?: boolean };
+type ToolExecution = { toolCallId: string };
 type Api = Parameters<typeof connect<Context>>[0] & { getThinkingLevel(): string | undefined };
 
 const main = (ctx: Context) => ctx.agent?.kind !== "sub";
@@ -27,9 +28,9 @@ export default function (pi: Api) {
 
   pi.on("session_start", (_event, ctx) => main(ctx) && loom.start(ctx, false));
 
-  pi.on("tool_execution_start", (_event, ctx) => main(ctx) && void loom.running(ctx, () => ctx.abort()));
+  pi.on("tool_execution_start", (event: ToolExecution, ctx) => main(ctx) && void loom.running(ctx, event.toolCallId, () => ctx.abort()));
 
-  pi.on("tool_execution_end", (_event, ctx) => main(ctx) && loom.finished());
+  pi.on("tool_execution_end", (event: ToolExecution, ctx) => main(ctx) && loom.finished(ctx, event.toolCallId));
 
   pi.on("agent_end", (event: AgentEnd, ctx) => {
     if (!main(ctx) || (event.willContinue && !event.awaitingAsyncWork)) return;

@@ -11,6 +11,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/take", post(agent_take))
         .route(IDLE_PATH, post(agent_idle))
         .route("/api/agent/ack", post(agent_ack))
+        .route("/api/agent/interrupt", post(agent_interrupt))
         .route(
             "/api/agent/interrupt-pending",
             post(agent_interrupt_pending),
@@ -305,6 +306,17 @@ pub(super) async fn agent_idle(
     app.wait_idle(node, req.unwrap_or_default(), arrival, current)
         .await
         .map(Json)
+}
+
+async fn agent_interrupt(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.next_mail(node, &[Kind::Interrupt], crate::profile::BATCH_LIMIT_BYTES)
+        .await
+        .map_err(for_agent)?;
+    Ok(Json(()))
 }
 
 pub(super) async fn agent_interrupt_pending(

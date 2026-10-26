@@ -7,7 +7,7 @@ export type Harness<Context> = {
   busy?(): void;
   background: string;
 };
-type Reply = { id?: number; text?: string; ids?: number[]; error?: string };
+type Reply = { id?: number; text?: string; ids?: number[]; error?: string; interrupted?: boolean };
 type Part = { type: string; text?: string };
 export type Message = { role: string; content: string | Part[] };
 type Hook = { child: ChildProcess; pending: Map<number, (reply: Reply | undefined) => void>; open: boolean };
@@ -26,8 +26,7 @@ type Api<C> = {
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
-const PROTOCOL = 3;
-const INTERRUPT_POLL_MS = 1000;
+const PROTOCOL = 4;
 
 function parse(line: string): Reply | undefined {
   try {
@@ -95,24 +94,26 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   const shutdown = new AbortController();
   let hook: Hook | undefined;
   let next = 0;
-  let running = 0;
-  let polling = false;
+  const tools = new Map<string, number>();
   let interrupted = false;
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
-  const call = (input: Record<string, unknown>, ctx: C): Promise<Reply | undefined> => {
-    if (shutdown.signal.aborted) return Promise.resolve(undefined);
+  const send = (input: Record<string, unknown>, ctx: C): { id: number; reply: Promise<Reply | undefined> } => {
+    const id = ++next;
+    if (shutdown.signal.aborted) return { id, reply: Promise.resolve(undefined) };
     if (!hook?.open) {
       hook = open(ctx, shutdown.signal);
     }
     const { child, pending } = hook;
-    const id = ++next;
-    return new Promise((resolve) => {
+    const reply = new Promise<Reply | undefined>((resolve) => {
       pending.set(id, resolve);
       child.stdin?.write(`${JSON.stringify({ protocol: PROTOCOL, id, ...input, ...harness.state(ctx) })}\n`);
     });
+    return { id, reply };
   };
+
+  const call = (input: Record<string, unknown>, ctx: C) => send(input, ctx).reply;
 
   const handed = (reply: Reply | undefined, ctx: C) => {
     if (reply?.ids?.length) void call({ event: "ack", ids: reply.ids }, ctx);
@@ -165,29 +166,20 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     settled(ctx: C, reply: string | undefined) {
       void wait("settled", ctx, reply);
     },
-    async running(ctx: C, stop: () => void) {
-      running++;
-      if (polling) return;
-      polling = true;
-      try {
-        while (running > 0 && !shutdown.signal.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, INTERRUPT_POLL_MS));
-          if (running === 0) return;
-          if (ctx.isIdle()) {
-            running = 0;
-            return;
-          }
-          if ((await call({ event: "tool_call" }, ctx))?.text) {
-            interrupted = true;
-            return stop();
-          }
-        }
-      } finally {
-        polling = false;
-      }
+    async running(ctx: C, tool: string, stop: () => void) {
+      const { id, reply } = send({ event: "interrupt" }, ctx);
+      tools.set(tool, id);
+      const answer = await reply;
+      if (tools.get(tool) === id) tools.delete(tool);
+      if (!answer?.interrupted || interrupted) return;
+      interrupted = true;
+      stop();
     },
-    finished() {
-      running = Math.max(0, running - 1);
+    finished(ctx: C, tool: string) {
+      const id = tools.get(tool);
+      if (id === undefined) return;
+      tools.delete(tool);
+      void call({ event: "close", of: id }, ctx);
     },
     aborted(ctx: C) {
       if (!interrupted) return;

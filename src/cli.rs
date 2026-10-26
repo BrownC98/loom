@@ -179,6 +179,16 @@ fn wait_until_mail(request: IdleRequest) -> Result<IdleReply, String> {
     }
 }
 
+fn interrupt_arrived(close: endpoint::Close) -> Result<bool, String> {
+    let Some(at) = std::env::var_os(ENDPOINT_ENV) else {
+        return Ok(false);
+    };
+    let token = env_var("LOOM_TOKEN")?;
+    let endpoint = Daemon::Endpoint(at.into(), Some(close));
+    post_as::<()>(&endpoint, &token, "interrupt", &(), None, None)?;
+    Ok(true)
+}
+
 fn reconnecting<T>(
     deadline: Option<Instant>,
     attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
@@ -560,7 +570,14 @@ fn reach<T: DeserializeOwned>(
     let Some(at) = endpoint else {
         return post_as(&http()?, token, action, body, connect, timeout);
     };
-    match post_as(&Daemon::Endpoint(at), token, action, body, connect, timeout) {
+    match post_as(
+        &Daemon::Endpoint(at, None),
+        token,
+        action,
+        body,
+        connect,
+        timeout,
+    ) {
         Err(CallError::NotConnected(_)) => {}
         reached => return reached,
     }
@@ -574,7 +591,7 @@ enum Daemon {
         url: String,
         proxy: Option<ureq::Proxy>,
     },
-    Endpoint(PathBuf),
+    Endpoint(PathBuf, Option<endpoint::Close>),
 }
 
 impl Daemon {
@@ -592,10 +609,13 @@ impl Daemon {
             .timeout_global(timeout);
         match self {
             Daemon::Http { url, proxy } => (config.proxy(proxy.clone()).build().into(), url),
-            Daemon::Endpoint(at) => (
+            Daemon::Endpoint(at, close) => (
                 ureq::Agent::with_parts(
                     config.build(),
-                    endpoint::Connector(at.clone()),
+                    endpoint::Connector {
+                        at: at.clone(),
+                        close: close.clone(),
+                    },
                     ureq::unversioned::resolver::DefaultResolver::default(),
                 ),
                 endpoint::URL,
@@ -608,14 +628,14 @@ impl Daemon {
             (Daemon::Http { .. }, e) => format!(
                 "Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again."
             ),
-            (Daemon::Endpoint(at), ureq::Error::ConnectionFailed) => {
+            (Daemon::Endpoint(at, _), ureq::Error::ConnectionFailed) => {
                 format!("Could not connect to the node endpoint {}.", at.display())
             }
-            (Daemon::Endpoint(at), e @ ureq::Error::Timeout(_)) => format!(
+            (Daemon::Endpoint(at, _), e @ ureq::Error::Timeout(_)) => format!(
                 "The daemon did not answer through the node endpoint {} in time: {e}.",
                 at.display()
             ),
-            (Daemon::Endpoint(at), e) => format!(
+            (Daemon::Endpoint(at, _), e) => format!(
                 "The node endpoint {} closed after loom sent the request: {e}. The daemon may have done it. Look with `loom status` before you send it again.",
                 at.display()
             ),

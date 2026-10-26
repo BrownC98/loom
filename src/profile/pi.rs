@@ -145,6 +145,22 @@ pub enum Event {
         #[serde(flatten)]
         state: State,
     },
+    Interrupt {
+        #[serde(flatten)]
+        state: State,
+    },
+    Close {
+        of: u64,
+        #[serde(flatten)]
+        state: State,
+    },
+}
+
+pub enum Served<'a> {
+    Hook,
+    Ack(&'a [MessageId]),
+    Interrupt,
+    Close(u64),
 }
 
 #[derive(Deserialize)]
@@ -164,6 +180,8 @@ pub struct Reply {
     ids: Vec<MessageId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    interrupted: bool,
 }
 
 impl Event {
@@ -175,14 +193,18 @@ impl Event {
             | Event::ToolCall { state }
             | Event::ToolResult { state }
             | Event::Settled { state, .. }
-            | Event::Ack { state, .. } => state,
+            | Event::Ack { state, .. }
+            | Event::Interrupt { state }
+            | Event::Close { state, .. } => state,
         }
     }
 
-    pub fn acked(&self) -> Option<&[MessageId]> {
+    pub fn served(&self) -> Served<'_> {
         match self {
-            Event::Ack { ids, .. } => Some(ids),
-            _ => None,
+            Event::Ack { ids, .. } => Served::Ack(ids),
+            Event::Interrupt { .. } => Served::Interrupt,
+            Event::Close { of, .. } => Served::Close(*of),
+            _ => Served::Hook,
         }
     }
 
@@ -195,12 +217,17 @@ impl Event {
             Event::ToolResult { .. } => "tool_result",
             Event::Settled { .. } => "settled",
             Event::Ack { .. } => "ack",
+            Event::Interrupt { .. } => "interrupt",
+            Event::Close { .. } => "close",
         }
     }
 
     pub fn take(&self) -> Option<Take> {
         Some(match self {
-            Event::SessionStart { .. } | Event::Ack { .. } => return None,
+            Event::SessionStart { .. }
+            | Event::Ack { .. }
+            | Event::Interrupt { .. }
+            | Event::Close { .. } => return None,
             Event::Idle { .. } | Event::Settled { .. } => Take::WhenIdle,
             Event::Prompt { .. } | Event::ToolResult { .. } => Take::Now(Kind::ALL),
             Event::ToolCall { .. } => Take::Now(&[Kind::Interrupt]),
@@ -283,6 +310,7 @@ fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
         text: super::hook_text(taken, note),
         ids: taken.iter().map(|d| d.id).collect(),
         error: None,
+        interrupted: false,
     }
 }
 
@@ -292,6 +320,7 @@ fn nudge(id: Option<u64>, text: String) -> Reply {
         text: Some(text),
         ids: Vec::new(),
         error: None,
+        interrupted: false,
     }
 }
 
@@ -301,6 +330,7 @@ pub fn acked(id: u64) -> Reply {
         text: None,
         ids: Vec::new(),
         error: None,
+        interrupted: false,
     }
 }
 
@@ -310,5 +340,13 @@ pub fn failed(id: Option<u64>, error: String) -> Reply {
         text: None,
         ids: Vec::new(),
         error: Some(error),
+        interrupted: false,
+    }
+}
+
+pub fn interrupted(id: u64) -> Reply {
+    Reply {
+        interrupted: true,
+        ..acked(id)
     }
 }

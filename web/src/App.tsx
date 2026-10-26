@@ -27,7 +27,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
 import { settingsPatch, type SettingsPatch } from './settingsPatch';
 import { pickColor } from './hopLanes';
-import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
+import { Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
+import { flowId } from './camera';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors, NO_COLOR, useColorMode } from './uiColors';
@@ -45,11 +46,13 @@ import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { usePhoneTheme, syncAppChrome } from './phoneTheme';
-import { Phone, usePhone, usePhoneRoute } from './Phone';
+import { Phone, usePhoneRoute } from './Phone';
+import { usePhone } from './sheet';
 import { TitleBar } from './TitleBar';
 import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
-import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
+import { activeFont, XtermFont, XtermTheme } from './Terminal';
+import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { PlaceTag } from './place';
 import { SwitchDialog } from './SwitchDialog';
@@ -411,6 +414,9 @@ export function App() {
         case 'recorded':
           log.onRecord(event.record);
           notice.onRecord(event.record);
+          break;
+        default:
+          event satisfies never;
       }
     }, linked);
     return graph.close;

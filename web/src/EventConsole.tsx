@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';
@@ -16,7 +16,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Who } from './gen/Who';
-import { useShowNodes } from './Graph';
+import { useShowNodes } from './camera';
 import { DocText } from './DocText';
 import { plainText } from './links';
 import { clockTime } from './i18n';
@@ -40,7 +40,20 @@ function categoryOf(entry: Entry): Category {
     case 'unanswered':
     case 'confirmed':
       return 'notice';
-    default:
+    case 'created':
+    case 'state':
+    case 'removed':
+    case 'renamed':
+    case 'relaunched':
+    case 'nudged':
+    case 'adopted':
+    case 'idleOpened':
+    case 'idleEnded':
+    case 'endpointFailed':
+    case 'agentStateChanged':
+    case 'agentStateDisagreed':
+    case 'accountSwitched':
+    case 'noAccountLeft':
       return 'node';
   }
 }
@@ -71,7 +84,21 @@ function familyOf(entry: Entry): Family | undefined {
     case 'instructed':
     case 'confirmed':
       return 'done';
-    default:
+    case 'created':
+    case 'state':
+    case 'removed':
+    case 'renamed':
+    case 'relaunched':
+    case 'nudged':
+    case 'adopted':
+    case 'refused':
+    case 'idleOpened':
+    case 'idleEnded':
+    case 'endpointFailed':
+    case 'agentStateChanged':
+    case 'agentStateDisagreed':
+    case 'accountSwitched':
+    case 'noAccountLeft':
       return undefined;
   }
 }
@@ -206,8 +233,12 @@ export function involved(entry: Entry): NodeId[] {
   return whoOf(entry).flatMap((w) => (w.id === null ? [] : [w.id]));
 }
 
+const HIDDEN = ['idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed'] as const satisfies readonly Entry['kind'][];
+type Hidden = (typeof HIDDEN)[number];
+const isHidden = (entry: Entry): entry is Extract<Entry, { kind: Hidden }> => (HIDDEN as readonly Entry['kind'][]).includes(entry.kind);
+
 function inConsole(record: EventRecord): boolean {
-  return !['idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed'].includes(record.entry.kind);
+  return !isHidden(record.entry);
 }
 
 export function useEventLog(open: boolean): { records: EventRecord[] | null; onRecord: (record: EventRecord) => void } {
@@ -252,7 +283,23 @@ function bodyOf(record: EventRecord, t: TFunction): TextPart[] | null {
       const log = entry.log === null ? [] : [`log: ${entry.log}`];
       return [{ part: 'text', text: [...members, ...cause, ...log].join('\n') }];
     }
-    default:
+    case 'created':
+    case 'state':
+    case 'removed':
+    case 'renamed':
+    case 'relaunched':
+    case 'unanswered':
+    case 'confirmed':
+    case 'nudged':
+    case 'adopted':
+    case 'refused':
+    case 'idleOpened':
+    case 'idleEnded':
+    case 'endpointFailed':
+    case 'agentStateChanged':
+    case 'agentStateDisagreed':
+    case 'accountSwitched':
+    case 'noAccountLeft':
       return null;
   }
 }
@@ -262,13 +309,14 @@ function KindLabel({ how }: { how: Kind }) {
   return <span className="kind">{t(`events.how.${how}`)}</span>;
 }
 
-function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFacts | null; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
+function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFacts | null; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }): ReactElement | null {
   const { t } = useTranslation();
   const name = (w: Who) => (
     <span className={w.id !== null && views.has(w.id) ? 'who' : 'gone'} translate="no">
       {w.name}
     </span>
   );
+  if (isHidden(entry)) return null;
   switch (entry.kind) {
     case 'created':
       return (
@@ -402,12 +450,6 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           </span>
         </>
       );
-    case 'idleOpened':
-    case 'idleEnded':
-    case 'endpointFailed':
-    case 'agentStateChanged':
-    case 'agentStateDisagreed':
-      return null;
     case 'accountSwitched':
     case 'noAccountLeft':
       return (

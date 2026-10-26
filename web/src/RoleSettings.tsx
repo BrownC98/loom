@@ -4,17 +4,16 @@ import { useTranslation } from 'react-i18next';
 import { FieldReset } from './FieldReset';
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
-import type { SettingsView } from './gen/SettingsView';
+import type { Roles } from './gen/Roles';
 import { blankToNull, canChooseModel, effortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
 
 type Editing = number | 'new' | null;
 
 const EMPTY: Role = { name: '', duty: '', agent: null, model: null, effort: null };
 
-export function RoleSettings({ agents, settings, onSettings }: { agents: AgentView[]; settings: SettingsView; onSettings: (next: SettingsView) => void }) {
+export function RoleSettings({ agents, roles, oMode, onRoles }: { agents: AgentView[]; roles: Roles; oMode: boolean; onRoles: (next: Roles) => void }) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<Editing>(null);
-  const roles = settings.roles;
   const seen = useRef(roles);
   useEffect(() => {
     if (!rolesChanged(seen.current, roles)) return;
@@ -22,7 +21,7 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
     setEditing(null);
   }, [roles]);
   const save = (next: Role[]) => {
-    onSettings({ ...settings, roles: next });
+    onRoles(next);
     setEditing(null);
   };
   const text = { none: t('settings.roles.none'), cliDefault: t('settings.roles.cliDefault') };
@@ -39,7 +38,7 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
     />
   );
   return (
-    <section className={settings.alwaysOn.oMode ? undefined : 'faded'}>
+    <section className={oMode ? undefined : 'faded'}>
       <h4>
         {t('settings.roles.title')}
         <FieldReset path={['roles']} />

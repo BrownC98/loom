@@ -359,6 +359,8 @@ impl App {
                     } else if app.graph.process(id).ok().flatten() == Some(ProcessOutcome::HostGone)
                     {
                         app.wake(id);
+                    } else if !app.graph.unreached_hosts().is_ok_and(|u| u.contains(&id)) {
+                        app.sleeps.unwoken.lock().unwrap().remove(&id);
                     }
                 });
             }

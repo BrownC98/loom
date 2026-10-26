@@ -733,6 +733,7 @@ mod tests {
         assert_eq!(taken[0].body, "new task");
     }
 
+    const FILE_CLOCK_TICK: Duration = Duration::from_millis(50);
     const ENDED: &str = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"끝\"}]}}\n{\"type\":\"system\",\"subtype\":\"stop_hook_summary\"}\n{\"type\":\"system\",\"subtype\":\"turn_duration\"}\n{\"type\":\"last-prompt\"}\n";
     #[cfg(unix)]
     const IN_TOOL: &str = "{\"type\":\"user\",\"message\":{\"content\":\"go\"}}\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\"}]}}\n";
@@ -824,6 +825,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_current_turn_that_ends_in_its_start_second_still_recovers() {
+        let t = fixture();
+        let node = add_worker(&t, "quick");
+        let path = t.dir.path().join("quick.jsonl");
+        t.app
+            .graph
+            .set_transcript(node, path.to_str().unwrap())
+            .unwrap();
         while SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -832,14 +840,8 @@ mod tests {
         {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let t = fixture();
-        let node = add_worker(&t, "quick");
-        let path = t.dir.path().join("quick.jsonl");
-        t.app
-            .graph
-            .set_transcript(node, path.to_str().unwrap())
-            .unwrap();
         t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        tokio::time::sleep(FILE_CLOCK_TICK).await;
         std::fs::write(&path, ENDED).unwrap();
         let finished = std::fs::metadata(&path).unwrap().modified().unwrap();
         let began = t.app.graph.turn_began(node).unwrap().unwrap();

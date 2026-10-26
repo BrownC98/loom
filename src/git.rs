@@ -89,16 +89,30 @@ pub async fn clone(url: &str, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
+const NO_PROMPT: [(&str, &str); 4] = [
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GIT_ASKPASS", ""),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+    ("GCM_INTERACTIVE", "never"),
+];
+
 fn clone_command(url: &str, target: &Path) -> Command {
-    let mut cmd = Command::new("git");
-    cmd.args(["clone", "--", url])
-        .arg(target)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_ASKPASS", "")
-        .env("SSH_ASKPASS_REQUIRE", "never")
+    let mut cmd = match wsl::of(target) {
+        Some(at) => {
+            let mut cmd = Command::new("wsl.exe");
+            cmd.args(["-d", &at.distro, "-e", "git", "clone", "--", url, &at.path])
+                .env("WSLENV", NO_PROMPT.map(|(name, _)| name).join(":"));
+            cmd
+        }
+        None => {
+            let mut cmd = Command::new("git");
+            cmd.args(["clone", "--", url]).arg(target);
+            cmd
+        }
+    };
+    cmd.envs(NO_PROMPT)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
-        .env("GCM_INTERACTIVE", "never")
         .stdin(std::process::Stdio::null());
     crate::timed::own_session(cmd.as_std_mut());
     cmd

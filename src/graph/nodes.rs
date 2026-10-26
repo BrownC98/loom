@@ -599,7 +599,6 @@ impl Graph {
             .map(drop)
     }
 
-    /// Reads and clears all turn flags of a node in one transaction.
     pub fn take_turn_flags(&self, id: NodeId) -> rusqlite::Result<u8> {
         let mut db = self.lock();
         let tx = db.transaction()?;

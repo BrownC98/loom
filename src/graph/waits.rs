@@ -46,7 +46,7 @@ pub struct HumanWait {
     /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
-    /// 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+    /// 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
@@ -91,7 +91,7 @@ impl Graph {
         &self,
         token: &str,
         source: WaitSource,
-        wait: Option<(WaitKind, &str)>,
+        wait: Option<(WaitKind, &str, Option<Prompt>)>,
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -102,16 +102,34 @@ impl Graph {
             return Ok(());
         };
         let next = match wait {
-            Some((kind, text)) => {
+            Some((kind, text, prompt)) => {
                 let text = one_line(text);
-                if let Some(now) = &now
-                    && now.wait.kind == kind
-                    && now.wait.text == text
-                {
-                    return Ok(());
+                let prompt = prompt.filter(|_| kind.has_dialog());
+                match now {
+                    Some(now) if now.wait.kind == kind && now.wait.text == text => {
+                        if prompt.is_none() || now.wait.prompt == prompt {
+                            return Ok(());
+                        }
+                        if now.wait.prompt.is_none() {
+                            put(
+                                &tx,
+                                id,
+                                Some(&Stored {
+                                    wait: HumanWait { prompt, ..now.wait },
+                                    source: now.source,
+                                }),
+                            )?;
+                            tx.commit()?;
+                            return self.publish_node(&db, id);
+                        }
+                    }
+                    Some(_) | None => {}
                 }
                 Some(Stored {
-                    wait: new_wait(&tx, kind, text, false, None)?,
+                    wait: HumanWait {
+                        prompt,
+                        ..new_wait(&tx, kind, text, false, None)?
+                    },
                     source,
                 })
             }

@@ -7,7 +7,6 @@ mod nodes;
 mod relaunch_plans;
 mod waits;
 
-use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
@@ -32,7 +31,7 @@ pub use relaunch_plans::{NewAgent, Phase, Plan, Planned};
 pub use waits::{HUMAN, HumanWait, WaitSource};
 
 use crate::db::Database;
-use crate::protocol::{AgentId, Kind, MessageKind, Prompt, Refusal};
+use crate::protocol::{AgentId, Kind, MessageKind, Refusal};
 use crate::worktree::RepoId;
 
 pub(crate) const EVENT_QUEUE: usize = 256;
@@ -188,7 +187,6 @@ pub struct Graph {
     agent_tx: mpsc::UnboundedSender<AgentChange>,
     agent_rx: Mutex<Option<mpsc::UnboundedReceiver<AgentChange>>>,
     mail: Notify,
-    prompts: Mutex<HashMap<NodeId, Prompt>>,
     linked: fn(&AgentId) -> bool,
 }
 
@@ -260,7 +258,6 @@ impl Graph {
             agent_tx,
             agent_rx: Mutex::new(Some(agent_rx)),
             mail: Notify::new(),
-            prompts: Mutex::default(),
             linked,
         })
     }
@@ -286,12 +283,10 @@ impl Graph {
 
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
-        let prompts = self.prompts.lock().unwrap();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], |row| view_from_row(row, &prompts))?
+            .query_map([], view_from_row)?
             .collect::<rusqlite::Result<_>>()?;
-        drop(prompts);
         Ok((views, self.events.subscribe()))
     }
 
@@ -353,11 +348,11 @@ impl Graph {
     }
 
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let prompts = self.prompts.lock().unwrap();
-        let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
-            view_from_row(row, &prompts)
-        })?;
-        drop(prompts);
+        let view = db.query_row(
+            &format!("{VIEW_COLUMNS} WHERE n.id = ?1"),
+            [id.0],
+            view_from_row,
+        )?;
         let _ = self.events.send(GraphEvent::Node(Box::new(view)));
         Ok(())
     }
@@ -389,7 +384,7 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
     let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
     let wait: Option<String> = row.get(11)?;
@@ -398,18 +393,11 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     let card_view: Option<String> = row.get(14)?;
     let mut waits: Vec<HumanWait> = serde_json::from_str(&asked).unwrap_or_default();
     waits.sort_by_key(|w| w.id.0);
-    waits.extend(
-        wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
-            .map(|s| HumanWait {
-                prompt: s
-                    .wait
-                    .kind
-                    .has_dialog()
-                    .then(|| prompts.get(&id).cloned())
-                    .flatten(),
-                ..s.wait
-            }),
-    );
+    waits.extend(wait.and_then(|w| {
+        serde_json::from_str::<waits::Stored>(&w)
+            .ok()
+            .map(|s| s.wait)
+    }));
     let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);

@@ -425,13 +425,11 @@ impl App {
                 changed = false;
                 let now = app.host.screen(id);
                 let found = profile::wait(profile, &now, *started.borrow_and_update());
-                let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
+                let wait = found
+                    .as_ref()
+                    .map(|(kind, text)| (*kind, text.as_str(), profile::prompt(profile, &now)));
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
-                }
-                let prompt = profile::prompt(profile, &now);
-                if let Err(e) = app.graph.set_prompt(id, prompt) {
-                    eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
                 if profile == Some(Profile::Claude)
                     && profile::claude::input(&now.undimmed) == Some("")
@@ -501,7 +499,7 @@ impl App {
                 self.graph.clone(),
                 id,
                 token.to_owned(),
-                node.permission(),
+                node.clone(),
             ));
             tokio::spawn(self.clone().deliver_loop(id, node.adapter()));
         }
@@ -874,29 +872,27 @@ pub(super) async fn follow_server_turns<T>(
 
 async fn follow_permission(
     graph: Arc<Graph>,
-    node: NodeId,
+    id: NodeId,
     token: String,
-    mut asked: watch::Receiver<Option<opencode2::Permission>>,
+    node: Arc<opencode2::Node>,
 ) {
-    let show = |now: Option<&opencode2::Permission>| {
-        if let Err(e) = graph.set_prompt(node, now.map(|p| p.prompt())) {
-            eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", node.0);
-        }
-        let summary = now.map(|p| p.summary());
-        let wait = summary.as_deref().map(|s| (WaitKind::Approval, s));
+    let mut changed = node.permission_changed();
+    let show = |now: Option<opencode2::Permission>| {
+        let summary = now.as_ref().map(|p| p.summary());
+        let wait = now
+            .zip(summary.as_deref())
+            .map(|(p, s)| (WaitKind::Approval, s, Some(p.prompt())));
         if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
-            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
+            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
         }
     };
-    let mut shown: Option<opencode2::Permission> = None;
     loop {
-        let now = asked.borrow_and_update().clone();
-        if shown.is_some() && now.is_some() && shown != now {
-            show(None);
+        changed.borrow_and_update();
+        match node.open_permission().await {
+            Ok(now) => show(now),
+            Err(e) => eprintln!("loom: 노드 {}의 승인 요청을 읽지 못했다: {e}", id.0),
         }
-        show(now.as_ref());
-        shown = now;
-        if asked.changed().await.is_err() {
+        if changed.changed().await.is_err() {
             break;
         }
     }
@@ -978,7 +974,11 @@ async fn follow_codex_model(
         else {
             continue;
         };
-        if let Err(e) = graph.set_wait(&token, WaitSource::Codex, waiting.map(|kind| (kind, ""))) {
+        if let Err(e) = graph.set_wait(
+            &token,
+            WaitSource::Codex,
+            waiting.map(|kind| (kind, "", None)),
+        ) {
             eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
         }
         if let Err(e) = graph.set_server(node, &server.link()) {

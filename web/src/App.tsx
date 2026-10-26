@@ -620,6 +620,7 @@ export function App() {
               usage={usage}
               onChoose={chooseAccount}
               updates={updates}
+              viewVersion={viewVersion}
               onStop={() => void shutdown().then(afterStop)}
             />
           )}

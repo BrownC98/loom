@@ -21,6 +21,6 @@ firewall: boolean,
  */
 tailnet: Tailnet, devices: Array<DeviceView>, 
 /**
- * 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 시간이 지나면 `false`다.
+ * 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 다섯 번 틀리거나 시간이 지나면 `false`다. 앞의 둘은 `ViewChanged`로 알린다.
  */
 inviteOpen: boolean, };

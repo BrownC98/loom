@@ -585,11 +585,9 @@ impl App {
         if self.end_old(&node, prepared.discarder(), guard).await? == Stop::Kept {
             return Ok(Stop::Kept);
         }
-        if let Some(site) = &site {
-            let _ = profile::adapter(profile)
-                .end_detached(&resume, site, node.account.as_ref())
-                .await;
-        }
+        let _ = profile::adapter(profile)
+            .end_detached(&resume, &site, node.account.as_ref())
+            .await;
         if let Some(old) = &node.server
             && let Err(e) = self.end_server(node.id, old).await
         {
@@ -597,7 +595,7 @@ impl App {
             let _ = self.graph.lost(node.id);
             return Err(format!("옛 서버가 끝나지 않았다: {e}"));
         }
-        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
+        self.run_resumed(node.id, prepared)
             .await
             .map(|()| Stop::Stopped)
     }
@@ -632,9 +630,6 @@ impl App {
         let (Some(profile), Some(session)) = (profile_of(node), &node.session) else {
             return Ok(());
         };
-        if profile.provider().is_none() {
-            return Ok(());
-        }
         let Ok(place) = self.graph.place_of(node.id) else {
             return Ok(());
         };
@@ -732,7 +727,10 @@ impl App {
         let session = node.session.as_ref()?;
         match profile::adapter(profile_of(node)?).record(session) {
             Some(path) => Some(path.to_string_lossy().into_owned()),
-            None => self.served_record(node.id, session).await,
+            None => {
+                let server = self.servers.lock().unwrap().get(&node.id).cloned()?;
+                server.session_file(session).await
+            }
         }
     }
 
@@ -755,8 +753,7 @@ impl App {
             let _ = self.graph.lost(id);
             return Err(e.to_string());
         }
-        self.codex.lock().unwrap().remove(&id);
-        self.opencode2.lock().unwrap().remove(&id);
+        self.servers.lock().unwrap().remove(&id);
         self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
@@ -784,14 +781,10 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
-        if let Some(site) = &site {
-            let _ = profile::adapter(profile)
-                .end_detached(&resume, site, node.account.as_ref())
-                .await;
-        }
-        Ok(self
-            .run_resumed(node.id, prepared, &resume, &settings, &agent)
-            .await?)
+        let _ = profile::adapter(profile)
+            .end_detached(&resume, &site, node.account.as_ref())
+            .await;
+        Ok(self.run_resumed(node.id, prepared).await?)
     }
 
     async fn resumable(
@@ -799,24 +792,23 @@ impl App {
         node: &Active,
         profile: Profile,
         settings: &SettingsView,
-    ) -> Result<(Session, Option<Site>), ResumeError> {
+    ) -> Result<(Session, Site), ResumeError> {
         let session = node.session.clone().ok_or_else(|| {
             ResumeError::NoSession(format!("노드 {}에는 이어 갈 세션이 없다", node.id.0))
         })?;
-        let Some(provider) = profile.provider() else {
-            return Ok((session, None));
-        };
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
         let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let carry = Carry {
-            site: &site,
-            from: node.account.as_ref(),
-            to: settings.account(provider, site.distro()),
-            cwd,
-        };
-        profile::adapter(profile).carry(&session, &carry)?;
-        Ok((session, Some(site)))
+        if let Some(provider) = profile.provider() {
+            let carry = Carry {
+                site: &site,
+                from: node.account.as_ref(),
+                to: settings.account(provider, site.distro()),
+                cwd,
+            };
+            profile::adapter(profile).carry(&session, &carry)?;
+        }
+        Ok((session, site))
     }
 
     async fn prepare_resumed(
@@ -856,13 +848,9 @@ impl App {
         self: &Arc<Self>,
         id: NodeId,
         prepared: super::Prepared,
-        resume: &Session,
-        settings: &SettingsView,
-        agent: &AgentId,
     ) -> Result<(), String> {
         let discard = prepared.discarder();
-        let bypass = !settings.bypass_off.contains(agent);
-        if let Err(e) = prepared.open_session(resume, bypass).await {
+        if let Err(e) = prepared.resume_server().await {
             discard();
             let _ = self.graph.lost(id);
             return Err(e);

@@ -1,15 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, ResumeError, Serve, Server};
+use super::process::Served as Process;
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{
-    Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Session,
+    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, ServerState,
+    Session,
 };
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
@@ -53,9 +56,27 @@ impl Adapter for Pi {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Process,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {

@@ -1,6 +1,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -9,10 +10,13 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, ResumeError, Serve, Server};
+use super::process::Served;
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{self, AccountId, Site};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, Session, WaitKind};
+use crate::protocol::{
+    Delivery, Kind, LaunchError, Model, ModelChoice, Provider, ServerState, Session, WaitKind,
+};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
@@ -84,9 +88,27 @@ impl Adapter for Claude {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Served,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {

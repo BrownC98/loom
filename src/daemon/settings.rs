@@ -115,6 +115,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     let sites = app.sites().await;
     let wsl: Vec<_> = sites.iter().filter_map(Site::inside).collect();
     let warnings = join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await;
+    let pc = profile::version_warnings(&app.versions);
     let mut agents = profile::agents(&wsl);
     for agent in &mut agents {
         let Some(profile) = agent.profile else {
@@ -122,7 +123,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
         };
         for (i, place) in agent.places.iter_mut().enumerate() {
             let warnings = match i {
-                0 => &app.version_warnings,
+                0 => &pc,
                 _ => &warnings[i - 1],
             };
             place.version_warning = warnings.get(&profile).cloned();

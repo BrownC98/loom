@@ -53,6 +53,7 @@ pub struct Reclaim {
     pub gate: NodeId,
     pub gate_worktree: Option<String>,
     pub worktree: String,
+    pub head: String,
     pub reviewers: Vec<NodeId>,
 }
 
@@ -434,29 +435,40 @@ impl Graph {
         Ok(())
     }
 
-    pub fn batch_checked(&self, id: BatchId, base: &str, tip: &str) -> rusqlite::Result<()> {
-        self.lock().execute(
-            "UPDATE batches SET base = ?2, tip = ?3 WHERE id = ?1",
-            params![id.0, base, tip],
+    pub fn batch_checked(
+        &self,
+        id: BatchId,
+        base: &str,
+        tip: &str,
+        members: &[&str],
+    ) -> rusqlite::Result<bool> {
+        let members = serde_json::to_string(members).expect("문자열 목록은 늘 직렬화된다");
+        let written = self.lock().execute(
+            "UPDATE batches SET base = ?2, tip = ?3 WHERE id = ?1
+             AND (SELECT count(*) FROM gates WHERE batch = ?1) = json_array_length(?4)
+             AND NOT EXISTS (SELECT 1 FROM json_each(?4) m
+                 WHERE NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1 AND branch = m.value))",
+            params![id.0, base, tip, members],
         )?;
-        Ok(())
+        Ok(written == 1)
     }
 
-    pub fn batch_close(&self, id: BatchId) -> rusqlite::Result<()> {
+    pub fn batch_ended(&self, id: BatchId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         tx.execute(
-            "DELETE FROM batches WHERE moved = 1 AND (repo, target) =
-                (SELECT repo, target FROM batches WHERE id = ?1 AND moved = 0
+            "DELETE FROM batches WHERE moved = 1
+             AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = batches.id)
+             AND (repo, target) = (SELECT repo, target FROM batches WHERE id = ?1 AND moved = 0
                  AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1))",
             [id.0],
         )?;
-        tx.execute(
-            "DELETE FROM batches WHERE id = ?1 AND moved = 0
-             AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1)",
-            [id.0],
-        )?;
+        close(&tx, id)?;
         tx.commit()
+    }
+
+    pub fn batch_close(&self, id: BatchId) -> rusqlite::Result<()> {
+        close(&self.lock(), id)
     }
 
     pub fn stale_batches(&self) -> rusqlite::Result<Vec<Stale>> {
@@ -554,17 +566,17 @@ impl Graph {
         Ok(row.state)
     }
 
-    pub fn reclaim_rounds(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
+    pub fn reclaim_rounds(&self) -> rusqlite::Result<Vec<(RepoId, String, bool)>> {
         self.lock()
             .prepare(&format!(
-                "SELECT repo, branch FROM gates WHERE state = ?1 AND (EXISTS
+                "SELECT repo, branch, EXISTS
                     (SELECT 1 FROM nodes o WHERE o.id = gates.owner AND o.parent IS NOT NULL
                      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = o.id))
-                 OR EXISTS (SELECT 1 FROM nodes n WHERE {})) ORDER BY rowid",
+                 OR EXISTS (SELECT 1 FROM nodes n WHERE {}) FROM gates WHERE state = ?1 ORDER BY rowid",
                 of_round(&gate_of("gates.owner"), "gates.owner", "gates.branch")
             ))?
             .query_map([to_json(&GateState::Merged)], |r| {
-                Ok((RepoId(r.get(0)?), r.get(1)?))
+                Ok((RepoId(r.get(0)?), r.get(1)?, r.get(2)?))
             })?
             .collect()
     }
@@ -574,7 +586,7 @@ impl Graph {
         let found = db
             .query_row(
                 &format!(
-                    "SELECT owner, {}, {}, worktree FROM gates
+                    "SELECT owner, {}, {}, worktree, head FROM gates
                      WHERE repo = ?1 AND branch = ?2 AND state = ?3",
                     gate_of("gates.owner"),
                     parent_gate("gates.owner", "worktree")
@@ -586,6 +598,7 @@ impl Graph {
                         gate: NodeId(r.get(1)?),
                         gate_worktree: r.get(2)?,
                         worktree: r.get(3)?,
+                        head: r.get(4)?,
                         reviewers: Vec::new(),
                     })
                 },
@@ -1072,6 +1085,15 @@ pub(super) fn check_review(
             None => release(db, repo, branch),
         },
     }
+}
+
+fn close(db: &Connection, id: BatchId) -> rusqlite::Result<()> {
+    db.execute(
+        "DELETE FROM batches WHERE id = ?1 AND moved = 0
+         AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1)",
+        [id.0],
+    )?;
+    Ok(())
 }
 
 fn release(db: &Connection, repo: RepoId, branch: &str) -> Result<(), Refusal> {

@@ -69,7 +69,7 @@ async fn batch(
     if let Err(e) = run.run(queue.clone()).await {
         fail_all(app, repo, id, &queue, &e.to_string());
     }
-    app.graph.batch_close(id)?;
+    app.graph.batch_ended(id)?;
     Ok(true)
 }
 
@@ -247,8 +247,12 @@ impl Batch<'_> {
                     continue;
                 }
                 Trial::Passed { tip } if half == suspects.len() => {
-                    self.app.graph.batch_checked(self.id, base, &tip)?;
-                    if !self.unchanged(&trial).await? {
+                    let branches: Vec<&str> = trial.iter().map(|m| m.branch.as_str()).collect();
+                    let checked = self
+                        .app
+                        .graph
+                        .batch_checked(self.id, base, &tip, &branches)?;
+                    if !self.unchanged(&trial).await? || !checked {
                         return Ok(());
                     }
                     return self.publish_into(&trial, base, &tip, step, into).await;

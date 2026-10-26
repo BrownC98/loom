@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::net::{SocketAddr, TcpStream};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -113,27 +112,20 @@ pub enum Address {
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Address::Here(at) => write!(f, "{at}"),
-            Address::Distro { at, distro } => write!(f, "{at}\n{distro}"),
+            Address::Here(at) | Address::Distro { at, .. } => write!(f, "{at}"),
         }
     }
 }
 
-impl FromStr for Address {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, String> {
-        let mut lines = text.lines();
-        let at = lines.next().unwrap_or_default().trim();
+impl Address {
+    pub fn parse(text: &str, distro: Option<String>) -> Result<Self, String> {
+        let at = text.lines().next().unwrap_or_default().trim();
         let at = at
             .parse()
             .map_err(|e| format!("pty-host address {at}: {e}"))?;
-        Ok(match lines.next().map(str::trim) {
-            Some(distro) if !distro.is_empty() => Address::Distro {
-                at,
-                distro: distro.to_owned(),
-            },
-            _ => Address::Here(at),
+        Ok(match distro {
+            Some(distro) => Address::Distro { at, distro },
+            None => Address::Here(at),
         })
     }
 }

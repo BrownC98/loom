@@ -232,6 +232,7 @@ mod tests {
     fn every_launch_asks_the_human_through_loom() {
         super::super::assert_every_launch_asks(|launch| {
             let text = super::super::pi::usage(WAITING, launch);
+            assert_eq!(text.matches(super::super::pi::WORK_METHOD).count(), 1);
             (text.clone(), text)
         });
     }

@@ -1,9 +1,11 @@
+import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Spot } from './gen/Spot';
 import { groupParents, groupsOf, inGroup } from './repos';
 
-export type Found = Exclude<Spot, { kind: 'repo' }>;
+export type Found = Exclude<Spot, { kind: 'repo' | 'node' }> | { kind: 'node'; repo: RepoId; node: NodeId };
 
 export function findSpots(repos: readonly RepoView[], views: NodeView[], query: string): Found[] {
   const needle = query.trim().toLocaleLowerCase();

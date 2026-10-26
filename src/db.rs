@@ -389,9 +389,37 @@ const STEPS: &[M] = &[
         ALTER TABLE gates DROP COLUMN verdict;
         ALTER TABLE gates DROP COLUMN merged;"#,
     ),
+    M::up(
+        r#"UPDATE messages SET what = json_object('kind', 'answer', 'question', json_object('in', 'message', 'id', reply_to))
+            WHERE reply_to IS NOT NULL AND (what IS NULL OR what ->> 'kind' != 'answer'
+                OR what ->> '$.question.in' != 'message' OR what ->> '$.question.id' != reply_to);
+        DROP INDEX messages_replies;
+        ALTER TABLE messages DROP COLUMN reply_to;
+        CREATE INDEX messages_replies ON messages(recipient, what ->> '$.question.id')
+            WHERE what ->> 'kind' = 'answer' AND what ->> '$.question.in' = 'message';
+        ALTER TABLE agent_states DROP COLUMN seq;
+        UPDATE nodes SET state = '{"kind":"done"}' WHERE state ->> 'kind' = 'done';
+        DROP TRIGGER spots_of_repo;
+        DROP TRIGGER worktree_spot_of_new_node;
+        DROP TRIGGER worktree_spot_of_parent;
+        UPDATE OR REPLACE spots SET spot = json_object('kind', 'node', 'node', spot ->> 'node') WHERE spot ->> 'kind' = 'node';
+        ALTER TABLE spots DROP COLUMN repo;
+        CREATE TRIGGER spots_of_repo AFTER DELETE ON repos BEGIN
+            DELETE FROM spots WHERE spot ->> 'repo' = OLD.id
+                OR (spot ->> 'kind' = 'node' AND spot ->> 'node' IN (SELECT id FROM nodes WHERE repo = OLD.id));
+        END;
+        CREATE TRIGGER worktree_spot_of_new_node AFTER INSERT ON nodes
+        WHEN NEW.parent IS NOT NULL AND (SELECT worktree FROM nodes WHERE id = NEW.parent) IS NOT NEW.worktree BEGIN
+            DELETE FROM spots WHERE spot ->> 'kind' = 'worktree' AND spot ->> 'repo' = NEW.repo AND spot ->> 'path' = NEW.worktree;
+        END;
+        CREATE TRIGGER worktree_spot_of_parent AFTER UPDATE OF parent ON nodes
+        WHEN OLD.parent IS NOT NEW.parent BEGIN
+            DELETE FROM spots WHERE spot ->> 'kind' = 'worktree' AND spot ->> 'repo' = NEW.repo AND spot ->> 'path' = NEW.worktree;
+        END;"#,
+    ),
     M::up("CREATE TABLE db_changes (name TEXT PRIMARY KEY);"),
 ];
-const BASE_STEPS: usize = 52;
+const BASE_STEPS: usize = 53;
 const _: () = assert!(
     STEPS.len() == BASE_STEPS,
     "STEPS is frozen. Add a DB change as a file src/db/changes/<UTC yyyymmdd-hhmm>-<name>.sql"

@@ -54,12 +54,12 @@ impl App {
     async fn home(&self, distro: &str) -> Result<PathBuf, Problem> {
         let wsl_failed = |e| Problem::Launch(LaunchError::Wsl(e));
         let host = self.distro(distro).map_err(wsl_failed)?;
-        let home = self.homes.get(&host).await.map_err(wsl_failed)?;
+        let home = wsl::home(&host).await.map_err(wsl_failed)?;
         Ok(PathBuf::from(wsl::windows_path(distro, &home)))
     }
 
     async fn home_inside(&self, distro: &str) -> Result<String, crate::protocol::InsideError> {
-        self.homes.get(&self.distro(distro)?).await
+        wsl::home(&self.distro(distro)?).await
     }
 
     pub(super) async fn repo_view(&self, id: RepoId, path: &FsPath) -> RepoView {

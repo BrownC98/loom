@@ -51,6 +51,7 @@ impl App {
             .rsplit_once('/')
             .map(|(home, _)| home.to_owned())
             .ok_or_else(|| format!("{from} has no parent folder"))?;
+        let distro = self.distro(&at.distro).map_err(|e| e.to_string())?;
         let copy = std::env::temp_dir().join(format!("loom-carry-{}", std::process::id()));
         std::fs::create_dir_all(&copy).map_err(|e| e.to_string())?;
         let copied = self.carry_from_copy(Path::new(from), &copy, &at);
@@ -65,7 +66,7 @@ impl App {
                 None => None,
             })
             .collect();
-        wsl::end_hosts(&at.distro, &home, &servers).await?;
+        wsl::end_hosts(&distro, &home, &servers).await?;
         let mut carried = Carried {
             relaunched: Vec::new(),
             ended: Vec::new(),

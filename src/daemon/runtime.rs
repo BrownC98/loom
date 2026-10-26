@@ -56,7 +56,7 @@ impl App {
         match wsl::of(std::path::Path::new(worktree)) {
             Some(at) => {
                 let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
-                let home = self.homes.get(&distro).await.map_err(LaunchError::Wsl)?;
+                let home = wsl::home(&distro).await.map_err(LaunchError::Wsl)?;
                 Ok(task::Tasks::wsl(&home, |linux| {
                     PathBuf::from(wsl::windows_path(&at.distro, linux))
                 }))
@@ -973,7 +973,6 @@ async fn follow_codex_model(
     server: Arc<CodexServer>,
 ) {
     let mut thread = server.thread();
-    let mut kept = thread.borrow().as_ref().map(|t| t.id.clone());
     while thread.changed().await.is_ok() {
         let Some((id, waiting)) = thread
             .borrow_and_update()
@@ -985,11 +984,8 @@ async fn follow_codex_model(
         if let Err(e) = graph.set_wait(&token, WaitSource::Codex, waiting.map(|kind| (kind, ""))) {
             eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
         }
-        if kept.as_ref() != Some(&id) {
-            if let Err(e) = graph.set_server(node, &server.link()) {
-                eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
-            }
-            kept = Some(id.clone());
+        if let Err(e) = graph.set_server(node, &server.link()) {
+            eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
         }
         let call = |method, params| server.call(method, params);
         let saved = match codex::model(call, &id).await {

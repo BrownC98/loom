@@ -49,7 +49,7 @@ pub struct Stale {
 
 pub struct Reclaim {
     pub owner: NodeId,
-    pub told: NodeId,
+    pub gate: NodeId,
     pub target: String,
     pub worktree: String,
     pub reviewers: Vec<NodeId>,
@@ -521,14 +521,13 @@ impl Graph {
         let db = self.lock();
         let found = db
             .query_row(
-                "SELECT g.owner, coalesce(n.parent, g.gate), g.target, g.worktree
-                 FROM gates g LEFT JOIN nodes n ON n.id = g.owner
+                "SELECT g.owner, g.gate, g.target, g.worktree FROM gates g
                  WHERE g.repo = ?1 AND g.branch = ?2 AND g.state = ?3",
                 params![repo.0, branch, to_json(&GateState::Merged)],
                 |r| {
                     Ok(Reclaim {
                         owner: NodeId(r.get(0)?),
-                        told: NodeId(r.get(1)?),
+                        gate: NodeId(r.get(1)?),
                         target: r.get(2)?,
                         worktree: r.get(3)?,
                         reviewers: Vec::new(),
@@ -549,8 +548,12 @@ impl Graph {
         Ok(Some(found))
     }
 
-    pub fn note_from_loom(&self, to: NodeId, body: &str) -> rusqlite::Result<()> {
+    pub fn note_reclaim(&self, round: &Reclaim, body: &str) -> rusqlite::Result<()> {
         let db = self.lock();
+        let to = parent_of(&db, round.owner)
+            .ok()
+            .flatten()
+            .unwrap_or(round.gate);
         if !exists(&db, to)? {
             return Ok(());
         }

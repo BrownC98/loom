@@ -16,7 +16,7 @@ const RESPONSE_FOR: Duration = Duration::from_secs(30);
 const APP_NAME: &str = "loom-app";
 const APP_UPDATE_FLAG: &str = "--update";
 
-/// 화면이 보는 업데이트 상태. 바뀌면 `ViewChanged`를 보낸다. 받는 동안의 퍼센트는 보내지 않는다: 화면이 다시 읽는다.
+/// 화면이 보는 업데이트 상태. 받는 동안의 퍼센트를 포함해 바뀔 때마다 `ViewChanged`를 보낸다.
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -217,7 +217,7 @@ impl Updater {
                 let besides = fetch_besides(releases, version, exe, besides)?;
                 let new = staged(exe);
                 download(&asset_url(releases, version, asset), &new, |percent| {
-                    self.state.lock().unwrap().step = Some(UpdateStep::Downloading { percent });
+                    self.change(|state| state.step = Some(UpdateStep::Downloading { percent }));
                 })?;
                 for (file, new) in besides {
                     swap_over(&file, &new).map_err(|e| format!("{}: {e}", file.display()))?;

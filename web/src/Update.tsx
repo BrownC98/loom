@@ -26,7 +26,6 @@ export interface Updates {
 
 const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 60 * 60 * 1000;
-const POLL_MS = 1000;
 const UPDATE_QUERY = 'update';
 
 function useAppUpdates(): Updates {
@@ -115,21 +114,16 @@ function stepOf(view: UpdateView, install: () => void): Step | null {
 function useDaemonUpdates(viewVersion: number): Updates {
   const [view, setView] = useState<UpdateView>({ checks: false, latest: null, step: null });
   const [closed, setClosed] = useState<string | null>(null);
-  const read = () => getUpdate().then(setView, () => {});
-
   useEffect(() => {
-    read();
+    let latest = true;
+    getUpdate().then((next) => latest && setView(next), () => {});
+    return () => {
+      latest = false;
+    };
   }, [viewVersion]);
 
-  const busy = view.step?.kind === 'downloading' || view.step?.kind === 'restarting';
-  useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(read, POLL_MS);
-    return () => clearInterval(timer);
-  }, [busy]);
-
   const install = () => {
-    installUpdate().then(setView, (err: unknown) => setView((v) => ({ ...v, step: { kind: 'failed', message: String(err) } })));
+    installUpdate().then(() => {}, (err: unknown) => setView((v) => ({ ...v, step: { kind: 'failed', message: String(err) } })));
   };
   const step = stepOf(view, install);
   return {
@@ -137,11 +131,7 @@ function useDaemonUpdates(viewVersion: number): Updates {
     latest: view.latest,
     step: step && step.kind !== closed ? step : null,
     appVersion: null,
-    check: () =>
-      checkUpdate().then((next) => {
-        setView(next);
-        return next.latest;
-      }),
+    check: () => checkUpdate().then((next) => next.latest),
     install,
     close: () => setClosed(view.step?.kind ?? null),
   };

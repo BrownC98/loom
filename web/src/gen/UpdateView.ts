@@ -2,7 +2,7 @@
 import type { UpdateStep } from "./UpdateStep";
 
 /**
- * 화면이 보는 업데이트 상태. 바뀌면 `ViewChanged`를 보낸다. 받는 동안의 퍼센트는 보내지 않는다: 화면이 다시 읽는다.
+ * 화면이 보는 업데이트 상태. 받는 동안의 퍼센트를 포함해 바뀔 때마다 `ViewChanged`를 보낸다.
  */
 export type UpdateView = { 
 /**

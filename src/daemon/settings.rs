@@ -326,6 +326,7 @@ async fn login(
             if let Some(slot) = app.logins.states.lock().unwrap().get_mut(&login) {
                 *slot = state;
             }
+            app.graph.publish_view_changed();
         }
     };
     app.logins

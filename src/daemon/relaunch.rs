@@ -172,14 +172,7 @@ async fn relaunch(
 ) -> Result<Relaunched, Problem> {
     let node = match &req.name {
         None => caller,
-        Some(name) => {
-            let (id, _) = app.graph.related(caller, name)?;
-            let parent = app.graph.relations(id)?.parent;
-            if parent.map(|p| p.id) != Some(caller) {
-                return Err(Refusal::NotChild(name.clone()).into());
-            }
-            id
-        }
+        Some(name) => app.graph.any_node(caller, name)?,
     };
     let plan = req.to.map_or(Plan::Resume, Plan::Switch);
     app.relaunch_by_id(node, plan).await

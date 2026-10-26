@@ -81,7 +81,7 @@ use crate::profile::opencode2;
 use crate::profile::{self, Profile, Remote, Start, VersionMismatch};
 use crate::protocol::{
     Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
-    Refusal, ServerLink, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
+    Refusal, ServerLink, Session, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
 };
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;

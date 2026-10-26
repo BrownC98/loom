@@ -1,14 +1,18 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 
+use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
+use crate::accounts::{self, AccountId, Site};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
@@ -21,6 +25,9 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
+const TRANSCRIPT_DEPTH: usize = 3;
+const CLI_WAIT: Duration = Duration::from_secs(20);
+const NO_RECORD: &str = "이어 갈 Claude 세션 기록이 없다";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -69,10 +76,10 @@ impl Adapter for Claude {
         }
     }
 
-    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+    fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {
         resume
             .into_iter()
-            .flat_map(|session| ["--resume".into(), session.into()])
+            .flat_map(|session| ["--resume".into(), super::session_id(session)])
             .chain(bypass.iter().cloned())
             .collect()
     }
@@ -104,6 +111,107 @@ impl Adapter for Claude {
     fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
         None
     }
+
+    fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
+        let site = to.site;
+        let file = site.local(&session.0);
+        match std::fs::metadata(&file) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ResumeError::NoSession(NO_RECORD.into()));
+            }
+            Ok(meta) if meta.is_file() => {}
+            _ => return Err(NO_RECORD.to_owned().into()),
+        }
+        let new_root = site
+            .login_dir(Provider::Claude, to.to)
+            .ok_or("홈 폴더를 찾지 못했다".to_owned())?;
+        super::copy_session(&file, TRANSCRIPT_DEPTH, &new_root)?;
+        let side = file.with_extension("");
+        if side.is_dir()
+            && let Some(moved) = super::relocate(&side, TRANSCRIPT_DEPTH, &new_root)
+            && moved != side
+        {
+            copy_dir(&side, &moved).map_err(|e| format!("{}: {e}", side.display()))?;
+        }
+        if let (Some(config), Some(from)) = (
+            site.accounts().config_dir(Provider::Claude, to.to),
+            site.claude_files(to.from),
+        ) {
+            accounts::carry_claude_consent(&from, &config, &site.cli_cwd(to.cwd))
+                .map_err(|e| format!("{}: {e}", config.display()))?;
+        }
+        Ok(())
+    }
+
+    fn end_detached<'a>(
+        &'a self,
+        session: &'a Session,
+        site: &'a Site,
+        account: Option<&'a AccountId>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
+                return Ok(());
+            };
+            let Some(out) = run(list).await else {
+                return Ok(());
+            };
+            let Some(job) = background_job(&out, &super::session_id(session)) else {
+                return Ok(());
+            };
+            let stop = site
+                .command(Provider::Claude, &["stop", &job], account)
+                .map_err(|e| e.to_string())?;
+            run(stop).await.map(drop).ok_or_else(|| {
+                format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")
+            })
+        })
+    }
+
+    fn record(&self, session: &Session) -> Option<PathBuf> {
+        Some(PathBuf::from(&session.0))
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            super::copy_file(&entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+async fn run(cmd: std::process::Command) -> Option<Vec<u8>> {
+    let mut cmd = tokio::process::Command::from(cmd);
+    cmd.stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(CLI_WAIT, cmd.output())
+        .await
+        .ok()?
+        .ok()?;
+    out.status.success().then_some(out.stdout)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Job {
+    id: Option<String>,
+    kind: String,
+    session_id: String,
+}
+
+fn background_job(json: &[u8], session: &str) -> Option<String> {
+    let jobs: Vec<Job> = serde_json::from_slice(json).ok()?;
+    jobs.into_iter()
+        .find(|j| j.kind == "background" && j.session_id == session)?
+        .id
 }
 
 pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
@@ -222,7 +330,7 @@ impl HookEvent for Hook {
             hook: self.event.name().to_owned(),
             model: reported_model(&self.event, self.transcript_path.as_deref()),
             take: self.event.take().filter(|_| main),
-            transcript: self.transcript_path.clone(),
+            session: self.transcript_path.clone().map(Session),
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
             turn_end: matches!(self.event, Event::Stop)

@@ -85,7 +85,7 @@ pub struct Signals {
     pub hook: String,
     pub model: Option<Model>,
     pub take: Option<Take>,
-    pub transcript: Option<String>,
+    pub session: Option<crate::protocol::Session>,
     pub prompt: Option<String>,
     pub human_input: bool,
     pub turn: Option<String>,
@@ -418,10 +418,10 @@ pub enum Start {
         #[serde(default)]
         #[ts(skip)]
         choice: ModelChoice,
-        /// 이어 갈 세션(Claude·Cursor 세션 id, Codex 스레드 id, OpenCode 2 세션 id, Pi·OMP 세션 파일). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
+        /// 이어 갈 세션(`nodes.session`). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
         #[serde(skip)]
         #[ts(skip)]
-        resume: Option<String>,
+        resume: Option<crate::protocol::Session>,
     },
     /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
     Command { line: String },
@@ -470,7 +470,7 @@ pub fn command(
             agent,
             brief,
             choice,
-            resume.as_deref(),
+            resume.as_ref(),
             inside,
             remote,
             bypass_off,
@@ -508,7 +508,7 @@ fn agent_command(
     id: &AgentId,
     brief: &str,
     choice: &ModelChoice,
-    resume: Option<&str>,
+    resume: Option<&crate::protocol::Session>,
     inside: Option<&Inside>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
@@ -653,6 +653,37 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .map(Delivery::text)
         .collect::<Vec<_>>()
         .join(crate::protocol::BATCH_SEPARATOR)
+}
+
+fn session_id(session: &crate::protocol::Session) -> String {
+    Path::new(&session.0)
+        .file_stem()
+        .map_or_else(|| session.0.clone(), |s| s.to_string_lossy().into_owned())
+}
+
+fn copy_session(file: &Path, depth: usize, new_root: &Path) -> Result<(), String> {
+    let to = relocate(file, depth, new_root)
+        .ok_or_else(|| format!("{}: 로그인 폴더 아래 기록 파일이 아니다", file.display()))?;
+    if to == file {
+        return Ok(());
+    }
+    let copied = to
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| copy_file(file, &to));
+    copied
+        .map(drop)
+        .map_err(|e| format!("{} → {}: {e}", file.display(), to.display()))
+}
+
+fn relocate(file: &Path, depth: usize, new_root: &Path) -> Option<PathBuf> {
+    let parts: Vec<_> = file.components().collect();
+    let tail = parts.get(parts.len().checked_sub(depth)?..)?;
+    Some(tail.iter().fold(new_root.to_path_buf(), |p, c| p.join(c)))
+}
+
+fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::write(to, std::fs::read(from)?)
 }
 
 #[cfg(unix)]

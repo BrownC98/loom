@@ -96,8 +96,8 @@ pub struct TakeRequest {
     pub hook: String,
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
-    #[serde(default)]
-    pub transcript: Option<String>,
+    #[serde(default, rename = "transcript")]
+    pub session: Option<Session>,
     #[serde(default)]
     pub human_input: bool,
     #[serde(default)]
@@ -116,7 +116,8 @@ pub struct Taken {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IdleRequest {
-    pub transcript: Option<String>,
+    #[serde(rename = "transcript")]
+    pub session: Option<Session>,
     pub rate_limited: bool,
     pub turn_end: Option<EndedTurn>,
 }

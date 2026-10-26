@@ -180,11 +180,10 @@ impl App {
             return Ok(());
         }
         let place_distro = self.place_distro(node.id);
-        let (codex, opencode2) = match node.server.clone() {
-            Some(ServerLink::Codex { url, pid, thread }) => {
-                match CodexServer::reconnect(url, self.served(pid, place_distro.clone()), thread)
-                    .await
-                {
+        let (codex, opencode2) = match (node.server.clone(), &node.session) {
+            (Some(ServerLink::Codex { url, pid }), thread) => {
+                let served = self.served(pid, place_distro.clone());
+                match CodexServer::reconnect(url, served, thread.as_ref()).await {
                     Ok(server) => (Some(Arc::new(server)), None),
                     Err(e) => {
                         eprintln!(
@@ -195,21 +194,23 @@ impl App {
                     }
                 }
             }
-            Some(ServerLink::OpenCode2 {
-                url,
-                pid,
-                session,
-                password,
-            }) => (
+            (Some(ServerLink::OpenCode2 { url, pid, password }), Some(session)) => (
                 None,
                 Some(Arc::new(opencode2::Node::reconnect(
                     url,
                     self.served(pid, place_distro.clone()),
-                    session,
+                    session.clone(),
                     password,
                 ))),
             ),
-            None => (None, None),
+            (Some(ServerLink::OpenCode2 { .. }), None) => {
+                eprintln!(
+                    "loom: 노드 {}에는 OpenCode 2 세션이 없어 서버에 다시 붙지 않는다",
+                    node.id.0
+                );
+                (None, None)
+            }
+            (None, _) => (None, None),
         };
         let profile = node.agent.as_ref().and_then(profile::profile_of);
         let distro = place_distro
@@ -626,7 +627,7 @@ impl App {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
                 let resume = match start {
-                    Start::Agent { resume, .. } => resume.as_deref(),
+                    Start::Agent { resume, .. } => resume.as_ref(),
                     Start::Command { .. } => None,
                 };
                 let node =
@@ -739,6 +740,11 @@ impl App {
         self.served_by(node, server).end().await
     }
 
+    pub(super) async fn served_record(&self, node: NodeId, thread: &Session) -> Option<String> {
+        let server = self.codex.lock().unwrap().get(&node).cloned()?;
+        server.rollout(&thread.0).await.ok().flatten()
+    }
+
     pub(super) fn served_by(&self, node: NodeId, server: &ServerLink) -> Served {
         let (ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) = server;
         self.served(*pid, self.place_distro(node))
@@ -799,6 +805,7 @@ impl Prepared {
                 (_, Some(node)) => Some(node.link()),
                 _ => None,
             },
+            session: self.opencode2.as_ref().map(|node| node.session()),
             account: self.account.clone(),
             rules: self.rules.clone(),
         }
@@ -813,6 +820,16 @@ impl Prepared {
 
     pub(super) fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
+    }
+
+    pub(super) async fn open_session(&self, thread: &Session, bypass: bool) -> Result<(), String> {
+        let Some(server) = &self.codex else {
+            return Ok(());
+        };
+        let call = |method, params| server.call(method, params);
+        codex::resume(call, thread, bypass).await?;
+        server.follow_thread(thread.0.clone()).await;
+        Ok(())
     }
 }
 
@@ -976,7 +993,7 @@ async fn follow_codex_model(
         ) {
             eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
         }
-        if let Err(e) = graph.set_server(node, &server.link()) {
+        if let Err(e) = graph.set_session(node, &Session(id.clone())) {
             eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
         }
         let call = |method, params| server.call(method, params);

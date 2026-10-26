@@ -1041,7 +1041,10 @@ mod tests {
             .create(missing.to_str().unwrap(), "fresh")
             .await
             .unwrap();
-        assert_eq!(repos.path(id).unwrap(), missing.join("fresh"));
+        assert_eq!(
+            std::fs::canonicalize(repos.path(id).unwrap()).unwrap(),
+            std::fs::canonicalize(missing.join("fresh")).unwrap()
+        );
         assert!(missing.join("fresh").join(".git").exists());
     }
 

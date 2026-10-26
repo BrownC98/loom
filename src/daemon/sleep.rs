@@ -883,10 +883,15 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        let began = loop {
+            if let Some(began) = t.app.graph.turn_began(node).unwrap() {
+                break began;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        };
         tokio::time::sleep(FILE_CLOCK_TICK).await;
         std::fs::write(&path, ENDED).unwrap();
         let finished = std::fs::metadata(&path).unwrap().modified().unwrap();
-        let began = t.app.graph.turn_began(node).unwrap().unwrap();
         let second = |at: SystemTime| at.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         assert!(finished > began, "the turn wrote its end after it began");
         assert_eq!(second(finished), second(began), "in the start second");

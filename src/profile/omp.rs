@@ -1,5 +1,11 @@
 use std::path::Path;
 
+use portable_pty::CommandBuilder;
+
+use super::VersionMismatch;
+use super::adapter::{Adapter, Command, Facts, NoServer};
+use crate::protocol::ModelChoice;
+use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("omp-loom.ts");
@@ -27,10 +33,6 @@ pub fn config(plugin: &Path, launch: Launch) -> Config {
     Config { file, text }
 }
 
-pub fn write_extension(dir: &Path) -> std::io::Result<()> {
-    std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
-}
-
 pub fn write_config(dir: &Path, config: &Config) -> std::io::Result<()> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join(&config.file);
@@ -43,22 +45,57 @@ pub fn write_config(dir: &Path, config: &Config) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
-pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
-    let at = plugin.to_string_lossy();
-    let mut args = vec![
-        "--extension".into(),
-        format!("{at}/{EXTENSION_FILE}"),
-        "--config".into(),
-        format!("{at}/{}", config(plugin, launch).file),
-        "--append-system-prompt".into(),
-        super::pi::usage(WAITING, launch),
-    ];
-    if brief.trim().is_empty() {
-        args.push(super::pi::IDLE_FLAG.into());
-    }
-    args
-}
+pub struct Omp;
 
-pub fn resume_args(session: &str) -> Vec<String> {
-    vec!["--resume".into(), session.into()]
+impl Adapter for Omp {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: None,
+            hooked: true,
+            listens_at_start: false,
+            pinned: None,
+            usage_part: "usage/omp",
+            waiting: WAITING,
+        }
+    }
+
+    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+        resume
+            .into_iter()
+            .flat_map(|session| ["--resume".into(), session.into()])
+            .chain(bypass.iter().cloned())
+            .collect()
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        let plugin = at.plugin.to_string_lossy();
+        cmd.args([
+            "--extension".into(),
+            format!("{plugin}/{EXTENSION_FILE}"),
+            "--config".into(),
+            format!("{plugin}/{}", config(at.plugin, at.launch).file),
+            "--append-system-prompt".into(),
+            super::pi::usage(WAITING, at.launch),
+        ]);
+        if at.brief.trim().is_empty() {
+            cmd.arg(super::pi::IDLE_FLAG);
+        }
+        Ok(())
+    }
+
+    fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
+        Some(super::pi::choice_args(choice))
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        Some((&[], &[]))
+    }
+
+    fn install(&self, dir: &Path) -> std::io::Result<()> {
+        std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
+    }
+
+    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
 }

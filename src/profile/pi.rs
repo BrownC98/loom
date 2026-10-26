@@ -2,8 +2,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Handed, HookEvent, Shown, Signals, Take};
-use crate::protocol::{Delivery, Kind, MessageId, Model, PI_HOOK as PROTOCOL};
+use portable_pty::CommandBuilder;
+
+use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
+use crate::protocol::{Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL};
+use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
@@ -23,10 +27,50 @@ pub(super) const WORK_METHOD: &str = "Work method (speed; follow it):
 - Wait for a background job with the command or tool that waits for its end, not with a fixed sleep.
 - Do not search the disk for tools; use the paths that the repository instructions or the brief give, or ask.";
 
-pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
-    EXTENSIONS
-        .iter()
-        .try_for_each(|(file, text)| std::fs::write(dir.join(file), text))
+pub struct Pi;
+
+impl Adapter for Pi {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: None,
+            hooked: true,
+            listens_at_start: false,
+            pinned: None,
+            usage_part: "usage/pi",
+            waiting: WAITING,
+        }
+    }
+
+    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+        resume
+            .into_iter()
+            .flat_map(|session| ["--session".into(), session.into()])
+            .chain(bypass.iter().cloned())
+            .collect()
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        cmd.args(args(at.plugin, at.launch, at.brief));
+        Ok(())
+    }
+
+    fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
+        Some(choice_args(choice))
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        Some((&[], &[]))
+    }
+
+    fn install(&self, dir: &Path) -> std::io::Result<()> {
+        EXTENSIONS
+            .iter()
+            .try_for_each(|(file, text)| std::fs::write(dir.join(file), text))
+    }
+
+    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
 }
 
 pub(super) fn usage(waiting: &str, launch: Launch) -> String {
@@ -37,7 +81,7 @@ pub(super) fn usage(waiting: &str, launch: Launch) -> String {
     )
 }
 
-pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
+fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let plugin = plugin.to_string_lossy();
     let mut args = vec![
         "--extension".into(),
@@ -54,7 +98,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     args
 }
 
-pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
+pub(super) fn choice_args(choice: &ModelChoice) -> Vec<String> {
     let model = choice
         .model
         .iter()
@@ -64,10 +108,6 @@ pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
         .iter()
         .flat_map(|e| ["--thinking".into(), e.clone()]);
     model.chain(effort).collect()
-}
-
-pub fn resume_args(session: &str) -> Vec<String> {
-    vec!["--session".into(), session.into()]
 }
 
 pub struct Request {

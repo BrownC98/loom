@@ -46,10 +46,6 @@ pub enum Refusal {
     BriefTooLong(#[ts(type = "number")] usize),
     SummaryTooLong(#[ts(type = "number")] usize),
     MailboxFull(String),
-    /// 조정·중단의 대상이 부르는 노드의 부모나 자식이 아니다.
-    NotRelated(String),
-    /// `loom rm`·`loom done --keep`의 대상이 부르는 노드의 자식이 아니다.
-    NotChild(String),
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
     /// `loom detach`의 대상이 이미 뿌리다.
@@ -211,14 +207,6 @@ impl fmt::Display for Refusal {
             Refusal::MailboxFull(name) => write!(
                 f,
                 "The inbox of {name} has {MAILBOX_LIMIT} messages. Send again after that node reads them with `loom wait`."
-            ),
-            Refusal::NotRelated(name) => write!(
-                f,
-                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt."
-            ),
-            Refusal::NotChild(name) => write!(
-                f,
-                "{name}: not your child. `loom rm` and `loom done --keep` act only on your own children."
             ),
             Refusal::AlreadyRoot(name) => {
                 write!(f, "{name}: already a root node. It has no parent.")

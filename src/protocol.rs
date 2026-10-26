@@ -109,7 +109,6 @@ pub enum MergeEnd {
 pub enum GateCall {
     Ready,
     Verdict(Judgment),
-    Start,
     Requeue,
     End(MergeEnd),
 }
@@ -119,15 +118,14 @@ impl GateCall {
         match self {
             GateCall::Ready => GateVerb::Ready,
             GateCall::Verdict(_) => GateVerb::Verdict,
-            GateCall::Start | GateCall::Requeue | GateCall::End(_) => GateVerb::Queue,
+            GateCall::Requeue | GateCall::End(_) => GateVerb::Queue,
         }
     }
 
-    const ALL: [GateCall; 8] = [
+    const ALL: [GateCall; 7] = [
         GateCall::Ready,
         GateCall::Verdict(Judgment::Pass),
         GateCall::Verdict(Judgment::Block),
-        GateCall::Start,
         GateCall::Requeue,
         GateCall::End(MergeEnd::Merged),
         GateCall::End(MergeEnd::Rework),
@@ -180,8 +178,6 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
         (S::Working | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
-        (S::Passed, GateCall::Start) => Some(S::Merging),
-        (S::Working | S::Ready | S::Merging | S::Merged | S::Failed, GateCall::Start) => None,
         (S::Merging, GateCall::Requeue) => Some(S::Passed),
         (S::Working | S::Ready | S::Passed | S::Merged | S::Failed, GateCall::Requeue) => None,
         (S::Merging, GateCall::End(MergeEnd::Merged)) => Some(S::Merged),
@@ -238,7 +234,7 @@ pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
         (GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework), _) => {
             &[Receiver::Owner, Receiver::Gate]
         }
-        (GateCall::Start | GateCall::Requeue, _) => &[],
+        (GateCall::Requeue, _) => &[],
         (GateCall::End(MergeEnd::Merged | MergeEnd::Failed), Target::Base) => {
             &[Receiver::Owner, Receiver::Gate, Receiver::Root]
         }
@@ -287,7 +283,7 @@ pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str, hea
             GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
             Receiver::Gate | Receiver::Root,
         ) => "Next: wait for the owner's next `loom ready`.".to_owned(),
-        (GateCall::Start | GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
+        (GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
         (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate) => {
             "Next: accept the result. loom removes the branch's reviewers, its owner node, its clean worktree and the branch.".to_owned()
         }
@@ -790,7 +786,7 @@ pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
             findings,
             reviewer,
         },
-        GateCall::Start | GateCall::Requeue => return None,
+        GateCall::Requeue => return None,
         GateCall::End(MergeEnd::Merged) => MessageKind::Merged {
             branch,
             head,

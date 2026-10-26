@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
+use super::relaunch_plans::resume_at_turn_end;
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
     Work, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
@@ -638,19 +639,26 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn remove(&self, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    pub fn remove(&self, id: NodeId) -> Result<Vec<NodeId>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
+        let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(Vec::new());
         };
+        super::gate::regate(&tx, before)?;
+        for &child in &removal.children {
+            resume_at_turn_end(&tx, child, self.linked)?;
+        }
         tx.commit()?;
         let children = removal.children.clone();
         removal.publish(self, &db)?;
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok(children)
     }
 
-    pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
+    pub fn remove_childless_child(&self, id: NodeId) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let removable: bool = tx
@@ -665,11 +673,13 @@ impl Graph {
         if !removable {
             return Ok(false);
         }
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(false);
         };
         tx.commit()?;
         removal.publish(self, &db)?;
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok(true)
     }
 
@@ -678,13 +688,15 @@ impl Graph {
         caller: NodeId,
         name: &str,
         limits: TreeLimits,
-    ) -> Result<(NodeId, Vec<String>), Refusal> {
+    ) -> Result<(NodeId, Vec<(NodeId, String)>), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let id = mailbox::any_node(&tx, caller, name)?;
         if id == caller {
             return Err(Refusal::NotFound(name.to_owned()));
         }
+        let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
+        let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
         let mut adoptions = Vec::new();
         let mut moved = Vec::new();
@@ -694,7 +706,7 @@ impl Graph {
             match adopt_in(&tx, caller, child, limits) {
                 Ok(adoption) => {
                     adoptions.extend(adoption);
-                    moved.push(child_name);
+                    moved.push((child, child_name));
                 }
                 Err(Refusal::NameTaken(_)) => refused.push(format!(
                     "{child_name} (you, your parent or a child of yours has this name)"
@@ -708,12 +720,25 @@ impl Graph {
                 refused.join(", ")
             )));
         }
+        super::gate::regate(&tx, before)?;
         tx.commit()?;
         removal.publish(self, &db)?;
         for adoption in adoptions {
             adoption.publish(self, &db)?;
         }
+        self.publish_withdrawn(&db, withdrawn)?;
         Ok((id, moved))
+    }
+
+    fn publish_withdrawn(&self, db: &Connection, sent: Vec<NodeId>) -> rusqlite::Result<()> {
+        if sent.is_empty() {
+            return Ok(());
+        }
+        for to in sent {
+            self.publish_node(db, to)?;
+        }
+        self.mail.notify_waiters();
+        Ok(())
     }
 
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {
@@ -791,27 +816,24 @@ impl Graph {
         Ok(())
     }
 
-    pub fn adopt(
-        &self,
-        parent: NodeId,
-        child: NodeId,
-        limits: TreeLimits,
-    ) -> Result<bool, Refusal> {
+    pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(adoption) = adopt_in(&tx, parent, child, limits)? else {
-            return Ok(false);
+            return Ok(());
         };
+        if adoption.was_root {
+            resume_at_turn_end(&tx, child, self.linked)?;
+        }
         tx.commit()?;
-        let was_root = adoption.was_root;
-        adoption.publish(self, &db)?;
-        Ok(was_root)
+        Ok(adoption.publish(self, &db)?)
     }
 
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let adoption = detach_in(&tx, child)?;
+        resume_at_turn_end(&tx, child, self.linked)?;
         tx.commit()?;
         Ok(adoption.publish(self, &db)?)
     }
@@ -837,14 +859,17 @@ impl Removal {
     }
 }
 
+fn children_of(tx: &Connection, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    tx.prepare("SELECT id FROM nodes WHERE parent = ?1 ORDER BY id")?
+        .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
+        .collect()
+}
+
 fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     let Some(state) = state_of(tx, id).optional()? else {
         return Ok(None);
     };
-    let children = tx
-        .prepare("SELECT id FROM nodes WHERE parent = ?1 ORDER BY id")?
-        .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let children = children_of(tx, id)?;
     let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
     if let Some(parent) = waiting_parent {
         let what = MessageKind::Removed {
@@ -919,6 +944,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
     if taken {
         return Err(Refusal::NameTaken(name));
     }
+    let before = super::gate::open_gates(tx, &[child])?;
     let told_old = (state_of(tx, child).ok() == Some(NodeState::Running)).then_some(old);
     let detached = MessageKind::Adopted {
         node: name,
@@ -936,6 +962,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         )?;
     }
     tx.execute("UPDATE nodes SET parent = NULL WHERE id = ?1", [child.0])?;
+    super::gate::regate(tx, before)?;
     mailbox::enqueue(
         tx,
         old,
@@ -994,6 +1021,7 @@ fn adopt_in(
     if taken {
         return Err(Refusal::NameTaken(name));
     }
+    let before = super::gate::open_gates(tx, &[child])?;
     let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
     let adopted = MessageKind::Adopted {
         node: name.clone(),
@@ -1014,6 +1042,7 @@ fn adopt_in(
         "UPDATE nodes SET parent = ?2 WHERE id = ?1",
         params![child.0, parent.0],
     )?;
+    super::gate::regate(tx, before)?;
     mailbox::enqueue(
         tx,
         parent,

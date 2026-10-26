@@ -85,18 +85,31 @@ impl Graph {
         });
         let changed = had != next.is_some();
         match next {
-            Some((phase, plan)) => tx.execute(
-                "INSERT INTO relaunch_plans (node, phase, plan) VALUES (?1, ?2, ?3)
-                 ON CONFLICT (node) DO UPDATE SET phase = excluded.phase, plan = excluded.plan",
-                params![node.0, to_json(&phase), to_json(&plan)],
-            )?,
+            Some((phase, plan)) => put(&tx, node, phase, &plan)?,
             None => tx.execute("DELETE FROM relaunch_plans WHERE node = ?1", [node.0])?,
         };
         tx.commit()?;
-        if changed && let Err(e) = self.publish_node(&db, node) {
-            eprintln!("loom: 노드 {}의 보기를 보내지 못했다: {e}", node.0);
+        if changed {
+            self.published(&db, node);
         }
         Ok(result)
+    }
+
+    pub fn plan_resume(&self, node: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let added = resume_at_turn_end(&tx, node, self.linked)?;
+        tx.commit()?;
+        if added {
+            self.published(&db, node);
+        }
+        Ok(added)
+    }
+
+    fn published(&self, db: &Connection, node: NodeId) {
+        if let Err(e) = self.publish_node(db, node) {
+            eprintln!("loom: 노드 {}의 보기를 보내지 못했다: {e}", node.0);
+        }
     }
 
     pub fn claim_stop(&self, node: NodeId) -> rusqlite::Result<Option<Phase>> {
@@ -160,6 +173,37 @@ impl Graph {
             |row| row.get(0),
         )
     }
+}
+
+fn put(db: &Connection, node: NodeId, phase: Phase, plan: &Plan) -> rusqlite::Result<usize> {
+    db.execute(
+        "INSERT INTO relaunch_plans (node, phase, plan) VALUES (?1, ?2, ?3)
+         ON CONFLICT (node) DO UPDATE SET phase = excluded.phase, plan = excluded.plan",
+        params![node.0, to_json(&phase), to_json(plan)],
+    )
+}
+
+pub(super) fn resume_at_turn_end(
+    db: &Connection,
+    node: NodeId,
+    linked: fn(&AgentId) -> bool,
+) -> rusqlite::Result<bool> {
+    let live_agent = db
+        .query_row(
+            "SELECT agent, process IS NULL FROM nodes WHERE id = ?1",
+            [node.0],
+            |row| {
+                let agent: Option<AgentId> = from_json(row, 0)?;
+                Ok(agent.as_ref().is_some_and(linked) && row.get::<_, bool>(1)?)
+            },
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !live_agent || pending(db, node)?.is_some() {
+        return Ok(false);
+    }
+    put(db, node, Phase::AtTurnEnd, &Plan::Resume)?;
+    Ok(true)
 }
 
 fn moved(db: &Connection, node: NodeId, from: &[Phase], to: Phase) -> rusqlite::Result<bool> {

@@ -100,9 +100,10 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+    pub(super) fn remove(self: &Arc<Self>, node: NodeId) -> Result<Vec<NodeId>, Refusal> {
         let children = self.graph.remove(node)?;
         self.host.kill(node);
+        self.parent_changed(&children);
         Ok(children)
     }
 
@@ -152,7 +153,10 @@ impl App {
             }
         }
         if self.position_of(id).is_ok_and(|now| now != position) {
-            self.position_changed(&[id]);
+            if let Err(e) = self.graph.plan_resume(id) {
+                eprintln!("loom: 노드 {}의 다시 띄우기를 계획하지 못했다: {e}", id.0);
+            }
+            self.run_unless_busy(id);
         }
         Ok(())
     }

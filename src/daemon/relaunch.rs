@@ -427,18 +427,12 @@ impl App {
                 .as_ref()
                 .map(profile::changed_parts)
                 .unwrap_or_default();
-            if !changed.is_empty() && profile_of(&node).is_some() {
-                let added = self.graph.plan_relaunch(node.id, |now| match now.pending {
-                    None if !now.ended => (Some((Phase::AtTurnEnd, Plan::Resume)), true),
-                    kept => (kept, false),
-                })?;
-                if added {
-                    eprintln!(
-                        "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
-                        node.id.0,
-                        changed.join(", ")
-                    );
-                }
+            if !changed.is_empty() && self.graph.plan_resume(node.id)? {
+                eprintln!(
+                    "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
+                    node.id.0,
+                    changed.join(", ")
+                );
             }
             self.run_unless_busy(node.id);
         }

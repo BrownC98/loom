@@ -12,7 +12,7 @@ import { weekdayAndTime } from './i18n';
 import type { SwitchRecord } from './useSwitchNotice';
 import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, oldestRead, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
-import { Sheet, usePhone } from './Phone';
+import { Sheet, usePhone } from './sheet';
 import { useDismiss } from './popover';
 import { VERSION } from './version';
 

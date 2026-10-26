@@ -32,7 +32,9 @@ import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
 import { attachCards, groupParents, groupsOf, inGroup, splitChips, type Group, type GroupKind } from './repos';
 import { attachDragPan, attachPinchZoom, type View } from './pinchZoom';
-import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
+import { realignTerminals, SizingTerminal, XtermFont, type Draw } from './Terminal';
+import type { Direction } from './keys';
+import { flowId, MOVE_MS } from './camera';
 import { SLOP_PX } from './touchTerminal';
 
 const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .react-flow__resize-control, [data-selected] .term';
@@ -57,7 +59,6 @@ const CHIP_ROW = 43;
 const REPO_HEAD = 46;
 const REPO_SIDE = 16;
 const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
-const MOVE_MS = 300;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.5;
 
@@ -140,42 +141,6 @@ function IconButton(props: { label: string; title: string; children: ReactNode; 
       {props.children}
     </button>
   );
-}
-
-export function useShowNodes(): (ids: NodeId[]) => void {
-  const flow = useReactFlow();
-  return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
-}
-
-export function useShowGroups(): (paths: string[]) => void {
-  const flow = useReactFlow();
-  const store = useStoreApi();
-  const waiting = useRef<(() => void) | null>(null);
-  const boxOf = (path: string) => (flow.getNode(path) ? path : flow.getNodes().find((n) => n.type === 'worktree' && (n.data as GroupData).chips.some((c) => c.path === path))?.id);
-  return (paths) => {
-    waiting.current?.();
-    waiting.current = null;
-    const targets = () => {
-      const ids = paths.map(boxOf);
-      return ids.every((id) => id !== undefined) ? (ids as string[]) : null;
-    };
-    const fit = (ids: string[]) => void flow.fitView({ nodes: ids.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
-    const now = targets();
-    if (now) return fit(now);
-    const stop = store.subscribe(() => {
-      const ids = targets();
-      if (!ids) return;
-      stop();
-      waiting.current = null;
-      fit(ids);
-    });
-    waiting.current = stop;
-  };
-}
-
-export function useShowAll(): () => void {
-  const flow = useReactFlow();
-  return () => flow.fitView({ duration: MOVE_MS, maxZoom: 1 });
 }
 
 type GroupData = {
@@ -444,10 +409,6 @@ function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Directi
 
 function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): string | null {
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
-}
-
-export function flowId(spot: Spot): string {
-  return spot.kind === 'repo' ? `repo:${spot.repo}` : spot.kind === 'worktree' ? spot.path : String(spot.node);
 }
 
 function cover(contents: readonly Box[], inset: { top: number; side: number }): Box {

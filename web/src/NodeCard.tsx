@@ -8,7 +8,7 @@ import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
 import { asking, NoticeChips } from './notice';
-import { navDirection, type Direction } from './Terminal';
+import { navDirection, type Direction } from './keys';
 
 export function stateClass(view: NodeView): string {
   if (asking(view).length > 0) return 'waiting';

@@ -10,7 +10,9 @@ export const FieldDefaults = createContext<FieldDefaults | null>(null);
 const at = (value: unknown, path: readonly string[]): unknown => path.reduce<unknown>((v, key) => (v !== null && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined), value);
 const nulled = (path: readonly string[]): unknown => path.reduceRight<unknown>((inner, key) => ({ [key]: inner }), null);
 
-export function FieldReset({ path }: { path: readonly [keyof SettingsView, ...string[]] }) {
+type SettingPath = { [K in keyof SettingsView]: readonly [K] | (SettingsView[K] extends object ? readonly [K, keyof SettingsView[K] & string] : never) }[keyof SettingsView];
+
+export function FieldReset({ path }: { path: SettingPath }) {
   const { t } = useTranslation();
   const ctx = useContext(FieldDefaults);
   if (!ctx?.defaults || JSON.stringify(at(ctx.settings, path)) === JSON.stringify(at(ctx.defaults, path))) return null;

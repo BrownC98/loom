@@ -5,7 +5,7 @@ import { docPass, docUrl, openDoc } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { TextPart } from './gen/TextPart';
 import type { WaitDoc } from './gen/WaitDoc';
-import { openLink, openPass, phoneBrowser } from './openLink';
+import { openLink, openPass } from './openLink';
 
 export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null; node: NodeId | null; onRefusal: (message: string) => void }) {
   const { doc, parts } = props;
@@ -43,13 +43,13 @@ function TextLink(props: { label: string; href: string; node: NodeId | null }) {
 export function DocLink(props: { doc: WaitDoc; label: string; onRefusal: (message: string) => void }) {
   const { t } = useTranslation();
   const { doc } = props;
-  return isTauri() || phoneBrowser() ? (
+  return isTauri() || window.loomBrowser ? (
     <button
       type="button"
       className="doc-link"
       title={t('inbox.openDocLabel', { id: doc.id, title: doc.title })}
       onClick={() => {
-        const browser = phoneBrowser();
+        const browser = window.loomBrowser;
         (browser ? openPass(docPass(doc.id), browser) : openDoc(doc.id)).catch((err: Error) => props.onRefusal(err.message));
       }}
     >

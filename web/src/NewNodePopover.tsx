@@ -177,7 +177,7 @@ export function NewNodePopover(props: {
               : t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}
           </span>
         )}
-        {agent && canBypass(agent, props.settings) && <span className="hint">{t('newNode.bypass')}</span>}
+        {agent && canBypass(agent, props.settings.bypassOff) && <span className="hint">{t('newNode.bypass')}</span>}
       </div>
       {starting && (
         <span className="hint" role="status">

@@ -6,7 +6,8 @@ import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
 import { DockSummary } from './NodeCard';
 import { NodeMenu } from './NodeMenu';
-import { SizingTerminal, type Direction } from './Terminal';
+import { SizingTerminal } from './Terminal';
+import type { Direction } from './keys';
 
 export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardView; agentLabel: string; focusAsk: number; onNavigate: (dir: Direction) => void }) {
   const { view } = props;

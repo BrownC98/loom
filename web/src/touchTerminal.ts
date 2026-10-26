@@ -6,7 +6,7 @@ export const SLOP_PX = 10;
 const WHEEL_NOTCH = 120;
 
 export function hapticTick() {
-  const chrome = (window as unknown as { loomChrome?: { haptic?: () => void } }).loomChrome;
+  const chrome = window.loomChrome;
   if (chrome?.haptic) chrome.haptic();
   else navigator.vibrate?.(15);
 }
@@ -218,9 +218,7 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   };
 }
 
-type AppClipboard = { read: () => string };
-
 export async function readClipboard(): Promise<string> {
-  const app = (window as unknown as { loomClipboard?: AppClipboard }).loomClipboard;
+  const app = window.loomClipboard;
   return app ? app.read() : navigator.clipboard.readText();
 }

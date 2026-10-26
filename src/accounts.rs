@@ -120,7 +120,7 @@ impl Site {
     }
 
     pub fn distro(&self) -> Option<&str> {
-        self.wsl.as_ref().map(|i| i.distro.as_str())
+        self.wsl.as_ref().map(|i| i.distro.name())
     }
 
     pub fn accounts(&self) -> &Accounts {

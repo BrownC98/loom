@@ -309,6 +309,27 @@ impl<A: Clone + Send + Sync + 'static> axum::serve::Listener for Door<A> {
     }
 }
 
+pub async fn splice<A, B>(near: A, far: B)
+where
+    A: AsyncRead + AsyncWrite,
+    B: AsyncRead + AsyncWrite,
+{
+    let (mut from_near, mut to_near) = tokio::io::split(near);
+    let (mut from_far, mut to_far) = tokio::io::split(far);
+    let request = async {
+        let _ = tokio::io::copy(&mut from_near, &mut to_far).await;
+        let _ = to_far.shutdown().await;
+        std::future::pending::<()>().await
+    };
+    let answer = async {
+        let _ = tokio::io::copy(&mut from_far, &mut to_near).await;
+    };
+    tokio::select! {
+        () = request => {}
+        () = answer => {}
+    }
+}
+
 pub fn carry<A: Send + 'static>(
     link: std::net::TcpStream,
     mut at: impl FnMut() -> A + Send + 'static,

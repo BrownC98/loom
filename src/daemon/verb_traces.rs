@@ -9,7 +9,7 @@ use super::*;
 use crate::graph::{AgentState, Entry, Phase, Plan, Round, TurnCheck};
 use crate::protocol::{AgentId, Judgment};
 
-const UNTRACED: [(&str, &str); 16] = [
+const UNTRACED: [(&str, &str); 17] = [
     ("serve", "runs the daemon"),
     ("start", "starts or joins the daemon"),
     ("open", "opens the screen"),
@@ -34,6 +34,7 @@ const UNTRACED: [(&str, &str); 16] = [
     ("pi-hook", "hook transport that the agent CLI runs"),
     ("guard", "hook transport that the agent CLI runs"),
     ("pty-host", "the node process host"),
+    ("distro-host", "the WSL distro host"),
     ("help", "clap help"),
 ];
 

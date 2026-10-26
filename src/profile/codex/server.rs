@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -18,6 +16,7 @@ use super::protocol::{
     ThreadStatus, ThreadStatusChangedNotification,
 };
 use crate::process_tree::{self, Snapshot};
+use crate::profile::process::Served;
 use crate::protocol::{ServerLink, WaitKind};
 use crate::wsl::Inside;
 
@@ -56,7 +55,7 @@ type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
 
 pub struct CodexServer {
     url: String,
-    pid: Option<u32>,
+    process: Served,
     to_server: mpsc::UnboundedSender<Message>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
@@ -89,48 +88,23 @@ impl CodexServer {
             ]);
         }
         args.extend(["app-server".into(), "--listen".into(), url.clone()]);
-        let mut cmd = match inside {
-            Some(inside) => inside.server(&[&["codex".to_owned()], &args[..]].concat(), node_env),
-            None => {
-                let mut cmd = process_tree::command("codex");
-                cmd.args(&args).envs(node_env.iter().map(|(k, v)| (k, v)));
-                cmd.current_dir(cwd);
-                cmd
-            }
-        };
-        process_tree::detach(&mut cmd);
-        let mut child = Command::from(cmd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        let pid = child.id();
-        let listening = tokio::time::timeout(
-            REPLY_TIMEOUT,
-            process_tree::until_listening(&mut child, port),
-        )
-        .await
-        .unwrap_or_else(|_| Err("did not listen".into()));
-        tokio::spawn(async move { child.wait().await });
-        let server = match listening {
-            Ok(()) => Self::connect(url, pid).await,
-            Err(e) => Err(e),
-        };
-        server.map_err(|e| {
-            if let Some(root) = pid {
-                Snapshot::now().kill_trees([root]);
-            }
-            format!("`codex app-server`: {e}")
+        let argv = [&["codex".to_owned()], &args[..]].concat();
+        let failed = |e| format!("`codex app-server`: {e}");
+        let process = Served::start(&argv, cwd, inside, node_env, port, REPLY_TIMEOUT)
+            .await
+            .map_err(failed)?;
+        Self::connect(url, process.clone()).await.map_err(|e| {
+            process.stop();
+            failed(e)
         })
     }
 
     pub async fn reconnect(
         url: String,
-        pid: Option<u32>,
+        process: Served,
         thread: Option<String>,
     ) -> Result<Self, String> {
-        let server = Self::connect(url, pid).await?;
+        let server = Self::connect(url, process).await?;
         if let Some(id) = thread {
             server.follow_thread(id).await;
         }
@@ -170,12 +144,13 @@ impl CodexServer {
     pub fn link(&self) -> ServerLink {
         ServerLink::Codex {
             url: self.url.clone(),
-            pid: self.pid,
+            pid: self.process.pid,
+            distro: self.process.distro_name(),
             thread: self.thread.borrow().as_ref().map(|t| t.id.clone()),
         }
     }
 
-    async fn connect(url: String, pid: Option<u32>) -> Result<Self, String> {
+    async fn connect(url: String, process: Served) -> Result<Self, String> {
         let connected = tokio::time::timeout(
             REPLY_TIMEOUT,
             tokio_tungstenite::connect_async(url.as_str()),
@@ -215,7 +190,7 @@ impl CodexServer {
         });
         let server = Self {
             url,
-            pid,
+            process,
             to_server,
             pending,
             next_id: AtomicU64::new(0),
@@ -268,15 +243,15 @@ impl CodexServer {
     }
 
     pub fn stop_shells(&self) -> usize {
-        let Some(root) = self.pid else { return 0 };
+        let Some(root) = self.process.here() else {
+            return 0;
+        };
         let snapshot = Snapshot::now();
         snapshot.kill_trees(snapshot.session_leaders_under(root))
     }
 
     pub fn stop(&self) {
-        if let Some(root) = self.pid {
-            Snapshot::now().kill_trees([root]);
-        }
+        self.process.stop();
     }
 }
 

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
+use crate::profile::process::Served;
 use crate::protocol::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
 use crate::skills::Launch;
 use crate::wsl::Inside;
@@ -239,14 +240,15 @@ impl Node {
         Ok(Self::follow(server, session))
     }
 
-    pub fn reconnect(url: String, pid: Option<u32>, session: String, password: String) -> Self {
-        Self::follow(Server::connect(url, password, pid), session)
+    pub fn reconnect(url: String, process: Served, session: String, password: String) -> Self {
+        Self::follow(Server::connect(url, password, process), session)
     }
 
     pub fn link(&self) -> crate::protocol::ServerLink {
         crate::protocol::ServerLink::OpenCode2 {
             url: self.server.url().to_owned(),
-            pid: self.server.pid(),
+            pid: self.server.process().pid,
+            distro: self.server.process().distro_name(),
             session: self.session.clone(),
             password: self.server.password().to_owned(),
         }

@@ -962,8 +962,15 @@ impl App {
 
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
         let server = match &node.server {
-            Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
-            None => None,
+            Some(
+                ServerLink::Codex {
+                    pid, distro: None, ..
+                }
+                | ServerLink::OpenCode2 {
+                    pid, distro: None, ..
+                },
+            ) => *pid,
+            _ => None,
         };
         [self.host.pid(node.id), server]
             .into_iter()

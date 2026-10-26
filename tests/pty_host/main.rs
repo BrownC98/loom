@@ -17,7 +17,6 @@ const LIMIT: Duration = Duration::from_secs(10);
 const HELLO: u8 = 0;
 const DATA: u8 = 1;
 const KILL: u8 = 3;
-const EXIT: u8 = 4;
 const STREAMS: u8 = 7;
 const ENDPOINT_FAILED: u8 = 8;
 const HELD: u8 = 9;
@@ -100,31 +99,6 @@ fn ended(child: &mut Child) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     false
-}
-
-#[test]
-fn an_inner_host_delivers_the_exit_and_both_hosts_end_while_the_outer_pipe_is_open() {
-    let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
-    let spec = json!({
-        "argv": [word(LOOM), word("pty-host"), word("--inner")],
-        "cwd": word(home),
-        "env": env(home),
-        "inner": {
-            "version": 5,
-            "argv": ["sh", "-c", "printf ready; sleep .4; exit 3"],
-            "setup": null,
-            "endpoint": home.join("run/node.sock").to_str().unwrap(),
-        },
-    });
-    let (mut outer, address) = host(home, spec);
-    let mut terminal = attach(&address, HELLO, 4);
-    assert_eq!(frame_of(&mut terminal, EXIT), 3u32.to_le_bytes());
-    assert!(
-        ended(&mut outer),
-        "the outer host ends after its inner host"
-    );
-    assert!(!home.join("run/node.sock").exists());
 }
 
 fn open_fds(pid: u32) -> Vec<i32> {

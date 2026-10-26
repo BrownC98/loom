@@ -2,7 +2,6 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::net::TcpStream;
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
@@ -56,7 +55,7 @@ async fn serve(
             accepted = listener.accept(), if accepting => match accepted {
                 Ok(conn) => match &mux {
                     Some((open, _)) if !open.is_closed() => {
-                        carried.spawn(splice(conn, open.open()));
+                        carried.spawn(tunnel::splice(conn, open.open()));
                     }
                     _ => {
                         mux = None;
@@ -75,7 +74,7 @@ async fn serve(
             link = links.recv() => match link.map(|link| attach(link, held.len())) {
                 Some(Ok((opener, events))) => {
                     for conn in held.drain(..) {
-                        carried.spawn(splice(conn, opener.open()));
+                        carried.spawn(tunnel::splice(conn, opener.open()));
                     }
                     mux = Some((opener, events));
                     accepting = true;
@@ -102,27 +101,6 @@ fn attach(mut link: TcpStream, held: usize) -> io::Result<Opened> {
     link.set_nonblocking(true)?;
     let (reader, writer) = tokio::net::TcpStream::from_std(link)?.into_split();
     Ok(tunnel::start(reader, writer))
-}
-
-pub(super) async fn splice<A, B>(near: A, far: B)
-where
-    A: AsyncRead + AsyncWrite,
-    B: AsyncRead + AsyncWrite,
-{
-    let (mut from_near, mut to_near) = tokio::io::split(near);
-    let (mut from_far, mut to_far) = tokio::io::split(far);
-    let request = async {
-        let _ = tokio::io::copy(&mut from_near, &mut to_far).await;
-        let _ = to_far.shutdown().await;
-        std::future::pending::<()>().await
-    };
-    let answer = async {
-        let _ = tokio::io::copy(&mut from_far, &mut to_near).await;
-    };
-    tokio::select! {
-        () = request => {}
-        () = answer => {}
-    }
 }
 
 #[cfg(unix)]

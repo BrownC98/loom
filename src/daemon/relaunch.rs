@@ -15,7 +15,8 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{
-    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan, Who,
+    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan,
+    ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
@@ -172,14 +173,7 @@ async fn relaunch(
 ) -> Result<Relaunched, Problem> {
     let node = match &req.name {
         None => caller,
-        Some(name) => {
-            let (id, _) = app.graph.related(caller, name)?;
-            let parent = app.graph.relations(id)?.parent;
-            if parent.map(|p| p.id) != Some(caller) {
-                return Err(Refusal::NotChild(name.clone()).into());
-            }
-            id
-        }
+        Some(name) => app.graph.any_node(caller, name)?,
     };
     let plan = req.to.map_or(Plan::Resume, Plan::Switch);
     app.relaunch_by_id(node, plan).await
@@ -309,7 +303,7 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let asleep = self.graph.asleep(id).map_err(internal)?;
+        let asleep = self.graph.process(id).map_err(internal)? == Some(ProcessOutcome::Asleep);
         let notice = match asleep {
             true => WOKEN_NOTICE,
             false => REVIVED_NOTICE,

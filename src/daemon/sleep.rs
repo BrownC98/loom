@@ -11,6 +11,7 @@ use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
 use crate::graph::{
     Active, AgentChange, AgentEvent, AgentState, Entry, IdleEnd, NodeId, Phase, Plan,
+    ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::{self, Profile, claude};
@@ -180,14 +181,14 @@ impl App {
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
         match change.to {
-            AgentState::Deaf => {}
-            AgentState::Blocked { .. } => return,
+            Some(AgentState::Deaf) => {}
+            Some(AgentState::Blocked { .. }) => return,
             _ => return self.relaunches.heard(change.node),
         }
         let lost = match change.by {
             AgentEvent::WaitClosed {
                 by: IdleEnd::Gone | IdleEnd::Error,
-            } => change.from == AgentState::Listening,
+            } => change.from == Some(AgentState::Listening),
             AgentEvent::ServerLost | AgentEvent::DialogCleared => true,
             AgentEvent::TurnEnded | AgentEvent::RelaunchFailed => false,
             _ => self.relaunches.held(change.node),
@@ -348,7 +349,7 @@ impl App {
             }
         }
         for id in knocked {
-            if !waking.contains(&id) && self.graph.asleep(id)? {
+            if !waking.contains(&id) && self.graph.process(id)? == Some(ProcessOutcome::Asleep) {
                 waking.push(id);
             }
         }

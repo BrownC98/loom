@@ -400,7 +400,7 @@ impl App {
             ))
         });
         let host = NodeHost::new(pty_dir.join("nodes.screens")).with_links(links);
-        let turn_ends = turn_end::TurnEnds::stored(graph.clone()).map_err(std::io::Error::other)?;
+        let turn_ends = turn_end::TurnEnds::new(graph.clone());
         let app = App {
             repos,
             host: match &distros {

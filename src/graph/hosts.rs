@@ -50,7 +50,7 @@ impl Graph {
         self.lock()
             .prepare(
                 "SELECT node FROM node_hosts JOIN nodes ON nodes.id = node
-                 WHERE unreached IS NOT NULL AND process_exited = 0 ORDER BY node",
+                 WHERE unreached IS NOT NULL AND process IS NULL ORDER BY node",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
             .collect()

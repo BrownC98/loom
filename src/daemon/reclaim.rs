@@ -48,13 +48,13 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
     if !still_merged(dir, only_owner, branch, &round.target).await? {
         return app
             .graph
-            .note_from_loom(round.told, &moved(branch, &round))
+            .note_reclaim(&round, &moved(branch, &round))
             .map_err(text);
     }
     if only_owner.is_some() && dirty(&path).await? {
         return app
             .graph
-            .note_from_loom(round.told, &kept(branch, &round))
+            .note_reclaim(&round, &kept(branch, &round))
             .map_err(text);
     }
     remove(app, round.owner).map_err(text)?;
@@ -64,12 +64,12 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
     {
         return app
             .graph
-            .note_from_loom(round.told, &changed(branch, &round, &e.to_string()))
+            .note_reclaim(&round, &changed(branch, &round, &e.to_string()))
             .map_err(text);
     }
     if let Some(cause) = delete_merged(dir, branch, &round.target).await? {
         app.graph
-            .note_from_loom(round.told, &remote_kept(branch, &cause))
+            .note_reclaim(&round, &remote_kept(branch, &cause))
             .map_err(text)?;
     }
     Ok(())

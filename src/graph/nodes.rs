@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::{
-    CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, REACHABLE, Toward, ambiguous,
-    from_json, hosts, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of,
-    to_json, waits,
+    CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
+    Work, ambiguous, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json,
+    parent_of, place_label, place_of, process_of, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::protocol::{
@@ -198,7 +198,7 @@ impl Graph {
              AND parent IS NULL AND state = ?2
              AND NOT EXISTS(SELECT 1 FROM nodes WHERE parent = ?1)
              AND NOT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 OR recipient = ?1))",
-            params![id.0, to_json(&NodeState::Running)],
+            params![id.0, to_json(&Work::Running)],
             |row| row.get(0),
         )?;
         if !eligible {
@@ -225,14 +225,16 @@ impl Graph {
     }
 
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
-        let code = Some(code);
-        let what = |node| MessageKind::Exited { node, code };
-        self.end_process(id, NodeState::Exited { code }, what, String::new())
+        let what = |node| MessageKind::Exited {
+            node,
+            code: Some(code),
+        };
+        self.end_process(id, ProcessOutcome::Exited { code }, what, String::new())
     }
 
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
         let what = |node| MessageKind::Exited { node, code: None };
-        self.end_process(id, NodeState::Exited { code: None }, what, String::new())
+        self.end_process(id, ProcessOutcome::Lost, what, String::new())
     }
 
     pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
@@ -242,13 +244,13 @@ impl Graph {
         }
         let what = |node| MessageKind::SetupFailed { node, code };
         let output = output[start..].to_owned();
-        self.end_process(id, NodeState::SetupFailed { code }, what, output)
+        self.end_process(id, ProcessOutcome::SetupFailed { code }, what, output)
     }
 
     fn end_process(
         &self,
         id: NodeId,
-        ended: NodeState,
+        ended: ProcessOutcome,
         what: impl FnOnce(String) -> MessageKind,
         notice: String,
     ) -> rusqlite::Result<()> {
@@ -260,8 +262,8 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process_exited = 1, wait = NULL WHERE id = ?1 AND process_exited = 0",
-            [id.0],
+            "UPDATE nodes SET process = ?2, wait = NULL WHERE id = ?1 AND process IS NULL",
+            params![id.0, to_json(&ended)],
         )?;
         if changed == 0 {
             return Ok(());
@@ -269,9 +271,9 @@ impl Graph {
         hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
+        note_state(&tx, id, state.clone())?;
         if state == NodeState::Running {
             let what = what(name_of(&tx, id)?);
-            set_state(&tx, id, &ended)?;
             mailbox::enqueue(
                 &tx,
                 id,
@@ -296,7 +298,7 @@ impl Graph {
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
             .prepare(&format!(
-                "{LAUNCH_COLUMNS} WHERE process_exited = 0 ORDER BY id"
+                "{LAUNCH_COLUMNS} WHERE process IS NULL ORDER BY id"
             ))?
             .query_map([], launch_row)?
             .collect()
@@ -305,7 +307,7 @@ impl Graph {
     pub fn done_children(&self) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare(
-                "SELECT id FROM nodes WHERE process_exited = 0 AND parent IS NOT NULL
+                "SELECT id FROM nodes WHERE process IS NULL AND parent IS NOT NULL
                  AND wait IS NULL AND state ->> 'kind' = 'done' ORDER BY id",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
@@ -317,9 +319,9 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process_exited = 1, asleep = 1, sleeping = 0, wait = NULL
-             WHERE id = ?1 AND process_exited = 0 AND state ->> 'kind' = 'done'",
-            [id.0],
+            "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL
+             WHERE id = ?1 AND process IS NULL AND state ->> 'kind' = 'done'",
+            params![id.0, to_json(&ProcessOutcome::Asleep)],
         )?;
         if changed == 0 {
             return Ok(false);
@@ -359,9 +361,9 @@ impl Graph {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let changed = tx.execute(
-            "UPDATE nodes SET asleep = 1
-             WHERE id = ?1 AND process_exited = 1 AND state ->> 'kind' = 'done'",
-            [id.0],
+            "UPDATE nodes SET process = ?2
+             WHERE id = ?1 AND process IS NOT NULL AND state ->> 'kind' = 'done'",
+            params![id.0, to_json(&ProcessOutcome::Asleep)],
         )?;
         if changed == 0 {
             return Ok(());
@@ -372,8 +374,8 @@ impl Graph {
         Ok(())
     }
 
-    pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
-        asleep(&self.lock(), id)
+    pub fn process(&self, id: NodeId) -> rusqlite::Result<Option<ProcessOutcome>> {
+        process_of(&self.lock(), id)
     }
 
     pub fn reachable(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -387,25 +389,28 @@ impl Graph {
     pub fn sleep_lost(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let ended_done = tx
-            .query_row(
-                "SELECT state ->> 'kind' = 'done' AND process_exited = 1 FROM nodes WHERE id = ?1",
-                [id.0],
-                |row| row.get(0),
-            )
-            .optional()?
-            .unwrap_or(false);
-        if !ended_done {
+        let Some(from) = state_of(&tx, id).optional()? else {
+            return Ok(());
+        };
+        agent_state::apply(&tx, id, AgentEvent::Exited)?;
+        let changed = tx.execute(
+            "UPDATE nodes SET process = ?2, state = ?3
+             WHERE id = ?1 AND process IS NOT NULL AND state ->> 'kind' = 'done'",
+            params![
+                id.0,
+                to_json(&ProcessOutcome::Lost),
+                to_json(&Work::Running)
+            ],
+        )?;
+        if changed == 0 {
             return Ok(());
         }
+        note_state(&tx, id, from)?;
         let parent = parent_of(&tx, id)?;
         let what = MessageKind::Exited {
             node: name_of(&tx, id)?,
             code: None,
         };
-        agent_state::apply(&tx, id, AgentEvent::Exited)?;
-        tx.execute("UPDATE nodes SET asleep = 0 WHERE id = ?1", [id.0])?;
-        set_state(&tx, id, &NodeState::Exited { code: None })?;
         mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -419,7 +424,7 @@ impl Graph {
     pub fn ended(&self, id: NodeId) -> rusqlite::Result<Option<Active>> {
         self.lock()
             .query_row(
-                &format!("{LAUNCH_COLUMNS} WHERE id = ?1 AND process_exited = 1"),
+                &format!("{LAUNCH_COLUMNS} WHERE id = ?1 AND process IS NOT NULL"),
                 [id.0],
                 launch_row,
             )
@@ -453,6 +458,9 @@ impl Graph {
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        let Some(from) = state_of(&tx, id).optional()? else {
+            return Ok(());
+        };
         agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
         keep(&tx, id, launched)?;
         let cleared = tx.execute(
@@ -460,17 +468,10 @@ impl Graph {
             [id.0],
         )? + changed(&tx)?;
         let revived = tx.execute(
-            "UPDATE nodes SET process_exited = 0, asleep = 0, sleeping = 0 WHERE id = ?1 AND process_exited = 1",
+            "UPDATE nodes SET process = NULL, sleeping = 0 WHERE id = ?1 AND process IS NOT NULL",
             [id.0],
         )? > 0;
-        if revived
-            && matches!(
-                state_of(&tx, id)?,
-                NodeState::Exited { .. } | NodeState::SetupFailed { .. }
-            )
-        {
-            set_state(&tx, id, &NodeState::Running)?;
-        }
+        note_state(&tx, id, from)?;
         tx.commit()?;
         if revived || cleared > 0 {
             self.publish_node(&db, id)?;
@@ -491,14 +492,15 @@ impl Graph {
         let read = |id: NodeId| -> rusqlite::Result<Peer> {
             let agent_state = agent_state::state_of(&db, id)?;
             db.query_row(
-                "SELECT name, state, process_exited FROM nodes WHERE id = ?1",
+                "SELECT name, state, process FROM nodes WHERE id = ?1",
                 [id.0],
                 |row| {
+                    let process = optional_json(row, 2)?;
                     Ok(Peer {
                         id,
                         name: row.get(0)?,
-                        state: from_json(row, 1)?,
-                        alive: !row.get::<_, bool>(2)?,
+                        state: node_state(from_json(row, 1)?, process),
+                        alive: process.is_none(),
                         agent_state,
                     })
                 },
@@ -523,17 +525,18 @@ impl Graph {
         let listed = db
             .prepare(
                 "SELECT n.id, n.name, n.parent, coalesce(r.path, ''), coalesce(n.worktree, ''),
-                 n.state, n.process_exited
+                 n.state, n.process
                  FROM nodes n LEFT JOIN repos r ON r.id = n.repo ORDER BY n.id",
             )?
             .query_map([], |row| {
+                let process = optional_json(row, 6)?;
                 Ok(Listed {
                     id: NodeId(row.get(0)?),
                     name: row.get(1)?,
                     parent: row.get::<_, Option<u32>>(2)?.map(NodeId),
                     place: place_label(&row.get::<_, String>(3)?, &row.get::<_, String>(4)?),
-                    state: from_json(row, 5)?,
-                    alive: !row.get::<_, bool>(6)?,
+                    state: node_state(from_json(row, 5)?, process),
+                    alive: process.is_none(),
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -581,20 +584,43 @@ impl Graph {
         Ok(())
     }
 
-    pub fn turn_flags(&self) -> rusqlite::Result<Vec<(NodeId, u8)>> {
-        self.lock()
-            .prepare("SELECT id, turn_flags FROM nodes WHERE turn_flags != 0")?
-            .query_map([], |row| Ok((NodeId(row.get(0)?), row.get(1)?)))?
-            .collect()
-    }
-
-    pub fn set_turn_flags(&self, id: NodeId, flags: u8) -> rusqlite::Result<()> {
+    pub fn add_turn_flag(&self, id: NodeId, bit: u8) -> rusqlite::Result<()> {
         self.lock()
             .execute(
-                "UPDATE nodes SET turn_flags = ?2 WHERE id = ?1 AND turn_flags != ?2",
-                params![id.0, flags],
+                "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1 AND turn_flags & ?2 != ?2",
+                params![id.0, bit],
             )
             .map(drop)
+    }
+
+    pub fn clear_turn_flag(&self, id: NodeId, bit: u8) -> rusqlite::Result<()> {
+        self.lock()
+            .execute(
+                "UPDATE nodes SET turn_flags = turn_flags & ~?2 WHERE id = ?1 AND turn_flags & ?2 != 0",
+                params![id.0, bit],
+            )
+            .map(drop)
+    }
+
+    pub fn take_turn_flags(&self, id: NodeId) -> rusqlite::Result<u8> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let flags = tx
+            .query_row(
+                "SELECT turn_flags FROM nodes WHERE id = ?1",
+                params![id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if flags != 0 {
+            tx.execute(
+                "UPDATE nodes SET turn_flags = 0 WHERE id = ?1",
+                params![id.0],
+            )?;
+        }
+        tx.commit()?;
+        Ok(flags)
     }
 
     pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {
@@ -1078,7 +1104,7 @@ pub(super) fn check_spent(
     let spent = db
         .prepare(
             r#"SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1
-             AND c.state ->> 'kind' = 'done' AND c.process_exited = 1 AND c.role IS NOT NULL
+             AND c.state ->> 'kind' = 'done' AND c.process IS NOT NULL AND c.role IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
                  AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))
              ORDER BY c.id"#,
@@ -1107,16 +1133,6 @@ pub(super) fn check_spent(
     })
 }
 
-fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
-    db.query_row(
-        "SELECT asleep = 1 FROM nodes WHERE id = ?1",
-        [id.0],
-        |row| row.get(0),
-    )
-    .optional()
-    .map(|asleep| asleep.unwrap_or(false))
-}
-
 fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
     let mut number = 1;
     loop {
@@ -1130,16 +1146,6 @@ fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
             return Ok(name);
         }
         number += 1;
-    }
-}
-
-fn optional_json<T: serde::de::DeserializeOwned>(
-    row: &rusqlite::Row,
-    idx: usize,
-) -> rusqlite::Result<Option<T>> {
-    match row.get::<_, Option<String>>(idx)? {
-        Some(_) => from_json(row, idx).map(Some),
-        None => Ok(None),
     }
 }
 
@@ -1211,7 +1217,7 @@ fn insert(
             name,
             to_json(agent),
             parent.map(|p| p.0),
-            to_json(&NodeState::Running),
+            to_json(&Work::Running),
             place.repo.0,
             place.worktree,
         ],
@@ -1220,6 +1226,7 @@ fn insert(
         return Err(Refusal::NoRepo);
     }
     let id = NodeId(db.last_insert_rowid() as u32);
+    agent_state::start(db, id)?;
     let entry = Entry::Created {
         node: events::Who {
             id: Some(id),

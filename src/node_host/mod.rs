@@ -16,7 +16,7 @@ use portable_pty::CommandBuilder;
 use tokio::sync::{broadcast, watch};
 
 use crate::distro::{self, Distros, Unreached};
-use crate::process_tree::{self, Snapshot};
+use crate::process_tree::{self, Identity, Snapshot};
 use crate::screen::Screen;
 use wire::Frame;
 
@@ -132,7 +132,6 @@ impl Address {
 
 struct Pty {
     pid: Mutex<Option<u32>>,
-    guarded: Mutex<Vec<u32>>,
     host: Mutex<TcpStream>,
     output: Mutex<Output>,
     size: watch::Sender<PtySize>,
@@ -285,7 +284,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         };
         let pty = Arc::new(Pty {
             pid: Mutex::new(pid),
-            guarded: Mutex::default(),
             host: Mutex::new(host),
             output: Mutex::new(Output {
                 backlog: Backlog::default(),
@@ -532,31 +530,27 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
-    pub fn guard(&self, id: K, caller: u32) {
-        let Some(pty) = self.pty(id) else { return };
-        let root = *pty.pid.lock().unwrap();
-        let Some(shell) = root.and_then(|root| Snapshot::now().child_on_path(root, caller)) else {
-            return;
-        };
-        let mut shells = pty.guarded.lock().unwrap();
-        if !shells.contains(&shell) {
-            shells.push(shell);
-        }
-        process_tree::alive(&mut shells);
+    pub fn guarded_shell(&self, id: K, caller: u32) -> Option<Identity> {
+        let root = self.pid(id)?;
+        let snapshot = Snapshot::now();
+        snapshot.identity(snapshot.child_on_path(root, caller)?)
     }
 
-    pub fn stop_guarded(&self, id: K) -> usize {
-        let Some(pty) = self.pty(id) else { return 0 };
-        let shells = std::mem::take(&mut *pty.guarded.lock().unwrap());
-        let Some(root) = pty.pid.lock().unwrap().filter(|_| !shells.is_empty()) else {
-            return 0;
+    pub fn stop_guarded(&self, id: K, shells: &[Identity]) -> bool {
+        let Some(root) = self.pid(id) else {
+            return false;
         };
         let snapshot = Snapshot::now();
         snapshot.kill_trees(
             shells
-                .into_iter()
-                .filter(|&shell| snapshot.descends(shell, root)),
-        )
+                .iter()
+                .filter(|shell| {
+                    snapshot.descends(shell.pid, root)
+                        && snapshot.identity(shell.pid) == Some(**shell)
+                })
+                .map(|shell| shell.pid),
+        );
+        true
     }
 
     pub fn pid(&self, id: K) -> Option<u32> {

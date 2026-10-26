@@ -1,5 +1,6 @@
 use super::runtime::bearer;
 use super::*;
+use crate::process_tree::Identity;
 
 pub(super) fn node_routes() -> Router<Arc<App>> {
     Router::new()
@@ -138,8 +139,10 @@ pub enum IdleReply {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GuardRequest {
-    pub caller: u32,
+#[serde(untagged)]
+pub enum GuardRequest {
+    Pc { caller: u32 },
+    Inside { shell: u32, birth: i64 },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -345,8 +348,15 @@ pub(super) async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    if app.node_wsl(Some(node)).map_err(for_agent)?.is_none() {
-        app.host.guard(node, req.caller);
+    let shell = match (req, app.node_wsl(Some(node)).map_err(for_agent)?) {
+        (GuardRequest::Pc { caller }, None) => app.host.guarded_shell(node, caller),
+        (GuardRequest::Inside { shell, birth }, Some(_)) => Some(Identity { pid: shell, birth }),
+        _ => None,
+    };
+    if let Some(shell) = shell {
+        app.graph
+            .guard(node, shell)
+            .map_err(|e| for_agent(Refusal::from(e)))?;
     }
     Ok(Json(()))
 }

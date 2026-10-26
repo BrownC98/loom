@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use portable_pty::CommandBuilder;
 
 use crate::distro::{self, Distro};
+use crate::process_tree::Identity;
 use crate::protocol::InsideError;
 use crate::tunnel::ENDPOINT_ENV;
 
@@ -264,27 +265,46 @@ exit 0"#;
     end_found(distro, sh(script, args)).await
 }
 
-const MARKS: &str = r#"started() { s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${s##*) }; shift 19; echo "$1"; }
-marks=/tmp/loom-guard-$(id -u)"#;
-
-pub async fn end_shells(distro: &Distro, token: &str) -> Result<(), String> {
-    end_found(distro, sh(&end_shells_script(), [token])).await
+pub async fn end_shells(distro: &Distro, token: &str, shells: &[Identity]) -> Result<(), String> {
+    let marks: Vec<String> = shells
+        .iter()
+        .map(|shell| format!("{}.{}", shell.pid, shell.birth))
+        .collect();
+    let args = std::iter::once(token).chain(marks.iter().map(String::as_str));
+    end_found(distro, sh(&end_shells_script(), args)).await
 }
 
 fn end_shells_script() -> String {
     format!(
-        r#"{MARKS}
-token=$1 dir=$marks/$1
-[ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || exit 0
-for f in "$dir"/*.*; do
-  [ -e "$f" ] || continue
-  m=${{f##*/}} pid=${{m%.*}}
-  rm -f "$f"
+        r#"started() {{ s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${{s##*) }}; shift {STAT_START}; echo "$1"; }}
+token=$1; shift
+for m; do
+  pid=${{m%.*}}
   [ "$(started "$pid")" = "${{m#*.}}" ] || continue
   tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && echo "$pid"
 done
 exit 0"#
     )
+}
+
+const STAT_PARENT: usize = 1;
+const STAT_START: usize = 19;
+
+pub fn parent_shell() -> Option<Identity> {
+    daemon_distro()?;
+    let pid: u32 = stat_field("self", STAT_PARENT)?;
+    let birth = stat_field(&pid.to_string(), STAT_START)?;
+    Some(Identity { pid, birth })
+}
+
+fn stat_field<T: std::str::FromStr>(pid: &str, at: usize) -> Option<T> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(at)?
+        .parse()
+        .ok()
 }
 
 async fn end_found(distro: &Distro, find: distro::Command) -> Result<(), String> {
@@ -398,7 +418,7 @@ pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
 pub const LINUX_LOOM: &str = "loom-linux";
 pub const WINDOWS_VERBS: &[&str] = &[
-    "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host", "guard",
+    "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host",
 ];
 const LINUX_HASH_HEX: usize = 12;
 
@@ -675,20 +695,8 @@ esac
     };
     let text = format!(
         r#"#!/bin/sh
-if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
-{MARKS}
-  dir=$marks/$LOOM_TOKEN
-  mkdir -m 700 "$marks" "$dir" 2>/dev/null
-  for d in "$marks" "$dir"; do [ -O "$d" ] && [ ! -L "$d" ] || exit 0; done
-  for f in "$dir"/*.*; do
-    [ -e "$f" ] || continue
-    m=${{f##*/}}
-    [ "$(started "${{m%.*}}")" = "${{m#*.}}" ] || rm -f "$f"
-  done
-  : >"$dir/$PPID.$(started $PPID)"
-  exit 0
-fi
-{through_endpoint}exec "$(wslpath -u '{exe}')" "$@"
+{through_endpoint}[ "$1" = guard ] && exit 0
+exec "$(wslpath -u '{exe}')" "$@"
 "#,
         exe = quoted(exe),
     );

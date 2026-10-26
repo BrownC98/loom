@@ -283,8 +283,16 @@ impl Outage {
 }
 
 pub fn guard() -> Result<(), String> {
-    let caller = std::process::id();
-    Ok(call::<()>("guard", &GuardRequest { caller }, None)?)
+    let request = match crate::wsl::parent_shell() {
+        Some(shell) => GuardRequest::Inside {
+            shell: shell.pid,
+            birth: shell.birth,
+        },
+        None => GuardRequest::Pc {
+            caller: std::process::id(),
+        },
+    };
+    Ok(call::<()>("guard", &request, None)?)
 }
 
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {

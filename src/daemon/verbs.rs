@@ -13,12 +13,6 @@ pub(super) async fn agent_spawn(
 }
 
 async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<NodeId, Problem> {
-    let missing = task::missing_heads(&req.brief);
-    if !req.brief.trim().is_empty() && !missing.is_empty() {
-        return Err(
-            Refusal::MissingHeads(missing.iter().map(|h| (*h).to_owned()).collect()).into(),
-        );
-    }
     let place = app.graph.place_of(parent).map_err(Refusal::from)?;
     let tasks = app.tasks_for(&place.worktree).await?;
     let (dir, fresh) = match &req.worktree {

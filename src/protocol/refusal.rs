@@ -94,8 +94,6 @@ pub enum Refusal {
     BareLink(String),
     /// `loom ask` 질문이 선택지를 내놓는데 표준 꼴 `(A: … / B: …, 권장: A)`가 아니다. 받은편지함이 선택 단추를 만들지 못한다.
     BadChoices,
-    /// `loom spawn`의 지시문에 머리가 빠졌다. 값은 빠진 머리다.
-    MissingHeads(Vec<String>),
     /// `--doc`의 파일이나 사람이 읽는 글 속 `file://` 링크의 파일이 `show.sh`를 지난 user-doc HTML 그대로가 아니다. 값은 그 경로나 주소다.
     UncheckedDoc(String),
     /// `loom done --image`의 파일이 그림 파일(`IMAGE_EXTENSIONS`)이 아니거나 없다. 값은 그 경로다.
@@ -381,12 +379,6 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
-            Refusal::MissingHeads(missing) => write!(
-                f,
-                "The brief has no {} head. Give each head as a line that starts with the head and a colon (`Goal: …`) or as a markdown heading (`## Goal`). The heads are: {}.",
-                missing.join(", "),
-                crate::task::BRIEF_HEADS.join(", ")
-            ),
             Refusal::UncheckedDoc(path) => write!(
                 f,
                 "{path}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it."

@@ -636,7 +636,6 @@ const en = {
       rolesHaveParent: 'This node has a parent. Only a node that the human started changes the role table. Ask the parent.',
       bareLink: 'Write each web address and file path as a Markdown link with a label: [label](https://...) or [label](file:///...). The target has no spaces or parentheses (use %20, %28, %29).',
       badChoices: 'The question offers choices without the standard tail, so no buttons show. Ask again with (A: ... / B: ..., recommended: A).',
-      missingHeads: 'The brief has no {{value}} head. The heads are: Goal, Facts, Scope, Done when, Checks, Time.',
       uncheckedDoc: '{{value}}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it.',
       notImage: '{{value}}: --image takes an image file that exists (png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "The settings have no role '{{role}}'. The roles are: {{names}}.",

@@ -638,7 +638,6 @@ const ko: typeof en = {
       rolesHaveParent: '부모가 있는 노드입니다. 역할표는 사람이 띄운 노드만 바꿉니다. 부모에게 물으십시오.',
       bareLink: '주소와 파일 경로는 이름을 붙인 markdown 링크 [이름](https://…)나 [이름](file:///…)로 쓰십시오. 주소의 빈칸과 괄호는 %20·%28·%29로 적습니다.',
       badChoices: '질문이 표준 꼴이 아닌 선택지를 냈습니다. 단추가 뜨지 않으므로 (A: … / B: …, 권장: A) 꼴로 다시 물으십시오.',
-      missingHeads: '지시문에 {{value}} 머리가 없습니다. 머리는 Goal, Facts, Scope, Done when, Checks, Time입니다.',
       uncheckedDoc: '{{value}}: --doc은 show.sh를 지난 user-doc HTML 파일만 받습니다. user-doc style.html로 HTML 문서를 쓰고 show.sh를 돌린 뒤 붙이십시오.',
       notImage: '{{value}}: 있는 그림 파일만 붙입니다(png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "설정에 역할 '{{role}}'이 없습니다. 있는 역할: {{names}}",

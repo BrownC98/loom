@@ -1,3 +1,4 @@
+pub mod adapter;
 pub mod claude;
 pub mod codex;
 pub mod cursor;
@@ -19,9 +20,10 @@ use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, Model, ModelChoice,
     OpenQuestion, Prompt as ScreenPrompt, Provider, StartDigests, WaitKind,
 };
-use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Screen, Session};
+use crate::screen::{self, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
+use adapter::{Adapter, NoServer};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -144,27 +146,28 @@ pub trait ServerAdapter: Send {
     fn steer(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
 }
 
+pub fn adapter(profile: Profile) -> &'static dyn Adapter {
+    match profile {
+        Profile::Claude => &claude::Claude,
+        Profile::Codex => &codex::Codex,
+        Profile::OpenCode2 => &opencode2::OpenCode2,
+        Profile::Cursor => &cursor::Cursor,
+        Profile::Pi => &pi::Pi,
+        Profile::Omp => &omp::Omp,
+    }
+}
+
 impl Profile {
     pub fn provider(self) -> Option<Provider> {
-        match self {
-            Profile::Claude => Some(Provider::Claude),
-            Profile::Codex => Some(Provider::Codex),
-            Profile::OpenCode2 | Profile::Cursor | Profile::Pi | Profile::Omp => None,
-        }
+        adapter(self).facts().provider
     }
 
     pub fn hooked(self) -> bool {
-        match self {
-            Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp => true,
-            Profile::Codex | Profile::OpenCode2 => false,
-        }
+        adapter(self).facts().hooked
     }
 
     pub fn listens_at_start(self) -> bool {
-        match self {
-            Profile::Claude | Profile::Codex | Profile::OpenCode2 => true,
-            Profile::Cursor | Profile::Pi | Profile::Omp => false,
-        }
+        adapter(self).facts().listens_at_start
     }
 }
 
@@ -307,30 +310,30 @@ pub(crate) fn check_choice(id: &AgentId, choice: &ModelChoice) -> Result<(), Lau
     find(id).map_or(Ok(()), |agent| choice_args(agent, choice).map(drop))
 }
 
-pub const PINNED: [(Profile, &str); 2] = [
-    (Profile::Codex, "codex"),
-    (Profile::OpenCode2, opencode2::CMD),
-];
-
-pub fn version_warning(profile: Profile, version_output: &str) -> Option<VersionMismatch> {
-    match profile {
-        Profile::Codex => codex::version_warning(version_output),
-        Profile::OpenCode2 => opencode2::version_warning(version_output),
-        _ => None,
-    }
+fn profiles() -> impl Iterator<Item = Profile> {
+    CATALOG.iter().filter_map(|a| a.profile)
 }
 
-pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
-    pi::write_extensions(dir)?;
-    omp::write_extension(dir)
+pub fn pinned() -> Vec<(Profile, &'static str)> {
+    profiles()
+        .filter_map(|p| Some((p, adapter(p).facts().pinned?)))
+        .collect()
+}
+
+pub fn version_warning(profile: Profile, version_output: &str) -> Option<VersionMismatch> {
+    adapter(profile).version_warning(version_output)
+}
+
+pub fn install(dir: &Path) -> std::io::Result<()> {
+    profiles().try_for_each(|p| adapter(p).install(dir))
 }
 
 pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
-    PINNED
+    pinned()
         .into_iter()
         .filter_map(|(profile, cmd)| {
-            let output = match profile {
-                Profile::Codex => codex_version.map(str::to_owned),
+            let output = match cmd {
+                codex::CMD => codex_version.map(str::to_owned),
                 _ => installed_version(cmd),
             }?;
             Some((profile, version_warning(profile, &output)?))
@@ -371,7 +374,7 @@ const SHELL: [LinePrompt; 5] = [
 ];
 
 pub fn reads_screen(profile: Option<Profile>) -> bool {
-    profile != Some(Profile::OpenCode2)
+    profile.is_none_or(|p| adapter(p).screen().is_some())
 }
 
 pub fn wait(
@@ -379,27 +382,20 @@ pub fn wait(
     screen: &Screen,
     session: Session,
 ) -> Option<(WaitKind, String)> {
-    match agent_screen(profile) {
-        Some((_, dialogs)) => screen::find(dialogs, &screen.text, session),
+    match profile.map(|p| adapter(p).screen()) {
+        Some(Some((_, dialogs))) => screen::find(dialogs, &screen.text, session),
+        Some(None) => None,
         None => screen::line(&SHELL, &screen.to_cursor).map(|(text, _)| (WaitKind::Input, text)),
     }
 }
 
 pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt> {
-    match agent_screen(profile) {
-        Some((grammars, dialogs)) => {
+    match profile.map(|p| adapter(p).screen()) {
+        Some(Some((grammars, dialogs))) => {
             screen::prompt(grammars, dialogs, &screen.text, screen.cols.into())
         }
+        Some(None) => None,
         None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
-    }
-}
-
-fn agent_screen(profile: Option<Profile>) -> Option<(&'static [Grammar], &'static [Dialog])> {
-    match profile? {
-        Profile::Claude => Some((&[claude::PROMPT], &claude::DIALOGS)),
-        Profile::Codex => Some((&[codex::PROMPT], &codex::DIALOGS)),
-        Profile::Cursor => Some((&[cursor::PROMPT], &cursor::DIALOGS)),
-        Profile::OpenCode2 | Profile::Pi | Profile::Omp => Some((&[], &[])),
     }
 }
 
@@ -542,33 +538,30 @@ fn agent_command(
         });
     }
     let mut cmd = CommandBuilder::from_argv(argv);
-    cmd.args(leading_args(agent, resume, !bypass_off.contains(id)));
-    match (agent.profile, remote) {
-        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch, brief)),
-        (Some(Profile::Cursor), _) => {
-            cmd.args(cursor::args(plugin));
-            cmd.env(
-                cursor::POSITION_ENV,
-                cursor::position_value(launch.position),
-            );
-            cmd.env(cursor::SKILLS_ENV, cursor::skills_value(launch.skills));
+    let bypass: &[String] = if bypass_off.contains(id) {
+        &[]
+    } else {
+        &agent.bypass
+    };
+    match agent.profile.map(adapter) {
+        Some(adapter) => {
+            cmd.args(adapter.leading_args(resume, bypass));
+            adapter
+                .command(
+                    &mut cmd,
+                    adapter::Command {
+                        plugin,
+                        launch,
+                        brief,
+                        remote,
+                    },
+                )
+                .map_err(|NoServer| LaunchError::NoServer(agent.label.clone()))?;
         }
-        (Some(Profile::Pi), _) => cmd.args(pi::args(plugin, launch, brief)),
-        (Some(Profile::Omp), _) => cmd.args(omp::args(plugin, launch, brief)),
-        (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
-        (
-            Some(Profile::OpenCode2),
-            Some(Remote::OpenCode2 {
-                url,
-                session,
-                password,
-            }),
-        ) => {
-            cmd.args(opencode2::args(url, session));
-            cmd.env(opencode2::PASSWORD_ENV, password);
+        None => {
+            cmd.args(bypass);
+            cmd.args(&agent.args);
         }
-        (Some(_), _) => return Err(LaunchError::NoServer(agent.label.clone())),
-        (None, _) => cmd.args(&agent.args),
     }
     cmd.args(choice_args);
     let brief = brief.trim_end();
@@ -585,22 +578,6 @@ fn agent_command(
     Ok(cmd)
 }
 
-fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String> {
-    let mut args = match (agent.profile, resume) {
-        (Some(Profile::Claude | Profile::Cursor), Some(session)) => {
-            vec!["--resume".into(), session.into()]
-        }
-        (Some(Profile::Codex), Some(thread)) => return vec!["resume".into(), thread.into()],
-        (Some(Profile::Pi), Some(session)) => pi::resume_args(session),
-        (Some(Profile::Omp), Some(session)) => omp::resume_args(session),
-        _ => Vec::new(),
-    };
-    if bypass {
-        args.extend(agent.bypass.iter().cloned());
-    }
-    args
-}
-
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
 - loom spawn <name> --role <role> [--worktree <branch>]: create a child. The role's settings choose its agent, model and effort (loom roles lists them). Write its brief to a file and give --file <path>. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. Pick the role from loom roles by its duty. With no parent, each child needs --worktree or is a reviewer of your own branch.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
@@ -614,7 +591,10 @@ Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then 
 
 pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
     let mut digests = crate::skills::part_digests(launch);
-    digests.insert(usage_part(profile).to_owned(), usage_digest(profile));
+    digests.insert(
+        adapter(profile).facts().usage_part.to_owned(),
+        usage_digest(profile),
+    );
     digests
 }
 
@@ -626,53 +606,24 @@ pub fn changed_parts(got: &StartDigests) -> Vec<&str> {
 }
 
 fn current_digest(part: &str) -> Option<String> {
-    let profiles = [
-        Profile::Claude,
-        Profile::Codex,
-        Profile::OpenCode2,
-        Profile::Cursor,
-        Profile::Pi,
-        Profile::Omp,
-    ];
-    match profiles.into_iter().find(|p| usage_part(*p) == part) {
+    match profiles().find(|p| adapter(*p).facts().usage_part == part) {
         Some(profile) => Some(usage_digest(profile)),
         None => crate::skills::part_digest(part),
     }
 }
 
-fn usage_part(profile: Profile) -> &'static str {
-    match profile {
-        Profile::Claude => "usage/claude",
-        Profile::Codex => "usage/codex",
-        Profile::OpenCode2 => "usage/opencode2",
-        Profile::Cursor => "usage/cursor",
-        Profile::Pi => "usage/pi",
-        Profile::Omp => "usage/omp",
-    }
-}
-
 fn usage_digest(profile: Profile) -> String {
-    let waiting = match profile {
-        Profile::Claude => claude::WAITING,
-        Profile::Codex => codex::WAITING,
-        Profile::OpenCode2 => opencode2::WAITING,
-        Profile::Cursor => cursor::WAITING,
-        Profile::Pi => pi::WAITING,
-        Profile::Omp => omp::WAITING,
-    };
-    crate::skills::digest(&[COMMUNICATION_USAGE, waiting])
+    crate::skills::digest(&[COMMUNICATION_USAGE, adapter(profile).facts().waiting])
 }
 
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
-    match agent.profile {
-        _ if choice.is_empty() => Ok(Vec::new()),
-        Some(Profile::Claude) => Ok(claude::choice_args(choice)),
-        Some(Profile::Codex) => Ok(codex::choice_args(choice)),
-        Some(Profile::Cursor) => cursor::choice_args(choice)
-            .ok_or_else(|| LaunchError::NoModelChoice(agent.label.clone())),
-        Some(Profile::Pi | Profile::Omp) => Ok(pi::choice_args(choice)),
-        Some(Profile::OpenCode2) | None => Err(LaunchError::NoModelChoice(agent.label.clone())),
+    if choice.is_empty() {
+        return Ok(Vec::new());
     }
+    agent
+        .profile
+        .and_then(|p| adapter(p).choice_args(choice))
+        .ok_or_else(|| LaunchError::NoModelChoice(agent.label.clone()))
 }
 
 pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {

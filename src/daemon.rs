@@ -445,8 +445,7 @@ impl App {
                 let plugin =
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
                 for dir in plugin.dirs() {
-                    profile::cursor::write_plugin(&dir)?;
-                    profile::write_extensions(&dir)?;
+                    profile::install(&dir)?;
                 }
                 plugin
             },

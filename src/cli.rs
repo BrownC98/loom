@@ -1084,7 +1084,7 @@ mod tests {
         );
 
         let stale = dir.path().join("stale.sock");
-        drop(UnixListener::bind(&stale).unwrap());
+        crate::fake_exe::stale_socket(&stale);
         let started = Instant::now();
         let got = post_as::<()>(&Daemon::Endpoint(stale), "token", "note", &(), None, None);
         assert!(started.elapsed() < Duration::from_secs(1));
@@ -1210,7 +1210,7 @@ mod tests {
     fn a_node_without_a_reachable_endpoint_uses_loom_url() {
         let dir = tempfile::tempdir().unwrap();
         let stale = dir.path().join("stale.sock");
-        drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
+        crate::fake_exe::stale_socket(&stale);
         let mail =
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 3\r\n\r\n[7]";
         for endpoint in [None, Some(stale), Some(dir.path().join("none.sock"))] {

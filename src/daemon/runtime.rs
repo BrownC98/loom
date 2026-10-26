@@ -143,6 +143,9 @@ impl App {
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
         for node in self.graph.active()? {
+            if !self.graph.active()?.iter().any(|n| n.id == node.id) {
+                continue;
+            }
             let (codex, opencode2) = match node.server.clone() {
                 Some(ServerLink::Codex {
                     url,
@@ -183,8 +186,9 @@ impl App {
                 .flatten()
                 .and_then(|at| self.distro(&at.distro).ok());
             let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
-            let sleeping = self.graph.sleeping(node.id)?;
+            let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
             if let Err(unattached) = self.host.resume(node.id, on_exit) {
+                self.sleeps.exited(node.id);
                 if let Some(server) = &node.server {
                     self.stop_server(server);
                 }
@@ -204,6 +208,7 @@ impl App {
                 continue;
             }
             if !self.graph.active()?.iter().any(|n| n.id == node.id) {
+                self.sleeps.exited(node.id);
                 self.host.kill(node.id);
                 if let Some(server) = &node.server {
                     self.stop_server(server);

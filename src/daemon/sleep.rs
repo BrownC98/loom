@@ -499,9 +499,6 @@ impl App {
     }
 
     pub(super) fn sleep_again_after_start(self: &Arc<Self>, node: Active) {
-        if !self.sleeps.begin(node.id) {
-            return;
-        }
         let app = self.clone();
         tokio::spawn(async move { app.put_to_sleep(node).await });
     }

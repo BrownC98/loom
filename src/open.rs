@@ -213,13 +213,10 @@ mod tests {
         let log = dir.path().join("system.log");
         for name in ["xdg-open", "explorer.exe", "open"] {
             let fake = bin.join(name);
-            std::fs::write(
+            crate::fake_exe::write_executable(
                 &fake,
-                format!("#!/bin/sh\necho {name} >> '{}'\n", log.display()),
-            )
-            .unwrap();
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+                &format!("#!/bin/sh\necho {name} >> '{}'\n", log.display()),
+            );
         }
         let path = std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),

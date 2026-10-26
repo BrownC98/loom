@@ -136,8 +136,8 @@ fn a_node_whose_pty_host_is_gone_from_its_distro_is_gone() {
     let dir = tempfile::tempdir().unwrap();
     let hosts = dir.path().join("hosts");
     let (distros, local) = distro::local(dir.path().join("distros"), start_here);
-    let closed = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        .and_then(|l| l.local_addr())
+    let closed = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .and_then(|u| u.local_addr())
         .unwrap();
     std::fs::create_dir_all(&hosts).unwrap();
     std::fs::write(hosts.join("1"), format!("{closed}\n{DISTRO}")).unwrap();

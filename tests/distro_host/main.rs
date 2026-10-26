@@ -219,8 +219,11 @@ fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     pty_frame(&mut terminal, DATA, b"\n");
     assert_eq!(frame_of(&mut terminal, EXIT), 3u32.to_le_bytes());
 
-    let (_, gone) = ask(&address, json!({ "reach": node }));
-    assert_eq!(gone, json!("gone"));
+    let until = Instant::now() + LIMIT;
+    while ask(&address, json!({ "reach": node })).1 != json!("gone") {
+        assert!(Instant::now() < until, "the ended pty-host is gone");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     let mut other = TcpStream::connect(&address).unwrap();
     other.set_read_timeout(Some(LIMIT)).unwrap();

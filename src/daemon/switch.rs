@@ -110,7 +110,9 @@ impl App {
             .active()?
             .into_iter()
             .filter(|n| provider_of(n) == Some(provider))
-            .filter(|n| n.account.as_ref() != target && !self.relaunches.exiting(n.id))
+            .filter(|n| {
+                n.account.as_ref() != target && !self.graph.relaunch_stopping(n.id).unwrap_or(false)
+            })
             .filter(|n| self.distro_of(n.id).as_deref() == distro)
             .collect())
     }

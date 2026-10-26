@@ -315,6 +315,17 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN turn_flags INTEGER NOT NULL DEFAULT 0;",
     ),
     M::up("ALTER TABLE nodes DROP COLUMN branched_from;"),
+    M::up(
+        "CREATE TABLE recovery_attempts (
+            node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            cause TEXT NOT NULL,
+            mail INTEGER,
+            PRIMARY KEY (node, cause)
+        );
+        UPDATE agent_states SET state = state -> 'before' WHERE state ->> 'kind' = 'relaunching';
+        DELETE FROM events WHERE entry ->> 'kind' IN ('agentStateChanged', 'agentStateDisagreed')
+            AND (entry LIKE '%\"relaunching\"%' OR entry LIKE '%\"relaunchFailed\"%');",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -66,10 +66,9 @@ class Watch : Service() {
 
     override fun onDestroy() {
         stopped = true
-        turn++
         net.stop()
+        drop()
         main.removeCallbacksAndMessages(null)
-        socket?.cancel()
         manager.activeNotifications.filter { it.tag == WAIT_TAG }.forEach { manager.cancel(WAIT_TAG, it.id) }
         super.onDestroy()
     }
@@ -156,7 +155,7 @@ class Watch : Service() {
             stale = false
             return read()
         }
-        if (read == null) return
+        if (read == null) return dropped()
         waits = read
         show()
     }

@@ -6,6 +6,7 @@ export const CONNECT_LIMIT_MS = 5000;
 export interface Link {
   send: (data: string | Uint8Array<ArrayBuffer>) => void;
   beat: (quietMs: number | undefined) => void;
+  reopen: () => void;
   close: () => void;
 }
 
@@ -94,6 +95,12 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
     beat: (ms) => {
       limit = ms;
       watch(limit);
+    },
+    reopen: () => {
+      if (stopped) return;
+      abandon();
+      clearTimeout(retry);
+      retry = setTimeout(open, RECONNECT_MS);
     },
     close: () => {
       stopped = true;

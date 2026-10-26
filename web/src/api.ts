@@ -50,7 +50,7 @@ import type { UpdateView } from './gen/UpdateView';
 import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
-import { reconnecting } from './link';
+import { reconnecting, type Link } from './link';
 
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
@@ -166,7 +166,7 @@ function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
 }
 
-export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): () => void {
+export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): Pick<Link, 'reopen' | 'close'> {
   const link = reconnecting(socketUrl('/api/events'), {
     onOpen: () => onLink(true),
     onMessage: (e) => {
@@ -176,7 +176,7 @@ export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: bo
     },
     onDrop: () => onLink(false),
   });
-  return link.close;
+  return link;
 }
 
 export async function newBuildServed(): Promise<boolean> {

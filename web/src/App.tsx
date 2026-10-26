@@ -373,7 +373,10 @@ export function App() {
       if (reading) return void (again = true);
       reading = true;
       getNodes()
-        .then((views) => again || setNodes(new Map(views.map((view) => [view.id, view]))), () => {})
+        .then(
+          (views) => again || setNodes(new Map(views.map((view) => [view.id, view]))),
+          () => again || graph.reopen(),
+        )
         .finally(() => {
           reading = false;
           if (!again) return;
@@ -390,7 +393,7 @@ export function App() {
       void readSettings();
       setViewVersion((n) => n + 1);
     };
-    return watchGraph((event) => {
+    const graph = watchGraph((event) => {
       switch (event.kind) {
         case 'message':
           pulse(event.child, event.toward);
@@ -410,6 +413,7 @@ export function App() {
           notice.onRecord(event.record);
       }
     }, linked);
+    return graph.close;
   }, []);
 
   if (stopped)

@@ -687,6 +687,7 @@ const en = {
       notInRepo: 'This worktree no longer exists: {{value}}',
       original: 'The original checkout cannot be deleted or renamed.',
       detached: 'This worktree has a detached HEAD. There is no branch to rename.',
+      openRound: '{{value}} has an open loom ready round. Rename it after the round ends.',
       emptyBranch: 'Enter a branch name.',
       noCommit: 'This repository has no commits yet. Commit first, then create a worktree.',
       badName: 'Cannot use this as a folder name: “{{value}}”',

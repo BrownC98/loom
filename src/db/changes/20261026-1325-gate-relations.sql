@@ -1,0 +1,2 @@
+ALTER TABLE gates DROP COLUMN gate;
+ALTER TABLE gates DROP COLUMN target;

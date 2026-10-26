@@ -65,7 +65,9 @@ impl App {
     pub(super) async fn unreadied(&self, node: NodeId) -> Result<Option<String>, Refusal> {
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
-        if Path::new(&place.worktree) == repo || self.gate_of(node, &repo).await?.0 != node {
+        if Path::new(&place.worktree) == repo
+            || matches!(self.graph.gate_for(node)?, GateChoice::Parent { .. })
+        {
             return Ok(None);
         }
         branch_warning(&repo, &place.worktree, |branch, head| {
@@ -104,19 +106,11 @@ impl App {
     }
 
     async fn gate_of(&self, node: NodeId, repo: &Path) -> Result<(NodeId, String), Refusal> {
-        let base = base_branch(repo).await?;
         match self.graph.gate_for(node)? {
             GateChoice::Parent { gate, worktree } => {
-                let from = worktree::find(repo, &worktree)
-                    .await
-                    .map_err(git_problem)?
-                    .branch;
-                match from {
-                    Some(target) if target != base => Ok((gate, target)),
-                    _ => Ok((node, base)),
-                }
+                Ok((gate, target_of(repo, Some(&worktree)).await?))
             }
-            GateChoice::Owner => Ok((node, base)),
+            GateChoice::Owner => Ok((node, target_of(repo, None).await?)),
         }
     }
 
@@ -163,10 +157,28 @@ impl App {
             head: &mine.head,
         };
         let gate = match self.gated_repo(node)? {
-            true => self.graph.ready(node, &round, gate, Some(via))?,
+            true => self.graph.ready(node, &round, Some(via))?,
             false => self.graph.announce_ready(node, &round, gate, Some(via))?,
         };
         Ok(Readied { gate, target })
+    }
+}
+
+pub(super) async fn target_of(repo: &Path, gate_worktree: Option<&str>) -> Result<String, Refusal> {
+    let base = base_branch(repo).await?;
+    let Some(worktree) = gate_worktree else {
+        return Ok(base);
+    };
+    match worktree::find(repo, worktree)
+        .await
+        .map_err(git_problem)?
+        .branch
+    {
+        Some(branch) if branch != base => Ok(branch),
+        branch => Err(Refusal::Git(format!(
+            "the gate worktree {worktree} is {}; the gate must have its own branch there",
+            branch.map_or_else(|| "detached".to_owned(), |b| format!("on {b}"))
+        ))),
     }
 }
 

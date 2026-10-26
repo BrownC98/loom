@@ -689,6 +689,7 @@ const ko: typeof en = {
       notInRepo: '워크트리가 더 이상 없습니다: {{value}}',
       original: '원래 체크아웃은 삭제하거나 이름을 바꿀 수 없습니다.',
       detached: '분리된 HEAD 워크트리입니다. 이름을 바꿀 브랜치가 없습니다.',
+      openRound: '{{value}} 브랜치의 loom ready 차례가 열려 있습니다. 차례가 끝난 뒤 이름을 바꾸십시오.',
       emptyBranch: '브랜치 이름을 적으십시오.',
       noCommit: '첫 커밋 전 저장소입니다. 커밋한 뒤 워크트리를 만드십시오.',
       badName: '폴더 이름으로 쓸 수 없습니다: ‘{{value}}’',

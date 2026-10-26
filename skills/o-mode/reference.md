@@ -33,7 +33,7 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 
 The usage text gives the commands, the waits and the size limits. These rules are not in it:
 
-- At start and after an `adopted` notice, run `loom status` to see your current parent and children. If a send fails, first look at the relations and `alive`. Report to your parent. Send steer and interrupt messages only between a current parent and its children. Steer also goes between the reviewers of one branch.
+- At start and after an `adopted` notice, run `loom status` to see your current parent and children. If a send fails, first look at the relations and `alive`. Report to your parent.
 - A node number is not a message number. To ask a child something, send `loom note` and get a `loom done` or an answer. If an answer is refused because the parent changed, send the current parent the question's history and its result.
 - A question stays open after its time limit. Do not send the same question again automatically. Look at the relations and `alive`, then follow the supervision procedure.
 - `done` means that the work is complete, not that the process stopped. A done node with `alive: true` can receive feedback, and then it is running again. Spawn a node with `alive: false` again with a new name.
@@ -48,8 +48,8 @@ The usage text gives the commands, the waits and the size limits. These rules ar
 
 - Do not clean up unsaved changes or work that waits for a check, approval or merge. Also keep user nodes in use and the base checkout.
 - Before cleanup, run `git status --short` in that worktree. Look for uncommitted changes and untracked files. If review evidence is only in that folder, save it first. Do not clean up a worktree that a different task uses.
-- Remove a node with `loom rm <child name or number>`. You can remove only your own children. The process of that child stops too.
-- If the removed child had children, they become your children. Save their results, then remove them with `loom rm` too.
+- Remove a node with `loom rm <name or number>`. The process of that node stops too.
+- If the removed node had children, they become your children. Save their results, then remove them with `loom rm` too.
 - Remove an unmerged worktree from the base checkout with `git worktree remove <path>` after you remove its node. The daemon deletes merged branches. Do not force a deletion.
 - In the completion report, give each worktree that must stay: its path, reason, owner and cleanup condition. "Done" alone is not a reason to leave it.
 - Before the completion report, make sure of the cleanup with `git worktree list`, `git branch` and, if possible, `loom status`. A delete command alone does not show that the cleanup is complete.

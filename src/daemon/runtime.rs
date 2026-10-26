@@ -439,7 +439,6 @@ impl App {
                 {
                     app.draft_ended(id);
                 }
-                app.sleeps.settled(id);
             }
         });
     }

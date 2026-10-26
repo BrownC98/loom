@@ -185,10 +185,6 @@ impl App {
         self.pending(node).is_some()
     }
 
-    pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
-        self.pending(node) == Some(Phase::AtTurnEnd)
-    }
-
     fn pending(&self, node: NodeId) -> Option<Phase> {
         match self.graph.relaunch_plan(node) {
             Ok(plan) => plan.map(|(phase, _)| phase),

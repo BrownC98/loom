@@ -136,13 +136,6 @@ impl Profile {
             Profile::Cursor | Profile::Pi | Profile::Omp => false,
         }
     }
-
-    pub fn ends_turns_by_stop_hook(self) -> bool {
-        match self {
-            Profile::Claude | Profile::Cursor => true,
-            Profile::Codex | Profile::OpenCode2 | Profile::Pi | Profile::Omp => false,
-        }
-    }
 }
 
 pub enum Remote<'a> {

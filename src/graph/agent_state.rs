@@ -1,5 +1,3 @@
-use std::time::{Duration, SystemTime};
-
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -142,22 +140,15 @@ fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Option<AgentSt
 
 fn store(db: &Connection, node: NodeId, state: &AgentState) -> rusqlite::Result<()> {
     db.execute(
-        "INSERT INTO agent_states (node, state, changed_ns) VALUES (?1, ?2, ?3)
-         ON CONFLICT (node) DO UPDATE SET state = excluded.state, changed_ns = excluded.changed_ns",
-        params![node.0, to_json(state), nanos(SystemTime::now())],
+        "INSERT INTO agent_states (node, state) VALUES (?1, ?2)
+         ON CONFLICT (node) DO UPDATE SET state = excluded.state",
+        params![node.0, to_json(state)],
     )?;
     Ok(())
 }
 
 pub(super) fn start(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
     store(db, node, &AgentState::Starting)
-}
-
-fn nanos(at: SystemTime) -> i64 {
-    at.duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0, |since| {
-            i64::try_from(since.as_nanos()).unwrap_or(i64::MAX)
-        })
 }
 
 pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlite::Result<usize> {
@@ -241,19 +232,5 @@ impl Graph {
 
     pub fn agent_state(&self, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
         state_of(&self.lock(), node)
-    }
-
-    pub fn turn_began(&self, node: NodeId) -> rusqlite::Result<Option<SystemTime>> {
-        let began: Option<(String, i64)> = self
-            .lock()
-            .query_row(
-                "SELECT state, changed_ns FROM agent_states WHERE node = ?1",
-                [node.0],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        Ok(began
-            .filter(|(state, _)| serde_json::from_str(state).ok() == Some(AgentState::Turn))
-            .map(|(_, at)| SystemTime::UNIX_EPOCH + Duration::from_nanos(at.max(0).unsigned_abs())))
     }
 }

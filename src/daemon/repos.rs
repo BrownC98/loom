@@ -161,7 +161,8 @@ async fn create_worktree(
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
     let workspace = app.workspace(&repo).await?;
-    let made = worktree::create(&repo, &repo, &workspace, &req.branch, &req.base).await?;
+    let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
+    let made = worktree::create(&repo, &repo, &workspace, &req.branch, &req.base, unowned).await?;
     app.setup(&Place {
         repo: id,
         worktree: made,

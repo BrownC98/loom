@@ -1,6 +1,7 @@
 use super::*;
 use crate::distro::Distro;
 use crate::graph::{Active, Entry};
+use crate::process_tree::Identity;
 use crate::profile::process::Served;
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
@@ -686,10 +687,15 @@ impl App {
         Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
-    pub(super) fn end_guarded_inside(&self, node: NodeId) {
-        let Some(at) = self.node_wsl(Some(node)).ok().flatten() else {
+    pub(super) fn end_guarded_inside(
+        &self,
+        node: NodeId,
+        at: &wsl::WslPath,
+        shells: Vec<Identity>,
+    ) {
+        if shells.is_empty() {
             return;
-        };
+        }
         let token = self
             .graph
             .active()
@@ -701,7 +707,7 @@ impl App {
             return;
         };
         tokio::spawn(async move {
-            if let Err(e) = wsl::end_shells(&distro, &token).await {
+            if let Err(e) = wsl::end_shells(&distro, &token, &shells).await {
                 eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
             }
         });

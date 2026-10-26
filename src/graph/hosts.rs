@@ -1,13 +1,35 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{Graph, NodeId};
+use crate::process_tree::Identity;
 
 pub(super) fn drop_host(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
     db.execute("DELETE FROM node_hosts WHERE node = ?1", [node.0])
         .map(drop)
 }
 
+pub(super) fn take_guarded(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<Identity>> {
+    db.prepare("DELETE FROM guarded_commands WHERE node = ?1 RETURNING pid, birth")?
+        .query_map([node.0], |row| {
+            Ok(Identity {
+                pid: row.get(0)?,
+                birth: row.get(1)?,
+            })
+        })?
+        .collect()
+}
+
 impl Graph {
+    pub fn guard(&self, node: NodeId, shell: Identity) -> rusqlite::Result<()> {
+        self.lock()
+            .execute(
+                "INSERT OR IGNORE INTO guarded_commands (node, pid, birth)
+                 SELECT node, ?2, ?3 FROM node_hosts WHERE node = ?1",
+                params![node.0, shell.pid, shell.birth],
+            )
+            .map(drop)
+    }
+
     pub fn set_host(&self, node: NodeId, address: &str) -> rusqlite::Result<()> {
         self.lock()
             .execute(

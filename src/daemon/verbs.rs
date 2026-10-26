@@ -231,13 +231,21 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
         if req.mode == Kind::Interrupt && profile.hooked() {
-            let sent = app
-                .graph
-                .interrupt(from, &target, &req.body, Some(via), |to| {
-                    app.host.stop_guarded(to);
-                });
-            if sent.is_ok() {
-                app.end_guarded_inside(to);
+            let inside = wsl::of(std::path::Path::new(&app.graph.place_of(to)?.worktree));
+            let mut taken = Vec::new();
+            let sent =
+                app.graph.interrupt(
+                    from,
+                    &target,
+                    &req.body,
+                    Some(via),
+                    |to, shells| match inside {
+                        Some(_) => taken = shells,
+                        None => app.host.stop_guarded(to, &shells),
+                    },
+                );
+            if let (Ok(_), Some(at)) = (&sent, inside) {
+                app.end_guarded_inside(to, &at, taken);
             }
             return sent;
         }

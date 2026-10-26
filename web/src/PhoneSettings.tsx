@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { allowFirewall, createInvite, getPhone, removeDevice, startServe } from './api';
 import type { InviteView } from './gen/InviteView';
@@ -14,17 +14,18 @@ export function PhoneTab(props: { viewVersion: number }) {
   const [error, setError] = useState('');
   const [consent, setConsent] = useState('');
 
-  const refresh = useCallback(
-    () =>
-      getPhone().then(
-        (next) => {
-          setView(next);
-          if (!next.inviteOpen) setInvite(null);
-        },
-        (e: Error) => setError(e.message),
-      ),
-    [],
-  );
+  const opened = useRef(0);
+
+  const refresh = useCallback(() => {
+    const asked = opened.current;
+    return getPhone().then(
+      (next) => {
+        setView(next);
+        if (!next.inviteOpen && asked === opened.current) setInvite(null);
+      },
+      (e: Error) => setError(e.message),
+    );
+  }, []);
   useEffect(() => void refresh(), [refresh, props.viewVersion]);
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export function PhoneTab(props: { viewVersion: number }) {
   const open = () =>
     act(() =>
       createInvite().then((next) => {
+        opened.current += 1;
         setNow(Date.now());
         setInvite(next);
       }),

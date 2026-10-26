@@ -397,6 +397,8 @@ export function App() {
           newBuildServed()
             .then((stale) => stale && location.reload())
             .catch(() => {});
+          getSettings().then(showFetched);
+          setViewVersion((n) => n + 1);
           break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));

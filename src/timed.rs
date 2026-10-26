@@ -3,16 +3,51 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
-    #[cfg(unix)]
+#[cfg(unix)]
+pub fn own_group(cmd: &mut Command) {
+    std::os::unix::process::CommandExt::process_group(cmd, 0);
+}
+
+#[cfg(windows)]
+pub fn own_group(_: &mut Command) {}
+
+#[cfg(unix)]
+pub fn own_session(cmd: &mut Command) {
     unsafe {
-        std::os::unix::process::CommandExt::pre_exec(&mut cmd, || {
+        std::os::unix::process::CommandExt::pre_exec(cmd, || {
             if libc::setsid() == -1 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
         });
     }
+}
+
+#[cfg(windows)]
+pub fn own_session(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+}
+
+#[cfg(unix)]
+pub fn daemon_child(cmd: &mut Command) {
+    own_session(cmd);
+}
+
+#[cfg(windows)]
+pub fn daemon_child(cmd: &mut Command) {
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        unsafe { SetHandleInformation(GetStdHandle(which), HANDLE_FLAG_INHERIT, 0) };
+    }
+    own_session(cmd);
+}
+
+pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
+    own_session(&mut cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -184,7 +184,7 @@ pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String,
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
-    detach(&mut cmd);
+    crate::timed::own_group(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let sent = child
         .stdin
@@ -212,34 +212,6 @@ pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String,
     sent.and(line)
         .map(|line| line.trim().to_owned())
         .map_err(|e| e.to_string())
-}
-
-#[cfg(unix)]
-pub fn detach(cmd: &mut std::process::Command) {
-    std::os::unix::process::CommandExt::process_group(cmd, 0);
-}
-
-#[cfg(not(unix))]
-pub fn detach(_: &mut std::process::Command) {}
-
-#[cfg(unix)]
-pub fn new_session(cmd: &mut std::process::Command) {
-    use std::os::unix::process::CommandExt;
-    unsafe {
-        cmd.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-#[cfg(windows)]
-pub fn new_session(cmd: &mut std::process::Command) {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    cmd.creation_flags(DETACHED_PROCESS);
 }
 
 pub fn free_port() -> Result<u16, String> {

@@ -198,10 +198,9 @@ impl Batch<'_> {
                 let found = worktree::find(&self.dir, worktree)
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?;
-                if !worktree::changes(&found)
+                if worktree::dirty(Path::new(&found.path))
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?
-                    .is_empty()
                 {
                     self.dirty(&members, worktree);
                     return Ok(());

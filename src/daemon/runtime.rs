@@ -121,6 +121,7 @@ impl App {
             account: _,
             inside,
             rules: _,
+            position,
         } = prepared;
         self.first_inputs.launched(id, first_input);
         self.turn_ends.launched(id);
@@ -139,7 +140,17 @@ impl App {
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         self.ptys_changed.notify_waiters();
+        if self.position_of(id).is_ok_and(|now| now != position) {
+            self.position_changed(&[id]);
+        }
         Ok(())
+    }
+
+    pub(super) fn position_of(&self, id: NodeId) -> Result<Position, Refusal> {
+        Ok(match self.graph.relations(id)?.parent {
+            Some(_) => Position::Child,
+            None => Position::Root,
+        })
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
@@ -614,6 +625,7 @@ impl App {
             profile,
             codex,
             opencode2,
+            position,
             first_input: match start {
                 Start::Agent { brief, .. } => !brief.trim().is_empty(),
                 Start::Command { .. } => false,
@@ -716,6 +728,7 @@ pub(super) struct Prepared {
     pub(super) profile: Option<Profile>,
     pub(super) codex: Option<Arc<CodexServer>>,
     pub(super) opencode2: Option<Arc<opencode2::Node>>,
+    pub(super) position: Position,
     pub(super) first_input: bool,
 }
 

@@ -24,7 +24,6 @@ use crate::profile::{self, Profile, Start};
 use crate::protocol::{AgentId, MessageId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
-use crate::skills::Position;
 
 pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
 const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
@@ -850,11 +849,7 @@ impl App {
 
     async fn prepare_start(&self, id: NodeId, start: &Start) -> Result<super::Prepared, String> {
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
-        let position = match self.graph.relations(id) {
-            Ok(r) if r.parent.is_some() => Position::Child,
-            Ok(_) => Position::Root,
-            Err(e) => return Err(e.to_string()),
-        };
+        let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
         self.prepare(start, Path::new(&place.worktree), position, Some(&task))
             .await

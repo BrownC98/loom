@@ -123,19 +123,23 @@ impl Snapshot {
             .count()
     }
 
-    pub fn end_trees(&self, roots: impl IntoIterator<Item = u32>) -> Result<(), String> {
-        let pids: Vec<u32> = roots
-            .into_iter()
-            .flat_map(|root| subtree(&self.parents, root))
-            .collect();
-        let exits: Vec<Exit> = pids.iter().filter_map(|&pid| Exit::watch(pid)).collect();
-        for &pid in &pids {
-            if let Some(process) = self.system.process(Pid::from_u32(pid)) {
-                process.kill();
-            }
-        }
+    pub fn end_trees(&self, roots: Vec<u32>) -> Result<(), String> {
+        let watched: Vec<Result<Option<Exit>, String>> =
+            roots.iter().map(|&pid| Exit::watch(pid)).collect();
+        self.kill_trees(roots);
         let deadline = std::time::Instant::now() + END_WAIT;
-        exits.into_iter().try_for_each(|exit| exit.wait(deadline))
+        watched.into_iter().try_for_each(|watch| match watch? {
+            Some(exit) => exit.wait(deadline),
+            None => Ok(()),
+        })
+    }
+}
+
+fn unwatched(pid: u32, gone: i32) -> Result<Option<Exit>, String> {
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() == Some(gone) {
+        true => Ok(None),
+        false => Err(format!("cannot watch process {pid} for its end: {e}")),
     }
 }
 
@@ -156,14 +160,16 @@ struct Exit {
 
 #[cfg(target_os = "linux")]
 impl Exit {
-    fn watch(pid: u32) -> Option<Self> {
+    fn watch(pid: u32) -> Result<Option<Self>, String> {
         use std::os::fd::FromRawFd;
         let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-        let fd = libc::c_int::try_from(fd).ok().filter(|&fd| fd >= 0)?;
-        Some(Exit {
-            pid,
-            fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) },
-        })
+        match libc::c_int::try_from(fd) {
+            Ok(fd) if fd >= 0 => Ok(Some(Exit {
+                pid,
+                fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) },
+            })),
+            _ => unwatched(pid, libc::ESRCH),
+        }
     }
 
     fn wait(self, deadline: std::time::Instant) -> Result<(), String> {
@@ -198,11 +204,14 @@ struct Exit {
 
 #[cfg(target_os = "macos")]
 impl Exit {
-    fn watch(pid: u32) -> Option<Self> {
+    fn watch(pid: u32) -> Result<Option<Self>, String> {
         use std::os::fd::FromRawFd;
         let queue = unsafe { libc::kqueue() };
         if queue < 0 {
-            return None;
+            return Err(format!(
+                "cannot watch process {pid} for its end: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         let queue = unsafe { std::os::fd::OwnedFd::from_raw_fd(queue) };
         let change = libc::kevent {
@@ -224,7 +233,10 @@ impl Exit {
                 std::ptr::null(),
             )
         };
-        (added == 0).then_some(Exit { pid, queue })
+        match added {
+            0 => Ok(Some(Exit { pid, queue })),
+            _ => unwatched(pid, libc::ESRCH),
+        }
     }
 
     fn wait(self, deadline: std::time::Instant) -> Result<(), String> {
@@ -267,10 +279,14 @@ struct Exit {
 
 #[cfg(windows)]
 impl Exit {
-    fn watch(pid: u32) -> Option<Self> {
+    fn watch(pid: u32) -> Result<Option<Self>, String> {
+        use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
         let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
-        (!handle.is_null()).then_some(Exit { pid, handle })
+        match handle.is_null() {
+            false => Ok(Some(Exit { pid, handle })),
+            true => unwatched(pid, ERROR_INVALID_PARAMETER as i32),
+        }
     }
 
     fn wait(self, deadline: std::time::Instant) -> Result<(), String> {

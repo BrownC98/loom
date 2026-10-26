@@ -92,7 +92,7 @@ impl Served {
         let distro = self.distro.clone();
         tokio::task::spawn_blocking(move || match distro {
             Some(distro) => distro.end(vec![pid]),
-            None => Snapshot::now().end_trees([pid]),
+            None => Snapshot::now().end_trees(vec![pid]),
         })
         .await
         .map_err(|e| e.to_string())?

@@ -76,13 +76,16 @@ pub enum ProcessOutcome {
     Asleep,
     Exited { code: u32 },
     Lost,
+    HostGone,
     SetupFailed { code: u32 },
 }
 
 fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
     match (work, process) {
         (Work::Done, _) => NodeState::Done,
-        (Work::Running, None | Some(ProcessOutcome::Asleep)) => NodeState::Running,
+        (Work::Running, None | Some(ProcessOutcome::Asleep | ProcessOutcome::HostGone)) => {
+            NodeState::Running
+        }
         (Work::Running, Some(ProcessOutcome::Exited { code })) => {
             NodeState::Exited { code: Some(code) }
         }
@@ -192,7 +195,8 @@ pub struct Graph {
     linked: fn(&AgentId) -> bool,
 }
 
-pub(super) const REACHABLE: &str = "(process IS NULL OR process ->> 'kind' = 'asleep')";
+pub(super) const REACHABLE: &str =
+    "(process IS NULL OR process ->> 'kind' IN ('asleep', 'hostGone'))";
 
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL),

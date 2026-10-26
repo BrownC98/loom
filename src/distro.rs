@@ -82,6 +82,7 @@ pub struct Distros {
     dir: PathBuf,
     launch: Launch,
     gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    up: tokio::sync::Notify,
 }
 
 #[derive(Clone)]
@@ -106,7 +107,12 @@ impl Distros {
             dir,
             launch,
             gates: Mutex::default(),
+            up: tokio::sync::Notify::new(),
         }
+    }
+
+    pub fn up(&self) -> tokio::sync::futures::Notified<'_> {
+        self.up.notified()
     }
 
     pub fn through_wsl(dir: PathBuf, loom: &Path) -> Self {
@@ -227,7 +233,9 @@ impl Distros {
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(&file, hosted.text()))
             .map_err(|e| format!("{}: {e}", file.display()))?;
-        greet(hosted.at).map_err(|e| format!("{distro}: distro host: {e}"))
+        let link = greet(hosted.at).map_err(|e| format!("{distro}: distro host: {e}"))?;
+        self.up.notify_one();
+        Ok(link)
     }
 }
 

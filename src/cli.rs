@@ -1,13 +1,10 @@
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::daemon::gate::{
-    FailRequest, Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
-};
+use crate::daemon::gate::{Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest};
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
     DoneRequest, GuardRequest, IdleReply, IdleRequest, NewAgent, NoteRequest, RelaunchRequest,
@@ -32,26 +29,14 @@ const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 
-const NO_BRIEF: &str =
-    "loom spawn: no brief. Give it with --file <path>, or on stdin from a pipe or a file.";
+const NO_BRIEF: &str = "loom spawn: no brief. Write it to a file and give --file <path>.";
 
-fn read_brief(
-    run: &SpawnRun,
-    file: Option<&Path>,
-    stdin: Option<impl Read>,
-) -> Result<String, String> {
-    let brief = match (file, stdin) {
-        (Some(path), _) => {
+fn read_brief(run: &SpawnRun, file: Option<&Path>) -> Result<String, String> {
+    let brief = match file {
+        Some(path) => {
             std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?
         }
-        (None, Some(mut stdin)) => {
-            let mut brief = String::new();
-            stdin
-                .read_to_string(&mut brief)
-                .map_err(|e| e.to_string())?;
-            brief
-        }
-        (None, None) => String::new(),
+        None => String::new(),
     };
     if brief.trim().is_empty() && matches!(run, SpawnRun::Role { .. }) {
         return Err(NO_BRIEF.into());
@@ -59,32 +44,8 @@ fn read_brief(
     Ok(brief)
 }
 
-#[cfg(unix)]
-fn stdin_is_input() -> bool {
-    use std::os::fd::AsFd;
-    std::io::stdin()
-        .as_fd()
-        .try_clone_to_owned()
-        .map(std::fs::File::from)
-        .and_then(|f| f.metadata())
-        .is_ok_and(|m| is_input(&m))
-}
-
-#[cfg(unix)]
-fn is_input(meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    meta.is_file() || meta.file_type().is_fifo()
-}
-
-#[cfg(windows)]
-fn stdin_is_input() -> bool {
-    use std::io::IsTerminal;
-    !std::io::stdin().is_terminal()
-}
-
 pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
-    let stdin = stdin_is_input().then(std::io::stdin);
-    let brief = read_brief(&run, file.as_deref(), stdin)?;
+    let brief = read_brief(&run, file.as_deref())?;
     let request = SpawnRequest {
         run,
         brief,
@@ -174,7 +135,7 @@ pub fn directory() -> Result<(), String> {
     Ok(())
 }
 
-pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Result<(), String> {
+pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>) -> Result<(), String> {
     let deadline = timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
     let delivery: Delivery = reconnecting(deadline, |remaining| {
         let timeout_secs = remaining.map(|left| left.as_secs());
@@ -187,14 +148,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
         call_within("wait", &request, remaining, timeout)
     })?;
     let id = delivery.id;
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&delivery).map_err(|e| e.to_string())?
-        );
-    } else {
-        println!("{}", crate::profile::message_text(&[delivery]));
-    }
+    println!("{}", crate::profile::message_text(&[delivery]));
     std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
     reconnecting(None, |_| {
         call::<()>("ack", &AckRequest { ids: vec![id] }, None)
@@ -370,7 +324,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         AskResult::Parent(sent) => {
             print_sent(&sent);
             println!(
-                "Asked your parent. The answer comes as a message (kind: answer), or wait for it: `loom wait --reply-to {} --timeout <seconds> --json`.",
+                "Asked your parent. The answer comes as a message (kind: answer), or wait for it: `loom wait --reply-to {} --timeout <seconds>`.",
                 sent.id.0
             );
             return Ok(());
@@ -487,7 +441,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
+        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again: the new round replaces this one.",
         readied.gate, readied.target
     );
     Ok(())
@@ -495,6 +449,7 @@ pub fn ready(branch: String) -> Result<(), String> {
 
 pub fn verdict(
     branch: String,
+    head: String,
     judgment: Judgment,
     findings: Option<PathBuf>,
 ) -> Result<(), String> {
@@ -507,6 +462,7 @@ pub fn verdict(
         "verdict",
         &VerdictRequest {
             branch: branch.clone(),
+            head,
             judgment,
             findings,
         },
@@ -527,19 +483,6 @@ fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>,
             crate::wsl::for_caller(&path)
         )),
     }
-}
-
-pub fn fail(branch: String, cause: String) -> Result<(), String> {
-    let state: GateState = call(
-        "fail",
-        &FailRequest {
-            branch: branch.clone(),
-            cause,
-        },
-        None,
-    )?;
-    println!("{branch} is now {state:?}. loom told the receivers.");
-    Ok(())
 }
 
 fn task_dir() -> Result<PathBuf, String> {

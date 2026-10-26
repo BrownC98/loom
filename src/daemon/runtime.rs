@@ -236,12 +236,13 @@ impl App {
             if let Some(server) = &node.server {
                 self.stop_server(server);
             }
-            if !self.graph.slept(node.id)? {
-                self.graph.lost(node.id)?;
+            let gone = unattached == node_host::Unattached::Gone;
+            match self.graph.slept(node.id)? {
+                true => {}
+                false if gone => self.graph.host_gone(node.id)?,
+                false => self.graph.lost(node.id)?,
             }
-            if unattached == node_host::Unattached::Gone
-                && let Some(distro) = distro
-            {
+            if gone && let Some(distro) = distro {
                 end_leftovers(
                     &tokio::runtime::Handle::current(),
                     node.id,
@@ -374,7 +375,8 @@ impl App {
                 app.host.kill(id);
                 return;
             }
-            let slept = matches!(exit, Exit::Command(_)) && app.graph.slept(id).unwrap_or(false);
+            let slept = matches!(exit, Exit::Command(_) | Exit::Gone)
+                && app.graph.slept(id).unwrap_or(false);
             if slept && let Err(e) = app.host.keep(id) {
                 eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
             }
@@ -383,6 +385,7 @@ impl App {
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
+                Exit::Gone => app.graph.host_gone(id),
             };
             app.process_ended(id);
             app.sleeps.exited(id);

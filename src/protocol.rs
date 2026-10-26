@@ -38,7 +38,7 @@ impl Versions {
 }
 
 pub const PTY_HOST: Versions = Versions { now: 5, oldest: 1 };
-pub const NODE_CALLS: Versions = Versions { now: 1, oldest: 1 };
+pub const NODE_CALLS: Versions = Versions { now: 2, oldest: 1 };
 pub const NODE_CALLS_HEADER: &str = "loom-protocol";
 pub const STREAMS: Versions = Versions { now: 2, oldest: 1 };
 pub const PI_HOOK: u32 = 4;

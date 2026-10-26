@@ -85,11 +85,17 @@ impl App {
         if let Some(text) = ended.reply {
             self.turn_ends.said(node, text, None);
         }
-        let nudge = self.turn_end(node);
-        if nudge.is_none() {
-            self.run_at_turn_end(node, None);
+        match self.turn_end(node) {
+            Ok(Some(nudge)) => Some(nudge.to_owned()),
+            Ok(None) => {
+                self.run_at_turn_end(node, None);
+                None
+            }
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0);
+                None
+            }
         }
-        nudge.map(str::to_owned)
     }
 
     pub(super) async fn wait_idle(

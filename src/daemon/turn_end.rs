@@ -117,17 +117,8 @@ impl TurnEnds {
         node: NodeId,
         gated_repo: impl FnOnce() -> bool,
         unreported_root: impl FnOnce() -> bool,
-    ) -> TurnEnd {
-        let flags = match self.graph.take_turn_flags(node) {
-            Ok(flags) => flags,
-            Err(e) => {
-                eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0);
-                return TurnEnd {
-                    reply: None,
-                    nudge: None,
-                };
-            }
-        };
+    ) -> rusqlite::Result<TurnEnd> {
+        let flags = self.graph.take_turn_flags(node)?;
         let reply = self.said.lock().unwrap().remove(&node);
         self.said_at.lock().unwrap().remove(&node);
         let mut current = self.turn.lock().unwrap();
@@ -143,10 +134,10 @@ impl TurnEnds {
             flags & ASKED != 0,
         );
         if self.question_box.lock().unwrap().remove(&node) && !asked {
-            return TurnEnd {
+            return Ok(TurnEnd {
                 reply,
                 nudge: Some(TurnCheck::QuestionBox),
-            };
+            });
         }
         let mut gated = None;
         let mut gated_repo = Some(gated_repo);
@@ -168,7 +159,7 @@ impl TurnEnds {
                 && unreported_root())
             .then_some(TurnCheck::Unreported)
         };
-        TurnEnd { reply, nudge }
+        Ok(TurnEnd { reply, nudge })
     }
 }
 
@@ -186,7 +177,7 @@ fn nudge_text(check: TurnCheck) -> &'static str {
 }
 
 impl App {
-    pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
+    pub(super) fn turn_end(&self, node: NodeId) -> rusqlite::Result<Option<&'static str>> {
         let gated_repo = || {
             self.gated_repo(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
@@ -198,19 +189,21 @@ impl App {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
             })
-        });
+        })?;
         if let Some(text) = reply
             && let Err(e) = self.graph.set_reply(node, &text)
         {
             eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
         }
-        let check = nudge.filter(|_| !self.holds_mail(node))?;
+        let Some(check) = nudge.filter(|_| !self.holds_mail(node)) else {
+            return Ok(None);
+        };
         if let Err(e) = self
             .graph
             .record_about(node, |node| Entry::Nudged { node, check })
         {
             eprintln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
         }
-        Some(nudge_text(check))
+        Ok(Some(nudge_text(check)))
     }
 }

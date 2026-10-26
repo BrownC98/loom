@@ -3,15 +3,44 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::{Graph, NodeId};
 
 #[derive(Clone, Copy)]
-pub enum TurnMark {
-    Human = 1,
-    Called = 2,
-    KindNudged = 4,
-    Asked = 8,
-    QuestionBox = 16,
+enum Bit {
+    Human,
+    Called,
+    KindNudged,
+    Asked,
+    QuestionBox,
+    Replied,
 }
 
-const REPLIED: u8 = 32;
+impl Bit {
+    const fn mask(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum TurnMark {
+    Human,
+    Called,
+    KindNudged,
+    Asked,
+    QuestionBox,
+}
+
+impl TurnMark {
+    fn mask(self) -> u8 {
+        match self {
+            TurnMark::Human => Bit::Human,
+            TurnMark::Called => Bit::Called,
+            TurnMark::KindNudged => Bit::KindNudged,
+            TurnMark::Asked => Bit::Asked,
+            TurnMark::QuestionBox => Bit::QuestionBox,
+        }
+        .mask()
+    }
+}
+
+const REPLIED: u8 = Bit::Replied.mask();
 
 pub struct TurnTaken {
     flags: u8,
@@ -20,7 +49,7 @@ pub struct TurnTaken {
 
 impl TurnTaken {
     pub fn has(&self, mark: TurnMark) -> bool {
-        self.flags & mark as u8 != 0
+        self.flags & mark.mask() != 0
     }
 }
 
@@ -46,7 +75,7 @@ fn late(db: &Connection, node: NodeId, turn: &str) -> rusqlite::Result<bool> {
 
 impl Graph {
     pub fn mark_turn(&self, node: NodeId, mark: TurnMark) -> rusqlite::Result<()> {
-        set_flags(&self.lock(), node, mark as u8, 0)
+        set_flags(&self.lock(), node, mark.mask(), 0)
     }
 
     pub fn said(&self, node: NodeId, text: &str, turn: Option<&str>) -> rusqlite::Result<()> {
@@ -136,7 +165,7 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked as u8 | TurnMark::QuestionBox as u8 | REPLIED,
+            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED,
         )?;
         tx.commit()
     }

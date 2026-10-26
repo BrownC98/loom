@@ -123,7 +123,7 @@ function useDaemonUpdates(viewVersion: number): Updates {
   }, [viewVersion]);
 
   const install = () => {
-    installUpdate().then(setView, (err: unknown) => setView((v) => ({ ...v, step: { kind: 'failed', message: String(err) } })));
+    installUpdate().then(() => {}, (err: unknown) => setView((v) => ({ ...v, step: { kind: 'failed', message: String(err) } })));
   };
   const step = stepOf(view, install);
   return {
@@ -131,11 +131,7 @@ function useDaemonUpdates(viewVersion: number): Updates {
     latest: view.latest,
     step: step && step.kind !== closed ? step : null,
     appVersion: null,
-    check: () =>
-      checkUpdate().then((next) => {
-        setView(next);
-        return next.latest;
-      }),
+    check: () => checkUpdate().then((next) => next.latest),
     install,
     close: () => setClosed(view.step?.kind ?? null),
   };

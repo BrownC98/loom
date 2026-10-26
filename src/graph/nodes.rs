@@ -708,14 +708,16 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn remove(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn remove(&self, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(removal) = remove_in(&tx, id)? else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         tx.commit()?;
-        removal.publish(self, &db)
+        let children = removal.children.clone();
+        removal.publish(self, &db)?;
+        Ok(children)
     }
 
     pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -868,14 +870,21 @@ impl Graph {
         Ok(())
     }
 
-    pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
+    pub fn adopt(
+        &self,
+        parent: NodeId,
+        child: NodeId,
+        limits: TreeLimits,
+    ) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(adoption) = adopt_in(&tx, parent, child, limits)? else {
-            return Ok(());
+            return Ok(false);
         };
         tx.commit()?;
-        Ok(adoption.publish(self, &db)?)
+        let was_root = adoption.was_root;
+        adoption.publish(self, &db)?;
+        Ok(was_root)
     }
 
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
@@ -961,6 +970,7 @@ struct Adoption {
     parent: NodeId,
     child: NodeId,
     told_old: Option<NodeId>,
+    was_root: bool,
 }
 
 impl Adoption {
@@ -1029,6 +1039,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         parent: old,
         child,
         told_old,
+        was_root: false,
     })
 }
 
@@ -1113,6 +1124,7 @@ fn adopt_in(
         parent,
         child,
         told_old,
+        was_root: old.is_none(),
     }))
 }
 

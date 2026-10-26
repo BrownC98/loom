@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import java.io.IOException
 import java.security.SecureRandom
 import java.security.cert.CertificateException
@@ -44,6 +45,7 @@ class Watch : Service() {
     private var limit: Long? = CONNECT_MS
     private var turn = 0
     private var at = 0
+    private var retryUntil: Long? = null
     private var linked = false
     private var stopped = false
     private val net by lazy { NetWatch(this, appeared = { if (!stopped && !linked && socket == null) restart() }, moved = { if (!stopped) restart() }) }
@@ -156,6 +158,7 @@ class Watch : Service() {
             return read()
         }
         if (read == null) return dropped()
+        retryUntil = null
         waits = read
         show()
     }
@@ -187,11 +190,14 @@ class Watch : Service() {
         drop()
         if (!linked) at++
         linked(false)
-        main.postDelayed(again, RETRY_MS)
+        val now = SystemClock.elapsedRealtime()
+        val until = retryUntil ?: (now + RETRY_FOR_MS).also { retryUntil = it }
+        if (now < until) main.postDelayed(again, RETRY_MS)
     }
 
     private fun restart() {
         drop()
+        retryUntil = SystemClock.elapsedRealtime() + RETRY_FOR_MS
         connect()
     }
 
@@ -256,6 +262,7 @@ class Watch : Service() {
         private const val BACK_FRAME = "{\"pace\":\"back\"}"
         private const val CONNECT_MS = 5_000L
         private const val RETRY_MS = 1_000L
+        private const val RETRY_FOR_MS = 60_000L
         private const val LINK_ID = 1
         private const val ASK_CHANNEL = "ask"
         private const val DONE_CHANNEL = "done"

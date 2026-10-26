@@ -30,7 +30,7 @@ pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
 pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
-pub use relaunch_plans::{NewAgent, Phase, Plan, Planned};
+pub use relaunch_plans::{Attempt, NewAgent, Phase, Plan, Planned};
 pub use turns::TurnMark;
 pub use waits::{HUMAN, HumanWait, WaitSource};
 
@@ -142,6 +142,18 @@ pub struct NodeView {
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
     /// 근거: docs/design/메시징.md 「사람 응답 대기」.
     pub waits: Vec<HumanWait>,
+    /// 노드 메뉴의 다시 띄우기. 없으면 메뉴에 보이지 않는다.
+    pub relaunch: Option<RelaunchOffer>,
+}
+
+/// 노드 메뉴가 보이는 다시 띄우기. 데몬이 읽을 때 노드 상태, 에이전트의 메시지 연동, 다시 띄우기 계획에서 정한다.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum RelaunchOffer {
+    Ready,
+    /// 계획이 있다. 턴 끝을 기다리거나 다시 띄우는 중이다.
+    Queued,
 }
 
 #[derive(Clone, Serialize, TS)]
@@ -206,7 +218,8 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id),
-    n.card_view, n.reply, n.process
+    n.card_view, n.reply, n.process,
+    EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id)
     FROM nodes n";
 
 struct Db<'a> {
@@ -256,7 +269,7 @@ impl Drop for Db<'_> {
 impl Graph {
     pub fn open(db: Database, linked: fn(&AgentId) -> bool) -> rusqlite::Result<Self> {
         let published = events::last_id(&db.lock())?;
-        relaunch_plans::settle_running(&db.lock())?;
+        relaunch_plans::settle_at_start(&db.lock())?;
         mailbox::requeue_handed(&db.lock())?;
         idle::forget_old_daemon(&db.lock())?;
         let (agent_tx, agent_rx) = mpsc::unbounded_channel();
@@ -294,7 +307,7 @@ impl Graph {
         let db = self.lock();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], view_from_row)?
+            .query_map([], |row| view_from_row(row, self.linked))?
             .collect::<rusqlite::Result<_>>()?;
         Ok((views, self.events.subscribe()))
     }
@@ -357,11 +370,9 @@ impl Graph {
     }
 
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let view = db.query_row(
-            &format!("{VIEW_COLUMNS} WHERE n.id = ?1"),
-            [id.0],
-            view_from_row,
-        )?;
+        let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
+            view_from_row(row, self.linked)
+        })?;
         let _ = self.events.send(GraphEvent::Node(Box::new(view)));
         Ok(())
     }
@@ -393,9 +404,16 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
     let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
+    let agent: Option<AgentId> = from_json(row, 2)?;
+    let offered =
+        agent.as_ref().is_some_and(linked) && matches!(state, NodeState::Running | NodeState::Done);
+    let relaunch = offered.then_some(match row.get(17)? {
+        true => RelaunchOffer::Queued,
+        false => RelaunchOffer::Ready,
+    });
     let wait: Option<String> = row.get(11)?;
     let done: String = row.get(12)?;
     let asked: String = row.get(13)?;
@@ -414,7 +432,7 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
     Ok(NodeView {
         id,
         name: row.get(1)?,
-        agent: from_json(row, 2)?,
+        agent,
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
         state,
         unread: row.get(5)?,
@@ -428,6 +446,7 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
         card_view: card_view.and_then(|v| serde_json::from_str(&v).ok()),
         reply: row.get(15)?,
         waits,
+        relaunch,
     })
 }
 

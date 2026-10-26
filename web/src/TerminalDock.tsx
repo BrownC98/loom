@@ -8,7 +8,7 @@ import { DockSummary } from './NodeCard';
 import { NodeMenu } from './NodeMenu';
 import { SizingTerminal, type Direction } from './Terminal';
 
-export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardView; agentLabel: string; resumable: boolean; focusAsk: number; onNavigate: (dir: Direction) => void }) {
+export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardView; agentLabel: string; focusAsk: number; onNavigate: (dir: Direction) => void }) {
   const { view } = props;
   const rename = useRename();
   const [refusal, setRefusal] = useState<{ node: number; text: string } | null>(null);
@@ -22,7 +22,6 @@ export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardVi
               <NodeMenu
                 view={view}
                 defaultView={props.defaultView}
-                resumable={props.resumable}
                 onRemove={() => {
                   setRefusal(null);
                   removeNode(view.id).catch((err: Error) => onRefusal(err.message));

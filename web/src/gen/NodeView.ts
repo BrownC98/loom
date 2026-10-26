@@ -5,6 +5,7 @@ import type { HumanWait } from "./HumanWait";
 import type { NodeId } from "./NodeId";
 import type { NodeState } from "./NodeState";
 import type { Place } from "./Place";
+import type { RelaunchOffer } from "./RelaunchOffer";
 
 export type NodeView = { id: NodeId, name: string, 
 /**
@@ -39,4 +40,8 @@ reply: string | null,
  * 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
  * 근거: docs/design/메시징.md 「사람 응답 대기」.
  */
-waits: Array<HumanWait>, };
+waits: Array<HumanWait>, 
+/**
+ * 노드 메뉴의 다시 띄우기. 없으면 메뉴에 보이지 않는다.
+ */
+relaunch: RelaunchOffer | null, };

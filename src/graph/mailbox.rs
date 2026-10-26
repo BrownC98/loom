@@ -376,17 +376,6 @@ impl Graph {
             .collect()
     }
 
-    pub fn newest_mail(&self, node: NodeId) -> rusqlite::Result<Option<MessageId>> {
-        self.lock().query_row(
-            &format!(
-                "SELECT max(id) FROM messages WHERE recipient = ?1 AND delivered = 0 AND {}",
-                wakes()
-            ),
-            [node.0],
-            |row| Ok(row.get::<_, Option<u32>>(0)?.map(MessageId)),
-        )
-    }
-
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -682,6 +671,17 @@ fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
     db.query_row(
         &format!(
             "SELECT count(*) FROM messages WHERE recipient = ?1 AND delivered = 0 AND {}",
+            wakes()
+        ),
+        [to.0],
+        |row| row.get(0),
+    )
+}
+
+pub(super) fn newest(db: &Connection, to: NodeId) -> rusqlite::Result<Option<u32>> {
+    db.query_row(
+        &format!(
+            "SELECT max(id) FROM messages WHERE recipient = ?1 AND delivered = 0 AND {}",
             wakes()
         ),
         [to.0],

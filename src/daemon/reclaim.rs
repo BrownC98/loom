@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -7,12 +9,32 @@ use crate::graph::{NodeId, Reclaim};
 use crate::worktree::merge::{delete_merged, dirty, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
 
-pub(super) async fn run(app: Arc<App>, repo: RepoId, branches: Vec<String>) {
-    let dir = match app.repos.path(repo) {
-        Ok(dir) => dir,
+pub(super) async fn run(app: Arc<App>) {
+    let rounds = match app.graph.reclaim_rounds() {
+        Ok(rounds) => rounds,
         Err(e) => return eprintln!("loom: reclaim: {e}"),
     };
-    for branch in branches {
+    let mut branches: HashMap<RepoId, Vec<String>> = HashMap::new();
+    for (repo, branch, held) in rounds {
+        let dir = match app.repos.path(repo) {
+            Ok(dir) => dir,
+            Err(e) => {
+                eprintln!("loom: reclaim {branch}: {e}");
+                continue;
+            }
+        };
+        if !held {
+            if let Entry::Vacant(missing) = branches.entry(repo) {
+                let listed = git::run(&dir, &["branch", "--format=%(refname:short)"])
+                    .await
+                    .map(|out| out.lines().map(str::to_owned).collect())
+                    .unwrap_or_default();
+                missing.insert(listed);
+            }
+            if !branches[&repo].contains(&branch) {
+                continue;
+            }
+        }
         if let Err(e) = reclaim(&app, &dir, repo, &branch).await {
             eprintln!("loom: reclaim {branch}: {e}");
         }
@@ -69,7 +91,7 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
     }
     if let Some(cause) = delete_merged(dir, branch, &round.target).await? {
         app.graph
-            .note_reclaim(&round, &remote_kept(branch, &cause))
+            .note_reclaim(&round, &remote_kept(branch, &round, &cause))
             .map_err(text)?;
     }
     Ok(())
@@ -84,27 +106,28 @@ fn remove(app: &App, node: NodeId) -> rusqlite::Result<()> {
 
 fn kept(branch: &str, round: &Reclaim) -> String {
     format!(
-        "{branch} merged, but the worktree {} has uncommitted changes. loom kept the worktree, the branch {branch} and its owner node. Commit or discard the changes, then remove the worktree, the branch and the node.",
-        round.worktree
+        "{branch} merged at {}, but the worktree {} has uncommitted changes. loom kept the worktree, the branch {branch} and its owner node. Commit or discard the changes, then remove the worktree, the branch and the node.",
+        round.head, round.worktree
     )
 }
 
 fn moved(branch: &str, round: &Reclaim) -> String {
     format!(
-        "{branch} merged, but the worktree {} is now on another branch or {branch} has commits that {} does not have. loom kept the worktree, the branch {branch} and its owner node.",
-        round.worktree, round.target
+        "{branch} merged at {}, but the worktree {} is now on another branch or {branch} has commits that {} does not have. loom kept the worktree, the branch {branch} and its owner node.",
+        round.head, round.worktree, round.target
     )
 }
 
-fn remote_kept(branch: &str, cause: &str) -> String {
+fn remote_kept(branch: &str, round: &Reclaim, cause: &str) -> String {
     format!(
-        "{branch} merged, but origin/{branch} changed after loom last fetched it, so loom kept it: {cause}. Delete it when its new commits are merged or not needed."
+        "{branch} merged at {}, but origin/{branch} changed after loom last fetched it, so loom kept it: {cause}. Delete it when its new commits are merged or not needed.",
+        round.head
     )
 }
 
 fn changed(branch: &str, round: &Reclaim, cause: &str) -> String {
     format!(
-        "{branch} merged and loom removed its owner node, but git did not remove the worktree {}: {cause}. loom kept the worktree and the branch {branch}. Commit or discard the changes, then remove the worktree and the branch.",
-        round.worktree
+        "{branch} merged at {} and loom removed its owner node, but git did not remove the worktree {}: {cause}. loom kept the worktree and the branch {branch}. Commit or discard the changes, then remove the worktree and the branch.",
+        round.head, round.worktree
     )
 }

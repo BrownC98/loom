@@ -28,19 +28,42 @@ import { placeName, shortPlaceName } from './place';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
 export const SETTINGS_TABS = ['general', 'phone', 'agents', 'accounts', 'display', 'graph', 'terminal', 'about'] as const;
-const TAB_SETTINGS = {
-  general: ['workspaceDir', 'wslWorkspaceDirs', 'osNotify'],
-  phone: [],
-  agents: ['bypassOff', 'alwaysOn', 'roles', 'treeLimits'],
-  accounts: ['autoSwitch'],
-  display: ['theme', 'colors', 'language'],
-  graph: ['cardView', 'graphScope', 'edgeStyle', 'questionPill'],
-  terminal: ['terminalTheme', 'terminalFont'],
-  about: [],
-} as const satisfies Record<(typeof SETTINGS_TABS)[number], readonly (keyof SettingsView)[]>;
-const ALL_SETTINGS = Object.values(TAB_SETTINGS).flat();
-const nulls = (keys: readonly (keyof SettingsView)[]): SettingsPatch => Object.fromEntries(keys.map((key) => [key, null]));
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
+const RESET_TAB = {
+  workspaceDir: 'general',
+  wslWorkspaceDirs: 'general',
+  osNotify: 'general',
+  bypassOff: 'agents',
+  alwaysOn: 'agents',
+  roles: 'agents',
+  treeLimits: 'agents',
+  autoSwitch: 'accounts',
+  claudeAccount: 'notReset',
+  codexAccount: 'notReset',
+  wslAccounts: 'notReset',
+  theme: 'display',
+  colors: 'display',
+  language: 'display',
+  cardView: 'graph',
+  graphScope: 'graph',
+  edgeStyle: 'graph',
+  questionPill: 'graph',
+  pillPlace: 'graph',
+  terminalTheme: 'terminal',
+  terminalFont: 'terminal',
+  arrangeDirection: 'notReset',
+  alwaysArrange: 'notReset',
+  minimapFolded: 'notReset',
+  repo: 'notReset',
+  paneWidths: 'notReset',
+  closedPanes: 'notReset',
+  closedSwitchNotice: 'notReset',
+  closedPill: 'notReset',
+} as const satisfies Record<keyof SettingsView, SettingsTab | 'notReset'>;
+const SETTING_KEYS = Object.keys(RESET_TAB) as (keyof SettingsView)[];
+const ALL_SETTINGS = SETTING_KEYS.filter((key) => RESET_TAB[key] !== 'notReset');
+const tabSettings = (tab: SettingsTab) => SETTING_KEYS.filter((key) => RESET_TAB[key] === tab);
+const nulls = (keys: readonly (keyof SettingsView)[]): SettingsPatch => Object.fromEntries(keys.map((key) => [key, null]));
 
 export function Settings(props: {
   tab: SettingsTab;
@@ -133,8 +156,8 @@ export function Settings(props: {
         <div className="pane-head">
           <h3>{searching ? t('settings.searchResults', { query: query.trim() }) : t(`settings.tab.${props.tab}`)}</h3>
           <span className="spacer" />
-          {!searching && TAB_SETTINGS[props.tab].length > 0 && (
-            <button type="button" className="btn ghost sm" onClick={() => confirm(t('settings.confirmResetTab', { tab: t(`settings.tab.${props.tab}`) })) && props.onReset(nulls(TAB_SETTINGS[props.tab]))}>
+          {!searching && tabSettings(props.tab).length > 0 && (
+            <button type="button" className="btn ghost sm" onClick={() => confirm(t('settings.confirmResetTab', { tab: t(`settings.tab.${props.tab}`) })) && props.onReset(nulls(tabSettings(props.tab)))}>
               <RotateCcw />
               {t('settings.resetTab')}
             </button>

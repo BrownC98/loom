@@ -11,34 +11,9 @@ import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { openLink } from './openLink';
 import { commandKey } from './platform';
+import { findKey, navDirection, paneKey, type Direction } from './keys';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
 import { attachTouchGestures, type TouchSelection } from './touchTerminal';
-
-export type Direction = 'left' | 'right' | 'up' | 'down';
-
-const NAV_KEYS: Record<string, Direction> = {
-  ArrowLeft: 'left',
-  ArrowRight: 'right',
-  ArrowUp: 'up',
-  ArrowDown: 'down',
-};
-
-export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction | null {
-  if (!commandKey(e) || !e.shiftKey || e.altKey) return null;
-  return NAV_KEYS[e.key] ?? null;
-}
-
-export type PaneSide = 'left' | 'right';
-const PANE_KEYS: Record<string, PaneSide> = { BracketLeft: 'left', BracketRight: 'right' };
-
-export function paneKey(e: KeyboardEvent | ReactKeyboardEvent): PaneSide | null {
-  if (!commandKey(e) || !e.shiftKey || e.altKey) return null;
-  return PANE_KEYS[e.code] ?? null;
-}
-
-export function findKey(e: KeyboardEvent | ReactKeyboardEvent): boolean {
-  return commandKey(e) && e.shiftKey && !e.altKey && e.code === 'KeyF';
-}
 
 const SHIFT_ENTER_INPUT = '\n';
 function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {

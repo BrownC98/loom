@@ -14,14 +14,14 @@ import { AddRepoPopover } from './AddRepoPopover';
 import { bookmarkToggle } from './BookmarkButton';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import type { Found } from './findSpots';
-import { useShowAll, useShowGroups, useShowNodes } from './Graph';
+import { useShowAll, useShowGroups, useShowNodes } from './camera';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
-import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
+import { MenuSheet, Sheet, useLongPress, usePhone } from './sheet';
 import { useDismiss } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 

@@ -166,7 +166,7 @@ function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
 }
 
-export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): Pick<Link, 'reopen' | 'close'> {
+export function watchGraph(onEvent: (event: Exclude<GraphEvent, { kind: 'beat' }>) => void, onLink: (up: boolean) => void = () => {}): Pick<Link, 'reopen' | 'close'> {
   const link = reconnecting(socketUrl('/api/events'), {
     onOpen: () => onLink(true),
     onMessage: (e) => {

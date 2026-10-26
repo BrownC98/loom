@@ -13,7 +13,7 @@ import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
-import { useShowNodes } from './Graph';
+import { useShowNodes } from './camera';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId, summaryOf, toneOf } from './notice';
 import { PinchImage } from './PinchImage';

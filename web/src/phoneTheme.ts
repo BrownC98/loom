@@ -27,5 +27,5 @@ export function usePhoneTheme() {
 }
 
 export function syncAppChrome(scheme: ColorScheme) {
-  (window as { loomChrome?: { setScheme: (scheme: string) => void } }).loomChrome?.setScheme(scheme);
+  window.loomChrome?.setScheme(scheme);
 }

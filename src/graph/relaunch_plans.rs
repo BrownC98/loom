@@ -93,8 +93,8 @@ impl Graph {
             None => tx.execute("DELETE FROM relaunch_plans WHERE node = ?1", [node.0])?,
         };
         tx.commit()?;
-        if changed {
-            self.publish_node(&db, node)?;
+        if changed && let Err(e) = self.publish_node(&db, node) {
+            eprintln!("loom: 노드 {}의 보기를 보내지 못했다: {e}", node.0);
         }
         Ok(result)
     }
@@ -234,10 +234,14 @@ impl Graph {
     }
 }
 
-pub(super) fn settle_running(db: &Connection) -> rusqlite::Result<()> {
+pub(super) fn settle_at_start(db: &Connection) -> rusqlite::Result<()> {
     db.execute(
         "UPDATE relaunch_plans SET phase = ?1 WHERE phase = ?2",
         params![to_json(&Phase::AtTurnEnd), to_json(&Phase::Running)],
+    )?;
+    db.execute(
+        "DELETE FROM recovery_attempts WHERE cause = ?1",
+        [to_json(&Attempt::Wake)],
     )?;
     Ok(())
 }

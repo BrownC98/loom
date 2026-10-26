@@ -277,7 +277,6 @@ impl App {
                 Vec::new()
             });
         for id in mailed {
-            self.refused(id);
             self.recover(id);
         }
     }

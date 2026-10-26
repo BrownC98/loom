@@ -35,7 +35,8 @@ const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in t
 const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
-const CODEX_ROLLOUT_DEPTH: usize = 5;
+const CODEX_DATE_DIRS: usize = 3;
+const CODEX_ROLLOUT_DEPTH: usize = CODEX_DATE_DIRS + 2;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
 
@@ -913,7 +914,7 @@ impl App {
             .login_dir(provider, target.as_ref())
             .ok_or("홈 폴더를 찾지 못했다")?;
         if profile == Profile::Codex {
-            return self.copy_codex_thread(node.id, &site, &new_root).await;
+            return copy_codex_thread(node, &site, &new_root);
         }
         let transcript = node.transcript.as_deref().map(|t| site.local(t));
         let session = copy_claude_session(transcript.as_deref(), &new_root)?;
@@ -1005,27 +1006,53 @@ impl App {
             .flat_map(|root| snapshot.session_leaders_under(root))
             .collect()
     }
+}
 
-    async fn copy_codex_thread(
-        &self,
-        node: NodeId,
-        site: &Site,
-        new_root: &Path,
-    ) -> Result<String, String> {
-        let server = self.codex.lock().unwrap().get(&node).cloned();
-        let thread = server
-            .as_ref()
-            .and_then(|s| s.thread().borrow().as_ref().map(|t| t.id.clone()));
-        let (Some(server), Some(thread)) = (server, thread) else {
-            return Err(format!("노드 {}에는 이어 갈 Codex 스레드가 없다", node.0));
-        };
-        let rollout = server
-            .rollout(&thread)
-            .await?
-            .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
-        copy_session(&site.local(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
-        Ok(thread)
+fn copy_codex_thread(node: &Active, site: &Site, new_root: &Path) -> Result<String, String> {
+    let Some(ServerLink::Codex {
+        thread: Some(thread),
+        ..
+    }) = &node.server
+    else {
+        return Err(format!(
+            "노드 {}에는 이어 갈 Codex 스레드가 없다",
+            node.id.0
+        ));
+    };
+    let old_root = site
+        .login_dir(Provider::Codex, node.account.as_ref())
+        .ok_or("홈 폴더를 찾지 못했다")?;
+    if old_root == new_root {
+        return Ok(thread.clone());
     }
+    let rollout = codex_rollout(&old_root, thread)
+        .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
+    copy_session(&rollout, CODEX_ROLLOUT_DEPTH, new_root)?;
+    Ok(thread.clone())
+}
+
+fn codex_rollout(root: &Path, thread: &str) -> Option<PathBuf> {
+    let name = format!("-{thread}.jsonl");
+    let mut dirs = vec![root.join("sessions")];
+    for _ in 0..CODEX_DATE_DIRS {
+        dirs = dirs
+            .iter()
+            .flat_map(|dir| children(dir))
+            .filter(|path| path.is_dir())
+            .collect();
+    }
+    dirs.iter()
+        .flat_map(|dir| children(dir))
+        .find(|file| file.to_string_lossy().ends_with(&name))
+}
+
+fn children(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect()
 }
 
 enum Queued {

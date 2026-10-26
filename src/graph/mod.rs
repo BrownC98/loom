@@ -265,7 +265,7 @@ impl Drop for Db<'_> {
 impl Graph {
     pub fn open(db: Database, linked: fn(&AgentId) -> bool) -> rusqlite::Result<Self> {
         let published = events::last_id(&db.lock())?;
-        relaunch_plans::settle_running(&db.lock())?;
+        relaunch_plans::settle_at_start(&db.lock())?;
         mailbox::requeue_handed(&db.lock())?;
         let (agent_tx, agent_rx) = mpsc::unbounded_channel();
         Ok(Self {

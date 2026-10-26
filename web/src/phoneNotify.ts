@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react';
+import { NOTIFY_EVENT, type PhoneNotify } from './native';
 
 export type NotifyState = { ask: boolean; done: boolean; allowed: boolean };
-
-export type PhoneNotify = { state: () => string; ask: (on: boolean) => void; done: (on: boolean) => void; link?: () => void };
-
-export const NOTIFY_EVENT = 'loomnotify';
-
-export const phoneNotify = () => (window as { loomNotify?: PhoneNotify }).loomNotify;
 
 export function readNotify(bridge: PhoneNotify): NotifyState {
   try {

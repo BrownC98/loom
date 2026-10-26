@@ -10,7 +10,8 @@ import { watchComposition, type Composition } from './composition';
 import { InboxPanel, waitCount } from './Inbox';
 import { AgentLine, stateLabel } from './NodeCard';
 import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
-import { phoneNotify, useNotifyState, type PhoneNotify } from './phoneNotify';
+import { useNotifyState } from './phoneNotify';
+import type { PhoneNotify } from './native';
 import { borrowSize, SizingTerminal } from './Terminal';
 import { readClipboard } from './touchTerminal';
 import { isSheetEntry, MenuSheet, Sheet, type MenuItem } from './sheet';
@@ -146,7 +147,7 @@ function SettingsButton(props: { theme: Theme; onTheme: (next: Theme) => void })
       <button type="button" className="phone-icon" aria-label={t('phone.settings')} aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <SettingsIcon aria-hidden="true" />
       </button>
-      {open && <SettingsSheet theme={props.theme} onTheme={props.onTheme} notify={phoneNotify()} onClose={() => setOpen(false)} />}
+      {open && <SettingsSheet theme={props.theme} onTheme={props.onTheme} notify={window.loomNotify} onClose={() => setOpen(false)} />}
     </>
   );
 }

@@ -3,4 +3,4 @@ CREATE TABLE ended_turns (
     node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     turn TEXT NOT NULL,
     PRIMARY KEY (node, turn)
-) WITHOUT ROWID;
+);

@@ -57,7 +57,8 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
             let workspace = app.workspace(&repo).await?;
             let parent_branch = worktree::find(&repo, &place.worktree).await?.branch;
             let from = std::path::Path::new(&place.worktree);
-            let made = worktree::create(&repo, from, &workspace, branch, "HEAD").await?;
+            let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
+            let made = worktree::create(&repo, from, &workspace, branch, "HEAD", unowned).await?;
             Some((repo, made, parent_branch))
         }
         None => None,
@@ -83,11 +84,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         && let Err(e) = app.graph.introduce_reviewer(*id)
     {
         eprintln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
-    }
-    if let (Some((repo, made, _)), Err(_)) = (&worktree, &spawned)
-        && let Err(e) = worktree::discard(repo, made).await
-    {
-        eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
     }
     spawned
 }

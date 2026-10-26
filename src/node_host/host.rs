@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use crate::tunnel::ENDPOINT_ENV;
 
 use super::endpoint::Endpoint;
-use super::inner::Inner;
 use super::wire::{self, Frame, Link};
 use super::{Backlog, Exit};
 
@@ -67,8 +66,6 @@ pub struct Spec {
     setup: Option<Vec<OsString>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     endpoint: Option<OsString>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    inner: Option<Inner>,
 }
 
 impl Spec {
@@ -82,31 +79,7 @@ impl Spec {
                 .collect(),
             setup: setup.map(|s| s.get_argv().clone()),
             endpoint: cmd.get_env(ENDPOINT_ENV).map(Into::into),
-            inner: None,
         }
-    }
-
-    pub fn inner(
-        launcher: &CommandBuilder,
-        cmd: &CommandBuilder,
-        setup: Option<&CommandBuilder>,
-    ) -> Self {
-        Self {
-            inner: Some(Inner::of(cmd, setup)),
-            endpoint: None,
-            ..Self::of(launcher, None)
-        }
-    }
-
-    fn process(&self) -> tokio::process::Command {
-        let mut cmd = tokio::process::Command::new(&self.argv[0]);
-        cmd.args(&self.argv[1..])
-            .env_clear()
-            .envs(self.env.iter().map(|(k, v)| (k, v)));
-        if let Some(cwd) = &self.cwd {
-            cmd.current_dir(cwd);
-        }
-        cmd
     }
 
     pub(super) fn commands(self) -> (CommandBuilder, Option<CommandBuilder>) {
@@ -128,9 +101,6 @@ impl Spec {
 pub fn run() -> Result<(), String> {
     let mut spec: Spec =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("command: {e}"))?;
-    if let Some(inner) = spec.inner.take() {
-        return super::inner::outer(spec.process(), inner);
-    }
     let endpoint = spec.endpoint.take();
     let (cmd, setup) = spec.commands();
     let started = start(cmd, setup, endpoint.as_deref())?;
@@ -213,14 +183,6 @@ pub fn start(
 }
 
 impl Started {
-    pub fn stopper(&self) -> impl Fn() + Send + use<> {
-        let host = self.host.clone();
-        move || {
-            host.kill();
-            host.endpoint.lock().unwrap().take();
-        }
-    }
-
     pub fn wait(mut self) {
         let code = self.running.exit_code();
         let mut note = None;

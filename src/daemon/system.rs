@@ -1,4 +1,4 @@
-use futures_util::stream::SplitSink;
+use futures_util::{Sink, Stream};
 
 use super::pulse::{self, Beat, Heard, Pulse};
 use super::waits::serve_file;
@@ -118,11 +118,18 @@ async fn events(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let devices = app.devices.clone();
-    ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app, beat)))
+    ws.on_upgrade(move |socket| {
+        let (to_view, from_view) = socket.split();
+        origin::until_removed(devices, via, send_events(to_view, from_view, app, beat))
+    })
 }
 
-async fn send_events(socket: WebSocket, app: Arc<App>, beat: fn(Option<Pace>) -> Duration) {
-    let (mut to_view, mut from_view) = socket.split();
+async fn send_events<E>(
+    mut to_view: impl Sink<Message> + Unpin,
+    mut from_view: impl Stream<Item = Result<Message, E>> + Unpin,
+    app: Arc<App>,
+    beat: fn(Option<Pace>) -> Duration,
+) {
     let mut pulse = Pulse::new(beat(None));
     loop {
         let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
@@ -175,10 +182,10 @@ async fn send_events(socket: WebSocket, app: Arc<App>, beat: fn(Option<Pace>) ->
     }
 }
 
-async fn send_json(
-    to_view: &mut SplitSink<WebSocket, Message>,
+async fn send_json<S: Sink<Message> + Unpin>(
+    to_view: &mut S,
     value: &impl Serialize,
-) -> Result<(), axum::Error> {
+) -> Result<(), S::Error> {
     let text = serde_json::to_string(value).expect("GraphEvent는 늘 직렬화된다");
     to_view.send(Message::Text(text.into())).await
 }
@@ -207,7 +214,6 @@ pub(super) async fn asset(uri: Uri) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_tungstenite::tungstenite::Message as Frame;
 
     const TEST_BEAT: Duration = Duration::from_millis(100);
 
@@ -219,99 +225,153 @@ mod tests {
         }
     }
 
-    async fn events_socket() -> (
-        tempfile::TempDir,
-        Arc<App>,
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    ) {
-        let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("loom.db");
-        let app = Arc::new(
-            App::new(
-                crate::db::open(&db_path).unwrap(),
-                &db_path,
-                "127.0.0.1:0".parse().unwrap(),
-                None,
-                None,
-                tokio::sync::mpsc::unbounded_channel().0,
-            )
-            .unwrap(),
-        );
-        let routes = Router::new()
-            .route(
-                "/api/events",
-                get(
-                    |ws: WebSocketUpgrade, State(app): State<Arc<App>>| async move {
-                        ws.on_upgrade(move |socket| send_events(socket, app, test_beat))
-                    },
-                ),
-            )
-            .with_state(app.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, routes).await });
-        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}/api/events"))
-            .await
-            .unwrap();
-        (dir, app, socket)
+    struct View {
+        _dir: tempfile::TempDir,
+        app: Arc<App>,
+        to: tokio::sync::mpsc::UnboundedSender<Message>,
+        from: tokio::sync::mpsc::UnboundedReceiver<Message>,
     }
 
-    fn kind(frame: &Frame) -> String {
-        let Frame::Text(text) = frame else {
-            return format!("{frame:?}");
+    impl View {
+        fn open() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let db_path = dir.path().join("loom.db");
+            let app = Arc::new(
+                App::new(
+                    crate::db::open(&db_path).unwrap(),
+                    &db_path,
+                    "127.0.0.1:0".parse().unwrap(),
+                    None,
+                    None,
+                    tokio::sync::mpsc::unbounded_channel().0,
+                )
+                .unwrap(),
+            );
+            let (to_view, from) = tokio::sync::mpsc::unbounded_channel::<Message>();
+            let (to, from_view) = tokio::sync::mpsc::unbounded_channel();
+            let to_view = Box::pin(futures_util::sink::unfold(
+                to_view,
+                async |to_view, message| to_view.send(message).map(|()| to_view),
+            ));
+            let from_view = Box::pin(futures_util::stream::unfold(
+                from_view,
+                async |mut from_view| {
+                    let message = from_view.recv().await?;
+                    Some((Ok::<_, std::convert::Infallible>(message), from_view))
+                },
+            ));
+            tokio::spawn(send_events(to_view, from_view, app.clone(), test_beat));
+            View {
+                _dir: dir,
+                app,
+                to,
+                from,
+            }
+        }
+
+        fn send(&self, message: Message) {
+            self.to.send(message).unwrap();
+        }
+
+        async fn next(&mut self, answers: bool) -> Option<Message> {
+            let message = self.from.recv().await?;
+            if answers && matches!(message, Message::Ping(_)) {
+                self.send(Message::Pong(Default::default()));
+            }
+            Some(message)
+        }
+
+        async fn beats_for(&mut self, periods: u32) -> usize {
+            let until = tokio::time::Instant::now() + TEST_BEAT * periods;
+            let mut beats = 0;
+            while let Ok(Some(message)) = tokio::time::timeout_at(until, self.next(true)).await {
+                if kind(&message) == "beat" {
+                    beats += 1;
+                }
+            }
+            beats
+        }
+    }
+
+    fn kind(message: &Message) -> String {
+        let Message::Text(text) = message else {
+            return format!("{message:?}");
         };
-        serde_json::from_str::<serde_json::Value>(text).unwrap()["kind"]
+        serde_json::from_str::<serde_json::Value>(text.as_str()).unwrap()["kind"]
             .as_str()
             .unwrap()
             .to_owned()
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_events_socket_beats_while_the_view_answers() {
-        let (_dir, _app, mut socket) = events_socket().await;
-        let mut beats = 0;
-        let until = tokio::time::Instant::now() + TEST_BEAT * 10;
-        while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(until, socket.next()).await {
-            if kind(&frame) == "beat" {
-                beats += 1;
-            }
-        }
+        let mut view = View::open();
+        let beats = view.beats_for(10).await;
         assert!(beats >= 5, "{beats} beats in 10 beat periods");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_events_socket_beats_right_after_the_snapshot() {
-        let (_dir, _app, mut socket) = events_socket().await;
+        let mut view = View::open();
         let mut kinds = Vec::new();
         while kinds.len() < 2 {
-            let frame = socket.next().await.unwrap().unwrap();
-            if !matches!(frame, Frame::Ping(_)) {
-                kinds.push(kind(&frame));
+            let message = view.next(true).await.unwrap();
+            if !matches!(message, Message::Ping(_)) {
+                kinds.push(kind(&message));
             }
         }
         assert_eq!(kinds, ["snapshot", "beat"]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_events_socket_beats_at_the_pace_the_view_sends() {
-        let (_dir, _app, mut socket) = events_socket().await;
-        let mut beats_at = async |pace: &str| {
-            socket.send(Frame::text(pace)).await.unwrap();
-            let mut beats = 0;
-            let until = tokio::time::Instant::now() + TEST_BEAT * 20;
-            while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(until, socket.next()).await {
-                if kind(&frame) == "beat" {
-                    beats += 1;
-                }
-            }
-            beats
-        };
-        let back = beats_at(r#"{"pace":"back"}"#).await;
+        let mut view = View::open();
+        view.send(Message::text(r#"{"pace":"back"}"#));
+        let back = view.beats_for(20).await;
         assert!(back <= 2, "{back} beats at the back pace");
-        let front = beats_at(r#"{"pace":"front"}"#).await;
+        view.send(Message::text(r#"{"pace":"front"}"#));
+        let front = view.beats_for(20).await;
         assert!(front >= 5, "{front} beats at the front pace");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_events_socket_closes_when_the_view_stops_answering() {
+        let mut view = View::open();
+        let mut kinds = Vec::new();
+        let ended = tokio::time::timeout(TEST_BEAT * 26, async {
+            while let Some(message) = view.next(false).await {
+                kinds.push(kind(&message));
+            }
+        })
+        .await;
+        assert!(ended.is_ok(), "the socket stayed open: {kinds:?}");
+        assert!(
+            kinds.iter().filter(|k| *k == "beat").count() <= 3,
+            "{kinds:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_view_that_falls_behind_gets_a_new_snapshot() {
+        let mut view = View::open();
+        let next = async |view: &mut View| loop {
+            let message = view.next(true).await.unwrap();
+            if !matches!(message, Message::Ping(_)) && kind(&message) != "beat" {
+                return kind(&message);
+            }
+        };
+        assert_eq!(next(&mut view).await, "snapshot");
+        for _ in 0..crate::graph::EVENT_QUEUE * 2 {
+            view.app.graph.publish_view_changed();
+        }
+        let mut kinds = Vec::new();
+        while !kinds.contains(&"snapshot".to_owned()) {
+            kinds.push(next(&mut view).await);
+        }
+        assert!(
+            kinds.iter().all(|k| k == "viewChanged" || k == "snapshot"),
+            "{kinds:?}"
+        );
     }
 
     #[test]
@@ -323,55 +383,6 @@ mod tests {
         assert_eq!(beat(None), pulse::BEAT);
         assert_eq!(beat(Some(Pace::Front)), pulse::FRONT_BEAT);
         assert_eq!(beat(Some(Pace::Back)), pulse::BACK_BEAT);
-    }
-
-    #[tokio::test]
-    async fn the_events_socket_closes_when_the_view_stops_answering() {
-        let (_dir, _app, mut socket) = events_socket().await;
-        tokio::time::sleep(TEST_BEAT * 6).await;
-        let mut frames = Vec::new();
-        let ended = tokio::time::timeout(TEST_BEAT * 20, async {
-            while let Some(Ok(frame)) = socket.next().await {
-                if matches!(frame, Frame::Close(_)) {
-                    break;
-                }
-                frames.push(kind(&frame));
-            }
-        })
-        .await;
-        assert!(ended.is_ok(), "the socket stayed open: {frames:?}");
-        assert!(
-            frames.iter().filter(|k| *k == "beat").count() <= 3,
-            "{frames:?}"
-        );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_view_that_falls_behind_gets_a_new_snapshot() {
-        let (_dir, app, mut socket) = events_socket().await;
-        let until = tokio::time::Instant::now() + Duration::from_secs(10);
-        let mut next = async || loop {
-            let frame = tokio::time::timeout_at(until, socket.next())
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            if !matches!(frame, Frame::Ping(_)) && kind(&frame) != "beat" {
-                return kind(&frame);
-            }
-        };
-        assert_eq!(next().await, "snapshot");
-        for _ in 0..crate::graph::EVENT_QUEUE * 2 {
-            app.graph.publish_view_changed();
-        }
-        let mut kinds = Vec::new();
-        while !kinds.contains(&"snapshot".to_owned()) {
-            kinds.push(next().await);
-        }
-        assert!(
-            kinds.iter().all(|k| k == "viewChanged" || k == "snapshot"),
-            "{kinds:?}"
-        );
     }
 
     #[tokio::test]

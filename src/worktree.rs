@@ -434,6 +434,7 @@ pub async fn create(
     workspace: &Path,
     branch: &str,
     base: &str,
+    unowned: impl Fn(&str) -> bool,
 ) -> Result<String, RepoProblem> {
     let branch = branch.trim();
     let leaf = branch.rsplit('/').next().unwrap_or_default();
@@ -463,10 +464,49 @@ pub async fn create(
     std::fs::create_dir_all(&parent).map_err(|e| RepoProblem::Git(e.to_string()))?;
     let path = parent.join(leaf).to_string_lossy().into_owned();
     let target = git::to_git_path(from, &path);
-    git::run(from, &["worktree", "add", "-b", branch, &target, base])
-        .await
-        .map_err(RepoProblem::Git)?;
+    if let Err(e) = git::run(from, &["worktree", "add", "-b", branch, &target, base]).await {
+        return left_over(repo, from, &path, &target, branch, base, unowned)
+            .await
+            .ok_or(RepoProblem::Git(e));
+    }
     Ok(listed_path(repo, &path, &target, worktrees(repo).await))
+}
+
+async fn left_over(
+    repo: &Path,
+    from: &Path,
+    path: &str,
+    target: &str,
+    branch: &str,
+    base: &str,
+    unowned: impl Fn(&str) -> bool,
+) -> Option<String> {
+    let base = git::run(from, &["rev-parse", "--verify", "--quiet", base])
+        .await
+        .ok()?;
+    let tip = format!("refs/heads/{branch}");
+    let tip = git::run(from, &["rev-parse", "--verify", "--quiet", &tip])
+        .await
+        .ok()?;
+    let base = base.trim().to_owned();
+    if tip.trim() != base {
+        return None;
+    }
+    let listed = worktrees(repo).await;
+    match listed.iter().find(|w| w.branch.as_deref() == Some(branch)) {
+        Some(made) => {
+            let same =
+                Path::new(&made.path).canonicalize().ok() == Path::new(path).canonicalize().ok();
+            let clean = changes(made).await.ok()?.is_empty();
+            (same && clean && made.head == base && unowned(&made.path)).then(|| made.path.clone())
+        }
+        None => {
+            git::run(from, &["worktree", "add", target, branch])
+                .await
+                .ok()?;
+            Some(listed_path(repo, path, target, worktrees(repo).await))
+        }
+    }
 }
 
 fn listed_path(repo: &Path, path: &str, target: &str, listed: Vec<Worktree>) -> String {
@@ -531,15 +571,6 @@ pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem>
         .await
         .map_err(RepoProblem::Git)?;
     Ok(())
-}
-
-pub async fn discard(repo: &Path, path: &str) -> Result<(), RepoProblem> {
-    let made = find(repo, path).await?;
-    remove(repo, &made).await?;
-    match &made.branch {
-        Some(branch) => delete_branch(repo, branch).await,
-        None => Ok(()),
-    }
 }
 
 async fn original_checkout(folder: &Path) -> Option<PathBuf> {
@@ -693,7 +724,7 @@ mod tests {
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
-        let path = create(&repo, &repo, &workspace, "me/feat-1", "main")
+        let path = create(&repo, &repo, &workspace, "me/feat-1", "main", |_| true)
             .await
             .unwrap();
         assert!(path.ends_with("/ws/app/feat-1"), "{path}");
@@ -748,36 +779,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn discard_removes_only_the_made_worktree_and_its_branch() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = repo(dir.path());
-        let workspace = dir.path().join("ws");
-        std::fs::create_dir(&workspace).unwrap();
-        let kept = create(&repo, &repo, &workspace, "kept", "main")
-            .await
-            .unwrap();
-        let made = create(&repo, &repo, &workspace, "me/made", "main")
-            .await
-            .unwrap();
-        assert_eq!(discard(&repo, &made).await, Ok(()));
-        assert!(!Path::new(&made).exists());
-        assert_eq!(run(&repo, &["branch", "--list", "me/made"]), "");
-        assert_eq!(
-            view(RepoId(1), &repo, None).await.branches,
-            ["kept", "main"]
-        );
-        assert!(find(&repo, &kept).await.is_ok());
-        assert_eq!(
-            discard(&repo, &made).await,
-            Err(RepoProblem::NotInRepo(made.clone()))
-        );
-        assert_eq!(
-            discard(&repo, repo.to_str().unwrap()).await,
-            Err(RepoProblem::Original)
-        );
-    }
-
-    #[tokio::test]
     async fn remove_refuses_original() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
@@ -809,7 +810,7 @@ mod tests {
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
-        let path = create(&repo, &repo, &workspace, "feat", "main")
+        let path = create(&repo, &repo, &workspace, "feat", "main", |_| true)
             .await
             .unwrap();
         let made = find(&repo, &path).await.unwrap();
@@ -853,7 +854,7 @@ mod tests {
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
-        let path = create(&repo, &repo, &workspace, "feat", "main")
+        let path = create(&repo, &repo, &workspace, "feat", "main", |_| true)
             .await
             .unwrap();
         std::fs::remove_dir_all(&path).unwrap();
@@ -871,7 +872,7 @@ mod tests {
         let repo = repo(dir.path());
         let ws = Path::new(r"\\wsl.localhost\NoSuchDistro\home\me\loom\workspaces");
         assert_eq!(
-            create(&repo, &repo, ws, "feat", "main").await,
+            create(&repo, &repo, ws, "feat", "main", |_| true).await,
             Err(RepoProblem::OtherPlace(ws.to_string_lossy().into_owned()))
         );
     }
@@ -883,21 +884,22 @@ mod tests {
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
         assert_eq!(
-            create(&repo, &repo, &workspace, " ", "main").await,
+            create(&repo, &repo, &workspace, " ", "main", |_| true).await,
             Err(RepoProblem::EmptyBranch)
         );
         assert_eq!(
-            create(&repo, &repo, Path::new("ws"), "feat", "main").await,
+            create(&repo, &repo, Path::new("ws"), "feat", "main", |_| true).await,
             Err(RepoProblem::NotAbsolute("ws".into()))
         );
         let missing = dir.path().join("missing");
         assert_eq!(
-            create(&repo, &repo, &missing, "feat", "main").await,
+            create(&repo, &repo, &missing, "feat", "main", |_| true).await,
             Err(RepoProblem::NoWorkspace(
                 missing.to_string_lossy().into_owned()
             ))
         );
-        let Err(RepoProblem::Git(e)) = create(&repo, &repo, &workspace, "main", "main").await
+        let Err(RepoProblem::Git(e)) =
+            create(&repo, &repo, &workspace, "main", "main", |_| true).await
         else {
             panic!()
         };
@@ -1005,7 +1007,7 @@ mod tests {
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
         assert_eq!(
-            create(&made, &made, &workspace, "feat", "HEAD").await,
+            create(&made, &made, &workspace, "feat", "HEAD", |_| true).await,
             Err(RepoProblem::NoCommit)
         );
         assert!(!workspace.join("my-app").exists());
@@ -1013,7 +1015,7 @@ mod tests {
         assert!(view(id, &made, None).await.has_commits);
         run(&made, &["checkout", "-q", "--detach"]);
         assert!(view(id, &made, None).await.has_commits);
-        create(&made, &made, &workspace, "feat", "HEAD")
+        create(&made, &made, &workspace, "feat", "HEAD", |_| true)
             .await
             .unwrap();
 
@@ -1039,7 +1041,10 @@ mod tests {
             .create(missing.to_str().unwrap(), "fresh")
             .await
             .unwrap();
-        assert_eq!(repos.path(id).unwrap(), missing.join("fresh"));
+        assert_eq!(
+            std::fs::canonicalize(repos.path(id).unwrap()).unwrap(),
+            std::fs::canonicalize(missing.join("fresh")).unwrap()
+        );
         assert!(missing.join("fresh").join(".git").exists());
     }
 
@@ -1049,16 +1054,23 @@ mod tests {
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
-        let parent = create(&repo, &repo, &workspace, "parent", "main")
+        let parent = create(&repo, &repo, &workspace, "parent", "main", |_| true)
             .await
             .unwrap();
         run(
             Path::new(&parent),
             &["commit", "-q", "--allow-empty", "-m", "b"],
         );
-        let child = create(&repo, Path::new(&parent), &workspace, "child", "HEAD")
-            .await
-            .unwrap();
+        let child = create(
+            &repo,
+            Path::new(&parent),
+            &workspace,
+            "child",
+            "HEAD",
+            |_| true,
+        )
+        .await
+        .unwrap();
         assert_eq!(run(Path::new(&child), &["log", "-1", "--format=%s"]), "b");
     }
 

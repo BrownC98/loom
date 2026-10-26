@@ -158,15 +158,44 @@ async fn pty(
     serve_pty(ws, via, app, |app| &app.host, human_typed, id)
 }
 
-pub(super) fn human_typed(app: &App, id: NodeId) {
-    if let Err(e) = app.graph.typed(id) {
+pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
+    let answered = app.graph.typed(id).unwrap_or_else(|e| {
         eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
-    }
+        true
+    });
     app.sleeps.knocked(id);
-    app.idle.typed(id);
+    if answered {
+        return;
+    }
+    if CLEAR_INPUT.contains(&bytes) {
+        return app.draft_ended(id);
+    }
+    if has_text(bytes)
+        && let Err(e) = app.graph.begin_draft(id)
+    {
+        eprintln!("loom: 노드 {}의 입력 중 표시를 쓰지 못했다: {e}", id.0);
+    }
 }
 
-const COMING_PTY_CHECK: Duration = Duration::from_secs(1);
+const CLEAR_INPUT: [&[u8]; 2] = [b"\x03", b"\x1b"];
+
+fn has_text(bytes: &[u8]) -> bool {
+    let mut rest = bytes;
+    while let Some((&first, tail)) = rest.split_first() {
+        rest = match (first, tail) {
+            (0x1b, [b'[', b'M', _, _, _, x10 @ ..]) => x10,
+            (0x1b, [b'[', csi @ ..]) => {
+                let end = csi.iter().position(|b| (0x40..=0x7e).contains(b));
+                end.map_or(&[][..], |end| &csi[end + 1..])
+            }
+            (0x1b, [b'O', _, ss3 @ ..]) => ss3,
+            (0x1b, [_, other @ ..]) => other,
+            (control, _) if control < 0x20 || control == 0x7f => tail,
+            _ => return true,
+        };
+    }
+    false
+}
 
 fn coming_pty(
     ws: WebSocketUpgrade,
@@ -183,9 +212,16 @@ fn coming_pty(
             {
                 return;
             }
-            let mut check = tokio::time::interval(COMING_PTY_CHECK);
             let mut pulse = Pulse::new(pulse::BEAT);
+            let mut nodes = app.graph.changes();
             loop {
+                let changed = app.ptys_changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
+                    let _ = socket.send(Message::Close(None)).await;
+                    return;
+                }
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
                         Heard::Frame(Some(Ok(Message::Binary(_)))) => app.sleeps.knocked(id),
@@ -197,12 +233,8 @@ fn coming_pty(
                             }
                         }
                     },
-                    _ = check.tick() => {
-                        if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
-                            let _ = socket.send(Message::Close(None)).await;
-                            return;
-                        }
-                    }
+                    () = changed => {}
+                    _ = nodes.recv() => {}
                 }
             }
         })
@@ -250,7 +282,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&App, K),
+    typed: fn(&Arc<App>, K, &[u8]),
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -296,9 +328,9 @@ impl<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static> Drop for G
 async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     socket: WebSocket,
     attached: node_host::Attached,
-    app: &App,
+    app: &Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&App, K),
+    typed: fn(&Arc<App>, K, &[u8]),
     id: K,
     borrower: node_host::Borrower,
 ) {
@@ -342,7 +374,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                 Heard::Frame(Some(Ok(Message::Binary(bytes)))) => {
                     let _ = host(app).write_if(id, |_| {
                         if node_host::typed(&bytes) {
-                            typed(app, id);
+                            typed(app, id, &bytes);
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())
                     });
@@ -368,4 +400,34 @@ async fn send_size(
     let notice = serde_json::to_string(&PtyNotice::Size(Resize { cols, rows }))
         .expect("PtyNotice는 늘 직렬화된다");
     to_view.send(Message::Text(notice.into())).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_text;
+
+    #[test]
+    fn only_text_and_not_keys_or_reports_begins_a_draft() {
+        for key in [
+            &b"\x1b"[..],
+            b"\x1b[A",
+            b"\x1bOP",
+            b"\x1b[I",
+            b"\x1b[<0;10;5M",
+            b"\x1b[M !!",
+            b"\x03",
+            b"\x7f",
+            b"\r",
+        ] {
+            assert!(!has_text(key), "{key:?}");
+        }
+        for text in [
+            &b"a"[..],
+            "가".as_bytes(),
+            b"\x1b[200~ab\x1b[201~",
+            b"\x1b[Ax",
+        ] {
+            assert!(has_text(text), "{text:?}");
+        }
+    }
 }

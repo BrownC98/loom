@@ -1,16 +1,13 @@
 mod endpoint;
 mod host;
-mod inner;
 mod wire;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::hash::Hash;
-use std::io::{BufRead, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::num::NonZeroU16;
-use std::path::PathBuf;
-use std::process::Stdio;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -18,12 +15,12 @@ use bytes::Bytes;
 use portable_pty::CommandBuilder;
 use tokio::sync::{broadcast, watch};
 
+use crate::distro::{self, Distros, Unreached};
 use crate::process_tree::{self, Snapshot};
 use crate::screen::Screen;
 use wire::Frame;
 
 pub use host::run;
-pub use inner::inner;
 
 pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
 
@@ -93,11 +90,41 @@ pub struct Kept {
     pub backlog: Bytes,
 }
 
+#[derive(Clone)]
 pub struct NodeHost<K> {
     dir: PathBuf,
     kept: PathBuf,
-    nodes: RwLock<HashMap<K, Arc<Pty>>>,
+    nodes: Arc<RwLock<HashMap<K, Arc<Pty>>>>,
+    unattached: Arc<Mutex<HashSet<K>>>,
     links: Option<Links<K>>,
+    distros: Option<Arc<Distros>>,
+}
+
+type OnExit = Box<dyn FnOnce(Exit) + Send>;
+
+enum Address {
+    Here(SocketAddr),
+    Distro { at: SocketAddr, distro: String },
+}
+
+impl Address {
+    fn read(file: &Path) -> Result<Address, Unattached> {
+        let text = std::fs::read_to_string(file).map_err(|e| Unattached::Silent(e.to_string()))?;
+        let mut lines = text.lines();
+        let at = lines
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .parse()
+            .map_err(|e| Unattached::Silent(format!("{}: {e}", file.display())))?;
+        Ok(match lines.next().map(str::trim) {
+            Some(distro) if !distro.is_empty() => Address::Distro {
+                at,
+                distro: distro.to_owned(),
+            },
+            _ => Address::Here(at),
+        })
+    }
 }
 
 struct Pty {
@@ -161,8 +188,17 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         Self {
             kept: dir.with_extension("screens"),
             dir,
-            nodes: RwLock::default(),
+            nodes: Arc::default(),
+            unattached: Arc::default(),
             links: None,
+            distros: None,
+        }
+    }
+
+    pub fn with_distros(self, distros: Arc<Distros>) -> Self {
+        Self {
+            distros: Some(distros),
+            ..self
         }
     }
 
@@ -183,19 +219,17 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         self.start(id, host::Spec::of(&cmd, setup.as_ref()), on_exit)
     }
 
-    pub fn spawn_inner(
+    pub fn spawn_in(
         &self,
         id: K,
-        launcher: CommandBuilder,
-        cmd: CommandBuilder,
-        setup: Option<CommandBuilder>,
+        distro: &str,
+        start: distro::Start,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
-        self.start(
-            id,
-            host::Spec::inner(&launcher, &cmd, setup.as_ref()),
-            on_exit,
-        )
+        let distros = self.distros.as_ref().ok_or("no WSL distro host")?;
+        let at = distros.start(distro, start)?;
+        self.keep_address(id, &format!("{at}\n{distro}"))?;
+        self.resume(id, on_exit).map_err(|e| e.to_string())
     }
 
     fn start(
@@ -204,11 +238,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         spec: host::Spec,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
-        let address = start_host(&spec)?;
-        std::fs::create_dir_all(&self.dir)
-            .and_then(|()| std::fs::write(self.file(id), &address))
-            .map_err(|e| e.to_string())?;
+        let address = start_host(&process_tree::own_exe()?, &spec)?;
+        self.keep_address(id, &address)?;
         self.resume(id, on_exit).map_err(|e| e.to_string())
+    }
+
+    fn keep_address(&self, id: K, address: &str) -> Result<(), String> {
+        std::fs::create_dir_all(&self.dir)
+            .and_then(|()| std::fs::write(self.file(id), address))
+            .map_err(|e| e.to_string())
     }
 
     pub fn resume(
@@ -217,32 +255,52 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), Unattached> {
         let _ = std::fs::remove_file(self.kept_file(id));
+        self.link(id, Box::new(on_exit), None)
+            .map_err(|(unattached, _)| unattached)
+    }
+
+    fn link(
+        &self,
+        id: K,
+        on_exit: OnExit,
+        replacing: Option<Arc<Pty>>,
+    ) -> Result<(), (Unattached, OnExit)> {
         let file = self.file(id);
-        let connected = address(&file).and_then(|at| Ok((at, connect(at, wire::greet)?)));
-        let (at, (mut reader, greeted)) = match connected {
+        let address = Address::read(&file);
+        let distro = matches!(address, Ok(Address::Distro { .. }));
+        let connected = address.and_then(|at| Ok((self.connect(&at, wire::greet)?, at)));
+        let ((mut reader, greeted), at) = match connected {
             Ok(found) => found,
             Err(e) => {
-                let _ = std::fs::remove_file(&file);
-                return Err(e);
+                if !distro || e == Unattached::Gone {
+                    let _ = std::fs::remove_file(&file);
+                    self.unattached.lock().unwrap().remove(&id);
+                } else {
+                    self.unattached.lock().unwrap().insert(id);
+                }
+                return Err((e, on_exit));
             }
         };
         let pid = greeted.pid;
         let linked = match greeted.version >= wire::STREAMS_SINCE && self.links.is_some() {
-            true => match connect(at, |link| wire::greet_streams(link, greeted.version)) {
+            true => match self.connect(&at, |link| wire::greet_streams(link, greeted.version)) {
                 Ok((link, held)) => Linked::Streams { link, held },
                 Err(e) => {
                     let _ = wire::write(&mut reader, &Frame::Kill);
                     std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
                     let _ = std::fs::remove_file(&file);
-                    return Err(Unattached::Silent(format!("node endpoint link: {e}")));
+                    return Err((
+                        Unattached::Silent(format!("node endpoint link: {e}")),
+                        on_exit,
+                    ));
                 }
             },
             false => Linked::Terminal,
         };
-        let links = self.links.clone();
-        let host = reader
-            .try_clone()
-            .map_err(|e| Unattached::Silent(e.to_string()))?;
+        let host = match reader.try_clone() {
+            Ok(host) => host,
+            Err(e) => return Err((Unattached::Silent(e.to_string()), on_exit)),
+        };
         let pty = Arc::new(Pty {
             pid: Mutex::new(pid),
             guarded: Mutex::default(),
@@ -257,18 +315,34 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             #[cfg(test)]
             detached: Default::default(),
         });
-        self.nodes.write().unwrap().insert(id, pty.clone());
+        let ours = {
+            let mut nodes = self.nodes.write().unwrap();
+            let ours = replacing
+                .as_ref()
+                .is_none_or(|old| nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, old)));
+            if ours {
+                nodes.insert(id, pty.clone());
+                self.unattached.lock().unwrap().remove(&id);
+            }
+            ours
+        };
+        let links = self.links.clone().filter(|_| ours);
         if let Some(links) = &links {
             let _ = links.send((id, linked));
         }
+        if !ours {
+            pty.send(&Frame::Kill);
+        }
+        let host = self.clone();
+        let carried_by_distro = matches!(at, Address::Distro { .. });
         std::thread::spawn(move || {
             let exit = loop {
                 match wire::read(&mut reader) {
                     Ok(Frame::Data(chunk)) => {
                         pty.output.lock().unwrap().push(&chunk);
                     }
-                    Ok(Frame::Exit(code)) => break Exit::Command(code),
-                    Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
+                    Ok(Frame::Exit(code)) => break Some(Exit::Command(code)),
+                    Ok(Frame::SetupFailed(code)) => break Some(Exit::Setup(code)),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
                     Ok(Frame::EndpointFailed(error)) => {
                         if let Some(links) = &links {
@@ -283,20 +357,74 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                         sizing.host = HostSize::Reported;
                     }
                     Ok(_) => {}
-                    Err(_) => break Exit::Lost,
+                    Err(_) => break None,
                 }
             };
             #[cfg(test)]
             if pty.detached.load(std::sync::atomic::Ordering::SeqCst) {
                 return;
             }
-            let _ = std::fs::remove_file(file);
-            on_exit(exit);
+            let on_exit = match exit {
+                None if carried_by_distro => match host.link(id, on_exit, Some(pty.clone())) {
+                    Ok(()) => return,
+                    Err((Unattached::Silent(cause), _))
+                        if host.unattached.lock().unwrap().contains(&id) =>
+                    {
+                        let mut nodes = host.nodes.write().unwrap();
+                        if nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, &pty)) {
+                            nodes.remove(&id);
+                        }
+                        drop(nodes);
+                        if let Some(links) = &host.links {
+                            let _ = links.send((
+                                id,
+                                Linked::EndpointFailed(format!("left unattached: {cause}")),
+                            ));
+                        }
+                        return;
+                    }
+                    Err((_, on_exit)) => on_exit,
+                },
+                _ => on_exit,
+            };
+            let _ = std::fs::remove_file(host.file(id));
+            on_exit(exit.unwrap_or(Exit::Lost));
         });
         Ok(())
     }
 
-    pub fn end_others(&self) {
+    fn connect<G>(
+        &self,
+        at: &Address,
+        greet: impl FnOnce(&mut TcpStream) -> std::io::Result<G>,
+    ) -> Result<(TcpStream, G), Unattached> {
+        let silent = |e: std::io::Error| Unattached::Silent(e.to_string());
+        let mut stream = match at {
+            Address::Here(at) => {
+                TcpStream::connect_timeout(at, CONNECT_TIMEOUT).map_err(|e| match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => Unattached::Gone,
+                    _ => silent(e),
+                })?
+            }
+            Address::Distro { at, distro } => self
+                .distros
+                .as_ref()
+                .ok_or_else(|| Unattached::Silent(format!("no distro host for {distro}")))?
+                .reach(distro, *at)
+                .map_err(|e| match e {
+                    Unreached::Gone => Unattached::Gone,
+                    Unreached::Failed(cause) => Unattached::Silent(cause),
+                })?,
+        };
+        stream
+            .set_read_timeout(Some(GREET_TIMEOUT))
+            .map_err(silent)?;
+        let greeted = greet(&mut stream).map_err(silent)?;
+        stream.set_read_timeout(None).map_err(silent)?;
+        Ok((stream, greeted))
+    }
+
+    pub fn end_others(&self, keep: &[K]) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return;
         };
@@ -305,6 +433,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .read()
             .unwrap()
             .keys()
+            .chain(keep)
             .map(|id| id.to_string())
             .collect();
         for entry in entries.flatten() {
@@ -312,7 +441,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 continue;
             }
             if let Ok((mut host, _)) =
-                address(&entry.path()).and_then(|at| connect(at, wire::greet))
+                Address::read(&entry.path()).and_then(|at| self.connect(&at, wire::greet))
             {
                 let _ = wire::write(&mut host, &Frame::Kill);
             }
@@ -410,7 +539,16 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    pub fn unattached(&self) -> Vec<K> {
+        self.unattached.lock().unwrap().iter().copied().collect()
+    }
+
+    pub fn take_unattached(&self, id: K) -> bool {
+        self.unattached.lock().unwrap().remove(&id)
+    }
+
     pub fn kill(&self, id: K) {
+        self.unattached.lock().unwrap().remove(&id);
         if let Some(pty) = self.nodes.write().unwrap().remove(&id) {
             pty.send(&Frame::Kill);
         }
@@ -508,60 +646,44 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     }
 }
 
-fn start_host(spec: &host::Spec) -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = exe
-        .to_str()
-        .and_then(|path| path.strip_suffix(" (deleted)"))
-        .map_or(exe.clone(), PathBuf::from);
+fn start_host(exe: &std::path::Path, spec: &host::Spec) -> Result<String, String> {
     let mut host = std::process::Command::new(exe);
-    host.arg("pty-host")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    process_tree::detach(&mut host);
-    let mut child = host.spawn().map_err(|e| format!("pty-host: {e}"))?;
+    host.arg("pty-host");
     let spec = serde_json::to_vec(spec).map_err(|e| e.to_string())?;
-    let sent = child
-        .stdin
-        .take()
-        .expect("stdin을 piped로 열었다")
-        .write_all(&spec);
-    let mut line = String::new();
-    let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
-    let read = std::io::BufReader::new(stdout).read_line(&mut line);
-    std::thread::spawn(move || child.wait());
-    sent.and(read).map_err(|e| format!("pty-host: {e}"))?;
-    match line.trim() {
-        "" => Err("pty-host: exited before announcing its address".into()),
-        address => Ok(address.to_owned()),
+    match process_tree::announced(host, &spec) {
+        Ok(address) if address.is_empty() => {
+            Err("pty-host: exited before announcing its address".into())
+        }
+        Ok(address) => Ok(address),
+        Err(e) => Err(format!("pty-host: {e}")),
     }
 }
 
-fn address(file: &std::path::Path) -> Result<std::net::SocketAddr, Unattached> {
-    let address = std::fs::read_to_string(file).map_err(|e| Unattached::Silent(e.to_string()))?;
+pub fn start_in_distro(start: distro::Start) -> Result<SocketAddr, String> {
+    let (program, cmd, setup) = distro_commands(start);
+    let address = start_host(Path::new(&program), &host::Spec::of(&cmd, setup.as_ref()))?;
     address
-        .trim()
         .parse()
-        .map_err(|e| Unattached::Silent(format!("{}: {e}", file.display())))
+        .map_err(|e| format!("pty-host: {address}: {e}"))
 }
 
-fn connect<G>(
-    address: std::net::SocketAddr,
-    greet: impl FnOnce(&mut TcpStream) -> std::io::Result<G>,
-) -> Result<(TcpStream, G), Unattached> {
-    let silent = |e: std::io::Error| Unattached::Silent(e.to_string());
-    let mut stream =
-        TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|e| match e.kind() {
-            std::io::ErrorKind::ConnectionRefused => Unattached::Gone,
-            _ => silent(e),
-        })?;
-    stream
-        .set_read_timeout(Some(GREET_TIMEOUT))
-        .map_err(silent)?;
-    let greeted = greet(&mut stream).map_err(silent)?;
-    stream.set_read_timeout(None).map_err(silent)?;
-    Ok((stream, greeted))
+fn distro_commands(start: distro::Start) -> (String, CommandBuilder, Option<CommandBuilder>) {
+    let distro::Start {
+        program,
+        command,
+        setup,
+    } = start;
+    let build = |argv: Vec<String>| {
+        let mut cmd = CommandBuilder::from_argv(argv.into_iter().map(Into::into).collect());
+        cmd.cwd(&command.cwd);
+        for (key, value) in &command.env {
+            cmd.env(key, value);
+        }
+        cmd
+    };
+    let cmd = build(command.argv.clone());
+    let setup = setup.map(build);
+    (program, cmd, setup)
 }
 
 pub struct Keys<'a>(Option<&'a Pty>);
@@ -843,6 +965,9 @@ pub fn in_process(dir: &std::path::Path, id: impl Display, cmd: CommandBuilder) 
 
 #[cfg(test)]
 mod endpoint_tests;
+
+#[cfg(test)]
+mod distro_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1238,13 +1363,7 @@ mod tests {
     #[test]
     fn only_a_refused_connection_means_the_host_is_gone() {
         let dir = tempfile::tempdir().unwrap();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        std::fs::write(
-            dir.path().join("1"),
-            closed.local_addr().unwrap().to_string(),
-        )
-        .unwrap();
-        drop(closed);
+        std::fs::write(dir.path().join("1"), "127.0.0.1:1").unwrap();
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         std::fs::write(
             dir.path().join("2"),

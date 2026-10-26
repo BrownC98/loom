@@ -75,7 +75,6 @@ use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
-use crate::process_tree;
 use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
@@ -127,9 +126,11 @@ struct App {
     repo_list: one_flight::OneFlight<Result<Vec<RepoView>, String>>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
+    ptys_changed: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
     linux_loom: Option<PathBuf>,
+    distros: Option<Arc<crate::distro::Distros>>,
     run_dir: PathBuf,
     homes: wsl::Homes,
     version_warnings: HashMap<Profile, VersionMismatch>,
@@ -394,9 +395,20 @@ impl App {
         if cfg!(windows) {
             wsl::write_shim(&shim, &std::env::current_exe()?, linux_loom.as_deref())?;
         }
+        let distros = linux_loom.as_ref().map(|loom| {
+            Arc::new(crate::distro::Distros::through_wsl(
+                pty_dir.join("distros"),
+                loom,
+            ))
+        });
+        let host = NodeHost::new(pty_dir.join("nodes")).with_links(links);
+        let turn_ends = turn_end::TurnEnds::stored(graph.clone()).map_err(std::io::Error::other)?;
         Ok(App {
             repos,
-            host: NodeHost::new(pty_dir.join("nodes")).with_links(links),
+            host: match &distros {
+                Some(distros) => host.with_distros(distros.clone()),
+                None => host,
+            },
             graph,
             settings: Settings::new(database.clone(), profile::check_choice),
             devices: devices.clone(),
@@ -425,8 +437,9 @@ impl App {
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             repo_list: one_flight::OneFlight::default(),
-            turn_ends: turn_end::TurnEnds::default(),
+            turn_ends,
             merge_queue: tokio::sync::Notify::new(),
+            ptys_changed: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
@@ -438,6 +451,7 @@ impl App {
             },
             shim,
             linux_loom,
+            distros,
             run_dir: db_path.with_file_name("run"),
             homes: wsl::Homes::default(),
             version_warnings: profile::version_warnings(codex_version),

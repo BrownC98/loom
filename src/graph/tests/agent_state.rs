@@ -184,6 +184,73 @@ fn a_dialog_blocks_the_agent_until_it_closes() {
     );
 }
 
+#[test]
+fn every_process_change_and_turn_start_ends_the_stored_draft() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "worker");
+    let drafted = |id| {
+        g.begin_draft(id).unwrap();
+        assert!(g.drafted(id).unwrap());
+    };
+    drafted(worker);
+    g.agent_event(worker, AgentEvent::RelaunchStarted).unwrap();
+    g.agent_event(worker, AgentEvent::RelaunchFailed).unwrap();
+    assert!(
+        g.drafted(worker).unwrap(),
+        "a failed relaunch keeps the old process"
+    );
+    g.relaunched(worker, &launched()).unwrap();
+    assert!(!g.drafted(worker).unwrap(), "relaunch, wake and revive");
+
+    drafted(worker);
+    g.switched(
+        worker,
+        &launched(),
+        &AgentId("cursor".into()),
+        &crate::protocol::Model::default(),
+    )
+    .unwrap();
+    assert!(!g.drafted(worker).unwrap(), "agent switch");
+
+    drafted(worker);
+    g.agent_event(worker, AgentEvent::WaitOpened).unwrap();
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    assert!(g.slept(worker).unwrap());
+    assert!(!g.drafted(worker).unwrap(), "sleep");
+
+    g.relaunched(worker, &launched()).unwrap();
+    drafted(worker);
+    g.lost(worker).unwrap();
+    assert!(!g.drafted(worker).unwrap(), "process lost");
+
+    drafted(lead);
+    g.agent_event(lead, AgentEvent::TurnStarted).unwrap();
+    assert!(!g.drafted(lead).unwrap(), "turn start");
+    drafted(lead);
+    g.agent_event(lead, AgentEvent::TurnStarted).unwrap();
+    assert!(
+        g.drafted(lead).unwrap(),
+        "a step inside the turn is no turn start"
+    );
+    g.agent_event(lead, AgentEvent::Dialog).unwrap();
+    g.agent_event(lead, AgentEvent::DialogCleared).unwrap();
+    assert!(
+        g.drafted(lead).unwrap(),
+        "a closed dialog restores the turn"
+    );
+    g.agent_event(lead, AgentEvent::RelaunchStarted).unwrap();
+    g.agent_event(lead, AgentEvent::RelaunchFailed).unwrap();
+    assert!(
+        g.drafted(lead).unwrap(),
+        "a failed relaunch restores the turn"
+    );
+    g.exited(lead, 0).unwrap();
+    assert!(!g.drafted(lead).unwrap(), "process exit");
+}
+
 fn agent_child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
     let child = NewChild {
         agent: Some(AgentId("claude".into())),

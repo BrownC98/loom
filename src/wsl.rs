@@ -5,6 +5,8 @@ use std::sync::Mutex;
 
 use portable_pty::CommandBuilder;
 
+use crate::distro::{self, Distro};
+use crate::protocol::InsideError;
 use crate::tunnel::ENDPOINT_ENV;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -181,26 +183,24 @@ fn read_list(bytes: &[u8]) -> Vec<String> {
 pub struct Homes(Mutex<HashMap<String, String>>);
 
 impl Homes {
-    pub async fn get(&self, distro: &str) -> Result<String, InsideError> {
-        if let Some(home) = self.0.lock().unwrap().get(distro) {
+    pub async fn get(&self, distro: &Distro) -> Result<String, InsideError> {
+        if let Some(home) = self.0.lock().unwrap().get(distro.name()) {
             return Ok(home.clone());
         }
-        let text = values(distro, || {
-            let mut cmd = tokio::process::Command::new("wsl.exe");
-            cmd.args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#]);
-            cmd
-        })
-        .await?;
+        let text = values(distro, sh(r#"printf '\036%s' "$HOME""#, [])).await?;
         let home = match text.split_once(SEP) {
             Some((_, home)) if home.starts_with('/') => home.to_owned(),
             _ => {
                 return Err(InsideError::Start {
-                    distro: distro.into(),
+                    distro: distro.name().into(),
                     cause: "$HOME is not an absolute path".into(),
                 });
             }
         };
-        self.0.lock().unwrap().insert(distro.into(), home.clone());
+        self.0
+            .lock()
+            .unwrap()
+            .insert(distro.name().into(), home.clone());
         Ok(home)
     }
 }
@@ -305,20 +305,8 @@ exit 0"#;
 const MARKS: &str = r#"started() { s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${s##*) }; shift 19; echo "$1"; }
 marks=/tmp/loom-guard-$(id -u)"#;
 
-pub async fn end_shells(distro: &str, token: &str) -> Result<(), String> {
-    let mut cmd = tokio::process::Command::new("wsl.exe");
-    cmd.args([
-        "-d",
-        distro,
-        "-e",
-        "sh",
-        "-c",
-        &end_shells_script(),
-        "sh",
-        token,
-    ])
-    .env("WSL_UTF8", "1");
-    bounded(cmd, END_TOKEN_WAIT).await
+pub async fn end_shells(distro: &Distro, token: &str) -> Result<(), String> {
+    bounded(distro, sh(&end_shells_script(), [token])).await
 }
 
 fn end_shells_script() -> String {
@@ -337,11 +325,40 @@ done
     )
 }
 
-pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
-    let mut cmd = tokio::process::Command::new("wsl.exe");
-    cmd.args(["-d", distro, "-e", "sh", "-c", END_TOKEN, "sh", token])
-        .env("WSL_UTF8", "1");
-    bounded(cmd, END_TOKEN_WAIT).await
+pub async fn end_token(distro: &Distro, token: &str) -> Result<(), String> {
+    bounded(distro, sh(END_TOKEN, [token])).await
+}
+
+pub fn end_trees(distro: &Distro, roots: &[u32]) {
+    let roots: Vec<String> = roots.iter().map(u32::to_string).collect();
+    let script = format!("roots=\"$*\"\n{END_TREES}");
+    let command = sh(&script, roots.iter().map(String::as_str));
+    let distro = distro.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = distro.run(command) {
+            eprintln!("loom: {}의 프로세스를 끝내지 못했다: {e}", distro.name());
+        }
+    });
+}
+
+fn sh<'a>(script: &'a str, args: impl IntoIterator<Item = &'a str>) -> distro::Command {
+    let argv = ["sh", "-c", script, "sh"]
+        .into_iter()
+        .chain(args)
+        .map(str::to_owned)
+        .collect();
+    distro::Command {
+        argv,
+        cwd: "/".into(),
+        env: Vec::new(),
+    }
+}
+
+async fn run(distro: &Distro, command: distro::Command) -> Result<distro::Ran, String> {
+    let distro = distro.clone();
+    tokio::task::spawn_blocking(move || distro.run(command))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 const END_TOKEN: &str = r#"token=$1 nl='
@@ -364,23 +381,33 @@ exit 0"#;
 
 const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-async fn bounded(
-    mut cmd: tokio::process::Command,
-    limit: std::time::Duration,
-) -> Result<(), String> {
-    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
-    match tokio::time::timeout(limit, cmd.output()).await {
-        Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
-        Ok(Err(e)) => Err(e.to_string()),
-        Ok(Ok(out)) if out.status.success() => Ok(()),
-        Ok(Ok(out)) => Err(failure(&out)),
+async fn bounded(distro: &Distro, command: distro::Command) -> Result<(), String> {
+    match tokio::time::timeout(END_TOKEN_WAIT, run(distro, command)).await {
+        Err(_) => Err(format!("{}초 안에 끝나지 않았다", END_TOKEN_WAIT.as_secs())),
+        Ok(Err(e)) => Err(e),
+        Ok(Ok(ran)) if ran.code == Some(0) => Ok(()),
+        Ok(Ok(ran)) => Err(ran_failure(&ran)),
     }
+}
+
+fn ran_failure(ran: &distro::Ran) -> String {
+    let text: Vec<&str> = [&ran.stdout, &ran.stderr]
+        .map(|text| text.trim())
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect();
+    let code = ran.code.map_or("no exit code".to_owned(), |code| {
+        format!("exit code {code}")
+    });
+    format!("{} ({code})", text.join(" "))
+        .trim_start()
+        .to_owned()
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Inside {
     host: String,
-    pub distro: String,
+    pub distro: Distro,
     cwd: String,
     bin: String,
     path: String,
@@ -389,35 +416,7 @@ pub struct Inside {
     paths: Vec<String>,
 }
 
-/// 배포판을 쓸 수 없다. 에이전트에게는 `Display` 글이, 화면에는 코드와 값이 간다.
-#[derive(Debug, PartialEq, serde::Serialize, ts_rs::TS)]
-#[serde(tag = "code", rename_all = "camelCase")]
-#[ts(export)]
-pub enum InsideError {
-    /// 배포판이 시작하지 못했다. `cause`는 `wsl.exe` 오류 글이다.
-    Start { distro: String, cause: String },
-    /// 배포판 안에서 Windows 프로그램을 띄울 수 없다(`/etc/wsl.conf` `[interop] enabled=false`). 노드의 `loom` 명령이 닿지 않는다.
-    Interop { distro: String },
-}
-
-impl std::fmt::Display for InsideError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            InsideError::Start { distro, cause } => write!(
-                f,
-                "Could not start {distro}: {cause}. Run `wsl -d {distro}` in a terminal to see the cause."
-            ),
-            InsideError::Interop { distro } => write!(
-                f,
-                "{distro} cannot run Windows programs (WSL interop is off), so the node could not use loom commands. Set [interop] enabled=true in /etc/wsl.conf, run `wsl --shutdown`, and try again."
-            ),
-        }
-    }
-}
-
 const SEP: char = '\u{1e}';
-const START_TRIES: u32 = 3;
-const START_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
@@ -429,57 +428,47 @@ const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
     at: &WslPath,
+    distro: Distro,
     find: &[&str],
     bin: &Path,
     paths: &[&Path],
 ) -> Result<Inside, InsideError> {
-    let distro = at.distro.as_str();
     let script = r#"[ -n "$(ls /proc/sys/fs/binfmt_misc/WSLInterop* 2>/dev/null)" ] || { printf '\036interop-off\036'; exit 0; }
 printf '\036%s' "$PATH" "$HOME"
 while [ "$1" != -- ]; do printf '\036%s' "$(command -v "$1")"; shift; done; shift
 for p; do printf '\036%s' "$(wslpath -u "$p")"; done
 printf '\036'"#;
-    let text = values(distro, || {
-        let mut cmd = tokio::process::Command::new("wsl.exe");
-        cmd.args(["-d", distro, "-e", "bash", "-lic", script, "bash"])
-            .args(find)
-            .arg("--")
-            .arg(bin)
-            .args(paths);
-        cmd
-    })
-    .await?;
-    read_inside(at, find, &text).ok_or_else(|| InsideError::Interop {
-        distro: distro.into(),
-    })
+    let argv = ["bash", "-lic", script, "bash"]
+        .into_iter()
+        .chain(find.iter().copied())
+        .chain(["--"])
+        .map(str::to_owned)
+        .chain(
+            std::iter::once(bin)
+                .chain(paths.iter().copied())
+                .map(|p| p.display().to_string()),
+        )
+        .collect();
+    let command = distro::Command {
+        argv,
+        cwd: "/".into(),
+        env: Vec::new(),
+    };
+    let text = values(&distro, command).await?;
+    let name = distro.name().to_owned();
+    read_inside(at, distro, find, &text).ok_or(InsideError::Interop { distro: name })
 }
 
-async fn values(
-    distro: &str,
-    wsl: impl Fn() -> tokio::process::Command,
-) -> Result<String, InsideError> {
-    let mut cause = String::new();
-    for attempt in 0..START_TRIES {
-        if attempt > 0 {
-            tokio::time::sleep(START_RETRY_AFTER).await;
-        }
-        let mut cmd = wsl();
-        cmd.env("WSL_UTF8", "1").stdin(std::process::Stdio::null());
-        match cmd.output().await {
-            Ok(out) => {
-                let text = String::from_utf8_lossy(&out.stdout);
-                if text.contains(SEP) {
-                    return Ok(text.into_owned());
-                }
-                cause = failure(&out);
-            }
-            Err(e) => cause = e.to_string(),
-        }
-    }
-    Err(InsideError::Start {
-        distro: distro.into(),
+async fn values(distro: &Distro, command: distro::Command) -> Result<String, InsideError> {
+    let start = |cause| InsideError::Start {
+        distro: distro.name().into(),
         cause,
-    })
+    };
+    let ran = run(distro, command).await.map_err(start)?;
+    match ran.stdout.contains(SEP) {
+        true => Ok(ran.stdout),
+        false => Err(start(ran_failure(&ran))),
+    }
 }
 
 fn failure(out: &std::process::Output) -> String {
@@ -493,7 +482,7 @@ fn failure(out: &std::process::Output) -> String {
         .to_owned()
 }
 
-fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
+fn read_inside(at: &WslPath, distro: Distro, find: &[&str], text: &str) -> Option<Inside> {
     let mut values = text.split(SEP).skip(1);
     let path = values.next()?;
     if path == INTEROP_OFF {
@@ -507,7 +496,7 @@ fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
     let bin = values.next()?.to_owned();
     Some(Inside {
         host: at.host.clone(),
-        distro: at.distro.clone(),
+        distro,
         cwd: at.path.clone(),
         bin,
         path: path.into(),
@@ -549,6 +538,48 @@ impl Inside {
         wsl
     }
 
+    pub fn start(
+        &self,
+        program: String,
+        cmd: &CommandBuilder,
+        setup: Option<&CommandBuilder>,
+    ) -> distro::Start {
+        let argv = |cmd: &CommandBuilder| {
+            cmd.get_argv()
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        };
+        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
+        distro::Start {
+            program,
+            command: self.command(argv(cmd), &env),
+            setup: setup.map(argv),
+        }
+    }
+
+    pub fn command<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+        &self,
+        argv: Vec<String>,
+        env: &[(K, V)],
+    ) -> distro::Command {
+        let mut vars: Vec<(String, String)> = passed(env)
+            .map(|(k, v)| {
+                (
+                    k.as_ref().to_owned(),
+                    v.as_ref().to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
+        vars.push(("WSLENV".into(), names(env)));
+        vars.push(("PATH".into(), self.node_path()));
+        distro::Command {
+            argv,
+            cwd: self.cwd.clone(),
+            env: vars,
+        }
+    }
+
     pub fn server<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
         &self,
         argv: &[impl AsRef<std::ffi::OsStr>],
@@ -581,7 +612,7 @@ impl Inside {
         PathBuf::from(format!(
             r"\\{}\{}{}",
             self.host,
-            self.distro,
+            self.distro.name(),
             linux.trim_end_matches('/').replace('/', "\\")
         ))
     }
@@ -589,7 +620,7 @@ impl Inside {
     fn prefix(&self) -> [String; 7] {
         [
             "-d".into(),
-            self.distro.clone(),
+            self.distro.name().into(),
             "--cd".into(),
             self.cwd.clone(),
             "--exec".into(),
@@ -754,9 +785,9 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         };
 
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.args(["-c", END_TOKEN, "sh", &token]);
-        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+        let (distros, local) = distro::local(dir.path().join("distros"), no_start);
+        end_token(&distros.distro("Ubuntu"), &token).await.unwrap();
+        local.end_all();
 
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(stubborn.wait().unwrap().signal(), Some(9));
@@ -829,23 +860,18 @@ mod tests {
         }
 
         fn with_linux(name: &str, body: &str, linux: Option<&str>) -> Self {
-            use std::os::unix::fs::PermissionsExt;
+            use crate::fake_exe::{seal, write_executable};
             let dir = tempfile::tempdir().unwrap();
             let fake = dir.path().join("loom.exe");
-            std::fs::write(&fake, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::write(dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
+            write_executable(&fake, &format!("#!/bin/sh\n{body}\n"));
+            write_executable(&dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n");
             let linux = linux.map(|body| {
                 let linux = dir.path().join("loom-linux-test");
-                std::fs::write(&linux, format!("#!/bin/sh\n{body}\n")).unwrap();
-                let mode = std::fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(&linux, mode).unwrap();
+                write_executable(&linux, &format!("#!/bin/sh\n{body}\n"));
                 linux
             });
             write_shim(dir.path(), &fake, linux.as_deref()).unwrap();
-            for file in ["loom.exe", "wslpath", "loom"] {
-                let mode = std::fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(dir.path().join(file), mode).unwrap();
-            }
+            seal(&dir.path().join("loom"));
             let token = format!("{name}{}", std::process::id());
             Shim { dir, token }
         }
@@ -985,10 +1011,12 @@ mod tests {
             1,
         );
         assert_ne!(during, script);
+        let (distros, local) = distro::local(shim.dir.path().join("distros"), no_start);
+        let ubuntu = distros.distro("Ubuntu");
         let end = |script: String| {
-            let mut cmd = tokio::process::Command::new("sh");
-            cmd.args(["-c", &script, "sh", &shim.token]);
-            bounded(cmd, END_TOKEN_WAIT)
+            let ubuntu = ubuntu.clone();
+            let token = shim.token.clone();
+            async move { bounded(&ubuntu, sh(&script, [token.as_str()])).await }
         };
         end(during).await.unwrap();
 
@@ -1002,6 +1030,7 @@ mod tests {
         assert_eq!(left, [late_mark.as_str()]);
         assert!(late.try_wait().unwrap().is_none());
         end(script).await.unwrap();
+        local.end_all();
         assert_eq!(late.wait().unwrap().signal(), Some(15));
         std::fs::remove_dir_all(shim.marks()).unwrap();
         for mut left in [unmarked, wrong_start, reused] {
@@ -1012,77 +1041,51 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn bounded_ends_a_stalled_command() {
+    fn no_start(_: distro::Start) -> Result<std::net::SocketAddr, String> {
+        Err("no pty-host here".into())
+    }
+
+    fn ubuntu() -> Distro {
+        let none: distro::Launch = Box::new(|_| Err("no distro host here".into()));
+        std::sync::Arc::new(distro::Distros::new(PathBuf::new(), none)).distro("Ubuntu-24.04")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn end_trees_ends_a_server_and_its_children_in_the_distro() {
+        use std::os::unix::process::ExitStatusExt;
         let dir = tempfile::tempdir().unwrap();
-        let pid_file = dir.path().join("pid");
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.args([
-            "-c",
-            &format!("echo $$ > {}; exec sleep 30", pid_file.display()),
-        ]);
-        let started = std::time::Instant::now();
-        let ended = bounded(cmd, std::time::Duration::from_millis(500)).await;
-        assert!(ended.is_err());
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
-        let pid = std::fs::read_to_string(&pid_file).unwrap();
-        let stat = std::path::PathBuf::from(format!("/proc/{}/stat", pid.trim()));
-        for _ in 0..50 {
-            match std::fs::read_to_string(&stat) {
-                Err(_) => return,
-                Ok(line) if line.rsplit(") ").next().is_some_and(|s| s.starts_with('Z')) => return,
-                Ok(_) => {}
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        panic!("the stalled command still runs");
-    }
-
-    #[cfg(unix)]
-    fn failing_wsl(dir: &Path, fails: u32) -> impl Fn() -> tokio::process::Command {
-        let tries = dir.join("tries");
-        move || {
-            let mut cmd = tokio::process::Command::new("sh");
-            cmd.args([
-                "-c",
-                r#"echo x >> "$0"; [ "$(wc -l < "$0")" -gt "$1" ] && { printf '\036/home/me'; exit 0; }
-printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
-            ])
-            .arg(&tries)
-            .arg(fails.to_string());
-            cmd
-        }
-    }
-
-    #[cfg(unix)]
-    fn tries(dir: &Path) -> usize {
-        std::fs::read_to_string(dir.join("tries"))
-            .unwrap()
-            .lines()
-            .count()
+        let (distros, local) = distro::local(dir.path().to_path_buf(), no_start);
+        let mut server = std::process::Command::new("sh")
+            .args(["-c", "sleep 30 & wait"])
+            .spawn()
+            .unwrap();
+        end_trees(&distros.distro("Ubuntu"), &[server.id()]);
+        assert_eq!(server.wait().unwrap().signal(), Some(libc::SIGTERM));
+        local.end_all();
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_start_that_fails_once_is_tried_again() {
+    async fn a_value_read_that_fails_shows_the_error_text_of_the_distro() {
         let dir = tempfile::tempdir().unwrap();
-        let text = values("Ubuntu", failing_wsl(dir.path(), 1)).await.unwrap();
-        assert_eq!(text, "\u{1e}/home/me");
-        assert_eq!(tries(dir.path()), 2);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_start_that_keeps_failing_shows_the_wsl_error_text() {
-        let dir = tempfile::tempdir().unwrap();
-        let failed = values("Ubuntu", failing_wsl(dir.path(), u32::MAX)).await;
+        let (distros, local) = distro::local(dir.path().to_path_buf(), no_start);
+        let failed = values(
+            &distros.distro("Ubuntu"),
+            sh("printf '오류 코드: Wsl/Service/0x8007274c\\n'; exit 1", []),
+        )
+        .await;
         let Err(InsideError::Start { distro, cause }) = failed else {
             panic!("{failed:?}");
         };
         assert_eq!(distro, "Ubuntu");
         assert!(cause.contains("Wsl/Service/0x8007274c"), "{cause}");
-        assert!(cause.ends_with("(exit status: 1)"), "{cause}");
-        assert_eq!(tries(dir.path()), START_TRIES as usize);
+        assert!(cause.ends_with("(exit code 1)"), "{cause}");
+        let ok = values(&distros.distro("Ubuntu"), sh(r#"printf '\036%s' "$0""#, []))
+            .await
+            .unwrap();
+        assert_eq!(ok, "\u{1e}sh");
+        local.end_all();
     }
 
     #[cfg(unix)]
@@ -1292,7 +1295,7 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
     #[test]
     fn inside_reads_values_after_shell_noise() {
         let text = "welcome from .bashrc\n\u{1e}/home/me/.local/bin:/usr/bin\u{1e}/home/me\u{1e}/home/me/.local/bin/claude\u{1e}\u{1e}/mnt/c/loom/wsl\u{1e}/mnt/c/loom/plugin\u{1e}";
-        let inside = read_inside(&at(), &["claude", "claude-code"], text).unwrap();
+        let inside = read_inside(&at(), ubuntu(), &["claude", "claude-code"], text).unwrap();
         assert_eq!(inside.path, "/home/me/.local/bin:/usr/bin");
         let names = ["claude-code".to_string(), "claude".to_string()];
         assert_eq!(inside.find(&names), Some("/home/me/.local/bin/claude"));
@@ -1305,13 +1308,16 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
             inside.local("/home/me/.claude/"),
             PathBuf::from(r"\\wsl.localhost\Ubuntu-24.04\home\me\.claude")
         );
-        assert_eq!(read_inside(&at(), &[], "\u{1e}interop-off\u{1e}"), None);
+        assert_eq!(
+            read_inside(&at(), ubuntu(), &[], "\u{1e}interop-off\u{1e}"),
+            None
+        );
     }
 
     #[test]
     fn wrap_runs_in_the_distro_with_loom_first_and_passes_set_variables() {
         let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/home/me/.local/bin/claude\u{1e}/mnt/c/loom/wsl\u{1e}";
-        let inside = read_inside(&at(), &["claude"], text).unwrap();
+        let inside = read_inside(&at(), ubuntu(), &["claude"], text).unwrap();
         let mut cmd = CommandBuilder::new("/home/me/.local/bin/claude");
         cmd.args(["--plugin-dir", "/mnt/c/loom/plugin", "a \"b\"\nc"]);
         cmd.env("LOOM_TOKEN", "t1");
@@ -1368,7 +1374,7 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
     #[test]
     fn task_dir_of_a_wsl_node_is_the_linux_path_and_the_daemon_writes_the_unc_path() {
         let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/mnt/c/loom/wsl\u{1e}";
-        let inside = read_inside(&at(), &[], text).unwrap();
+        let inside = read_inside(&at(), ubuntu(), &[], text).unwrap();
         let dir = crate::task::Tasks::wsl(inside.home(), |p| inside.local(p)).dir("loom-feat-x");
         assert_eq!(dir.shown, "/home/me/.cache/loom/loom-feat-x");
         if cfg!(windows) {
@@ -1410,7 +1416,7 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
     #[test]
     fn server_runs_in_the_distro_and_passes_env_but_not_path() {
         let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/mnt/c/loom/wsl\u{1e}";
-        let inside = read_inside(&at(), &[], text).unwrap();
+        let inside = read_inside(&at(), ubuntu(), &[], text).unwrap();
         let env = [("LOOM_TOKEN", "t1"), ("PATH", r"C:\Windows")];
         let cmd = inside.server(&["codex", "app-server"], &env);
         let argv: Vec<_> = std::iter::once(cmd.get_program())

@@ -355,6 +355,10 @@ impl Graph {
         self.mail.notify_waiters();
     }
 
+    pub fn changes(&self) -> broadcast::Receiver<GraphEvent> {
+        self.events.subscribe()
+    }
+
     pub fn publish_view_changed(&self) {
         let _ = self.events.send(GraphEvent::ViewChanged);
     }

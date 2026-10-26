@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use super::App;
 use crate::git;
@@ -14,14 +13,13 @@ use crate::worktree::merge::{
 };
 use crate::worktree::{self, RepoId};
 
-const TICK: Duration = Duration::from_secs(60);
-
 const MOVE_LIMIT: u32 = 3;
 
 const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
 
 pub(super) async fn run(app: Arc<App>) {
     let mut moves: HashMap<(RepoId, String), u32> = HashMap::new();
+    let mut changes = app.graph.changes();
     loop {
         recover(&app, CHECK_LOCK).await;
         loop {
@@ -50,7 +48,9 @@ pub(super) async fn run(app: Arc<App>) {
         }
         tokio::select! {
             () = app.merge_queue.notified() => {}
-            () = tokio::time::sleep(TICK) => {}
+            changed = changes.recv() => if matches!(changed, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
+                return;
+            },
         }
     }
 }

@@ -340,6 +340,7 @@ const STEPS: &[M] = &[
         DELETE FROM events
             WHERE entry ->> 'kind' = 'agentStateDisagreed' AND entry ->> '$.state.kind' IN ('asleep', 'ended');"#,
     ),
+    M::up("ALTER TABLE nodes ADD COLUMN setup INTEGER NOT NULL DEFAULT 0;"),
     M::up(
         r#"UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value',
             'Old rule: steer, interrupt, loom rm and loom done --keep went only to a parent or child: ' || (entry ->> '$.reason.value')))

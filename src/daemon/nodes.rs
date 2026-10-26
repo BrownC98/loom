@@ -219,11 +219,12 @@ fn coming_pty(
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                if app.host.attach(id).is_some() {
+                let reachable = app.graph.reachable(id).unwrap_or(false);
+                if app.host.attach(id).is_some() || (gone && reachable) {
                     let _ = socket.send(Message::Close(None)).await;
                     return;
                 }
-                if !gone && !app.graph.reachable(id).unwrap_or(false) {
+                if !gone && !reachable {
                     gone = true;
                     let notice =
                         serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");

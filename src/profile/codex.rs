@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use super::{ServerAdapter, Signal, VersionMismatch};
+use super::{Change, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
@@ -125,12 +125,6 @@ pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Status {
-    Idle,
-    Busy,
-}
-
 pub async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -190,32 +184,19 @@ pub struct Adapter<F, S> {
     call: F,
     stop: S,
     thread: watch::Receiver<Option<server::Thread>>,
-    now: Option<server::Thread>,
-    busy: bool,
-    started: bool,
-    ours: bool,
 }
 
 impl<F, S> Adapter<F, S> {
     pub fn new(call: F, thread: watch::Receiver<Option<server::Thread>>, stop: S) -> Self {
-        Self {
-            call,
-            stop,
-            thread,
-            now: None,
-            busy: false,
-            started: false,
-            ours: false,
-        }
+        Self { call, stop, thread }
     }
 
-    fn thread(&self) -> Result<(String, Status), String> {
-        let now = self.now.as_ref().ok_or("Codex 스레드가 아직 없다")?;
-        let status = match self.started {
-            true => Status::Busy,
-            false => now.status,
-        };
-        Ok((now.id.clone(), status))
+    fn thread(&self) -> Result<String, String> {
+        self.thread
+            .borrow()
+            .as_ref()
+            .map(|t| t.id.clone())
+            .ok_or_else(|| "Codex 스레드가 아직 없다".to_owned())
     }
 }
 
@@ -225,24 +206,31 @@ where
     Fut: Future<Output = Result<Value, String>> + Send,
     S: Fn() + Send + Sync,
 {
-    fn takes(&self) -> &'static [&'static [Kind]] {
-        self.thread().map_or(&[], |(_, status)| kinds(status))
+    fn takes(&self, now: Status) -> &'static [&'static [Kind]] {
+        self.thread().map_or(&[], |_| kinds(now))
     }
 
-    async fn signal(&mut self) -> Option<Signal> {
-        self.now = self.thread.borrow_and_update().clone();
-        let now = self.now.clone()?;
-        let was_busy = std::mem::replace(&mut self.busy, now.status == Status::Busy);
-        if !was_busy && self.busy && !std::mem::take(&mut self.ours) {
-            return Some(Signal::HumanInput);
+    fn status(&mut self) -> Option<Status> {
+        self.thread.borrow_and_update().as_ref().map(|t| t.status)
+    }
+
+    async fn signal(&mut self, change: Option<Change>) -> Option<Signal> {
+        match change? {
+            Change {
+                before: Status::Idle,
+                now: Status::Busy,
+            } => return Some(Signal::HumanInput),
+            Change {
+                before: Status::Busy,
+                now: Status::Idle,
+            } => {}
+            Change { .. } => return None,
         }
-        if !(was_busy && !self.busy && !self.started) {
-            return None;
-        }
-        let reply = match last_reply(&self.call, &now.id).await {
+        let thread = self.thread().ok()?;
+        let reply = match last_reply(&self.call, &thread).await {
             Ok(reply) => reply,
             Err(e) => {
-                eprintln!("loom: Codex 스레드 {}의 답 글을 읽지 못했다: {e}", now.id);
+                eprintln!("loom: Codex 스레드 {thread}의 답 글을 읽지 못했다: {e}");
                 None
             }
         };
@@ -250,17 +238,11 @@ where
     }
 
     async fn changed(&mut self) -> bool {
-        let alive = self.thread.changed().await.is_ok();
-        self.started = false;
-        alive
+        self.thread.changed().await.is_ok()
     }
 
-    async fn inject(&mut self, taken: &[Delivery]) -> Result<(), String> {
-        let (thread, status) = self.thread()?;
-        deliver(&self.call, &thread, status, taken).await?;
-        self.started = true;
-        self.ours |= status == Status::Idle;
-        Ok(())
+    async fn inject(&mut self, taken: &[Delivery], now: Status) -> Result<(), String> {
+        deliver(&self.call, &self.thread()?, now, taken).await
     }
 
     async fn stop_shells(&self) {
@@ -268,16 +250,11 @@ where
     }
 
     async fn start_turn(&mut self, text: &str) -> Result<(), String> {
-        let (thread, _) = self.thread()?;
-        start_turn(&self.call, &thread, text).await?;
-        self.started = true;
-        self.ours = true;
-        Ok(())
+        start_turn(&self.call, &self.thread()?, text).await
     }
 
     async fn steer(&mut self, text: &str) -> Result<(), String> {
-        let (thread, _) = self.thread()?;
-        steer(&self.call, &thread, text).await
+        steer(&self.call, &self.thread()?, text).await
     }
 }
 

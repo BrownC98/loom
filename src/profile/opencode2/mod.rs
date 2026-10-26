@@ -17,7 +17,7 @@ use crate::protocol::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey,
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-use super::{ServerAdapter, Signal, VersionMismatch};
+use super::{Change, ServerAdapter, Signal, Status, VersionMismatch};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
@@ -184,9 +184,8 @@ pub struct Node {
     server: Server,
     session: String,
     model: watch::Receiver<Model>,
-    working: watch::Receiver<bool>,
     permission: watch::Receiver<()>,
-    turns: Mutex<Option<mpsc::UnboundedReceiver<Signal>>>,
+    turns: Mutex<Option<mpsc::UnboundedReceiver<Seen>>>,
     sent: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -242,7 +241,6 @@ impl Node {
 
     fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
-        let (tx_working, working) = watch::channel(false);
         let (tx_permission, permission) = watch::channel(());
         let (tx_turns, turns) = mpsc::unbounded_channel();
         let sent = Arc::new(Mutex::new(HashSet::new()));
@@ -260,20 +258,18 @@ impl Node {
             match turn {
                 Some(TurnEvent::Started) => {
                     said = None;
-                    tx_working.send_replace(true);
+                    let _ = tx_turns.send(Seen::Started);
                 }
                 Some(TurnEvent::Said(text)) => said = Some(text),
                 Some(TurnEvent::Succeeded) => {
-                    tx_working.send_replace(false);
-                    let _ = tx_turns.send(Signal::TurnEnded(said.take()));
+                    let _ = tx_turns.send(Seen::Succeeded(said.take()));
                 }
                 Some(TurnEvent::Stopped) => {
-                    tx_working.send_replace(false);
                     said = None;
-                    let _ = tx_turns.send(Signal::Stopped);
+                    let _ = tx_turns.send(Seen::Stopped);
                 }
                 Some(TurnEvent::Enqueued { id }) if !ours_sent.lock().unwrap().remove(&id) => {
-                    let _ = tx_turns.send(Signal::HumanInput);
+                    let _ = tx_turns.send(Seen::Human);
                 }
                 Some(TurnEvent::Enqueued { .. }) | None => {}
             }
@@ -282,7 +278,6 @@ impl Node {
             server,
             session,
             model,
-            working,
             permission,
             turns: Mutex::new(Some(turns)),
             sent,
@@ -291,10 +286,6 @@ impl Node {
 
     pub fn model(&self) -> watch::Receiver<Model> {
         self.model.clone()
-    }
-
-    pub fn working(&self) -> watch::Receiver<bool> {
-        self.working.clone()
     }
 
     pub fn permission_changed(&self) -> watch::Receiver<()> {
@@ -341,25 +332,46 @@ impl Node {
             turns: self.turns.lock().unwrap().take(),
             stopped: self.server.stopped(),
             api: self.clone(),
-            pending: None,
+            pending: Some(Seen::Connected),
         }
     }
 }
 
+enum Seen {
+    Connected,
+    Started,
+    Succeeded(Option<String>),
+    Stopped,
+    Human,
+}
+
 struct Adapter<A> {
     api: Arc<A>,
-    turns: Option<mpsc::UnboundedReceiver<Signal>>,
+    turns: Option<mpsc::UnboundedReceiver<Seen>>,
     stopped: watch::Receiver<bool>,
-    pending: Option<Signal>,
+    pending: Option<Seen>,
 }
 
 impl<A: Api> ServerAdapter for Adapter<A> {
-    fn takes(&self) -> &'static [&'static [Kind]] {
+    fn takes(&self, _: Status) -> &'static [&'static [Kind]] {
         &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]]
     }
 
-    async fn signal(&mut self) -> Option<Signal> {
-        self.pending.take()
+    fn status(&mut self) -> Option<Status> {
+        match self.pending.as_ref()? {
+            Seen::Started => Some(Status::Busy),
+            Seen::Connected | Seen::Succeeded(_) | Seen::Stopped => Some(Status::Idle),
+            Seen::Human => None,
+        }
+    }
+
+    async fn signal(&mut self, _: Option<Change>) -> Option<Signal> {
+        match self.pending.take()? {
+            Seen::Connected | Seen::Started => None,
+            Seen::Succeeded(reply) => Some(Signal::TurnEnded(reply)),
+            Seen::Stopped => Some(Signal::Stopped),
+            Seen::Human => Some(Signal::HumanInput),
+        }
     }
 
     async fn changed(&mut self) -> bool {
@@ -387,7 +399,7 @@ impl<A: Api> ServerAdapter for Adapter<A> {
         }
     }
 
-    async fn inject(&mut self, taken: &[Delivery]) -> Result<(), String> {
+    async fn inject(&mut self, taken: &[Delivery], _: Status) -> Result<(), String> {
         deliver(&*self.api, taken, PROMPT_RETRY_DELAY).await
     }
 

@@ -51,6 +51,8 @@ pub enum AgentEvent {
     ServerIdle,
     /// 서버 연결이 끊겼다.
     ServerLost,
+    /// 데몬이 서버에 턴을 여는 입력을 넣었고, 서버는 아직 상태를 알리지 않았다. 읽음이 아니다.
+    InputSent,
     RelaunchStarted,
     Relaunched,
     Slept,
@@ -90,7 +92,7 @@ impl AgentState {
                 before: Box::new(state),
             },
             (state, E::DialogCleared) => state,
-            (_, E::TurnStarted | E::ServerBusy) => S::Turn,
+            (_, E::TurnStarted | E::ServerBusy | E::InputSent) => S::Turn,
             (_, E::WaitOpened | E::TurnEndedWaitOpened | E::ServerIdle) => S::Listening,
             (_, E::ServerLost) => S::Deaf,
             (
@@ -200,16 +202,21 @@ pub(super) fn state_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option
 }
 
 impl Graph {
-    pub fn agent_event(&self, node: NodeId, event: AgentEvent) -> rusqlite::Result<()> {
+    pub fn agent_event(
+        &self,
+        node: NodeId,
+        event: AgentEvent,
+    ) -> rusqlite::Result<Option<AgentState>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        let before = state_of(&tx, node)?;
         let moved = apply(&tx, node, event)?;
         tx.commit()?;
         if moved > 0 {
             self.publish_node(&db, node)?;
             self.mail.notify_waiters();
         }
-        Ok(())
+        Ok(before)
     }
 
     pub fn agent_state(&self, node: NodeId) -> rusqlite::Result<Option<AgentState>> {

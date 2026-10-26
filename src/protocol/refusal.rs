@@ -111,6 +111,8 @@ pub enum Refusal {
         role: String,
         reviewer: String,
     },
+    /// 병합 큐가 이 브랜치를 검사했고 지금 게시한다. 새 검토자를 받지 않는다. 값은 브랜치다.
+    Publishing(String),
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -411,6 +413,10 @@ impl fmt::Display for Refusal {
             } => write!(
                 f,
                 "{reviewer} already reviews {branch} as {role}. loom sends it each new round when the owner calls `loom ready {branch}`. To tell it more, use `loom note {reviewer} <body>`. If its process ended, use `loom relaunch {reviewer}`."
+            ),
+            Refusal::Publishing(branch) => write!(
+                f,
+                "The merge queue checked {branch} and publishes it now, so it takes no new reviewer. Wait for merged or rework."
             ),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }

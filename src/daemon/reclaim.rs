@@ -7,13 +7,17 @@ use crate::graph::{NodeId, Reclaim};
 use crate::worktree::merge::{delete_merged, dirty, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
 
-pub(super) async fn run(app: Arc<App>, repo: RepoId, branches: Vec<String>) {
-    let dir = match app.repos.path(repo) {
-        Ok(dir) => dir,
+pub(super) async fn run(app: Arc<App>) {
+    let rounds = match app.graph.reclaim_rounds() {
+        Ok(rounds) => rounds,
         Err(e) => return eprintln!("loom: reclaim: {e}"),
     };
-    for branch in branches {
-        if let Err(e) = reclaim(&app, &dir, repo, &branch).await {
+    for (repo, branch) in rounds {
+        let done = match app.repos.path(repo) {
+            Ok(dir) => reclaim(&app, &dir, repo, &branch).await,
+            Err(e) => Err(e.to_string()),
+        };
+        if let Err(e) = done {
             eprintln!("loom: reclaim {branch}: {e}");
         }
     }

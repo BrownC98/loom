@@ -1,7 +1,5 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::App;
 use crate::git;
@@ -18,8 +16,8 @@ const MOVE_LIMIT: u32 = 3;
 const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
 
 pub(super) async fn run(app: Arc<App>) {
-    let mut moves: HashMap<(RepoId, String), u32> = HashMap::new();
     let mut changes = app.graph.changes();
+    tokio::spawn(super::reclaim::run(app.clone()));
     loop {
         recover(&app, CHECK_LOCK).await;
         loop {
@@ -31,19 +29,9 @@ pub(super) async fn run(app: Arc<App>) {
                 }
             };
             let Some((repo, target)) = next else { break };
-            let key = (repo, target);
-            let before = moves.get(&key).copied().unwrap_or(0);
-            match batch(&app, key.0, &key.1, CHECK_LOCK, before).await {
-                Ok(true) => {
-                    moves.insert(key, before + 1);
-                }
-                Ok(false) => {
-                    moves.remove(&key);
-                }
-                Err(e) => {
-                    eprintln!("loom: merge queue {}: {e}", key.1);
-                    break;
-                }
+            if let Err(e) = batch(&app, repo, &target, CHECK_LOCK).await {
+                eprintln!("loom: merge queue {target}: {e}");
+                break;
             }
         }
         tokio::select! {
@@ -55,18 +43,11 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-async fn batch(
-    app: &Arc<App>,
-    repo: RepoId,
-    target: &str,
-    lock: &str,
-    moves: u32,
-) -> Result<bool, Refusal> {
-    let queue = app.graph.queue(repo, target)?;
-    let branches: Vec<&str> = queue.iter().map(|q| q.branch.as_str()).collect();
-    let dir = repo_path(app, repo);
-    let id = app.graph.batch_open(repo, target, &branches)?;
-    match dir {
+async fn batch(app: &Arc<App>, repo: RepoId, target: &str, lock: &str) -> Result<(), Refusal> {
+    let Some((id, queue)) = app.graph.batch_open(repo, target)? else {
+        return Ok(());
+    };
+    match repo_path(app, repo) {
         Ok(dir) => {
             let run = Batch {
                 app,
@@ -75,35 +56,17 @@ async fn batch(
                 dir,
                 target: target.to_owned(),
                 lock,
-                moves,
-                moved: AtomicBool::new(false),
             };
             if let Err(e) = run.run(queue.clone()).await {
                 fail_all(app, repo, id, &queue, &e.to_string());
             }
-            app.graph.batch_close(id)?;
-            Ok(run.moved.load(Ordering::Relaxed))
         }
-        Err(e) => {
-            fail_all(app, repo, id, &queue, &e.to_string());
-            app.graph.batch_close(id)?;
-            Ok(false)
-        }
+        Err(e) => fail_all(app, repo, id, &queue, &e.to_string()),
     }
+    Ok(app.graph.batch_close(id)?)
 }
 
 async fn recover(app: &Arc<App>, lock: &str) {
-    match app.graph.orphans() {
-        Ok(orphans) => {
-            for (repo, branch) in orphans {
-                let ended = failed(UPGRADE_CAUSE.to_owned(), None, Vec::new());
-                if let Err(e) = app.graph.merge_end(repo, &branch, ended) {
-                    eprintln!("loom: merge queue recovery {branch}: {e}");
-                }
-            }
-        }
-        Err(e) => eprintln!("loom: merge queue recovery: {e}"),
-    }
     let stale = match app.graph.stale_batches() {
         Ok(stale) => stale,
         Err(e) => return eprintln!("loom: merge queue recovery: {e}"),
@@ -126,8 +89,6 @@ async fn recover(app: &Arc<App>, lock: &str) {
             dir,
             target: stale.target,
             lock,
-            moves: 0,
-            moved: AtomicBool::new(false),
         };
         if let Err(e) = script(&run.dir, CLEAN, &[]).await {
             eprintln!("loom: merge queue recovery: {e}");
@@ -150,8 +111,6 @@ async fn recover(app: &Arc<App>, lock: &str) {
         }
     }
 }
-
-const UPGRADE_CAUSE: &str = "loom upgrade: send loom ready again";
 
 fn fail_all(app: &App, repo: RepoId, id: BatchId, members: &[Queued], cause: &str) {
     for m in members {
@@ -196,8 +155,6 @@ struct Batch<'a> {
     dir: PathBuf,
     target: String,
     lock: &'a str,
-    moves: u32,
-    moved: AtomicBool,
 }
 
 enum Dest {
@@ -283,10 +240,10 @@ impl Batch<'_> {
                     continue;
                 }
                 Trial::Passed { tip } if half == suspects.len() => {
+                    self.app.graph.batch_checked(self.id, base, &tip)?;
                     if !self.unchanged(&trial).await? {
                         return Ok(());
                     }
-                    self.app.graph.batch_checked(self.id, base, &tip)?;
                     return self.publish_into(&trial, base, &tip, step, into).await;
                 }
                 Trial::Passed { .. } => {
@@ -375,10 +332,7 @@ impl Batch<'_> {
                         self.dirty(members, worktree);
                         Ok(())
                     }
-                    MOVED => {
-                        self.moved(members, step);
-                        Ok(())
-                    }
+                    MOVED => self.moved(members, step),
                     _ => Err(Refusal::Git(format!(
                         "fast-forward of {} exited {code}: {}",
                         self.target,
@@ -438,8 +392,9 @@ impl Batch<'_> {
     }
 
     async fn unchanged(&self, members: &[Queued]) -> Result<bool, Refusal> {
+        let held = self.app.graph.batch_members(self.id)?;
         let mut kept = Vec::new();
-        for m in members {
+        for m in members.iter().filter(|m| held.contains(&m.branch)) {
             if self.screen(m).await? {
                 kept.push(m);
             }
@@ -509,10 +464,7 @@ impl Batch<'_> {
                 self.merged(members, base, tip, Some(deploy), &Dest::Base)
                     .await
             }
-            (MOVED, false) => {
-                self.moved(members, step);
-                Ok(())
-            }
+            (MOVED, false) => self.moved(members, step),
             (_, false) => {
                 let cause =
                     format!("publishing the batch exited {code} (see the last lines of the log)");
@@ -532,11 +484,8 @@ impl Batch<'_> {
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
-        let mut merged = Vec::new();
-        let settled = self
-            .settle_merged(members, base, tip, deploy, into, &mut merged)
-            .await;
-        tokio::spawn(super::reclaim::run(self.app.clone(), self.repo, merged));
+        let settled = self.settle_merged(members, base, tip, deploy, into).await;
+        tokio::spawn(super::reclaim::run(self.app.clone()));
         settled
     }
 
@@ -547,7 +496,6 @@ impl Batch<'_> {
         tip: &str,
         deploy: Option<String>,
         into: &Dest,
-        merged: &mut Vec<String>,
     ) -> Result<(), Refusal> {
         let into_base = matches!(into, Dest::Base);
         for m in members {
@@ -594,7 +542,6 @@ impl Batch<'_> {
                     findings,
                 },
             );
-            merged.push(m.branch.clone());
         }
         Ok(())
     }
@@ -646,11 +593,11 @@ impl Batch<'_> {
         }
     }
 
-    fn moved(&self, members: &[Queued], step: u32) {
+    fn moved(&self, members: &[Queued], step: u32) -> Result<(), Refusal> {
         self.record(step, members, None, BatchResult::TargetMoved, None);
-        if self.moves + 1 < MOVE_LIMIT {
-            self.moved.store(true, Ordering::Relaxed);
-            return members.iter().for_each(|m| self.requeue(m));
+        if self.app.graph.target_moves(self.repo, &self.target)? + 1 < MOVE_LIMIT {
+            members.iter().for_each(|m| self.requeue(m));
+            return Ok(self.app.graph.batch_moved(self.id)?);
         }
         let cause = format!(
             "{} moved during {MOVE_LIMIT} batches in a row; tell the root, then send loom ready again",
@@ -659,6 +606,7 @@ impl Batch<'_> {
         for m in members {
             self.settle(m, self.failed(cause.clone(), None));
         }
+        Ok(())
     }
 
     fn settle(&self, member: &Queued, ended: Ended) {

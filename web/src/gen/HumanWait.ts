@@ -31,7 +31,7 @@ instruction?: string,
  */
 images: Array<string>, 
 /**
- * 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+ * 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
  */
 prompt?: Prompt, 
 /**

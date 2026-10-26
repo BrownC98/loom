@@ -10,6 +10,8 @@ use crate::protocol::{
 use crate::task;
 use crate::worktree::RepoId;
 
+const MIN_HEAD: usize = 7;
+
 pub struct Round<'a> {
     pub branch: &'a str,
     pub target: &'a str,
@@ -139,6 +141,12 @@ impl Graph {
             detail,
             via,
             |tx, row| {
+                if let Some(open) = load(tx, repo, round.branch)?
+                    && matches!(open.state, GateState::Ready | GateState::Passed)
+                    && open.head == round.head
+                {
+                    return Err(Refusal::SameHead(round.branch.to_owned()));
+                }
                 tx.execute(
                     "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
@@ -216,6 +224,7 @@ impl Graph {
         &self,
         caller: NodeId,
         branch: &str,
+        head: &str,
         judgment: Judgment,
         findings: Option<&str>,
         via: Option<&Via>,
@@ -236,6 +245,12 @@ impl Graph {
             detail,
             via,
             |tx, row| {
+                if head.len() < MIN_HEAD || !row.head.starts_with(head) {
+                    return Err(Refusal::StaleHead {
+                        branch: branch.to_owned(),
+                        head: row.head.clone(),
+                    });
+                }
                 update(tx, repo, branch, row.state)?;
                 tx.execute(
                     "INSERT INTO gate_votes (repo, branch, reviewer, vote, head, findings) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -295,30 +310,6 @@ impl Graph {
             }
         }
         Ok(findings)
-    }
-
-    pub fn fail(
-        &self,
-        caller: NodeId,
-        branch: &str,
-        cause: &str,
-        via: Option<&Via>,
-    ) -> Result<GateState, Refusal> {
-        let detail = Detail {
-            cause: Some(cause.to_owned()),
-            ..Detail::default()
-        };
-        let repo = place_of(&self.lock(), caller)?.repo;
-        let row = self.apply(
-            Caller::Node(caller),
-            repo,
-            branch,
-            GateCall::Fail,
-            detail,
-            via,
-            |tx, row| Ok(update(tx, repo, branch, row.state)?),
-        )?;
-        Ok(row.state)
     }
 
     pub fn record_gate_refusal(
@@ -582,9 +573,7 @@ impl Graph {
                 Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?))
             })?
             .collect::<rusqlite::Result<_>>()?;
-        if seated.len() < 2 {
-            return Ok(());
-        }
+        let head = load(&db, place_of(&db, gate)?.repo, &branch)?.map(|row| row.head);
         let names: Vec<(NodeId, String)> = seated
             .iter()
             .map(|(id, name, _)| (*id, name.clone()))
@@ -602,7 +591,17 @@ impl Graph {
                     steer_kind(self.linked, agent),
                 ),
             };
-            let body = protocol::peers_step(&branch, &peers);
+            let mut body = Vec::new();
+            if let (true, Some(head)) = (*id == node, &head) {
+                body.push(protocol::first_round_step(&branch, head));
+            }
+            if !peers.is_empty() {
+                body.push(protocol::peers_step(&branch, &peers));
+            }
+            if body.is_empty() {
+                continue;
+            }
+            let body = body.join("\n");
             mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
             self.publish_node(&db, *id)?;
         }
@@ -687,7 +686,7 @@ impl Graph {
                 }
                 let mut body = detail.lines.clone();
                 body.push(match held.is_empty() {
-                    true => protocol::next_step(call, *receiver, target, branch),
+                    true => protocol::next_step(call, *receiver, target, branch, &row.head),
                     false => protocol::held_step(*receiver, &held),
                 });
                 post(
@@ -718,8 +717,13 @@ impl Graph {
                 sent.push(me);
             }
             if call == GateCall::Ready {
-                let seated = reviewers(&tx, &row, branch, caller)?;
-                for (reviewer, name) in &seated {
+                let replaced = matches!(from, GateState::Ready | GateState::Passed);
+                let with_agents = reviewers(&tx, &row, branch, caller)?;
+                let seated: Vec<(NodeId, String)> = with_agents
+                    .iter()
+                    .map(|(id, name, _)| (*id, name.clone()))
+                    .collect();
+                for (reviewer, name, agent) in &with_agents {
                     let judged = last_judged(&tx, *reviewer, branch)?;
                     let mut body = Vec::new();
                     let peers = peers_of(&tx, &seated, *reviewer, branch)?;
@@ -732,11 +736,15 @@ impl Graph {
                         judged.as_deref(),
                         &findings_of(&tx, *reviewer, name, branch)?,
                     ));
+                    let kind = match replaced {
+                        true => steer_kind(self.linked, agent),
+                        false => Kind::Queue,
+                    };
                     post(
                         &tx,
                         caller,
                         *reviewer,
-                        Kind::Queue,
+                        kind,
                         &what,
                         &body.join("\n"),
                         via,
@@ -802,8 +810,6 @@ fn allowed_caller(
             },
             _ => not_gate(row),
         },
-        (Caller::Node(me), Some(row), Sender::Gate) if row.gate == me => Ok(()),
-        (Caller::Node(_), Some(row), Sender::Gate) => not_gate(row),
     }
 }
 
@@ -871,9 +877,9 @@ fn reviewers(
     row: &Row,
     branch: &str,
     caller: Caller,
-) -> rusqlite::Result<Vec<(NodeId, String)>> {
+) -> rusqlite::Result<Vec<(NodeId, String, Option<AgentId>)>> {
     tx.prepare(&format!(
-        "SELECT n.id, n.name FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
+        "SELECT n.id, n.name, n.agent FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
         in_round("?1", "?2", "?3")
     ))?
     .query_map(
@@ -883,7 +889,7 @@ fn reviewers(
             branch,
             caller.node().map_or(0, |n| n.0)
         ],
-        |r| Ok((NodeId(r.get(0)?), r.get(1)?)),
+        |r| Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?)),
     )?
     .collect()
 }
@@ -977,7 +983,7 @@ pub(super) fn check_review(
     parent: NodeId,
     repo: RepoId,
     branch: &str,
-    role: Option<&str>,
+    role: &str,
 ) -> Result<(), Refusal> {
     match load(db, repo, branch)? {
         None => Err(Refusal::NoRound(branch.to_owned())),
@@ -989,7 +995,7 @@ pub(super) fn check_review(
         Some(_) => match seated(db, parent, branch, role)? {
             Some(reviewer) => Err(Refusal::ReviewerSeated {
                 branch: branch.to_owned(),
-                role: role.unwrap_or_default().to_owned(),
+                role: role.to_owned(),
                 reviewer,
             }),
             None => Ok(()),
@@ -1001,10 +1007,10 @@ fn seated(
     db: &Connection,
     gate: NodeId,
     branch: &str,
-    role: Option<&str>,
+    role: &str,
 ) -> rusqlite::Result<Option<String>> {
     db.query_row(
-        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role IS ?3 ORDER BY id",
+        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role = ?3 ORDER BY id",
         params![gate.0, branch, role],
         |row| row.get(0),
     )

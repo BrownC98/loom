@@ -25,26 +25,11 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     };
     let given = req.brief.clone();
     let name = req.run.name();
-    let (start, queued_brief, role, review) = match &req.run {
-        SpawnRun::Command { line, .. } => (
-            Start::Command { line: line.clone() },
-            req.brief.clone(),
-            None,
-            None,
-        ),
-        SpawnRun::Role { role, .. } => (
-            role_start(app, role, &req.brief)?,
-            String::new(),
-            Some(role.trim()),
-            None,
-        ),
-        SpawnRun::Review { role, branch } => (
-            role_start(app, role, &req.brief)?,
-            String::new(),
-            Some(role.trim()),
-            Some(branch.trim()),
-        ),
+    let (role, review) = match &req.run {
+        SpawnRun::Role { role, .. } => (role.trim(), None),
+        SpawnRun::Review { role, branch } => (role.trim(), Some(branch.trim())),
     };
+    let start = role_start(app, role, &req.brief)?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
@@ -62,7 +47,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         name: &name,
         worktree: made,
         agent: start.agent(),
-        brief: &queued_brief,
         role,
         task: &dir.folder,
         review,

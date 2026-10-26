@@ -33,6 +33,8 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
+const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
+     Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
 const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
@@ -305,14 +307,20 @@ impl App {
             .ended(id)
             .map_err(internal)?
             .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
+        let ended = self.graph.process(id).map_err(internal)?;
+        let asleep = ended == Some(ProcessOutcome::Asleep);
+        let waiting = asleep || ended == Some(ProcessOutcome::HostGone);
         if profile_of(&node).is_none() {
+            if waiting {
+                self.graph.sleep_lost(id).map_err(internal)?;
+            }
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let asleep = self.graph.process(id).map_err(internal)? == Some(ProcessOutcome::Asleep);
-        let notice = match asleep {
-            true => WOKEN_NOTICE,
-            false => REVIVED_NOTICE,
+        let notice = match ended {
+            Some(ProcessOutcome::Asleep) => WOKEN_NOTICE,
+            Some(ProcessOutcome::HostGone) => HOST_GONE_NOTICE,
+            _ => REVIVED_NOTICE,
         };
         let running = self.change_plan(id, |now| match now.pending {
             Some((Phase::Running, kept)) => (Some((Phase::Running, kept)), true),
@@ -347,7 +355,7 @@ impl App {
         .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
         self.finish_plan(id);
         let kept = match &result {
-            Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
+            Err(ReviveError::NoSession(_)) if waiting => self.graph.sleep_lost(id),
             Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
             _ => Ok(()),
         };

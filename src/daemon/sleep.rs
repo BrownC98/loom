@@ -57,6 +57,10 @@ impl Sleeps {
         self.unwoken.lock().unwrap().insert(node, newest);
     }
 
+    fn forget_unwoken(&self) {
+        self.unwoken.lock().unwrap().clear();
+    }
+
     fn mail_since_unwoken(&self, node: NodeId, newest: Option<MessageId>) -> bool {
         let unwoken = self.unwoken.lock().unwrap();
         unwoken
@@ -134,10 +138,18 @@ impl App {
                 tokio::select! {
                     () = mail => {}
                     () = changed => {}
+                    () = app.distro_up() => app.sleeps.forget_unwoken(),
                     () = until(turns.into_iter().chain(resting).min()) => {}
                 }
             }
         });
+    }
+
+    async fn distro_up(&self) {
+        match &self.distros {
+            Some(distros) => distros.up().await,
+            None => std::future::pending().await,
+        }
     }
 
     pub(super) fn watch_agents(self: &Arc<Self>) {
@@ -321,8 +333,20 @@ impl App {
                 tokio::spawn(async move {
                     if let Err(e) = app.resume_node(node).await {
                         eprintln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
+                    } else if !app.graph.unreached_hosts().is_ok_and(|u| u.contains(&id)) {
+                        app.sleeps.unwoken.lock().unwrap().remove(&id);
+                        app.sleeps.changed();
                     }
                 });
+            }
+        }
+        for id in self.graph.hosts_gone()? {
+            if knocked.contains(&id)
+                || self
+                    .sleeps
+                    .mail_since_unwoken(id, self.graph.newest_mail(id)?)
+            {
+                waking.push(id);
             }
         }
         for id in knocked {

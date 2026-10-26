@@ -1554,6 +1554,138 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    async fn started_again(dir: &Path) -> Arc<App> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let db_path = dir.join("loom.db");
+        let (doors, _door) = crate::tunnel::Door::<crate::daemon::arrival::Caller>::new();
+        let (links, linked) = tokio::sync::mpsc::unbounded_channel();
+        let app = Arc::new(
+            App::new(
+                crate::db::open(&db_path).unwrap(),
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                links,
+            )
+            .unwrap(),
+        );
+        tokio::spawn(app.clone().carry_links(linked, doors));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let routes = crate::daemon::settings::routes().with_state(app.clone());
+        let started = Instant::now();
+        app.start_nodes();
+        tokio::spawn(async move { axum::serve(listener, routes).await });
+        let mut http = tokio::net::TcpStream::connect(address).await.unwrap();
+        http.write_all(
+            b"GET /api/settings HTTP/1.1\r\nhost: 127.0.0.1\r\nconnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+        let mut answer = String::new();
+        http.read_to_string(&mut answer).await.unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "first HTTP answer"
+        );
+        app
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn nodes_in_every_state_survive_a_restart_and_a_binary_swap() {
+        let t = fixture();
+        let turning = unheard(&t, "turning", IN_TOOL);
+        screen(&t, turning, "❯ ");
+        let listening = unheard(&t, "listening", ENDED);
+        t.app.feed(listening, AgentEvent::WaitOpened);
+        screen(&t, listening, "❯ 고쳐 줘");
+        let deaf = unheard(&t, "deaf", ENDED);
+        t.app.feed(deaf, AgentEvent::TurnEnded);
+        screen(&t, deaf, "❯ 고쳐 줘");
+        let old = unheard(&t, "old", ENDED);
+        t.app.feed(old, AgentEvent::WaitOpened);
+        let hosts = t.dir.path().join("pty").join("nodes");
+        crate::node_host::old_in_process(&hosts, old, boxed("❯ 고쳐 줘").as_bytes());
+        let sleeper = done_child(&t, "sleeper");
+        assert!(t.app.graph.slept(sleeper).unwrap());
+        let server = {
+            let child = NewChild {
+                name: "server",
+                worktree: None,
+                branched_from: None,
+                agent: Some(AgentId("codex".into())),
+                brief: "",
+                role: None,
+                task: "t",
+                review: None,
+            };
+            let launched = Launched {
+                server: Some(ServerLink::Codex {
+                    url: "http://127.0.0.1:9".into(),
+                    pid: None,
+                    thread: Some("t".into()),
+                }),
+                ..launched("server")
+            };
+            let limits = TreeLimits {
+                max_depth: None,
+                max_children: None,
+            };
+            t.app
+                .graph
+                .add_child(t.lead, child, limits, &launched, |_| Ok(()))
+                .unwrap()
+        };
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'codex'; exec cat >/dev/null"]);
+        crate::node_host::in_process(&hosts, server, cmd);
+        for name in ["sleeper", "server"] {
+            t.app
+                .graph
+                .note(t.lead, name, Kind::Queue, "work", None)
+                .unwrap();
+        }
+        let nodes = [turning, listening, deaf, old, sleeper, server];
+
+        let Fixture { dir, app, lead: _ } = t;
+        app.host.detach();
+        drop(app);
+        for round in ["restart", "binary swap"] {
+            let app = started_again(dir.path()).await;
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            for node in nodes {
+                assert!(
+                    app.graph.newest_mail(node).unwrap().is_some(),
+                    "{round}: node {} keeps its mail",
+                    node.0
+                );
+                if node == sleeper {
+                    assert!(app.graph.asleep(node).unwrap(), "{round}: asleep");
+                    continue;
+                }
+                assert!(
+                    app.graph.ended(node).unwrap().is_none(),
+                    "{round}: node {} does not end",
+                    node.0
+                );
+            }
+            assert_eq!(app.agent_state(turning), Some(AgentState::Turn), "{round}");
+            for node in [listening, deaf, old] {
+                assert_eq!(app.agent_state(node), Some(AgentState::Deaf), "{round}");
+                assert!(
+                    app.relaunches.held(node),
+                    "{round}: the draft holds node {}",
+                    node.0
+                );
+            }
+            app.host.detach();
+        }
+    }
+
     async fn relaunched(t: &Fixture, node: NodeId) {
         for _ in 0..3000 {
             if missed(t).contains(&(node, true)) {

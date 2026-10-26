@@ -107,6 +107,8 @@ struct Pty {
     output: Mutex<Output>,
     size: watch::Sender<PtySize>,
     sizing: Mutex<Sizing>,
+    #[cfg(test)]
+    detached: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -252,6 +254,8 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
+            #[cfg(test)]
+            detached: Default::default(),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         if let Some(links) = &links {
@@ -282,6 +286,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Err(_) => break Exit::Lost,
                 }
             };
+            #[cfg(test)]
+            if pty.detached.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
             let _ = std::fs::remove_file(file);
             on_exit(exit);
         });
@@ -309,6 +317,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 let _ = wire::write(&mut host, &Frame::Kill);
             }
             let _ = std::fs::remove_file(entry.path());
+        }
+    }
+
+    #[cfg(test)]
+    pub fn detach(&self) {
+        for pty in self.nodes.write().unwrap().drain().map(|(_, pty)| pty) {
+            pty.detached
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = pty.host.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
     }
 
@@ -781,6 +798,39 @@ fn report_len(seq: &[u8]) -> Option<usize> {
         }
         _ => None,
     }
+}
+
+#[cfg(test)]
+pub fn old_in_process(dir: &std::path::Path, id: impl Display, screen: &[u8]) {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        dir.join(id.to_string()),
+        listener.local_addr().unwrap().to_string(),
+    )
+    .unwrap();
+    let screen = screen.to_vec();
+    std::thread::spawn(move || {
+        for daemon in listener.incoming() {
+            let Ok(mut daemon) = daemon else { return };
+            let screen = screen.clone();
+            std::thread::spawn(move || {
+                if !matches!(wire::read(&mut daemon), Ok(Frame::Hello { .. })) {
+                    return;
+                }
+                let greeted = wire::write(
+                    &mut daemon,
+                    &Frame::Hello {
+                        version: 3,
+                        pid: None,
+                    },
+                )
+                .and_then(|()| wire::write(&mut daemon, &Frame::Resize { cols: 80, rows: 24 }))
+                .and_then(|()| wire::write(&mut daemon, &Frame::Data(screen)));
+                while greeted.is_ok() && wire::read(&mut daemon).is_ok() {}
+            });
+        }
+    });
 }
 
 #[cfg(test)]

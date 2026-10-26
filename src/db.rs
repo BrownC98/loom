@@ -307,9 +307,7 @@ const STEPS: &[M] = &[
     M::up(
         "ALTER TABLE agent_states ADD COLUMN changed_ns INTEGER NOT NULL DEFAULT 0;
         UPDATE agent_states SET changed_ns = (at + 1) * 1000000000;
-        ALTER TABLE agent_states DROP COLUMN at;
-        ALTER TABLE nodes ADD COLUMN drafted INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE nodes ADD COLUMN sleeping INTEGER NOT NULL DEFAULT 0;",
+        ALTER TABLE agent_states DROP COLUMN at;",
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use tokio::sync::oneshot;
 
@@ -9,6 +10,7 @@ use crate::graph::{AgentEvent, AgentState, Entry, Graph, IdleEnd, NodeId, Who};
 pub struct IdleWaits {
     graph: Arc<Graph>,
     ends: Mutex<HashMap<NodeId, Latest>>,
+    typed_at: Mutex<HashMap<NodeId, SystemTime>>,
     next_wait: AtomicU64,
 }
 
@@ -30,6 +32,7 @@ impl IdleWaits {
         Self {
             graph,
             ends: Mutex::default(),
+            typed_at: Mutex::default(),
             next_wait: AtomicU64::new(0),
         }
     }
@@ -107,6 +110,14 @@ impl IdleWaits {
         }
     }
 
+    pub fn typed_since(&self, node: NodeId, since: SystemTime) -> bool {
+        self.typed_at
+            .lock()
+            .unwrap()
+            .get(&node)
+            .is_some_and(|at| *at >= since)
+    }
+
     fn in_turn(&self, node: NodeId) -> bool {
         self.graph
             .agent_state(node)
@@ -123,6 +134,7 @@ impl IdleWaits {
     }
 
     pub fn end(&self, node: NodeId, by: IdleEnd) {
+        self.typed_at.lock().unwrap().remove(&node);
         self.close_latest(node, by);
     }
 
@@ -139,6 +151,14 @@ impl IdleWaits {
             self.feed(node, AgentEvent::WaitClosed { by: by.clone() });
         }
         let _ = end.send(by);
+    }
+
+    pub fn typed(&self, node: NodeId) {
+        self.typed_at(node, SystemTime::now());
+    }
+
+    pub(super) fn typed_at(&self, node: NodeId, at: SystemTime) {
+        self.typed_at.lock().unwrap().insert(node, at);
     }
 
     fn record(&self, entry: Entry) {

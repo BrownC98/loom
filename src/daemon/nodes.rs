@@ -158,12 +158,15 @@ async fn pty(
     serve_pty(ws, via, app, |app| &app.host, human_typed, id)
 }
 
-pub(super) fn human_typed(app: &App, id: NodeId) {
+pub(super) fn human_typed(app: &App, id: NodeId, bytes: &[u8]) {
     if let Err(e) = app.graph.typed(id) {
         eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
     }
     app.sleeps.knocked(id);
-    app.idle.typed(id);
+    let sent_only = bytes.iter().all(|b| matches!(b, b'\r' | b'\n'));
+    if !sent_only && let Err(e) = app.graph.begin_draft(id) {
+        eprintln!("loom: 노드 {}의 입력 중 표시를 쓰지 못했다: {e}", id.0);
+    }
 }
 
 const COMING_PTY_CHECK: Duration = Duration::from_secs(1);
@@ -250,7 +253,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&App, K),
+    typed: fn(&App, K, &[u8]),
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -298,7 +301,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     attached: node_host::Attached,
     app: &App,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&App, K),
+    typed: fn(&App, K, &[u8]),
     id: K,
     borrower: node_host::Borrower,
 ) {
@@ -342,7 +345,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                 Heard::Frame(Some(Ok(Message::Binary(bytes)))) => {
                     let _ = host(app).write_if(id, |_| {
                         if node_host::typed(&bytes) {
-                            typed(app, id);
+                            typed(app, id, &bytes);
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())
                     });

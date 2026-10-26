@@ -46,6 +46,25 @@ pub struct Relaunches {
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
 
+pub(super) enum ReviveError {
+    NoSession(String),
+    Failed(String),
+}
+
+impl From<String> for ReviveError {
+    fn from(error: String) -> Self {
+        ReviveError::Failed(error)
+    }
+}
+
+impl std::fmt::Display for ReviveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReviveError::NoSession(e) | ReviveError::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Stop {
     Stopped,
@@ -323,22 +342,24 @@ impl App {
                     let prepared = app.prepare_other(&node, &to).await?;
                     if let Err(e) = app.stop_old_claude(&node).await {
                         prepared.discarder()();
-                        return Err(e);
+                        return Err(e.into());
                     }
-                    app.run_other(node.id, prepared, &to).await
+                    Ok(app.run_other(node.id, prepared, &to).await?)
                 }
             }
         })
         .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+        .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
         self.drop_plan(id);
-        if asleep
-            && result.is_err()
-            && let Err(e) = self.graph.sleep_lost(id)
-        {
-            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+        let kept = match &result {
+            Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
+            Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
+            _ => Ok(()),
+        };
+        if let Err(e) = kept {
+            eprintln!("loom: 깨우지 못한 노드 {}를 적지 못했다: {e}", id.0);
         }
+        let result = result.map_err(|e| e.to_string());
         self.record_relaunch(who, switched, &result);
         result.map(|()| Relaunched::Now).map_err(internal)
     }
@@ -762,20 +783,34 @@ impl App {
         Ok(())
     }
 
-    pub(super) async fn revive(self: &Arc<Self>, node: Active, notice: &str) -> Result<(), String> {
+    pub(super) async fn revive(
+        self: &Arc<Self>,
+        node: Active,
+        notice: &str,
+    ) -> Result<(), ReviveError> {
+        use ReviveError::NoSession;
         let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
-            return Err("프로필이 있는 에이전트가 아니다".into());
+            return Err(NoSession("프로필이 있는 에이전트가 아니다".into()));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let resume = match (profile, &node.server) {
             (Profile::Claude, _) => {
+                let record = self.transcript(&node).map_err(|e| e.to_string())?;
+                let gone = record.is_none_or(|path| {
+                    std::fs::metadata(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                });
+                if gone {
+                    return Err(NoSession("이어 갈 Claude 세션 기록이 없다".into()));
+                }
                 self.carry_session(&node, profile, &settings, Path::new(&place.worktree))
                     .await?
             }
             (Profile::Cursor, _) => session_id(node.transcript.as_deref().map(Path::new))
-                .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
-            (Profile::Pi | Profile::Omp, _) => pi_session(&node)?,
+                .ok_or_else(|| NoSession("이어 갈 Cursor 세션 기록이 없다".into()))?,
+            (Profile::Pi | Profile::Omp, _) => {
+                pi_session(&node).map_err(|e| NoSession(e.into()))?
+            }
             (
                 Profile::Codex,
                 Some(ServerLink::Codex {
@@ -785,7 +820,7 @@ impl App {
             ) => thread.clone(),
             (Profile::OpenCode2, Some(ServerLink::OpenCode2 { session, .. })) => session.clone(),
             (Profile::Codex | Profile::OpenCode2, _) => {
-                return Err("이어 갈 서버 세션이 없다".into());
+                return Err(NoSession("이어 갈 서버 세션이 없다".into()));
             }
         };
         let prepared = self
@@ -794,8 +829,9 @@ impl App {
         if profile == Profile::Claude {
             let _ = self.stop_claude_background(&node, &resume).await;
         }
-        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
-            .await
+        Ok(self
+            .run_resumed(node.id, prepared, &resume, &settings, &agent)
+            .await?)
     }
 
     async fn prepare_resumed(

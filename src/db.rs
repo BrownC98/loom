@@ -304,6 +304,12 @@ const STEPS: &[M] = &[
             plan TEXT NOT NULL
         );",
     ),
+    M::up(
+        "ALTER TABLE agent_states ADD COLUMN changed_ns INTEGER NOT NULL DEFAULT 0;
+        UPDATE agent_states SET changed_ns = (at + 1) * 1000000000;
+        ALTER TABLE agent_states DROP COLUMN at;
+        ALTER TABLE nodes ADD COLUMN drafted INTEGER NOT NULL DEFAULT 0;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -765,6 +771,14 @@ mod tests {
             .query_row("SELECT limited FROM nodes WHERE id = 2", [], |r| r.get(0))
             .unwrap();
         assert!(!limited);
+        let changed: i64 = conn
+            .query_row(
+                "SELECT changed_ns FROM agent_states WHERE node = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(changed, 2_000_000_000);
     }
 
     #[test]

@@ -200,6 +200,13 @@ impl App {
                 }
                 continue;
             }
+            if !self.graph.active()?.iter().any(|n| n.id == node.id) {
+                self.host.kill(node.id);
+                if let Some(server) = &node.server {
+                    self.stop_server(server);
+                }
+                continue;
+            }
             self.follow_screen(node.id, profile, &node.token);
             self.follow_servers(node.id, codex, opencode2, &node.token);
         }
@@ -337,7 +344,12 @@ impl App {
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
-                app.sleeps.changed();
+                if profile == Some(Profile::Claude)
+                    && profile::claude::input(&now.undimmed) == Some("")
+                {
+                    app.draft_ended(id);
+                }
+                app.sleeps.settled(id);
             }
         });
     }

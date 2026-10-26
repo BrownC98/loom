@@ -115,11 +115,11 @@ fn connect(at: &OsString) -> impl Read + Write {
 
 #[cfg(windows)]
 fn connect(at: &OsString) -> impl Read + Write {
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(at)
-        .unwrap()
+    tunnel::open_pipe(
+        Path::new(at),
+        std::fs::OpenOptions::new().read(true).write(true),
+    )
+    .unwrap()
 }
 
 pub(super) fn ask(at: &OsString, path: &str, body: &str) -> String {

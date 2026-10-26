@@ -1328,13 +1328,7 @@ mod tests {
     #[test]
     fn only_a_refused_connection_means_the_host_is_gone() {
         let dir = tempfile::tempdir().unwrap();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        std::fs::write(
-            dir.path().join("1"),
-            closed.local_addr().unwrap().to_string(),
-        )
-        .unwrap();
-        drop(closed);
+        std::fs::write(dir.path().join("1"), "127.0.0.1:1").unwrap();
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         std::fs::write(
             dir.path().join("2"),

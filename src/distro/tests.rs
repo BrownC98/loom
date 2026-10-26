@@ -145,9 +145,8 @@ fn a_served_process_reports_its_pid_and_its_exit() {
 fn a_distro_host_that_does_not_greet_is_ended_before_the_next_starts() {
     use std::os::unix::process::ExitStatusExt;
     let dir = tempfile::tempdir().unwrap();
-    let closed = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .and_then(|u| u.local_addr())
-        .unwrap();
+    let silent_host = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let closed = silent_host.local_addr().unwrap();
     let spawn = |name: &str| {
         std::process::Command::new("sh")
             .args(["-c", "sleep 30; :", name])

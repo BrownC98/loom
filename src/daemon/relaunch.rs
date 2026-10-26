@@ -20,7 +20,7 @@ use crate::graph::{
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
 use crate::profile::{self, Profile, Start};
-use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, ServerLink};
+use crate::protocol::{AgentId, MessageId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 use crate::skills::Position;
@@ -33,7 +33,7 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
-pub(super) const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
+const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
 const CODEX_ROLLOUT_DEPTH: usize = 5;
@@ -41,13 +41,7 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 #[derive(Default)]
 pub struct Relaunches {
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    refused: Mutex<HashMap<NodeId, Held>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Held {
-    Human,
-    Hook,
+    refused: Mutex<HashMap<NodeId, Option<MessageId>>>,
 }
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -73,12 +67,24 @@ impl Relaunches {
         self.exiting.lock().unwrap().contains_key(&node)
     }
 
-    pub(super) fn refused(&self, node: NodeId, by: Held) {
-        self.refused.lock().unwrap().insert(node, by);
+    pub(super) fn refused(&self, node: NodeId, newest: Option<MessageId>) {
+        self.refused.lock().unwrap().insert(node, newest);
     }
 
-    pub(super) fn held(&self, node: NodeId) -> Option<Held> {
-        self.refused.lock().unwrap().get(&node).copied()
+    pub(super) fn held(&self, node: NodeId) -> bool {
+        self.refused.lock().unwrap().contains_key(&node)
+    }
+
+    pub(super) fn mail_since_refused(
+        &self,
+        newest: impl Fn(NodeId) -> Option<MessageId>,
+    ) -> Vec<NodeId> {
+        let refused = self.refused.lock().unwrap().clone();
+        refused
+            .into_iter()
+            .filter(|(node, seen)| newest(*node).map(|m| m.0) > seen.map(|m| m.0))
+            .map(|(node, _)| node)
+            .collect()
     }
 
     pub(super) fn heard(&self, node: NodeId) {
@@ -952,15 +958,6 @@ impl App {
             .filter(|lines| !lines.first().is_some_and(|shell| runs_hook(shell)))
             .filter_map(|lines| lines.get(1).or(lines.first()).map(|line| shown(line)))
             .collect()
-    }
-
-    pub(super) fn hook_running(&self, node: NodeId) -> bool {
-        self.host.pid(node).is_some_and(|root| {
-            Snapshot::now()
-                .command_lines(root)
-                .iter()
-                .any(|line| runs_hook(line))
-        })
     }
 
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {

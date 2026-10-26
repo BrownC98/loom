@@ -298,7 +298,7 @@ impl Node {
                 Some(TurnEvent::Stopped) => {
                     tx_working.send_replace(false);
                     said = None;
-                    let _ = tx_turns.send(Signal::TurnEnded(None));
+                    let _ = tx_turns.send(Signal::Stopped);
                 }
                 Some(TurnEvent::Enqueued { id }) if !ours_sent.lock().unwrap().remove(&id) => {
                     let _ = tx_turns.send(Signal::HumanInput);

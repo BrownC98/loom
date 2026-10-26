@@ -99,6 +99,7 @@ pub trait HookEvent {
 
 pub enum Signal {
     TurnEnded(Option<String>),
+    Stopped,
     HumanInput,
 }
 

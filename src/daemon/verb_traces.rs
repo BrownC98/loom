@@ -1262,3 +1262,46 @@ async fn the_opencode2_adapter_steers_first_and_queues_turn_ends_through_the_del
     stop.send_replace(true);
     delivery.await.unwrap();
 }
+
+#[tokio::test]
+async fn an_opencode2_stopped_execution_takes_a_held_relaunch_but_keeps_the_turn_flags() {
+    let t = fixture();
+    let (turns, signals) = tokio::sync::mpsc::unbounded_channel();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (adapter, calls) = crate::profile::opencode2::recording_adapter(signals, stopped);
+    t.app.turn_ends.human(t.lead);
+    let delivery = tokio::spawn(t.app.clone().deliver_loop(t.lead, adapter));
+    let mark = t.mark();
+    turns.send(crate::profile::Signal::Stopped).unwrap();
+    turns
+        .send(crate::profile::Signal::TurnEnded(Some(
+            "A안과 B안 가운데 고르시면 진행합니다.".into(),
+        )))
+        .unwrap();
+    t.until("the nudge is queued", || calls.lock().unwrap().len() == 1)
+        .await;
+    assert!(calls.lock().unwrap()[0].starts_with("queue "));
+    assert_eq!(
+        t.nudges(mark),
+        1,
+        "the stopped execution kept the human flag"
+    );
+    stop.send_replace(true);
+    delivery.await.unwrap();
+
+    let (turns, signals) = tokio::sync::mpsc::unbounded_channel();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (adapter, _) = crate::profile::opencode2::recording_adapter(signals, stopped);
+    t.app
+        .graph
+        .plan_relaunch(t.worker, |_| (Some((Phase::AtTurnEnd, Plan::Resume)), ()))
+        .unwrap();
+    let delivery = tokio::spawn(t.app.clone().deliver_loop(t.worker, adapter));
+    turns.send(crate::profile::Signal::Stopped).unwrap();
+    t.until("the stopped execution takes the held relaunch", || {
+        !t.app.at_turn_end(t.worker)
+    })
+    .await;
+    stop.send_replace(true);
+    delivery.await.unwrap();
+}

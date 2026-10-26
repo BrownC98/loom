@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use super::App;
 use crate::git;
@@ -13,8 +12,6 @@ use crate::worktree::merge::{
     base_branch, bringing_merge, merge_commit, script,
 };
 use crate::worktree::{self, RepoId};
-
-const TICK: Duration = Duration::from_secs(60);
 
 const MOVE_LIMIT: u32 = 3;
 
@@ -48,10 +45,7 @@ pub(super) async fn run(app: Arc<App>) {
                 }
             }
         }
-        tokio::select! {
-            () = app.merge_queue.notified() => {}
-            () = tokio::time::sleep(TICK) => {}
-        }
+        app.merge_queue.notified().await;
     }
 }
 

@@ -126,6 +126,7 @@ struct App {
     repo_list: one_flight::OneFlight<Result<Vec<RepoView>, String>>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
+    ptys_changed: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
     linux_loom: Option<PathBuf>,
@@ -438,6 +439,7 @@ impl App {
             repo_list: one_flight::OneFlight::default(),
             turn_ends,
             merge_queue: tokio::sync::Notify::new(),
+            ptys_changed: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;

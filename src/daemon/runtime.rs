@@ -106,7 +106,13 @@ impl App {
     pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
         self.graph.remove(node)?;
         self.host.kill(node);
+        self.nodes_moved();
         Ok(())
+    }
+
+    pub(super) fn nodes_moved(&self) {
+        self.ptys_changed.notify_waiters();
+        self.merge_queue.notify_one();
     }
 
     pub(super) fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
@@ -138,6 +144,7 @@ impl App {
         }
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
+        self.ptys_changed.notify_waiters();
         Ok(())
     }
 
@@ -217,6 +224,7 @@ impl App {
             }
             self.follow_screen(node.id, profile, &node.token);
             self.follow_servers(node.id, codex, opencode2, &node.token);
+            self.ptys_changed.notify_waiters();
             if sleeping {
                 self.sleep_again_after_start(node);
             }

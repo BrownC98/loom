@@ -40,6 +40,7 @@ mod git_runs {
     use crate::graph::{Launched, NewChild, NodeId, Place, Round};
     use crate::protocol::{GateState, Judgment, Kind, TreeLimits};
     use std::process::Command;
+    use std::time::Duration;
     use std::time::Instant;
 
     static REVIEWERS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

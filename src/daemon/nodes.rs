@@ -197,8 +197,6 @@ fn has_text(bytes: &[u8]) -> bool {
     false
 }
 
-const COMING_PTY_CHECK: Duration = Duration::from_secs(1);
-
 fn coming_pty(
     ws: WebSocketUpgrade,
     via: Option<Extension<ViaRemote>>,
@@ -214,9 +212,15 @@ fn coming_pty(
             {
                 return;
             }
-            let mut check = tokio::time::interval(COMING_PTY_CHECK);
             let mut pulse = Pulse::new(pulse::BEAT);
             loop {
+                let changed = app.ptys_changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
+                    let _ = socket.send(Message::Close(None)).await;
+                    return;
+                }
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
                         Heard::Frame(Some(Ok(Message::Binary(_)))) => app.sleeps.knocked(id),
@@ -228,12 +232,7 @@ fn coming_pty(
                             }
                         }
                     },
-                    _ = check.tick() => {
-                        if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
-                            let _ = socket.send(Message::Close(None)).await;
-                            return;
-                        }
-                    }
+                    () = changed => {}
                 }
             }
         })

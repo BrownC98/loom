@@ -233,6 +233,7 @@ impl App {
     }
 
     pub(super) fn process_ended(&self, node: NodeId) {
+        self.nodes_moved();
         let dropped = self.change_plan(node, |now| match now.pending {
             Some((Phase::AtTurnEnd, _)) => (None, true),
             kept => (kept, false),
@@ -352,7 +353,11 @@ impl App {
         .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
         self.drop_plan(id);
         let kept = match &result {
-            Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
+            Err(ReviveError::NoSession(_)) if asleep => {
+                let lost = self.graph.sleep_lost(id);
+                self.nodes_moved();
+                lost
+            }
             Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
             _ => Ok(()),
         };

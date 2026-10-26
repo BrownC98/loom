@@ -1,6 +1,7 @@
 mod agent_state;
 mod events;
 mod gate;
+mod hosts;
 mod mailbox;
 mod nodes;
 mod relaunch_plans;

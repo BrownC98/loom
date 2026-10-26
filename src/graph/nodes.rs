@@ -5,7 +5,7 @@ use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
-    Work, from_json, mailbox, name_of, node_state, note_state, optional_json, parent_of,
+    Work, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
     place_label, place_of, process_of, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
@@ -297,6 +297,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
+        hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
         note_state(&tx, id, state.clone())?;
@@ -354,6 +355,7 @@ impl Graph {
         if changed == 0 {
             return Ok(false);
         }
+        hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         tx.commit()?;
         self.prompts.lock().unwrap().remove(&id);

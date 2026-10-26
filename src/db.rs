@@ -351,6 +351,13 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' = 'missingHeads';",
     ),
     M::up(
+        "CREATE TABLE node_hosts (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            unreached TEXT
+        );",
+    ),
+    M::up(
         r#"CREATE TABLE gate_votes (
             repo INTEGER NOT NULL,
             branch TEXT NOT NULL,

@@ -640,7 +640,6 @@ const en = {
       leadChildNeedsWorktree: "A child of a node with no parent owns a new worktree (--worktree) or reviews its parent's branch (--review). Role: '{{value}}'.",
       reviewerSeated: '{{reviewer}} already reviews {{branch}} as {{role}}. loom sends it each new round when the owner calls loom ready.',
       publishing: '{{value}}: the merge queue checked this branch and publishes it now, so it takes no new reviewer and its gate cannot change. Wait for merged or rework, then try again.',
-      ownsRound: '{{value}}: this node owns the open gate round of this branch. Wait until its gate merges it or sends rework, then remove the node.',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',

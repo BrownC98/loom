@@ -642,7 +642,6 @@ const ko: typeof en = {
       leadChildNeedsWorktree: "부모가 없는 노드의 자식은 새 워크트리(--worktree)를 갖거나 자기 브랜치의 검토자(--review)여야 합니다. 역할: '{{value}}'.",
       reviewerSeated: '{{reviewer}}이(가) 이미 {{branch}}를 {{role}}(으)로 검토합니다. 담당이 loom ready를 부르면 loom이 새 차례를 그 검토자에게 보냅니다.',
       publishing: '{{value}}: 병합 큐가 이 브랜치를 검사했고 지금 게시합니다. 새 검토자를 받지 않고, 관문도 바꿀 수 없습니다. merged나 rework를 기다린 뒤 다시 합니다.',
-      ownsRound: '{{value}}: 이 노드가 이 브랜치의 열린 관문 차례를 가집니다. 관문이 병합하거나 rework를 보낸 뒤 노드를 지웁니다.',
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
       severalOpen: '열린 질문이 여럿입니다: {{value}}.',
       emptyAnswer: '답변을 적으십시오.',

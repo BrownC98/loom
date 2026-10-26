@@ -208,7 +208,7 @@ const SCREEN_QUIET: Duration = Duration::from_millis(500);
 
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
-pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
+pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io::Result<()> {
     let claim = launch::Claim::take()?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
     let listen = listener.local_addr()?;
@@ -288,7 +288,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             }
         });
     }
-    claim.announce(&node_url(listen))?;
+    claim.announce(&node_url(listen), ready_to)?;
     tokio::spawn(app.update.clone().run());
     tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");

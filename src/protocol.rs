@@ -919,7 +919,7 @@ pub const SHIP_DEPLOY_FAILED: i32 = 11;
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum Finding {
-    /// 이 차례(마지막 `loom ready`) 뒤의 흔적이 지워졌다(이벤트 상한). 위반을 다 볼 수 없다. 담당의 다음 ready가 새 차례를 연다.
+    /// 이 차례(마지막 `loom ready`) 뒤의 흔적이 지워졌다(이벤트 상한). 남은 범위만 보았다. 병합 보고에 붙여 알리기만 한다.
     RangeIncomplete {
         #[ts(type = "number")]
         since: i64,
@@ -947,8 +947,7 @@ impl Finding {
             Finding::RawGateWord { .. }
             | Finding::HeadMoved { .. }
             | Finding::SourceDirty { .. } => Some(MergeEnd::Rework),
-            Finding::RangeIncomplete { .. } => Some(MergeEnd::Failed),
-            Finding::OutOfGate { .. } => None,
+            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => None,
         }
     }
 }
@@ -1000,12 +999,7 @@ pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
 }
 
 pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
-    let ends: Vec<MergeEnd> = findings.iter().filter_map(Finding::end).collect();
-    match ends.as_slice() {
-        [] => None,
-        _ if ends.contains(&MergeEnd::Failed) => Some(MergeEnd::Failed),
-        _ => Some(MergeEnd::Rework),
-    }
+    findings.iter().find_map(Finding::end)
 }
 
 #[macro_export]

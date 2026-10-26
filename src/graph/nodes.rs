@@ -317,7 +317,7 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process_exited = 1, asleep = 1, sleeping = 0, wait = NULL
+            "UPDATE nodes SET process_exited = 1, asleep = 1, wait = NULL
              WHERE id = ?1 AND process_exited = 0 AND state ->> 'kind' = 'done'",
             [id.0],
         )?;
@@ -329,29 +329,6 @@ impl Graph {
         self.prompts.lock().unwrap().remove(&id);
         self.publish_node(&db, id)?;
         Ok(true)
-    }
-
-    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
-        self.lock()
-            .execute("UPDATE nodes SET sleeping = 1 WHERE id = ?1", [id.0])
-            .map(drop)
-    }
-
-    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
-        self.lock()
-            .execute("UPDATE nodes SET sleeping = 0 WHERE id = ?1", [id.0])
-            .map(drop)
-    }
-
-    pub fn sleeping(&self, id: NodeId) -> rusqlite::Result<bool> {
-        self.lock()
-            .query_row(
-                "SELECT sleeping = 1 FROM nodes WHERE id = ?1",
-                [id.0],
-                |row| row.get(0),
-            )
-            .optional()
-            .map(|sleeping| sleeping.unwrap_or(false))
     }
 
     pub fn sleep_again(&self, id: NodeId) -> rusqlite::Result<()> {
@@ -459,7 +436,7 @@ impl Graph {
             [id.0],
         )? + changed(&tx)?;
         let revived = tx.execute(
-            "UPDATE nodes SET process_exited = 0, asleep = 0, sleeping = 0 WHERE id = ?1 AND process_exited = 1",
+            "UPDATE nodes SET process_exited = 0, asleep = 0 WHERE id = ?1 AND process_exited = 1",
             [id.0],
         )? > 0;
         if revived

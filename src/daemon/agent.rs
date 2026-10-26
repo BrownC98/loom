@@ -9,11 +9,7 @@ use crate::protocol::{Delivery, Kind, MessageId, Refusal};
 use axum::http::StatusCode;
 
 impl App {
-    pub(super) fn take_now(
-        self: &Arc<Self>,
-        node: NodeId,
-        req: TakeRequest,
-    ) -> Result<Taken, Refusal> {
+    pub(super) fn take_now(&self, node: NodeId, req: TakeRequest) -> Result<Taken, Refusal> {
         self.idle.turn_started(node, req.hook);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_transcript(node, req.transcript.as_deref())?;
@@ -65,12 +61,11 @@ impl App {
     }
 
     pub(super) fn human_input(
-        self: &Arc<Self>,
+        &self,
         node: NodeId,
         prompt: Option<&str>,
     ) -> Result<Option<String>, Refusal> {
         self.graph.human_input(node)?;
-        self.draft_ended(node);
         self.turn_ends.human(node);
         if let Some(text) = prompt
             && !self.first_inputs.injected(node)

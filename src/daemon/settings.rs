@@ -440,14 +440,7 @@ async fn login_pty(
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
-    serve_pty(
-        ws,
-        via,
-        app,
-        |app| &app.logins.host,
-        |_, _, _| {},
-        LoginId(id),
-    )
+    serve_pty(ws, via, app, |app| &app.logins.host, |_, _| {}, LoginId(id))
 }
 
 #[cfg(test)]

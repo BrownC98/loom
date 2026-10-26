@@ -923,7 +923,7 @@ fn tree_limits_come_from_the_caller() {
 fn tree_limits_read_null_depth_as_no_limit() {
     let read = |json: &str| serde_json::from_str::<TreeLimits>(json).unwrap().max_depth;
     assert_eq!(read(r#"{"maxDepth":null}"#), None);
-    assert_eq!(read("{}"), Some(2));
+    assert_eq!(read("{}"), None);
     assert_eq!(read(r#"{"maxDepth":4}"#), Some(4));
 }
 

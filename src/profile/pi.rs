@@ -14,6 +14,14 @@ pub(super) const IDLE_FLAG: &str = "--loom-idle";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
+pub(super) const WORK_METHOD: &str = "Work method (speed; follow it):
+- Read a whole file, or a range of 400 lines or more, in one call, not 100-line pieces. Read related files in the same turn and collect searches into one command.
+- Before the first build, write the plan of the whole edit (files, functions, tests) one time, then make all edits. Do not restate the brief or the plan in later turns.
+- While you edit, run only the tests of the code you changed. Run the full checks of the repository one time, in one chained command, just before the commit. Do not run a check again when no code changed since it passed.
+- In a review-fix round, run only the tests of the code you changed, and the full checks one time at the end of the round.
+- Wait for a background job with the command or tool that waits for its end, not with a fixed sleep.
+- Do not search the disk for tools; use the paths that the repository instructions or the brief give, or ask.";
+
 pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
     EXTENSIONS
         .iter()
@@ -22,7 +30,7 @@ pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
 
 pub(super) fn usage(waiting: &str, launch: Launch) -> String {
     format!(
-        "{}\n{waiting}\n\n{}",
+        "{}\n{waiting}\n\n{WORK_METHOD}\n\n{}",
         super::COMMUNICATION_USAGE,
         crate::skills::always_on(launch)
     )
@@ -449,6 +457,7 @@ pub(super) mod tests {
         assert!(args[6].contains(super::super::COMMUNICATION_USAGE));
         assert!(args[6].contains(&crate::skills::always_on(launch)));
         assert!(!args[6].contains("run_in_background"));
+        assert_eq!(args[6].matches(WORK_METHOD).count(), 1);
         assert_eq!(args.last().unwrap(), IDLE_FLAG);
         assert!(!super::args(plugin, launch, "Goal: x").contains(&IDLE_FLAG.to_owned()));
     }

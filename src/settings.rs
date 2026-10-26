@@ -764,4 +764,46 @@ mod tests {
             .unwrap();
         assert_eq!(got.colors.warn.light, both);
     }
+
+    #[test]
+    fn tree_depth_change_and_empty_stay_after_read_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.db");
+        let settings = Settings::new(
+            crate::db::open(&path).unwrap(),
+            crate::profile::check_choice,
+        );
+        let reopened = || {
+            Settings::new(
+                crate::db::open(&path).unwrap(),
+                crate::profile::check_choice,
+            )
+            .get()
+            .unwrap()
+            .tree_limits
+        };
+        assert_eq!(reopened().max_depth, Some(2));
+        settings
+            .patch(&serde_json::json!({"treeLimits": {"maxDepth": 5}}))
+            .unwrap();
+        assert_eq!(reopened().max_depth, Some(5));
+        settings
+            .patch(&serde_json::json!({"treeLimits": {"maxDepth": null}}))
+            .unwrap();
+        assert_eq!(reopened().max_depth, None);
+        settings
+            .patch(&serde_json::json!({"treeLimits": {"maxChildren": 3}}))
+            .unwrap();
+        assert_eq!(
+            reopened(),
+            TreeLimits {
+                max_depth: None,
+                max_children: Some(3)
+            }
+        );
+        settings
+            .patch(&serde_json::json!({"treeLimits": null}))
+            .unwrap();
+        assert_eq!(reopened(), TreeLimits::default());
+    }
 }

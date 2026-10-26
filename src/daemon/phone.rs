@@ -11,7 +11,7 @@ use ts_rs::TS;
 use super::lan;
 use super::origin::{DEVICE_COOKIE, ViaRemote};
 use super::{App, Problem, internal};
-use crate::devices::{DeviceId, DeviceView, INVITE_TTL, PairRefused};
+use crate::devices::{DeviceId, DeviceView, PairRefused};
 use crate::tailscale::{Served, Tailnet, Tailscale};
 
 pub const PAIR_PATH: &str = "/api/pair";
@@ -50,7 +50,7 @@ pub struct PhoneView {
     /// 브라우저(iPhone)가 쓰는 Tailscale Serve 길의 상태.
     pub tailnet: Tailnet,
     pub devices: Vec<DeviceView>,
-    /// 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 시간이 지나면 `false`다.
+    /// 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 다섯 번 틀리거나 시간이 지나면 `false`다. 앞의 둘은 `ViewChanged`로 알린다.
     pub invite_open: bool,
 }
 
@@ -72,8 +72,9 @@ pub struct InviteView {
     pub code: String,
     /// `url`의 QR 그림(SVG 글).
     pub qr_svg: String,
+    /// 코드를 쓸 수 있는 마지막 때(Unix 밀리초). 화면은 남은 시간을 보이기만 하고, 쓸 수 있는지는 데몬이 쓸 때 본다.
     #[ts(type = "number")]
-    pub ttl_secs: u64,
+    pub until: i64,
 }
 
 #[derive(Deserialize)]
@@ -163,13 +164,14 @@ async fn invite(
     if addresses.is_empty() && serve.is_none() {
         return Err(StatusCode::CONFLICT.into());
     }
-    let code = app.devices.invite();
+    let invitation = app.devices.invite();
+    let code = invitation.code;
     let url = invite_url(serve.as_deref(), &addresses, &open, &code);
     Ok(Json(InviteView {
         qr_svg: qr_svg(&url).map_err(internal)?,
         url,
         code: format!("{}-{}", &code[..4], &code[4..]),
-        ttl_secs: INVITE_TTL.as_secs(),
+        until: invitation.until_ms,
     }))
 }
 

@@ -11,7 +11,7 @@ use ts_rs::TS;
 use crate::db::Database;
 use crate::pake;
 
-pub const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
+const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
 const INVITE_TRIES: u8 = 5;
 const CODE_LEN: usize = 8;
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZ23456789";
@@ -49,22 +49,29 @@ struct Invite {
     asked: Vec<[u8; 32]>,
 }
 
+pub struct Invitation {
+    pub code: String,
+    pub until_ms: i64,
+}
+
 pub struct Devices {
     db: Database,
     invite: Mutex<Option<Invite>>,
     removed: watch::Sender<u64>,
+    invite_closed: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Devices {
-    pub fn new(db: Database) -> Self {
+    pub fn new(db: Database, invite_closed: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
             db,
             invite: Mutex::default(),
             removed: watch::Sender::new(0),
+            invite_closed: Box::new(invite_closed),
         }
     }
 
-    pub fn invite(&self) -> String {
+    pub fn invite(&self) -> Invitation {
         let code = random_code();
         *self.invite.lock().unwrap() = Some(Invite {
             code: code.clone(),
@@ -72,7 +79,15 @@ impl Devices {
             tries: 0,
             asked: Vec::new(),
         });
-        code
+        Invitation {
+            code,
+            until_ms: now_ms() + INVITE_TTL.as_millis() as i64,
+        }
+    }
+
+    fn close(&self, slot: &mut Option<Invite>) {
+        *slot = None;
+        (self.invite_closed)();
     }
 
     pub fn invite_open(&self) -> bool {
@@ -101,7 +116,7 @@ impl Devices {
             if !bool::from(code.as_bytes().ct_eq(invite.code.as_bytes())) {
                 invite.tries += 1;
                 if invite.tries >= INVITE_TRIES {
-                    *slot = None;
+                    self.close(&mut slot);
                 }
                 return Err(PairRefused::Wrong);
             }
@@ -117,6 +132,7 @@ impl Devices {
                 params![label, hash(&token).as_slice(), now],
             )
             .expect("devices 표는 늘 있다");
+        (self.invite_closed)();
         Ok(DeviceToken(token))
     }
 
@@ -128,7 +144,7 @@ impl Devices {
             if invite.until <= Instant::now()
                 || !invite.asked.contains(&digest) && invite.tries >= INVITE_TRIES
             {
-                *slot = None;
+                self.close(&mut slot);
                 return None;
             }
             if !invite.asked.contains(&digest) {

@@ -56,6 +56,7 @@ export function Settings(props: {
   usage: Usage;
   onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
   updates: Updates;
+  viewVersion: number;
   onStop: () => void;
 }) {
   const { t } = useTranslation();
@@ -70,7 +71,7 @@ export function Settings(props: {
           <OsNotifySection settings={props.settings} onSettings={props.onSettings} />
         </>
       )}
-      {tab === 'phone' && <PhoneTab />}
+      {tab === 'phone' && <PhoneTab viewVersion={props.viewVersion} />}
       {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
       {tab === 'display' && <DisplayTab settings={props.settings} onSettings={props.onSettings} />}

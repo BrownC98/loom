@@ -14,7 +14,7 @@ use crate::graph::{
 };
 use crate::process_tree::Snapshot;
 use crate::profile::{self, Profile, claude};
-use crate::protocol::ServerLink;
+use crate::protocol::{MessageId, ServerLink};
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
@@ -30,6 +30,7 @@ pub struct Sleeps {
     stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
     settled: Mutex<HashMap<NodeId, Instant>>,
+    unwoken: Mutex<HashMap<NodeId, Option<MessageId>>>,
     changed: Notify,
 }
 
@@ -69,6 +70,17 @@ impl Sleeps {
     pub fn settled(&self, node: NodeId) {
         self.settled.lock().unwrap().insert(node, now());
         self.changed();
+    }
+
+    fn unwoken(&self, node: NodeId, newest: Option<MessageId>) {
+        self.unwoken.lock().unwrap().insert(node, newest);
+    }
+
+    fn mail_since_unwoken(&self, node: NodeId, newest: Option<MessageId>) -> bool {
+        let unwoken = self.unwoken.lock().unwrap();
+        unwoken
+            .get(&node)
+            .is_none_or(|seen| newest.map(|m| m.0) > seen.map(|m| m.0))
     }
 
     fn settle_due(&self, node: NodeId, now: Instant) -> Option<Instant> {
@@ -305,20 +317,27 @@ impl App {
 
     fn wake_sleepers(self: &Arc<Self>) -> rusqlite::Result<()> {
         let knocked = std::mem::take(&mut *self.sleeps.knocked.lock().unwrap());
-        let mut waking = self.graph.sleepers_with_mail()?;
+        let mut waking = Vec::new();
+        for id in self.graph.sleepers_with_mail()? {
+            if self
+                .sleeps
+                .mail_since_unwoken(id, self.graph.newest_mail(id)?)
+            {
+                waking.push(id);
+            }
+        }
         for id in knocked {
             if !waking.contains(&id) && self.graph.asleep(id)? {
                 waking.push(id);
             }
         }
         for id in waking {
+            self.sleeps.unwoken(id, self.graph.newest_mail(id)?);
             let app = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = app.relaunch_by_id(id, Plan::Resume).await {
-                    eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0);
-                    if let Err(e) = app.graph.sleep_lost(id) {
-                        eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
-                    }
+                match app.relaunch_by_id(id, Plan::Resume).await {
+                    Ok(_) => drop(app.sleeps.unwoken.lock().unwrap().remove(&id)),
+                    Err(e) => eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
                 }
             });
         }
@@ -402,7 +421,7 @@ impl App {
         Ok(ended && !turn_shown(&self.host.screen(node.id).text))
     }
 
-    fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
+    pub(super) fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
         let Some(transcript) = &node.transcript else {
             return Ok(None);
         };
@@ -1999,6 +2018,102 @@ mod tests {
             .done(worker, &report, None, &[], None, None)
             .unwrap();
         worker
+    }
+
+    fn wake_errors(t: &Fixture, node: NodeId) -> Vec<String> {
+        let mut errors: Vec<String> = t
+            .app
+            .graph
+            .recent_events()
+            .unwrap()
+            .into_iter()
+            .filter_map(|r| match r.entry {
+                Entry::Relaunched {
+                    node: who, error, ..
+                } if who.id == Some(node) => error,
+                _ => None,
+            })
+            .collect();
+        errors.reverse();
+        errors
+    }
+
+    async fn wake_tries(t: &Fixture, node: NodeId, count: usize) {
+        for _ in 0..1000 {
+            if wake_errors(t, node).len() >= count {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                assert_eq!(
+                    wake_errors(t, node).len(),
+                    count,
+                    "{:?}",
+                    wake_errors(t, node)
+                );
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("node {} was not woken {count} times", node.0);
+    }
+
+    #[tokio::test]
+    async fn a_failed_wake_keeps_the_node_asleep_and_new_mail_or_a_key_tries_again() {
+        let t = fixture();
+        let worker = done_child(&t, "sleeper");
+        assert!(t.app.graph.slept(worker).unwrap());
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        t.app
+            .graph
+            .note(t.lead, "sleeper", Kind::Queue, "first", None)
+            .unwrap();
+        wake_tries(&t, worker, 1).await;
+        assert!(t.app.graph.asleep(worker).unwrap());
+        assert_eq!(t.app.agent_state(worker), Some(AgentState::Asleep));
+        assert!(t.app.graph.ended(worker).unwrap().is_some());
+        assert!(
+            t.app.graph.newest_mail(worker).unwrap().is_some(),
+            "the mail stays"
+        );
+
+        t.app.sleeps.changed();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(wake_errors(&t, worker).len(), 1, "no new mail, no try");
+
+        t.app
+            .graph
+            .note(t.lead, "sleeper", Kind::Queue, "second", None)
+            .unwrap();
+        wake_tries(&t, worker, 2).await;
+        t.app.sleeps.knocked(worker);
+        wake_tries(&t, worker, 3).await;
+        assert!(t.app.graph.asleep(worker).unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_wake_without_a_session_record_ends_the_node() {
+        let t = fixture();
+        let worker = add_agent(&t, "unrecorded", "pi");
+        let report = Report {
+            summary: "finished",
+            file: None,
+            warning: None,
+            keep: &[],
+        };
+        t.app
+            .graph
+            .done(worker, &report, None, &[], None, None)
+            .unwrap();
+        assert!(t.app.graph.slept(worker).unwrap());
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        t.app
+            .graph
+            .note(t.lead, "unrecorded", Kind::Queue, "work", None)
+            .unwrap();
+        wake_tries(&t, worker, 1).await;
+        assert_eq!(wake_errors(&t, worker), ["이어 갈 Pi·OMP 세션 기록이 없다"]);
+        assert!(!t.app.graph.asleep(worker).unwrap());
+        assert_eq!(t.app.agent_state(worker), Some(AgentState::Ended));
     }
 
     #[tokio::test(start_paused = true)]

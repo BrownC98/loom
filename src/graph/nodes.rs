@@ -331,6 +331,23 @@ impl Graph {
         Ok(true)
     }
 
+    pub fn sleep_again(&self, id: NodeId) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let changed = tx.execute(
+            "UPDATE nodes SET asleep = 1
+             WHERE id = ?1 AND process_exited = 1 AND state ->> 'kind' = 'done'",
+            [id.0],
+        )?;
+        if changed == 0 {
+            return Ok(());
+        }
+        agent_state::apply(&tx, id, AgentEvent::Slept)?;
+        tx.commit()?;
+        self.publish_node(&db, id)?;
+        Ok(())
+    }
+
     pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         asleep(&self.lock(), id)
     }

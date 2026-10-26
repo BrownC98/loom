@@ -91,6 +91,7 @@ impl AgentState {
         match (self, event) {
             (_, E::Exited) => S::Ended,
             (S::Ended, E::Relaunched) => S::Starting,
+            (S::Ended, E::Slept) => S::Asleep,
             (S::Ended, _) => S::Ended,
             (_, E::Slept) => S::Asleep,
             (S::Asleep, E::Relaunched) => S::Starting,
@@ -315,7 +316,7 @@ mod tests {
         "rT  rD  rL  rL  rT  rT  rT  rT  rT  rT  rT  rT  rbT  rT  rT  rL  rD  rT  T  S  A  E  rM",
         "M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  rM  M  S  A  E  M",
         "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  S  A  E  A",
-        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  S  E  E  E",
+        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  S  A  E  E",
     ];
 
     fn state(code: &str) -> AgentState {

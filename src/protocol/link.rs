@@ -14,9 +14,13 @@ pub struct ServerRecord {
     pub state: ServerState,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Report {
     Model(Model),
     Session(Session),
     HumanWait(Option<(WaitKind, String, Option<Prompt>)>),
+    Said { text: String, turn: Option<String> },
+    QuestionBox,
     RateLimited,
 }

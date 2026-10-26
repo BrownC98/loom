@@ -356,9 +356,10 @@ impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let main = self.agent_id.is_none();
         let wait = self.event.human_wait();
+        let wait = ((main && !self.event.idle_prompt()) || wait.is_some())
+            .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
             hook: self.event.name().to_owned(),
-            model: reported_model(&self.event, self.transcript_path.as_deref()),
             take: self.event.take().filter(|_| main),
             session: self.transcript_path.clone().map(Session),
             prompt: self.event.prompt().map(str::to_owned),
@@ -367,9 +368,10 @@ impl HookEvent for Hook {
                 .then(|| self.last_assistant_message.clone()),
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
-            reports: ((main && !self.event.idle_prompt()) || wait.is_some())
-                .then_some(Report::Wait(wait))
+            reports: reported_model(&self.event, self.transcript_path.as_deref())
+                .map(Report::Model)
                 .into_iter()
+                .chain(wait)
                 .collect(),
             ..Signals::default()
         }

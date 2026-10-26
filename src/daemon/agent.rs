@@ -206,7 +206,7 @@ impl App {
                 alive = server.changed() => match alive {
                     true => seen = server.status(),
                     false => {
-                        self.report(node, &token, Report::HumanWait(None));
+                        self.report(node, &token, WaitSource::Server, Report::HumanWait(None));
                         if current(&self) {
                             self.feed(node, AgentEvent::ServerLost);
                         }
@@ -247,11 +247,17 @@ impl App {
                 Ok(None) => {}
                 Err(e) => eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
             },
-            Signal::Report(report) => self.report(node, token, report),
+            Signal::Report(report) => self.report(node, token, WaitSource::Server, report),
         }
     }
 
-    pub(super) fn report(self: &Arc<Self>, node: NodeId, token: &str, report: Report) {
+    pub(super) fn report(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        source: WaitSource,
+        report: Report,
+    ) {
         let written = match report {
             Report::Model(model) => self.graph.set_model(node, &model),
             Report::Session(session) => {
@@ -260,10 +266,18 @@ impl App {
             }
             Report::HumanWait(wait) => self.graph.set_wait(
                 token,
-                WaitSource::Server,
+                source,
                 wait.as_ref()
                     .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
             ),
+            Report::Said { text, turn } => {
+                self.turn_ends.said(node, &text, turn.as_deref());
+                Ok(())
+            }
+            Report::QuestionBox => {
+                self.turn_ends.question_box(node);
+                Ok(())
+            }
             Report::RateLimited => {
                 if let Some(provider) = self.provider(node) {
                     self.rate_limited(node, provider);

@@ -364,6 +364,8 @@ impl Server for Node {
             fresh: None,
             read,
             models,
+            asked: 0,
+            answered: 0,
             model: None,
         })
     }
@@ -376,8 +378,10 @@ struct Adapter {
     moved: bool,
     limit_hit: bool,
     fresh: Option<server::Thread>,
-    read: mpsc::UnboundedSender<Model>,
-    models: mpsc::UnboundedReceiver<Model>,
+    read: mpsc::UnboundedSender<(u64, Model)>,
+    models: mpsc::UnboundedReceiver<(u64, Model)>,
+    asked: u64,
+    answered: u64,
     model: Option<Model>,
 }
 
@@ -441,11 +445,12 @@ impl ServerAdapter for Adapter {
                 let wait = thread.waiting.map(|kind| (kind, String::new(), None));
                 signals.push(Signal::Report(Report::HumanWait(wait)));
                 signals.push(Signal::Report(Report::Session(Session(thread.id.clone()))));
-                let (node, read) = (self.node.clone(), self.read.clone());
+                self.asked += 1;
+                let (node, read, asked) = (self.node.clone(), self.read.clone(), self.asked);
                 tokio::spawn(async move {
                     let call = |method, params| node.server.call(method, params);
                     match model(call, &thread.id).await {
-                        Ok(model) => drop(read.send(model)),
+                        Ok(model) => drop(read.send((asked, model))),
                         Err(e) => {
                             eprintln!("loom: Codex 스레드 {}의 모델을 읽지 못했다: {e}", thread.id)
                         }
@@ -468,8 +473,11 @@ impl ServerAdapter for Adapter {
                     self.limit_hit = hit.is_ok();
                     hit.is_ok()
                 }
-                Some(model) = self.models.recv() => {
-                    self.model = Some(model);
+                Some((asked, model)) = self.models.recv() => {
+                    if asked > self.answered {
+                        self.answered = asked;
+                        self.model = Some(model);
+                    }
                     true
                 }
             }

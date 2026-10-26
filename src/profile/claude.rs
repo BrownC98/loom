@@ -186,7 +186,7 @@ impl HookEvent for Hook {
                 .then(|| self.last_assistant_message.clone()),
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
-            reports: (main || wait.is_some())
+            reports: ((main && !self.event.idle_prompt()) || wait.is_some())
                 .then_some(Report::Wait(wait))
                 .into_iter()
                 .collect(),
@@ -286,9 +286,7 @@ impl Event {
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
-            Event::Notification {
-                notification_type, ..
-            } if notification_type == IDLE_NOTIFICATION => Take::WhenIdle,
+            Event::Notification { .. } if self.idle_prompt() => Take::WhenIdle,
             Event::Notification { .. } => return None,
         })
     }
@@ -314,9 +312,7 @@ impl Event {
             Event::PreToolUse { tool_name, .. } if tool_name == PLAN_TOOL => {
                 Some((WaitKind::Approval, String::new()))
             }
-            Event::Notification {
-                notification_type, ..
-            } if notification_type == IDLE_NOTIFICATION => None,
+            Event::Notification { .. } if self.idle_prompt() => None,
             Event::Notification {
                 notification_type,
                 message,
@@ -330,6 +326,10 @@ impl Event {
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
+    }
+
+    fn idle_prompt(&self) -> bool {
+        matches!(self, Event::Notification { notification_type, .. } if notification_type == IDLE_NOTIFICATION)
     }
 
     pub fn rate_limited(&self) -> bool {

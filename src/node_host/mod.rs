@@ -351,11 +351,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Ok(()) => return,
                     Err((Unattached::Unreached(cause), _)) => {
                         let mut nodes = host.nodes.write().unwrap();
-                        if nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, &pty)) {
+                        let current = nodes.get(&id).is_some_and(|now| Arc::ptr_eq(now, &pty));
+                        if current {
                             nodes.remove(&id);
                         }
                         drop(nodes);
-                        if let Some(links) = &host.links {
+                        if current && let Some(links) = &host.links {
                             let _ = links.send((id, Linked::Unreached(cause)));
                         }
                         return;

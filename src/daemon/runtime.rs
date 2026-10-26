@@ -139,9 +139,16 @@ impl App {
             self.host.end_at(&at);
             return Err(e.to_string());
         }
-        self.host
-            .resume(id, &at, on_exit)
-            .map_err(|e| e.to_string())?;
+        match self.host.resume(id, &at, on_exit) {
+            Ok(()) => {}
+            Err(node_host::Unattached::Unreached(cause)) => {
+                return self.host_unreached(id, &cause).map_err(|e| e.to_string());
+            }
+            Err(e) => {
+                self.host.end_at(&at);
+                return Err(e.to_string());
+            }
+        }
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         self.ptys_changed.notify_waiters();
@@ -203,6 +210,7 @@ impl App {
         let app = self.clone();
         let id = node.id;
         let address = self.graph.host_of(id)?;
+        self.graph.host_reached(id)?;
         let attached = tokio::task::spawn_blocking(move || {
             let at = address
                 .ok_or_else(|| "no pty-host address".to_owned())
@@ -235,7 +243,6 @@ impl App {
             }
             return Ok(());
         }
-        self.graph.host_reached(node.id)?;
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
             self.sleeps.exited(node.id);
             self.host.kill(node.id);

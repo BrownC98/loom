@@ -438,10 +438,10 @@ impl Host {
         let mut state = self.state.lock().unwrap();
         if state.client.as_ref().is_some_and(|(id, _)| *id == me) {
             state.client = None;
-            if state.while_linked {
-                drop(state);
-                self.kill();
-            }
+        }
+        if state.client.is_none() && state.while_linked {
+            drop(state);
+            self.kill();
         }
     }
 }

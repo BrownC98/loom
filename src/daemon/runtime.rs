@@ -207,7 +207,6 @@ impl App {
             .flatten()
             .and_then(|at| self.distro(&at.distro).ok());
         let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
-        let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
         let app = self.clone();
         let id = node.id;
         let attached = tokio::task::spawn_blocking(move || app.host.resume(id, on_exit))
@@ -224,7 +223,7 @@ impl App {
             if let Some(server) = &node.server {
                 self.stop_server(server);
             }
-            if !(sleeping && self.graph.slept(node.id)?) {
+            if !self.graph.slept(node.id)? {
                 self.graph.lost(node.id)?;
             }
             if unattached == node_host::Unattached::Gone
@@ -250,7 +249,7 @@ impl App {
         self.follow_screen(node.id, profile, &node.token);
         self.follow_servers(node.id, codex, opencode2, &node.token);
         self.ptys_changed.notify_waiters();
-        if sleeping {
+        if self.graph.sleeping(node.id)? {
             self.sleep_again_after_start(node);
         }
         Ok(None)
@@ -323,9 +322,7 @@ impl App {
                 app.host.kill(id);
                 return;
             }
-            let slept = matches!(exit, Exit::Command(_))
-                && (app.sleeps.stopping(id) || app.graph.sleeping(id).unwrap_or(false))
-                && app.graph.slept(id).unwrap_or(false);
+            let slept = matches!(exit, Exit::Command(_)) && app.graph.slept(id).unwrap_or(false);
             if slept && let Err(e) = app.host.keep(id) {
                 eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
             }

@@ -639,6 +639,7 @@ const en = {
       roleHasNoAgent: "The role '{{role}}' has no agent in the settings. The human starts nodes of this role.",
       leadChildNeedsWorktree: "A child of a node with no parent owns a new worktree (--worktree) or reviews its parent's branch (--review). Role: '{{value}}'.",
       reviewerSeated: '{{reviewer}} already reviews {{branch}} as {{role}}. loom sends it each new round when the owner calls loom ready.',
+      publishing: '{{value}}: the merge queue checked this branch and publishes it now, so it takes no new reviewer. Wait for merged or rework.',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',

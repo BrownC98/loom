@@ -641,6 +641,7 @@ const ko: typeof en = {
       roleHasNoAgent: "역할 '{{role}}'에 에이전트가 없습니다. 이 역할은 사람이 띄웁니다.",
       leadChildNeedsWorktree: "부모가 없는 노드의 자식은 새 워크트리(--worktree)를 갖거나 자기 브랜치의 검토자(--review)여야 합니다. 역할: '{{value}}'.",
       reviewerSeated: '{{reviewer}}이(가) 이미 {{branch}}를 {{role}}(으)로 검토합니다. 담당이 loom ready를 부르면 loom이 새 차례를 그 검토자에게 보냅니다.',
+      publishing: '{{value}}: 병합 큐가 이 브랜치를 검사했고 지금 게시합니다. 새 검토자를 받지 않습니다. merged나 rework를 기다립니다.',
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
       severalOpen: '열린 질문이 여럿입니다: {{value}}.',
       emptyAnswer: '답변을 적으십시오.',

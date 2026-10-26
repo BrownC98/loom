@@ -43,7 +43,7 @@ impl Sleeps {
         (!stopping.contains(&node)).then(take)
     }
 
-    fn begin(&self, node: NodeId) -> bool {
+    pub(super) fn begin(&self, node: NodeId) -> bool {
         self.stopping.lock().unwrap().insert(node)
     }
 
@@ -469,7 +469,7 @@ impl App {
         let now = now();
         let due = self.sleeps.due(&ids, now);
         for node in resting {
-            if due.contains(&node.id) && self.sleeps.begin(node.id) {
+            if due.contains(&node.id) && self.start_sleep(node.id) {
                 let app = self.clone();
                 tokio::spawn(async move { app.put_to_sleep(node).await });
             }
@@ -498,6 +498,26 @@ impl App {
         self.agent_state(node) == Some(AgentState::Listening)
     }
 
+    fn start_sleep(&self, id: NodeId) -> bool {
+        if !self.sleeps.begin(id) {
+            return false;
+        }
+        if let Err(e) = self.graph.begin_sleep(id) {
+            eprintln!("loom: 노드 {}의 재우기 표시를 쓰지 못했다: {e}", id.0);
+            self.sleeps.cancel(id);
+            return false;
+        }
+        true
+    }
+
+    fn sleep_cancelled(&self, id: NodeId) -> bool {
+        let cancelled = self.sleeps.rest_again(id);
+        if cancelled && let Err(e) = self.graph.cancel_sleep(id) {
+            eprintln!("loom: 노드 {}의 재우기 표시를 지우지 못했다: {e}", id.0);
+        }
+        cancelled
+    }
+
     async fn put_to_sleep(&self, node: Active) {
         let id = node.id;
         let still = || {
@@ -514,7 +534,7 @@ impl App {
             eprintln!("loom: 노드 {}를 재우지 못했다: {e}", id.0);
         }
         if stopped.is_err() || !still() {
-            self.sleeps.rest_again(id);
+            self.sleep_cancelled(id);
             self.graph.wake_mail();
             return;
         }
@@ -524,7 +544,7 @@ impl App {
         self.idle.end(id, IdleEnd::Sleep);
         self.host.stop(id);
         tokio::time::sleep(EXIT_WAIT).await;
-        if self.sleeps.rest_again(id) {
+        if self.sleep_cancelled(id) {
             eprintln!(
                 "loom: 노드 {}의 프로세스가 끝나지 않았다. 재우지 않는다",
                 id.0
@@ -1520,6 +1540,28 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn an_esc_key_without_text_does_not_hold_a_deaf_pi_node() {
+        let t = fixture();
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        let node = add_agent(&t, "esc", "pi");
+        let path = t.dir.path().join("esc.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        t.app
+            .graph
+            .set_transcript(node, path.to_str().unwrap())
+            .unwrap();
+        t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        screen(&t, node, "❯ ");
+        human_typed(&t.app, node, b"\x1b");
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&path, "{}\n{}\n").unwrap();
+        drop(t.app.idle.open(node));
+        relaunched(&t, node).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn a_pi_node_held_by_typing_keeps_its_process_when_mail_comes() {
         let t = fixture();
         t.app.watch_agents();
@@ -1723,6 +1765,78 @@ mod tests {
             }
             app.host.detach();
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_sleep_begun_before_a_restart_ends_asleep_after_it() {
+        let t = fixture();
+        let hosts = t.dir.path().join("pty").join("nodes");
+        let mut sleepers = Vec::new();
+        for name in ["alive", "ended"] {
+            let node = done_child(&t, name);
+            let mut cmd = portable_pty::CommandBuilder::new("sh");
+            cmd.args(["-c", "printf 'idle'; exec cat >/dev/null"]);
+            crate::node_host::in_process(&hosts, node, cmd);
+            sleepers.push(node);
+        }
+        t.app.resume().await.unwrap();
+        let [alive, ended] = sleepers[..] else {
+            unreachable!()
+        };
+        let pid = t.app.host.pid(ended).unwrap();
+        for node in [alive, ended] {
+            assert!(t.app.start_sleep(node));
+        }
+        let Fixture { dir, app, lead: _ } = t;
+        app.host.detach();
+        drop(app);
+        std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status()
+            .unwrap();
+
+        let app = started_again(dir.path()).await;
+        for _ in 0..500 {
+            if [alive, ended]
+                .iter()
+                .all(|&node| app.graph.asleep(node).unwrap())
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        for node in [alive, ended] {
+            assert!(app.graph.asleep(node).unwrap(), "node {} sleeps", node.0);
+            assert_eq!(app.agent_state(node), Some(AgentState::Asleep));
+            assert!(!app.graph.sleeping(node).unwrap());
+        }
+        app.host.detach();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ctrl_c_clears_a_pi_draft_and_retries_the_held_recovery() {
+        let t = fixture();
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        let node = add_agent(&t, "cleared", "pi");
+        t.app
+            .graph
+            .set_transcript(node, "/t/cleared.jsonl")
+            .unwrap();
+        t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        screen(&t, node, "❯ ");
+        human_typed(&t.app, node, "고쳐".as_bytes());
+        t.app.feed(node, AgentEvent::WaitOpened);
+        drop(t.app.idle.open(node));
+        while !t.app.relaunches.held(node) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!missed(&t).contains(&(node, true)), "the draft holds");
+        human_typed(&t.app, node, b"\x03");
+        assert!(!t.app.graph.drafted(node).unwrap());
+        relaunched(&t, node).await;
     }
 
     async fn relaunched(t: &Fixture, node: NodeId) {
@@ -2196,6 +2310,52 @@ mod tests {
             .done(worker, &report, None, &[], None, None)
             .unwrap();
         worker
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_restart_keeps_the_pending_sleep_intent() {
+        let t = fixture();
+        let worker = done_child(&t, "sleeper");
+        let hosts = t.dir.path().join("pty/nodes");
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'ready'; exec cat >/dev/null"]);
+        crate::node_host::in_process(&hosts, worker, cmd);
+        t.app.resume().await.unwrap();
+        while t.app.host.tail(worker).is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        t.app.feed(worker, AgentEvent::WaitOpened);
+        assert!(t.app.start_sleep(worker));
+        t.app.idle.end(worker, IdleEnd::Sleep);
+        t.app.host.stop(worker);
+        t.app.host.detach();
+        let db_path = t.dir.path().join("loom.db");
+        let restarted = Arc::new(
+            App::new(
+                crate::db::open(&db_path).unwrap(),
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                tokio::sync::mpsc::unbounded_channel().0,
+            )
+            .unwrap(),
+        );
+        restarted.resume().await.unwrap();
+        for _ in 0..200 {
+            if restarted.graph.ended(worker).unwrap().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let asleep = restarted.graph.asleep(worker).unwrap();
+        let state = restarted.agent_state(worker);
+        restarted.host.kill(worker);
+        assert!(
+            asleep,
+            "the sleep request must survive the daemon restart; actual state: {state:?}"
+        );
     }
 
     fn wake_errors(t: &Fixture, node: NodeId) -> Vec<String> {

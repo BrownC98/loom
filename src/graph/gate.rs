@@ -11,6 +11,8 @@ use crate::protocol::{
 use crate::task;
 use crate::worktree::RepoId;
 
+const MIN_HEAD: usize = 7;
+
 pub struct Round<'a> {
     pub branch: &'a str,
     pub target: &'a str,
@@ -227,6 +229,7 @@ impl Graph {
         &self,
         caller: NodeId,
         branch: &str,
+        head: &str,
         judgment: Judgment,
         findings: Option<&str>,
         via: Option<&Via>,
@@ -247,6 +250,12 @@ impl Graph {
             detail,
             via,
             |tx, row| {
+                if head.len() < MIN_HEAD || !row.head.starts_with(head) {
+                    return Err(Refusal::StaleHead {
+                        branch: branch.to_owned(),
+                        head: row.head.clone(),
+                    });
+                }
                 let verdict = Verdict {
                     judgment,
                     findings: findings.map(str::to_owned),
@@ -566,9 +575,7 @@ impl Graph {
                 Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?))
             })?
             .collect::<rusqlite::Result<_>>()?;
-        if seated.len() < 2 {
-            return Ok(());
-        }
+        let head = load(&db, place_of(&db, gate)?.repo, &branch)?.map(|row| row.head);
         let names: Vec<(NodeId, String)> = seated
             .iter()
             .map(|(id, name, _)| (*id, name.clone()))
@@ -586,7 +593,17 @@ impl Graph {
                     steer_kind(self.linked, agent),
                 ),
             };
-            let body = protocol::peers_step(&branch, &peers);
+            let mut body = Vec::new();
+            if let (true, Some(head)) = (*id == node, &head) {
+                body.push(protocol::first_round_step(&branch, head));
+            }
+            if !peers.is_empty() {
+                body.push(protocol::peers_step(&branch, &peers));
+            }
+            if body.is_empty() {
+                continue;
+            }
+            let body = body.join("\n");
             mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
             self.publish_node(&db, *id)?;
         }
@@ -671,7 +688,7 @@ impl Graph {
                 }
                 let mut body = detail.lines.clone();
                 body.push(match held.is_empty() {
-                    true => protocol::next_step(call, *receiver, target, branch),
+                    true => protocol::next_step(call, *receiver, target, branch, &row.head),
                     false => protocol::held_step(*receiver, &held),
                 });
                 post(

@@ -30,6 +30,7 @@ pub struct Readied {
 #[derive(Serialize, Deserialize)]
 pub struct VerdictRequest {
     pub branch: String,
+    pub head: String,
     pub judgment: Judgment,
     pub findings: Option<String>,
 }
@@ -241,6 +242,7 @@ pub(super) async fn agent_verdict(
     let result = app.graph.verdict(
         node,
         &req.branch,
+        req.head.trim(),
         req.judgment,
         req.findings.as_deref(),
         Some(&via),

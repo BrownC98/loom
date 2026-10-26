@@ -263,13 +263,13 @@ pub fn held_step(to: Receiver, reviewers: &[String]) -> String {
     }
 }
 
-pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str) -> String {
+pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str, head: &str) -> String {
     match (call, to) {
         (GateCall::Ready, _) if target == Target::Coordinator => format!(
-            "Next: accept or return the branch yourself, with no reviewer. Check the result against the done-when of its brief (acceptance, not a code review), then call `loom verdict {branch} pass`, or `loom verdict {branch} block --findings <file>` with what in done-when is missing."
+            "Next: accept or return the branch yourself, with no reviewer. Check the result against the done-when of its brief (acceptance, not a code review), then call `loom verdict {branch} {head} pass`, or `loom verdict {branch} {head} block --findings <file>` with what in done-when is missing. Give this head: loom refuses a verdict for another head."
         ),
         (GateCall::Ready, _) => format!(
-            "Next: if the branch has no reviewer yet, spawn one as your child with `loom spawn --role <role> --review {branch}`. It reviews the branch and calls `loom verdict {branch} pass|block --findings <file>`. loom sends each next round to the reviewers that the branch has."
+            "Next: if the branch has no reviewer yet, spawn one as your child with `loom spawn --role <role> --review {branch}`. loom sends it this round's head. It reviews the branch and calls `loom verdict {branch} <head> pass|block --findings <file>`. loom sends each next round to the reviewers that the branch has."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
             "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()
@@ -336,7 +336,13 @@ pub fn review_again_step(branch: &str, head: &str, judged: Option<&str>, finding
         ),
     };
     format!(
-        "Next: a new round of {branch} started. {fixes} Compare it with your findings file {findings}, the other reviewers' findings and the owner's rebuttals. Write your findings file again, then call `loom verdict {branch} pass|block`."
+        "Next: a new round of {branch} started. {fixes} Compare it with your findings file {findings}, the other reviewers' findings and the owner's rebuttals. Write your findings file again, then call `loom verdict {branch} {head} pass|block`. Give this head: loom refuses a verdict for another head."
+    )
+}
+
+pub fn first_round_step(branch: &str, head: &str) -> String {
+    format!(
+        "Next: the open round of {branch} is head {head}. Review it, write your findings file, then call `loom verdict {branch} {head} pass|block`. Give this head: loom refuses a verdict for another head."
     )
 }
 
@@ -1003,7 +1009,7 @@ macro_rules! message_usage {
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work. If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> <head> pass|block [--findings <file>] (give the head from the round message that loom sends; loom refuses another head; into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }

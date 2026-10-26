@@ -180,6 +180,8 @@ enum Cli {
     /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
     Verdict {
         branch: String,
+        /// 판정한 커밋. loom이 검토자에게 보낸 차례 메시지의 `head`를 적는다(앞 7자 이상). 열린 차례의 커밋이 아니면 거절한다.
+        head: String,
         judgment: protocol::Judgment,
         /// 결함 파일. block이면 꼭 준다.
         #[arg(long)]
@@ -323,9 +325,10 @@ fn main() -> ExitCode {
         Cli::Ready { branch } => cli::ready(branch),
         Cli::Verdict {
             branch,
+            head,
             judgment,
             findings,
-        } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
+        } => cli::verdict(branch, head, judgment, findings.map(wsl::from_caller)),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Detach { name } => cli::detach(name),
         Cli::Rm { name } => cli::remove(name),

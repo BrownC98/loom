@@ -651,6 +651,7 @@ const ko: typeof en = {
       notOwner: '{{branch}}: 워크트리가 이 브랜치에 있는 담당만 `loom ready`를 부릅니다.',
       uncommitted: '{{value}}: 커밋하지 않은 변경이 있습니다.',
       sameAsTarget: '{{value}}: 대상 브랜치와 같은 브랜치입니다.',
+      staleHead: '{{branch}}: 열린 차례의 커밋은 {{head}}입니다. 준 커밋이 아닙니다.',
       sameHead: '{{value}}: 열린 관문 차례가 이미 이 커밋입니다. 새 커밋만 차례를 갈음합니다.',
       noFindings: 'block 판정에는 결함 파일이 필요합니다.',
       kindWord: '메시지를 종류 낱말 {{word}}(으)로 시작하지 않습니다. 대신: {{verb}}.',

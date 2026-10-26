@@ -449,6 +449,7 @@ pub fn ready(branch: String) -> Result<(), String> {
 
 pub fn verdict(
     branch: String,
+    head: String,
     judgment: Judgment,
     findings: Option<PathBuf>,
 ) -> Result<(), String> {
@@ -461,6 +462,7 @@ pub fn verdict(
         "verdict",
         &VerdictRequest {
             branch: branch.clone(),
+            head,
             judgment,
             findings,
         },

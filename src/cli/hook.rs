@@ -12,14 +12,16 @@ use crate::daemon::{
 use crate::profile::{
     BATCH_LIMIT_BYTES, Handed, HookEvent, Report, Shown, Signals, Take, claude, cursor, pi,
 };
-use crate::protocol::Delivery;
+use crate::protocol::MessageId;
 use crate::wsl::REWAKE_EXIT;
 
 const CALL_LIMIT: Duration = Duration::from_secs(5);
 
 pub fn claude_hook() -> Result<(), String> {
     let hook = claude::Hook::deserialize(read_input()?).map_err(|e| format!("hook input: {e}"))?;
-    if run(&hook, print)? {
+    let (rewake, unacked) = run(&hook, print)?;
+    unacked.acknowledge();
+    if rewake {
         std::process::exit(REWAKE_EXIT)
     }
     Ok(())
@@ -27,7 +29,7 @@ pub fn claude_hook() -> Result<(), String> {
 
 pub fn cursor_hook() -> Result<(), String> {
     let hook = cursor::Hook::parse(read_input()?).map_err(|e| format!("hook input: {e}"))?;
-    run(&hook, print).map(drop)
+    run(&hook, print).map(|(_, unacked)| unacked.acknowledge())
 }
 
 pub fn pi_hook() -> Result<(), String> {
@@ -41,10 +43,17 @@ pub fn pi_hook() -> Result<(), String> {
         let out = out.clone();
         let send = move |line: String| send_line(&out, line);
         let Some(id) = request.id else {
-            return run(&request, |shown| send(shown.out.unwrap_or_default())).map(drop);
+            return run(&request, |shown| send(shown.out.unwrap_or_default()))
+                .map(|(_, unacked)| unacked.acknowledge());
         };
         std::thread::spawn(move || {
-            if let Err(e) = run(&request, |shown| send(shown.out.unwrap_or_default())) {
+            let served = match request.event.acked() {
+                Some(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
+                    .map_err(String::from)
+                    .and_then(|()| send(pi::acked(id).line())),
+                None => run(&request, |shown| send(shown.out.unwrap_or_default())).map(drop),
+            };
+            if let Err(e) = served {
                 let _ = send(pi::failed(Some(id), e).line());
             }
         });
@@ -104,7 +113,7 @@ fn step(signals: &Signals) -> Step {
             rate_limited: signals.rate_limited,
             turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
                 reply,
-                turn: signals.turn.clone(),
+                turn: signals.turn.clone().or_else(ended_turn),
             }),
         }),
         Some(Take::Now(kinds)) => Step::Take(TakeRequest {
@@ -119,10 +128,30 @@ fn step(signals: &Signals) -> Step {
     }
 }
 
+fn ended_turn() -> Option<String> {
+    getrandom::u64().ok().map(|n| format!("loom-{n:016x}"))
+}
+
+struct Unacked {
+    ids: Vec<MessageId>,
+    limit: Option<Duration>,
+}
+
+impl Unacked {
+    fn acknowledge(self) {
+        if self.ids.is_empty() {
+            return;
+        }
+        if let Err(e) = call::<()>("ack", &AckRequest { ids: self.ids }, self.limit) {
+            eprintln!("loom: could not acknowledge: {e}");
+        }
+    }
+}
+
 fn run(
     event: &impl HookEvent,
     write: impl FnOnce(Shown) -> Result<(), String>,
-) -> Result<bool, String> {
+) -> Result<(bool, Unacked), String> {
     let mut signals = event.signals();
     if let Some(model) = &signals.model
         && let Err(e) = call::<()>("model", model, Some(CALL_LIMIT))
@@ -158,8 +187,11 @@ fn run(
     let shown = event.show(&handed);
     let rewake = shown.rewake;
     write(shown)?;
-    acknowledge(handed.messages(), ack_limit);
-    Ok(rewake)
+    let unacked = Unacked {
+        ids: handed.messages().iter().map(|d| d.id).collect(),
+        limit: ack_limit,
+    };
+    Ok((rewake, unacked))
 }
 
 fn send_report(report: Report, turn: Option<String>) {
@@ -187,14 +219,4 @@ fn interrupt_pending() -> bool {
         eprintln!("loom: could not check for an interrupt: {e}");
         false
     })
-}
-
-fn acknowledge(taken: &[Delivery], limit: Option<Duration>) {
-    if taken.is_empty() {
-        return;
-    }
-    let ids = taken.iter().map(|d| d.id).collect();
-    if let Err(e) = call::<()>("ack", &AckRequest { ids }, limit) {
-        eprintln!("loom: could not acknowledge: {e}");
-    }
 }

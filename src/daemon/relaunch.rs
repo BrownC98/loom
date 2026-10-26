@@ -24,7 +24,6 @@ use crate::profile::{self, Profile, Start};
 use crate::protocol::{AgentId, MessageId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
-use crate::skills::Position;
 
 pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
 const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
@@ -205,6 +204,13 @@ impl App {
         self.change_plan(node, |_| (None, ()));
     }
 
+    fn finish_plan(&self, node: NodeId) {
+        self.change_plan(node, |now| match now.pending {
+            Some((Phase::Running, _)) => (None, ()),
+            kept => (kept, ()),
+        });
+    }
+
     fn change_plan<R: Default>(
         &self,
         node: NodeId,
@@ -339,7 +345,7 @@ impl App {
         })
         .await
         .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
-        self.drop_plan(id);
+        self.finish_plan(id);
         let kept = match &result {
             Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
             Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
@@ -573,7 +579,7 @@ impl App {
         if result == Ok(Stop::Kept) {
             return result;
         }
-        self.drop_plan(id);
+        self.finish_plan(id);
         if result.is_err() {
             self.release_mail(id);
         }
@@ -850,11 +856,7 @@ impl App {
 
     async fn prepare_start(&self, id: NodeId, start: &Start) -> Result<super::Prepared, String> {
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
-        let position = match self.graph.relations(id) {
-            Ok(r) if r.parent.is_some() => Position::Child,
-            Ok(_) => Position::Root,
-            Err(e) => return Err(e.to_string()),
-        };
+        let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
         self.prepare(start, Path::new(&place.worktree), position, Some(&task))
             .await

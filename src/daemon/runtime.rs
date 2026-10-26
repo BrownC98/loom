@@ -683,12 +683,22 @@ impl App {
 
     pub(super) fn node_wsl(&self, node: Option<NodeId>) -> Result<Option<wsl::WslPath>, Problem> {
         let Some(node) = node else { return Ok(None) };
-        let place = self.graph.place_of(node).map_err(internal)?;
+        self.wsl_at(node).map_err(internal)
+    }
+
+    pub(super) fn wsl_at(&self, node: NodeId) -> rusqlite::Result<Option<wsl::WslPath>> {
+        let place = self.graph.place_of(node)?;
         Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
+    pub(super) fn release_guarded(&self, node: NodeId, shells: &[Identity]) {
+        if let Err(e) = self.graph.release_guarded(node, shells) {
+            eprintln!("loom: 노드 {}의 멈춘 명령을 지우지 못했다: {e}", node.0);
+        }
+    }
+
     pub(super) fn end_guarded_inside(
-        &self,
+        self: &Arc<Self>,
         node: NodeId,
         at: &wsl::WslPath,
         shells: Vec<Identity>,
@@ -706,9 +716,11 @@ impl App {
         let Ok(distro) = self.distro(&at.distro) else {
             return;
         };
+        let app = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = wsl::end_shells(&distro, &token, &shells).await {
-                eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
+            match wsl::end_shells(&distro, &token, &shells).await {
+                Ok(()) => app.release_guarded(node, &shells),
+                Err(e) => eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0),
             }
         });
     }

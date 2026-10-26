@@ -84,9 +84,10 @@ impl Graph {
         to: &str,
         body: &str,
         via: Option<&Via>,
-        stop: impl FnOnce(NodeId, Vec<Identity>),
-    ) -> Result<Sent, Refusal> {
-        self.post(
+        stop: impl FnOnce(NodeId, &[Identity]),
+    ) -> Result<(Sent, Vec<Identity>), Refusal> {
+        let mut shells = Vec::new();
+        let sent = self.post(
             from,
             to,
             Outgoing {
@@ -96,10 +97,12 @@ impl Graph {
                 via,
             },
             |db, to| {
-                stop(to, hosts::take_guarded(db, to)?);
+                shells = hosts::guarded(db, to)?;
+                stop(to, &shells);
                 Ok(())
             },
-        )
+        )?;
+        Ok((sent, shells))
     }
 
     pub fn ask_parent(

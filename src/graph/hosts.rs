@@ -8,8 +8,8 @@ pub(super) fn drop_host(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
         .map(drop)
 }
 
-pub(super) fn take_guarded(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<Identity>> {
-    db.prepare("DELETE FROM guarded_commands WHERE node = ?1 RETURNING pid, birth")?
+pub(super) fn guarded(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<Identity>> {
+    db.prepare("SELECT pid, birth FROM guarded_commands WHERE node = ?1")?
         .query_map([node.0], |row| {
             Ok(Identity {
                 pid: row.get(0)?,
@@ -28,6 +28,20 @@ impl Graph {
                 params![node.0, shell.pid, shell.birth],
             )
             .map(drop)
+    }
+
+    pub fn release_guarded(&self, node: NodeId, shells: &[Identity]) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        {
+            let mut delete = tx.prepare(
+                "DELETE FROM guarded_commands WHERE node = ?1 AND pid = ?2 AND birth = ?3",
+            )?;
+            for shell in shells {
+                delete.execute(params![node.0, shell.pid, shell.birth])?;
+            }
+        }
+        tx.commit()
     }
 
     pub fn set_host(&self, node: NodeId, address: &str) -> rusqlite::Result<()> {

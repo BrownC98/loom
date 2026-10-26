@@ -222,7 +222,7 @@ fn refusal_of(problem: &Problem) -> Option<Refusal> {
     }
 }
 
-fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
+fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
     app.kind_word(from, &req.body)?;
     if req.mode != Kind::Queue {
         let (to, agent) = app.graph.agent_at(from, &req.to)?;
@@ -231,23 +231,19 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
         if req.mode == Kind::Interrupt && profile.hooked() {
-            let inside = wsl::of(std::path::Path::new(&app.graph.place_of(to)?.worktree));
-            let mut taken = Vec::new();
-            let sent =
-                app.graph.interrupt(
-                    from,
-                    &target,
-                    &req.body,
-                    Some(via),
-                    |to, shells| match inside {
-                        Some(_) => taken = shells,
-                        None => app.host.stop_guarded(to, &shells),
-                    },
-                );
-            if let (Ok(_), Some(at)) = (&sent, inside) {
-                app.end_guarded_inside(to, &at, taken);
+            let inside = app.wsl_at(to)?;
+            let (sent, shells) =
+                app.graph
+                    .interrupt(from, &target, &req.body, Some(via), |to, shells| {
+                        if inside.is_none() {
+                            app.host.stop_guarded(to, shells);
+                        }
+                    })?;
+            match inside {
+                Some(at) => app.end_guarded_inside(to, &at, shells),
+                None => app.release_guarded(to, &shells),
             }
-            return sent;
+            return Ok(sent);
         }
         return app
             .graph

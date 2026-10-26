@@ -695,7 +695,8 @@ esac
     };
     let text = format!(
         r#"#!/bin/sh
-{through_endpoint}exec "$(wslpath -u '{exe}')" "$@"
+{through_endpoint}[ "$1" = guard ] && exit 0
+exec "$(wslpath -u '{exe}')" "$@"
 "#,
         exe = quoted(exe),
     );

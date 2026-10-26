@@ -58,8 +58,6 @@ pub enum GateVerb {
 }
 
 impl GateVerb {
-    pub const ALL: [GateVerb; 3] = [GateVerb::Ready, GateVerb::Verdict, GateVerb::Queue];
-
     pub fn command(self) -> &'static str {
         match self {
             GateVerb::Ready => "loom ready",
@@ -122,15 +120,20 @@ impl GateCall {
         }
     }
 
-    const ALL: [GateCall; 7] = [
-        GateCall::Ready,
-        GateCall::Verdict(Judgment::Pass),
-        GateCall::Verdict(Judgment::Block),
-        GateCall::Requeue,
-        GateCall::End(MergeEnd::Merged),
-        GateCall::End(MergeEnd::Rework),
-        GateCall::End(MergeEnd::Failed),
-    ];
+    const ALL: [GateCall; 7] = match GateCall::Ready {
+        GateCall::Ready
+        | GateCall::Verdict(Judgment::Pass | Judgment::Block)
+        | GateCall::Requeue
+        | GateCall::End(MergeEnd::Merged | MergeEnd::Rework | MergeEnd::Failed) => [
+            GateCall::Ready,
+            GateCall::Verdict(Judgment::Pass),
+            GateCall::Verdict(Judgment::Block),
+            GateCall::Requeue,
+            GateCall::End(MergeEnd::Merged),
+            GateCall::End(MergeEnd::Rework),
+            GateCall::End(MergeEnd::Failed),
+        ],
+    };
 }
 
 /// 지금 상태에서 할 수 없는 관문 호출. 에이전트는 이 글을 보고 같은 턴에 맞는 동사를 부른다.
@@ -188,15 +191,14 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
 }
 
 fn allowed(state: GateState) -> Vec<GateVerb> {
-    GateVerb::ALL
-        .into_iter()
-        .filter(|verb| sender(*verb) != Sender::Loom)
-        .filter(|verb| {
-            GateCall::ALL
-                .iter()
-                .any(|call| call.verb() == *verb && next(state, *call).is_some())
-        })
-        .collect()
+    let mut verbs = Vec::new();
+    for call in GateCall::ALL {
+        let verb = call.verb();
+        if sender(verb) != Sender::Loom && next(state, call).is_some() && !verbs.contains(&verb) {
+            verbs.push(verb);
+        }
+    }
+    verbs
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -689,7 +691,9 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
+    pub const ALL: &[Kind] = match Kind::Queue {
+        Kind::Queue | Kind::Steer | Kind::Interrupt => &[Kind::Queue, Kind::Steer, Kind::Interrupt],
+    };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]

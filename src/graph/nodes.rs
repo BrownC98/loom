@@ -580,6 +580,22 @@ impl Graph {
         Ok(())
     }
 
+    pub fn turn_flags(&self) -> rusqlite::Result<Vec<(NodeId, u8)>> {
+        self.lock()
+            .prepare("SELECT id, turn_flags FROM nodes WHERE turn_flags != 0")?
+            .query_map([], |row| Ok((NodeId(row.get(0)?), row.get(1)?)))?
+            .collect()
+    }
+
+    pub fn set_turn_flags(&self, id: NodeId, flags: u8) -> rusqlite::Result<()> {
+        self.lock()
+            .execute(
+                "UPDATE nodes SET turn_flags = ?2 WHERE id = ?1 AND turn_flags != ?2",
+                params![id.0, flags],
+            )
+            .map(drop)
+    }
+
     pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {
         let text = text.trim();
         if text.is_empty() {

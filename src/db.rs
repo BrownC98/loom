@@ -311,7 +311,8 @@ const STEPS: &[M] = &[
     ),
     M::up(
         "ALTER TABLE nodes ADD COLUMN drafted INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE nodes ADD COLUMN sleeping INTEGER NOT NULL DEFAULT 0;",
+        ALTER TABLE nodes ADD COLUMN sleeping INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE nodes ADD COLUMN turn_flags INTEGER NOT NULL DEFAULT 0;",
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);

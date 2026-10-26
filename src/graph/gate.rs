@@ -1,7 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde::{Deserialize, Serialize};
 
-use super::events::{self, Entry, GateTrace, Via, Who};
+use super::events::{self, Entry, GateTrace, Via};
 use super::mailbox::{self, Stamp};
 use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{
@@ -64,14 +63,6 @@ pub struct Ended<'a> {
     pub log: Option<String>,
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Verdict {
-    judgment: Judgment,
-    findings: Option<String>,
-    reviewer: Who,
-    model: Option<String>,
 }
 
 struct Row {
@@ -160,7 +151,7 @@ impl Graph {
                     "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
                      ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
-                        state = ?7, head = ?8, verdict = NULL, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch(),
+                        state = ?7, head = ?8, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch(),
                         updated = unixepoch()",
                     params![
                         repo.0,
@@ -172,6 +163,10 @@ impl Graph {
                         to_json(&row.state),
                         round.head
                     ],
+                )?;
+                tx.execute(
+                    "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+                    params![repo.0, round.branch],
                 )?;
                 Ok(())
             },
@@ -256,13 +251,12 @@ impl Graph {
                         head: row.head.clone(),
                     });
                 }
-                let verdict = Verdict {
-                    judgment,
-                    findings: findings.map(str::to_owned),
-                    reviewer: events::who(tx, caller)?,
-                    model: model_of(tx, caller)?,
-                };
-                update(tx, repo, branch, row.state, Some(&to_json(&verdict)), None)?;
+                update(tx, repo, branch, row.state)?;
+                tx.execute(
+                    "INSERT INTO gate_votes (repo, branch, reviewer, vote, head, findings) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT (repo, branch, reviewer) DO UPDATE SET vote = ?4, head = ?5, findings = ?6",
+                    params![repo.0, branch, caller.0, to_json(&judgment), row.head, findings],
+                )?;
                 tx.execute(
                     "UPDATE gates SET queued = CASE WHEN ?3 = '\"passed\"' THEN coalesce(queued, unixepoch()) END,
                         seq = CASE WHEN ?3 = '\"passed\"' THEN coalesce(seq, (SELECT coalesce(max(seq), 0) + 1 FROM gates)) END
@@ -277,9 +271,7 @@ impl Graph {
 
     pub fn gate_merges(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<String>> {
         self.lock()
-            .prepare(
-                "SELECT merged FROM gates WHERE repo = ?1 AND target = ?2 AND merged IS NOT NULL",
-            )?
+            .prepare("SELECT sha FROM gate_merges WHERE repo = ?1 AND target = ?2")?
             .query_map(params![repo.0, target], |r| r.get(0))?
             .collect()
     }
@@ -455,7 +447,7 @@ impl Graph {
             Detail::default(),
             None,
             |tx, row| {
-                update(tx, repo, branch, row.state, None, None)?;
+                update(tx, repo, branch, row.state)?;
                 tx.execute(
                     "UPDATE gates SET batch = NULL WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch],
@@ -497,11 +489,17 @@ impl Graph {
             detail,
             None,
             |tx, row| {
-                update(tx, repo, branch, row.state, None, merged)?;
+                update(tx, repo, branch, row.state)?;
                 tx.execute(
                     "UPDATE gates SET batch = NULL, queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch],
                 )?;
+                if let Some(sha) = merged {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO gate_merges (repo, target, sha) VALUES (?1, ?2, ?3)",
+                        params![repo.0, row.target, sha],
+                    )?;
+                }
                 Ok(())
             },
         )?;
@@ -669,7 +667,7 @@ impl Graph {
             },
         ) {
             let held = match call {
-                GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, branch)?,
+                GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, repo, branch)?,
                 _ => Vec::new(),
             };
             let target = row.target_kind();
@@ -920,7 +918,7 @@ fn findings_of(
     name: &str,
     branch: &str,
 ) -> rusqlite::Result<String> {
-    let given = last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.findings'")?;
+    let given = last_verdict(db, reviewer, branch, "findings")?;
     Ok(given.unwrap_or_else(|| task::findings_in_task(branch, name)))
 }
 
@@ -929,21 +927,17 @@ fn last_judged(
     reviewer: NodeId,
     branch: &str,
 ) -> rusqlite::Result<Option<String>> {
-    last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.head'")
+    last_verdict(db, reviewer, branch, "head")
 }
 
 fn last_verdict(
     db: &Connection,
     reviewer: NodeId,
     branch: &str,
-    select: &str,
+    column: &str,
 ) -> rusqlite::Result<Option<String>> {
     db.query_row(
-        &format!(
-            "{select} FROM events WHERE entry ->> '$.kind' = 'message'
-             AND entry ->> '$.gate.verb' = 'verdict' AND entry ->> '$.gate.branch' = ?2
-             AND entry ->> '$.from.id' = ?1 ORDER BY id DESC LIMIT 1"
-        ),
+        &format!("SELECT {column} FROM gate_votes WHERE reviewer = ?1 AND branch = ?2"),
         params![reviewer.0, branch],
         |r| r.get(0),
     )
@@ -955,19 +949,21 @@ fn pending(
     tx: &Transaction,
     caller: Caller,
     row: &Row,
+    repo: RepoId,
     branch: &str,
 ) -> rusqlite::Result<Vec<String>> {
     tx.prepare(&format!(
         "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4 ORDER BY n.id",
         in_round("?1", "?2", "?3"),
-        voted("?3", "?2")
+        voted("?5", "?3")
     ))?
     .query_map(
         params![
             row.gate.0,
             row.owner.0,
             branch,
-            caller.node().map_or(0, |n| n.0)
+            caller.node().map_or(0, |n| n.0),
+            repo.0
         ],
         |r| r.get(0),
     )?
@@ -1034,14 +1030,10 @@ fn review_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> 
     })
 }
 
-fn voted(branch: &str, owner: &str) -> String {
+fn voted(repo: &str, branch: &str) -> String {
     format!(
-        "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = {branch}
-            AND e.entry ->> '$.from.id' = n.id
-            AND e.id > (SELECT max(r.id) FROM events r WHERE r.entry ->> '$.kind' = 'message'
-                AND r.entry ->> '$.gate.verb' = 'ready' AND r.entry ->> '$.gate.branch' = {branch}
-                AND r.entry ->> '$.from.id' = {owner}))"
+        "EXISTS (SELECT 1 FROM gate_votes v WHERE v.repo = {repo} AND v.branch = {branch}
+            AND v.reviewer = n.id AND v.vote IS NOT NULL)"
     )
 }
 
@@ -1071,12 +1063,6 @@ fn post(
     Ok(())
 }
 
-fn model_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {
-    db.query_row("SELECT model FROM nodes WHERE id = ?1", [node.0], |row| {
-        row.get(0)
-    })
-}
-
 fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
@@ -1089,7 +1075,7 @@ fn settled() -> String {
     format!(
         "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
         in_round("gates.gate", "gates.owner", "gates.branch"),
-        voted("gates.branch", "gates.owner")
+        voted("gates.repo", "gates.branch")
     )
 }
 
@@ -1124,18 +1110,10 @@ fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<
     .optional()
 }
 
-fn update(
-    db: &Connection,
-    repo: RepoId,
-    branch: &str,
-    state: GateState,
-    verdict: Option<&str>,
-    merged: Option<&str>,
-) -> rusqlite::Result<()> {
+fn update(db: &Connection, repo: RepoId, branch: &str, state: GateState) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE gates SET state = ?3, verdict = coalesce(?4, verdict), merged = coalesce(?5, merged), updated = unixepoch()
-         WHERE repo = ?1 AND branch = ?2",
-        params![repo.0, branch, to_json(&state), verdict, merged],
+        "UPDATE gates SET state = ?3, updated = unixepoch() WHERE repo = ?1 AND branch = ?2",
+        params![repo.0, branch, to_json(&state)],
     )?;
     Ok(())
 }

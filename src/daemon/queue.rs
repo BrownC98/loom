@@ -569,11 +569,17 @@ impl Batch<'_> {
                 );
                 continue;
             };
-            let mut findings = Vec::new();
+            let mut findings: Vec<Finding> = self
+                .app
+                .graph
+                .audit(m.owner, m.since)?
+                .into_iter()
+                .filter(|f| f.end().is_none())
+                .collect();
             if into_base {
                 let known = self.app.graph.gate_merges(self.repo, &self.target)?;
                 let listed = merge::first_parents(&self.dir, &sha).await?;
-                findings = protocol::out_of_gate(&listed, &known);
+                findings.extend(protocol::out_of_gate(&listed, &known));
             }
             let mut lines = self.lines();
             lines.extend(deploy.clone());

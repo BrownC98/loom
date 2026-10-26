@@ -124,19 +124,33 @@ impl App {
         self.turn_ends.launched(id);
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
-        match (&inside, &self.linux_loom) {
+        let at = match (&inside, &self.linux_loom) {
             (Some(inside), Some(loom)) => {
                 let name = loom.file_name().unwrap_or_default().to_string_lossy();
                 let start = inside.start(inside.bin_file(&name), &cmd, setup.as_ref());
-                self.host
-                    .spawn_in(id, inside.distro.name(), start, on_exit)?
+                self.host.start_in(inside.distro.name(), start)?
             }
             (Some(_), None) => return Err(LINUX_LOOM_MISSING.into()),
-            (None, _) => self.host.spawn(id, cmd, setup, on_exit)?,
+            (None, _) => self.host.start(&cmd, setup.as_ref())?,
+        };
+        if let Err(e) = self.graph.set_host(id, &at.to_string()) {
+            self.host.end_at(&at);
+            return Err(e.to_string());
         }
-        self.follow_screen(id, profile, &token);
-        self.follow_servers(id, codex, opencode2, &token);
-        self.ptys_changed.notify_waiters();
+        match self.host.resume(id, &at, on_exit) {
+            Ok(()) => {
+                self.follow_screen(id, profile, &token);
+                self.follow_servers(id, codex, opencode2, &token);
+                self.ptys_changed.notify_waiters();
+            }
+            Err(node_host::Unattached::Unreached(cause)) => {
+                self.host_unreached(id, &cause).map_err(|e| e.to_string())?;
+            }
+            Err(e) => {
+                self.host.end_at(&at);
+                return Err(e.to_string());
+            }
+        }
         if self.position_of(id).is_ok_and(|now| now != position) {
             self.position_changed(&[id]);
         }
@@ -151,21 +165,15 @@ impl App {
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
-        let mut kept = Vec::new();
         for node in self.graph.active()? {
-            kept.extend(self.resume_node(node).await?);
+            self.resume_node(node).await?;
         }
-        self.host.end_others(&kept);
-        self.logins.end_others();
         Ok(())
     }
 
-    pub(super) async fn resume_node(
-        self: &Arc<Self>,
-        node: Active,
-    ) -> rusqlite::Result<Option<NodeId>> {
+    pub(super) async fn resume_node(self: &Arc<Self>, node: Active) -> rusqlite::Result<()> {
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
-            return Ok(None);
+            return Ok(());
         }
         let (codex, opencode2) = match node.server.clone() {
             Some(ServerLink::Codex {
@@ -207,29 +215,34 @@ impl App {
             .flatten()
             .and_then(|at| self.distro(&at.distro).ok());
         let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
-        let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
         let app = self.clone();
         let id = node.id;
-        let attached = tokio::task::spawn_blocking(move || app.host.resume(id, on_exit))
-            .await
-            .unwrap_or_else(|e| Err(node_host::Unattached::Silent(e.to_string())));
+        let address = self.graph.host_of(id)?;
+        self.graph.host_reached(id)?;
+        let attached = tokio::task::spawn_blocking(move || {
+            let at = address
+                .ok_or_else(|| "no pty-host address".to_owned())
+                .and_then(|text| text.parse())
+                .map_err(node_host::Unattached::Failed)?;
+            app.host.resume(id, &at, on_exit)
+        })
+        .await
+        .unwrap_or_else(|e| Err(node_host::Unattached::Failed(e.to_string())));
         if let Err(unattached) = attached {
             self.sleeps.exited(node.id);
-            if self.host.unattached().contains(&node.id) {
-                let error = format!("left unattached: {unattached}");
-                self.graph
-                    .record_about(node.id, |node| Entry::EndpointFailed { node, error })?;
-                return Ok(Some(node.id));
+            if let node_host::Unattached::Unreached(cause) = &unattached {
+                return self.host_unreached(node.id, cause);
             }
             if let Some(server) = &node.server {
                 self.stop_server(server);
             }
-            if !(sleeping && self.graph.slept(node.id)?) {
-                self.graph.lost(node.id)?;
+            let gone = unattached == node_host::Unattached::Gone;
+            match self.graph.slept(node.id)? {
+                true => {}
+                false if gone => self.graph.host_gone(node.id)?,
+                false => self.graph.lost(node.id)?,
             }
-            if unattached == node_host::Unattached::Gone
-                && let Some(distro) = distro
-            {
+            if gone && let Some(distro) = distro {
                 end_leftovers(
                     &tokio::runtime::Handle::current(),
                     node.id,
@@ -237,7 +250,7 @@ impl App {
                     node.token,
                 );
             }
-            return Ok(None);
+            return Ok(());
         }
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
             self.sleeps.exited(node.id);
@@ -245,15 +258,48 @@ impl App {
             if let Some(server) = &node.server {
                 self.stop_server(server);
             }
-            return Ok(None);
+            return Ok(());
         }
         self.follow_screen(node.id, profile, &node.token);
         self.follow_servers(node.id, codex, opencode2, &node.token);
         self.ptys_changed.notify_waiters();
-        if sleeping {
+        if self.graph.sleeping(node.id)? {
             self.sleep_again_after_start(node);
         }
-        Ok(None)
+        Ok(())
+    }
+
+    fn host_unreached(&self, node: NodeId, cause: &str) -> rusqlite::Result<()> {
+        self.graph.host_unreached(node, cause)?;
+        let error = format!("left unattached: {cause}");
+        self.graph
+            .record_about(node, |node| Entry::EndpointFailed { node, error })
+    }
+
+    pub(super) fn adopt_address_files(&self, dir: &std::path::Path) -> rusqlite::Result<()> {
+        let active: Vec<NodeId> = self.graph.active()?.iter().map(|n| n.id).collect();
+        for (folder, nodes) in [("nodes", true), ("logins", false)] {
+            let entries = std::fs::read_dir(dir.join(folder)).into_iter().flatten();
+            for entry in entries.flatten() {
+                let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                    continue;
+                };
+                let id = entry.file_name().to_string_lossy().parse().map(NodeId);
+                match id {
+                    Ok(id) if nodes && active.contains(&id) => {
+                        self.graph.set_host(id, text.trim())?
+                    }
+                    _ => {
+                        if let Ok(at) = text.parse() {
+                            self.host.end_at(&at);
+                        }
+                    }
+                }
+                let _ = std::fs::remove_file(entry.path());
+            }
+            let _ = std::fs::remove_dir(dir.join(folder));
+        }
+        Ok(())
     }
 
     pub(super) async fn carry_links(
@@ -280,6 +326,12 @@ impl App {
                         .map(|e| format!("the daemon side of the link: {e}"))
                 }
                 node_host::Linked::EndpointFailed(error) => Some(error),
+                node_host::Linked::Unreached(cause) => {
+                    if let Err(e) = self.host_unreached(node, &cause) {
+                        eprintln!("loom: 노드 {}의 붙지 않음을 적지 못했다: {e}", node.0);
+                    }
+                    None
+                }
             };
             if let Some(error) = failed
                 && let Err(e) = self
@@ -323,8 +375,7 @@ impl App {
                 app.host.kill(id);
                 return;
             }
-            let slept = matches!(exit, Exit::Command(_))
-                && (app.sleeps.stopping(id) || app.graph.sleeping(id).unwrap_or(false))
+            let slept = matches!(exit, Exit::Command(_) | Exit::Gone)
                 && app.graph.slept(id).unwrap_or(false);
             if slept && let Err(e) = app.host.keep(id) {
                 eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
@@ -334,6 +385,7 @@ impl App {
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
+                Exit::Gone => app.graph.host_gone(id),
             };
             app.process_ended(id);
             app.sleeps.exited(id);

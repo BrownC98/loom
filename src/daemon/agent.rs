@@ -42,9 +42,7 @@ impl App {
         if self.holds_mail(node) {
             return Ok(Vec::new());
         }
-        self.sleeps
-            .unless_stopping(node, take)
-            .unwrap_or(Ok(Vec::new()))
+        take()
     }
 
     pub(super) async fn next_mail(

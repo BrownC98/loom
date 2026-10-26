@@ -20,7 +20,8 @@ step() { echo "== $*"; "$@"; }
 linux() {
   room; step memcap -m "${CARGO_STEP_MIB}M" cargo clippy --all-targets
   room; step memcap -m "${CARGO_STEP_MIB}M" cargo test --bin loom --test comments --test layers
-  step git diff --exit-code --stat -- web/src/gen
+  echo "== web/src/gen equals the commit"
+  [ -z "$(git status --porcelain -- web/src/gen)" ] || { git status --short -- web/src/gen; return 1; }
   step memcap -m "${CARGO_STEP_MIB}M" cargo test --test comments -- --ignored --exact asked_questions_were_answered
 }
 windows() {

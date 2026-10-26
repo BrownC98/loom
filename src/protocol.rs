@@ -577,27 +577,6 @@ impl MessageKind {
         }
     }
 
-    pub fn wakes(&self) -> bool {
-        match self {
-            MessageKind::Exited { .. }
-            | MessageKind::Removed { .. }
-            | MessageKind::Adopted { .. } => false,
-            MessageKind::Ask
-            | MessageKind::Answer { .. }
-            | MessageKind::Done { .. }
-            | MessageKind::Note
-            | MessageKind::Ready { .. }
-            | MessageKind::Verdict { .. }
-            | MessageKind::Merged { .. }
-            | MessageKind::Rework { .. }
-            | MessageKind::Failed { .. }
-            | MessageKind::Withdrawn { .. }
-            | MessageKind::SetupFailed { .. }
-            | MessageKind::HumanInput { .. }
-            | MessageKind::RulesChanged { .. } => true,
-        }
-    }
-
     pub fn repeats_file(&self, body: &str) -> bool {
         matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
     }

@@ -20,24 +20,8 @@ pub enum Spot {
         path: String,
     },
     Node {
-        repo: RepoId,
         node: NodeId,
     },
-}
-
-impl Spot {
-    fn repo(&self) -> RepoId {
-        match self {
-            Spot::Repo { repo } | Spot::Worktree { repo, .. } | Spot::Node { repo, .. } => *repo,
-        }
-    }
-
-    fn inside(&self) -> Option<RepoId> {
-        match self {
-            Spot::Repo { .. } => None,
-            Spot::Worktree { repo, .. } | Spot::Node { repo, .. } => Some(*repo),
-        }
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
@@ -123,9 +107,14 @@ impl Spots {
     pub fn put(&self, placed: &[Placed]) -> rusqlite::Result<()> {
         let mut db = self.db.lock();
         let tx = db.transaction()?;
-        write(&tx, placed)?;
-        for repo in placed.iter().filter_map(|p| p.spot.inside()) {
-            tx.execute("DELETE FROM arranged_repos WHERE repo = ?1", [repo.0])?;
+        for key in write(&tx, placed)? {
+            tx.execute(
+                &format!(
+                    "DELETE FROM arranged_repos WHERE ?1 ->> 'kind' != 'repo' AND repo = {}",
+                    repo_of("?1")
+                ),
+                [key],
+            )?;
         }
         tx.commit()
     }
@@ -192,19 +181,28 @@ impl Spots {
     pub fn clear(&self, repo: RepoId) -> rusqlite::Result<()> {
         let mut db = self.db.lock();
         let tx = db.transaction()?;
-        tx.execute("DELETE FROM spots WHERE repo = ?1", [repo.0])?;
+        tx.execute(
+            &format!("DELETE FROM spots WHERE {} = ?1", repo_of("spot")),
+            [repo.0],
+        )?;
         tx.execute("DELETE FROM arranged_repos WHERE repo = ?1", [repo.0])?;
         tx.commit()
     }
 }
 
-fn write(tx: &rusqlite::Transaction, placed: &[Placed]) -> rusqlite::Result<()> {
+fn repo_of(spot: &str) -> String {
+    format!("coalesce({spot} ->> 'repo', (SELECT repo FROM nodes WHERE id = {spot} ->> 'node'))")
+}
+
+fn write(tx: &rusqlite::Transaction, placed: &[Placed]) -> rusqlite::Result<Vec<String>> {
+    let mut keys = Vec::new();
     for p in placed {
         let key = serde_json::to_string(&p.spot).expect("자리는 늘 직렬화된다");
         tx.execute(
-            "INSERT OR REPLACE INTO spots (spot, repo, x, y) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![key, p.spot.repo().0, p.at.x, p.at.y],
+            "INSERT OR REPLACE INTO spots (spot, x, y) VALUES (?1, ?2, ?3)",
+            rusqlite::params![key, p.at.x, p.at.y],
         )?;
+        keys.push(key);
     }
-    Ok(())
+    Ok(keys)
 }

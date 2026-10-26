@@ -90,7 +90,7 @@ impl Graph {
         };
         tx.commit()?;
         if changed {
-            self.published(&db, node);
+            self.publish_nodes();
         }
         Ok(result)
     }
@@ -101,15 +101,9 @@ impl Graph {
         let added = resume_at_turn_end(&tx, node, self.linked)?;
         tx.commit()?;
         if added {
-            self.published(&db, node);
+            self.publish_nodes();
         }
         Ok(added)
-    }
-
-    fn published(&self, db: &Connection, node: NodeId) {
-        if let Err(e) = self.publish_node(db, node) {
-            eprintln!("loom: 노드 {}의 보기를 보내지 못했다: {e}", node.0);
-        }
     }
 
     pub fn claim_stop(&self, node: NodeId) -> rusqlite::Result<Option<Phase>> {

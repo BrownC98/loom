@@ -213,7 +213,7 @@ impl Graph {
         let moved = apply(&tx, node, event)?;
         tx.commit()?;
         if moved > 0 {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
             self.mail.notify_waiters();
         }
         Ok(before)

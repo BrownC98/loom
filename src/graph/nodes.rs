@@ -5,8 +5,8 @@ use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::relaunch_plans::resume_at_turn_end;
 use super::{
-    CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
-    Work, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
+    CardView, Db, Graph, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward, Work,
+    from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
     place_label, place_of, process_of, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
@@ -181,10 +181,10 @@ impl Graph {
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<(), Refusal> {
         match start(id) {
-            Ok(()) => match self.publish_node(&self.lock(), id) {
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
-                published => Ok(published?),
-            },
+            Ok(()) => {
+                self.publish_nodes();
+                Ok(())
+            }
             Err(e) => {
                 self.discard(self.lock(), id)?;
                 Err(Refusal::Launch(e))
@@ -228,7 +228,7 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        let _ = self.events.send(GraphEvent::Removed { id });
+        self.publish_nodes();
         Ok(())
     }
 
@@ -312,11 +312,8 @@ impl Graph {
             )?;
         }
         tx.commit()?;
-        self.publish_node(&db, id)?;
-        if what.is_some()
-            && let Some(parent) = parent
-        {
-            self.publish_node(&db, parent)?;
+        self.publish_nodes();
+        if what.is_some() && parent.is_some() {
             self.publish_message(id, Toward::Parent);
         }
         Ok(())
@@ -356,7 +353,7 @@ impl Graph {
         hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        self.publish_nodes();
         Ok(true)
     }
 
@@ -402,7 +399,7 @@ impl Graph {
         }
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        self.publish_nodes();
         Ok(())
     }
 
@@ -445,9 +442,8 @@ impl Graph {
         };
         mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
-        if let Some(parent) = parent {
-            self.publish_node(&db, parent)?;
+        self.publish_nodes();
+        if parent.is_some() {
             self.publish_message(id, Toward::Parent);
         }
         Ok(())
@@ -507,7 +503,7 @@ impl Graph {
         note_state(&tx, id, from)?;
         tx.commit()?;
         if revived || cleared > 0 {
-            self.publish_node(&db, id)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -588,7 +584,7 @@ impl Graph {
             params![id.0, model.model, model.effort],
         )?;
         if changed > 0 {
-            self.publish_node(&db, id)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -604,7 +600,7 @@ impl Graph {
             params![id.0, value],
         )? > 0
         {
-            self.publish_node(&db, id)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -630,7 +626,7 @@ impl Graph {
             .optional()?
             .ok_or_else(|| Refusal::NotFound(format!("#{}", id.0)))?;
         if db.execute(update, [id.0])? > 0 {
-            self.publish_node(&db, id)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -651,8 +647,8 @@ impl Graph {
         }
         tx.commit()?;
         let children = removal.children.clone();
-        removal.publish(self, &db)?;
-        self.publish_withdrawn(&db, withdrawn)?;
+        removal.publish(self);
+        self.publish_withdrawn(&withdrawn);
         Ok(children)
     }
 
@@ -676,8 +672,8 @@ impl Graph {
             return Ok(false);
         };
         tx.commit()?;
-        removal.publish(self, &db)?;
-        self.publish_withdrawn(&db, withdrawn)?;
+        removal.publish(self);
+        self.publish_withdrawn(&withdrawn);
         Ok(true)
     }
 
@@ -720,23 +716,20 @@ impl Graph {
         }
         super::gate::regate(&tx, before)?;
         tx.commit()?;
-        removal.publish(self, &db)?;
+        removal.publish(self);
         for adoption in adoptions {
-            adoption.publish(self, &db)?;
+            adoption.publish(self);
         }
-        self.publish_withdrawn(&db, withdrawn)?;
+        self.publish_withdrawn(&withdrawn);
         Ok((id, moved))
     }
 
-    fn publish_withdrawn(&self, db: &Connection, sent: Vec<NodeId>) -> rusqlite::Result<()> {
+    fn publish_withdrawn(&self, sent: &[NodeId]) {
         if sent.is_empty() {
-            return Ok(());
+            return;
         }
-        for to in sent {
-            self.publish_node(db, to)?;
-        }
+        self.publish_nodes();
         self.mail.notify_waiters();
-        Ok(())
     }
 
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {
@@ -801,10 +794,9 @@ impl Graph {
             )?;
         }
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        self.publish_nodes();
         let parent = parent_of(&db, id)?;
         for &to in &relatives {
-            self.publish_node(&db, to)?;
             if Some(to) == parent {
                 self.publish_message(id, Toward::Parent);
             } else {
@@ -824,7 +816,8 @@ impl Graph {
             resume_at_turn_end(&tx, child, self.linked)?;
         }
         tx.commit()?;
-        Ok(adoption.publish(self, &db)?)
+        adoption.publish(self);
+        Ok(())
     }
 
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
@@ -833,27 +826,22 @@ impl Graph {
         let adoption = detach_in(&tx, child)?;
         resume_at_turn_end(&tx, child, self.linked)?;
         tx.commit()?;
-        Ok(adoption.publish(self, &db)?)
+        adoption.publish(self);
+        Ok(())
     }
 }
 
 struct Removal {
-    id: NodeId,
     children: Vec<NodeId>,
     waiting_parent: Option<NodeId>,
 }
 
 impl Removal {
-    fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        let _ = graph.events.send(GraphEvent::Removed { id: self.id });
-        for child in self.children {
-            graph.publish_node(db, child)?;
-        }
-        if let Some(parent) = self.waiting_parent {
-            graph.publish_node(db, parent)?;
+    fn publish(self, graph: &Graph) {
+        graph.publish_nodes();
+        if self.waiting_parent.is_some() {
             graph.mail.notify_waiters();
         }
-        Ok(())
     }
 }
 
@@ -903,29 +891,20 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
     tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
     Ok(Some(Removal {
-        id,
         children,
         waiting_parent,
     }))
 }
 
 struct Adoption {
-    parent: NodeId,
     child: NodeId,
-    told_old: Option<NodeId>,
     was_root: bool,
 }
 
 impl Adoption {
-    fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        for node in [Some(self.child), Some(self.parent), self.told_old]
-            .into_iter()
-            .flatten()
-        {
-            graph.publish_node(db, node)?;
-        }
+    fn publish(self, graph: &Graph) {
+        graph.publish_nodes();
         graph.publish_message(self.child, Toward::Child);
-        Ok(())
     }
 }
 
@@ -981,9 +960,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         None,
     )?;
     Ok(Adoption {
-        parent: old,
         child,
-        told_old,
         was_root: false,
     })
 }
@@ -1068,9 +1045,7 @@ fn adopt_in(
         None,
     )?;
     Ok(Some(Adoption {
-        parent,
         child,
-        told_old,
         was_root: old.is_none(),
     }))
 }

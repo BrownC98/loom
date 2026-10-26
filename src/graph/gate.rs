@@ -465,7 +465,7 @@ impl Graph {
             &trace,
         )?;
         tx.commit()?;
-        self.publish_node(&db, row.gate)?;
+        self.publish_nodes();
         self.mail.notify_waiters();
         Ok(())
     }
@@ -698,7 +698,7 @@ impl Graph {
             return Ok(());
         }
         mailbox::enqueue_from_loom(&db, to, Kind::Queue, &MessageKind::Note, body, None)?;
-        self.publish_node(&db, to)?;
+        self.publish_nodes();
         self.mail.notify_waiters();
         Ok(())
     }
@@ -754,7 +754,7 @@ impl Graph {
             }
             let body = body.join("\n");
             mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
-            self.publish_node(&db, *id)?;
+            self.publish_nodes();
         }
         self.mail.notify_waiters();
         Ok(())
@@ -911,7 +911,7 @@ impl Graph {
         for to_node in sent {
             match caller {
                 Caller::Node(me) => self.publish_sent(&db, me, to_node)?,
-                Caller::Loom => self.publish_node(&db, to_node)?,
+                Caller::Loom => self.publish_nodes(),
             }
         }
         if let Caller::Loom = caller {

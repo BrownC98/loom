@@ -328,13 +328,13 @@ pub fn install(dir: &Path) -> std::io::Result<()> {
     profiles().try_for_each(|p| adapter(p).install(dir))
 }
 
-pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
+pub fn version_warnings(read: &[(&str, Option<&str>)]) -> HashMap<Profile, VersionMismatch> {
     pinned()
         .into_iter()
         .filter_map(|(profile, cmd)| {
-            let output = match cmd {
-                codex::CMD => codex_version.map(str::to_owned),
-                _ => installed_version(cmd),
+            let output = match read.iter().find(|(read_cmd, _)| *read_cmd == cmd) {
+                Some((_, output)) => output.map(str::to_owned),
+                None => installed_version(cmd),
             }?;
             Some((profile, version_warning(profile, &output)?))
         })

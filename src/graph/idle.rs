@@ -40,7 +40,7 @@ impl Graph {
         };
         tx.commit()?;
         if moved > 0 {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
             self.mail.notify_waiters();
         }
         Ok(value)

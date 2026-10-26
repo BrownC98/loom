@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
+import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { CursorView } from './gen/CursorView';
@@ -367,7 +367,33 @@ export function App() {
         return { source, target, color, counts: { ...counts, [toward]: counts[toward] + 1 } };
       });
     };
-    return watchGraph((event) => {
+    let reading = false;
+    let again = false;
+    const readNodes = () => {
+      if (reading) return void (again = true);
+      reading = true;
+      getNodes()
+        .then(
+          (views) => again || setNodes(new Map(views.map((view) => [view.id, view]))),
+          () => again || graph.reopen(),
+        )
+        .finally(() => {
+          reading = false;
+          if (!again) return;
+          again = false;
+          readNodes();
+        });
+    };
+    const linked = (up: boolean) => {
+      setOnline(up);
+      if (!up) return;
+      newBuildServed()
+        .then((stale) => stale && location.reload())
+        .catch(() => {});
+      void readSettings();
+      setViewVersion((n) => n + 1);
+    };
+    const graph = watchGraph((event) => {
       switch (event.kind) {
         case 'message':
           pulse(event.child, event.toward);
@@ -375,23 +401,8 @@ export function App() {
         case 'hop':
           hop(event.from, event.to);
           break;
-        case 'removed':
-          setNodes((prev) => {
-            const next = new Map(prev);
-            next.delete(event.id);
-            return next;
-          });
-          break;
-        case 'snapshot':
-          setNodes(new Map(event.nodes.map((view) => [view.id, view])));
-          newBuildServed()
-            .then((stale) => stale && location.reload())
-            .catch(() => {});
-          void readSettings();
-          setViewVersion((n) => n + 1);
-          break;
-        case 'node':
-          setNodes((prev) => new Map(prev).set(event.id, event));
+        case 'nodes':
+          readNodes();
           break;
         case 'viewChanged':
           void readSettings();
@@ -401,7 +412,8 @@ export function App() {
           log.onRecord(event.record);
           notice.onRecord(event.record);
       }
-    }, setOnline);
+    }, linked);
+    return graph.close;
   }, []);
 
   if (stopped)

@@ -67,7 +67,7 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     AgentEvent, CardView, EventLog, Graph, GraphEvent, IdleEnd, Kept, Launched, Listed, NewChild,
-    NodeId, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
+    NodeId, NodeView, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -453,7 +453,7 @@ impl App {
             linux_loom,
             distros,
             run_dir: db_path.with_file_name("run"),
-            version_warnings: profile::version_warnings(codex_version),
+            version_warnings: profile::version_warnings(&[(codex::CMD, codex_version)]),
             codex_config: match (codex_version, node_door) {
                 (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
                 _ => Vec::new(),

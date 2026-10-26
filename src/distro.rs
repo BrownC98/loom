@@ -567,10 +567,14 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
             },
             Err(e) => Answer::Failed(e),
         },
-        Ask::End(roots) => {
-            process_tree::Snapshot::now().kill_trees(roots);
-            Answer::Ended
-        }
+        Ask::End(roots) => match tokio::task::spawn_blocking(move || {
+            process_tree::Snapshot::now().kill_trees(roots)
+        })
+        .await
+        {
+            Ok(_) => Answer::Ended,
+            Err(e) => Answer::Failed(e.to_string()),
+        },
         Ask::Serve(command) => {
             match process(&command).and_then(|cmd| spawn_detached(cmd, &command)) {
                 Ok(mut child) => {

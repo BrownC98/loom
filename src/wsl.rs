@@ -289,11 +289,14 @@ exit 0"#
 
 async fn end_found(distro: &Distro, find: distro::Command) -> Result<(), String> {
     let found = bounded(distro, find).await?;
-    let roots = found
+    let roots: Vec<u32> = found
         .stdout
         .split_whitespace()
         .filter_map(|pid| pid.parse().ok())
         .collect();
+    if roots.is_empty() {
+        return Ok(());
+    }
     let distro = distro.clone();
     tokio::task::spawn_blocking(move || distro.end(roots))
         .await

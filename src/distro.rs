@@ -18,8 +18,6 @@ const MAX_FRAME: usize = 16 << 20;
 const MAX_TEXT: usize = 64 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GREET_TIMEOUT: Duration = Duration::from_secs(2);
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Command {
@@ -71,16 +69,15 @@ pub enum Unreached {
     Failed(String),
 }
 
-pub type Launch = Box<dyn Fn(&str) -> Result<Hosted, String> + Send + Sync>;
-
-pub struct Hosted {
-    pub at: SocketAddr,
-    pub pid: Option<u32>,
+struct Hosted {
+    at: SocketAddr,
+    pid: Option<u32>,
 }
 
 pub struct Distros {
     dir: PathBuf,
-    launch: Launch,
+    folder: String,
+    program: String,
     gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     up: tokio::sync::Notify,
 }
@@ -102,15 +99,6 @@ struct Launcher {
 }
 
 impl Distros {
-    pub fn new(dir: PathBuf, launch: Launch) -> Self {
-        Self {
-            dir,
-            launch,
-            gates: Mutex::default(),
-            up: tokio::sync::Notify::new(),
-        }
-    }
-
     pub fn up(&self) -> tokio::sync::futures::Notified<'_> {
         self.up.notified()
     }
@@ -125,23 +113,13 @@ impl Distros {
             "./{}",
             loom.file_name().unwrap_or_default().to_string_lossy()
         );
-        Self::new(
+        Self {
             dir,
-            Box::new(move |distro| {
-                let argv = [
-                    "wsl.exe",
-                    "-d",
-                    distro,
-                    "--cd",
-                    &folder,
-                    "--exec",
-                    &program,
-                    "distro-host",
-                    "--inner",
-                ];
-                launch_outer(argv.map(str::to_owned).to_vec())
-            }),
-        )
+            folder,
+            program,
+            gates: Mutex::default(),
+            up: tokio::sync::Notify::new(),
+        }
     }
 
     pub fn distro(self: &Arc<Self>, name: &str) -> Distro {
@@ -229,7 +207,19 @@ impl Distros {
                 process_tree::end_if_runs(pid, "distro-host");
             }
         }
-        let hosted = (self.launch)(distro).map_err(|cause| format!("{distro}: {cause}"))?;
+        let argv = [
+            "wsl.exe",
+            "-d",
+            distro,
+            "--cd",
+            &self.folder,
+            "--exec",
+            &self.program,
+            "distro-host",
+            "--inner",
+        ];
+        let hosted = launch_outer(argv.map(str::to_owned).to_vec())
+            .map_err(|cause| format!("{distro}: {cause}"))?;
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(&file, hosted.text()))
             .map_err(|e| format!("{}: {e}", file.display()))?;
@@ -398,8 +388,7 @@ pub fn outer() -> Result<(), String> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        crate::timed::own_session(cmd.as_std_mut());
         let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         let to_inner = child.stdin.take().expect("stdin을 piped로 열었다");
         let mut from_inner = child.stdout.take().expect("stdout을 piped로 열었다");
@@ -607,7 +596,6 @@ fn spawn_detached(
 ) -> Result<tokio::process::Child, String> {
     cmd.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    #[cfg(unix)]
-    cmd.process_group(0);
+    crate::timed::own_group(cmd.as_std_mut());
     cmd.spawn().map_err(|e| format!("{}: {e}", command.argv[0]))
 }

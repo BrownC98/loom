@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use super::Worktree;
 use crate::git;
 use crate::protocol::Refusal;
 
@@ -247,11 +246,11 @@ pub async fn script(dir: &Path, text: &str, args: &[String]) -> Result<(i32, Str
 
 pub async fn still_merged(
     dir: &Path,
-    own: Option<&Worktree>,
+    own: Option<Option<&str>>,
     branch: &str,
     target: &str,
 ) -> Result<bool, String> {
-    if own.is_some_and(|w| w.branch.as_deref() != Some(branch)) {
+    if own.is_some_and(|on| on != Some(branch)) {
         return Ok(false);
     }
     let local = format!("refs/heads/{branch}");
@@ -264,15 +263,6 @@ pub async fn still_merged(
     contains(dir, &local, &format!("refs/heads/{target}"))
         .await
         .map_err(|e| e.to_string())
-}
-
-pub async fn dirty(path: &str) -> Result<bool, String> {
-    let status = git::run(
-        Path::new(path),
-        &["status", "--porcelain", "--untracked-files=all"],
-    )
-    .await?;
-    Ok(!status.trim().is_empty())
 }
 
 pub async fn delete_merged(

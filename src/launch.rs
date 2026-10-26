@@ -330,27 +330,6 @@ pub fn spawn_detached(exe: &Path, args: &[&str]) -> Result<Child, String> {
         .stdin(Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
-    detach(&mut cmd);
+    crate::timed::daemon_child(&mut cmd);
     cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))
-}
-
-#[cfg(unix)]
-fn detach(cmd: &mut Command) {
-    crate::process_tree::new_session(cmd);
-}
-
-#[cfg(windows)]
-fn detach(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const STD_HANDLES: [u32; 3] = [-10i32 as u32, -11i32 as u32, -12i32 as u32];
-    const HANDLE_FLAG_INHERIT: u32 = 1;
-    unsafe extern "system" {
-        fn GetStdHandle(which: u32) -> isize;
-        fn SetHandleInformation(handle: isize, mask: u32, flags: u32) -> i32;
-    }
-    for which in STD_HANDLES {
-        unsafe { SetHandleInformation(GetStdHandle(which), HANDLE_FLAG_INHERIT, 0) };
-    }
-    cmd.creation_flags(CREATE_NO_WINDOW);
 }

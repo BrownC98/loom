@@ -213,6 +213,7 @@ fn coming_pty(
                 return;
             }
             let mut pulse = Pulse::new(pulse::BEAT);
+            let mut nodes = app.graph.changes();
             loop {
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
@@ -233,6 +234,7 @@ fn coming_pty(
                         }
                     },
                     () = changed => {}
+                    _ = nodes.recv() => {}
                 }
             }
         })

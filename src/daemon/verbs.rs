@@ -85,13 +85,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     {
         eprintln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
     }
-    if let (Some((repo, made, _)), Err(_)) = (worktree, &spawned) {
-        tokio::spawn(async move {
-            if let Err(e) = worktree::discard(&repo, &made).await {
-                eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
-            }
-        });
-    }
     spawned
 }
 

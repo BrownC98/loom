@@ -235,6 +235,12 @@ fn every_process_change_and_turn_start_ends_the_stored_draft() {
         g.drafted(lead).unwrap(),
         "a step inside the turn is no turn start"
     );
+    g.agent_event(lead, AgentEvent::Dialog).unwrap();
+    g.agent_event(lead, AgentEvent::DialogCleared).unwrap();
+    assert!(g.drafted(lead).unwrap(), "a closed dialog restores the turn");
+    g.agent_event(lead, AgentEvent::RelaunchStarted).unwrap();
+    g.agent_event(lead, AgentEvent::RelaunchFailed).unwrap();
+    assert!(g.drafted(lead).unwrap(), "a failed relaunch restores the turn");
     g.exited(lead, 0).unwrap();
     assert!(!g.drafted(lead).unwrap(), "process exit");
 }

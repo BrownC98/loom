@@ -189,7 +189,13 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
     };
     let moved = move_mail(db, node, &event)?;
     let to = now.state.clone().next(&event);
-    let turn_began = to == AgentState::Turn && now.state != AgentState::Turn;
+    let turn_began = to == AgentState::Turn
+        && !matches!(
+            &now.state,
+            AgentState::Turn
+                | AgentState::Blocked { before: _ }
+                | AgentState::Relaunching { before: _ }
+        );
     let replaced = matches!(
         event,
         AgentEvent::Relaunched | AgentEvent::Exited | AgentEvent::Slept

@@ -573,15 +573,6 @@ pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem>
     Ok(())
 }
 
-pub async fn discard(repo: &Path, path: &str) -> Result<(), RepoProblem> {
-    let made = find(repo, path).await?;
-    remove(repo, &made).await?;
-    match &made.branch {
-        Some(branch) => delete_branch(repo, branch).await,
-        None => Ok(()),
-    }
-}
-
 async fn original_checkout(folder: &Path) -> Option<PathBuf> {
     git::run(folder, &["rev-parse", "--show-toplevel"])
         .await
@@ -784,36 +775,6 @@ mod tests {
         assert_eq!(
             listed_path(Path::new(repo), path, &target, vec![original]),
             listed
-        );
-    }
-
-    #[tokio::test]
-    async fn discard_removes_only_the_made_worktree_and_its_branch() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = repo(dir.path());
-        let workspace = dir.path().join("ws");
-        std::fs::create_dir(&workspace).unwrap();
-        let kept = create(&repo, &repo, &workspace, "kept", "main", |_| true)
-            .await
-            .unwrap();
-        let made = create(&repo, &repo, &workspace, "me/made", "main", |_| true)
-            .await
-            .unwrap();
-        assert_eq!(discard(&repo, &made).await, Ok(()));
-        assert!(!Path::new(&made).exists());
-        assert_eq!(run(&repo, &["branch", "--list", "me/made"]), "");
-        assert_eq!(
-            view(RepoId(1), &repo, None).await.branches,
-            ["kept", "main"]
-        );
-        assert!(find(&repo, &kept).await.is_ok());
-        assert_eq!(
-            discard(&repo, &made).await,
-            Err(RepoProblem::NotInRepo(made.clone()))
-        );
-        assert_eq!(
-            discard(&repo, repo.to_str().unwrap()).await,
-            Err(RepoProblem::Original)
         );
     }
 

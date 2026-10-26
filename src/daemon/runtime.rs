@@ -106,13 +106,7 @@ impl App {
     pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
         self.graph.remove(node)?;
         self.host.kill(node);
-        self.nodes_moved();
         Ok(())
-    }
-
-    pub(super) fn nodes_moved(&self) {
-        self.ptys_changed.notify_waiters();
-        self.merge_queue.notify_one();
     }
 
     pub(super) fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {

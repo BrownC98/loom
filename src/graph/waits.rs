@@ -107,21 +107,19 @@ impl Graph {
                 let prompt = prompt.filter(|_| kind.has_dialog());
                 match now {
                     Some(now) if now.wait.kind == kind && now.wait.text == text => {
-                        if prompt.is_none() || now.wait.prompt == prompt {
+                        if now.wait.prompt == prompt || (prompt.is_none() && source != now.source) {
                             return Ok(());
                         }
-                        if now.wait.prompt.is_none() {
-                            put(
-                                &tx,
-                                id,
-                                Some(&Stored {
-                                    wait: HumanWait { prompt, ..now.wait },
-                                    source: now.source,
-                                }),
-                            )?;
-                            tx.commit()?;
-                            return self.publish_node(&db, id);
-                        }
+                        put(
+                            &tx,
+                            id,
+                            Some(&Stored {
+                                wait: HumanWait { prompt, ..now.wait },
+                                source: now.source,
+                            }),
+                        )?;
+                        tx.commit()?;
+                        return self.publish_node(&db, id);
                     }
                     Some(_) | None => {}
                 }

@@ -893,7 +893,16 @@ async fn follow_permission(
         changed.borrow_and_update();
         match node.open_permission().await {
             Ok(now) => show(now),
-            Err(e) => eprintln!("loom: 노드 {}의 승인 요청을 읽지 못했다: {e}", id.0),
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 승인 요청을 읽지 못했다: {e}", id.0);
+                let text = format!(
+                    "Could not read the permission request: {e}. Answer it in the node terminal."
+                );
+                let wait = Some((WaitKind::Approval, text.as_str(), None));
+                if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
+                    eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                }
+            }
         }
         if changed.changed().await.is_err() {
             break;

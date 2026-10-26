@@ -547,7 +547,7 @@ fn is_change_name(name: &str) -> bool {
     }) && rest.len() > ".sql".len()
 }
 
-pub fn import(db: &Database, from: &Path) -> Result<(), String> {
+pub fn import(db: &Database, from: &Path, moved: impl Fn(&str) -> String) -> Result<(), String> {
     let conn = db.lock();
     let used: i64 = conn
         .query_row(
@@ -561,13 +561,13 @@ pub fn import(db: &Database, from: &Path) -> Result<(), String> {
     }
     conn.execute("ATTACH DATABASE ?1 AS old", [from.to_string_lossy()])
         .map_err(|e| e.to_string())?;
-    let copied = copy_tables(&conn);
+    let copied = copy_tables(&conn, moved);
     let detached = conn.execute("DETACH DATABASE old", []);
     copied.map_err(|e| e.to_string())?;
     detached.map(|_| ()).map_err(|e| e.to_string())
 }
 
-fn copy_tables(conn: &Connection) -> rusqlite::Result<()> {
+fn copy_tables(conn: &Connection, moved: impl Fn(&str) -> String) -> rusqlite::Result<()> {
     let tables: Vec<String> = conn
         .prepare(
             "SELECT name FROM old.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
@@ -576,6 +576,7 @@ fn copy_tables(conn: &Connection) -> rusqlite::Result<()> {
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     let tx = conn.unchecked_transaction()?;
+    move_linux_paths(&tx, moved)?;
     for table in &tables {
         tx.execute(
             &format!("INSERT OR REPLACE INTO main.\"{table}\" SELECT * FROM old.\"{table}\" ORDER BY rowid"),
@@ -587,4 +588,34 @@ fn copy_tables(conn: &Connection) -> rusqlite::Result<()> {
         INSERT INTO main.sqlite_sequence SELECT * FROM old.sqlite_sequence;",
     )?;
     tx.commit()
+}
+
+fn move_linux_paths(conn: &Connection, moved: impl Fn(&str) -> String) -> rusqlite::Result<()> {
+    for (table, column) in [("repos", "path"), ("nodes", "worktree")] {
+        let rows: Vec<(i64, String)> = conn
+            .prepare(&format!(
+                "SELECT rowid, {column} FROM old.{table} WHERE {column} LIKE '/%' AND {column} NOT LIKE '//%'"
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (rowid, path) in rows {
+            conn.execute(
+                &format!("UPDATE old.{table} SET {column} = ?1 WHERE rowid = ?2"),
+                (moved(&path), rowid),
+            )?;
+        }
+    }
+    let spots: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT spot, spot ->> 'path' FROM old.spots WHERE spot ->> 'kind' = 'worktree' AND spot ->> 'path' LIKE '/%'",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (spot, path) in spots {
+        conn.execute(
+            "UPDATE old.spots SET spot = json_set(spot, '$.path', ?1) WHERE spot = ?2",
+            (moved(&path), spot),
+        )?;
+    }
+    Ok(())
 }

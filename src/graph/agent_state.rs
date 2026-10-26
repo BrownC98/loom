@@ -22,10 +22,6 @@ pub enum AgentState {
     /// 턴이 끝났는데 메시지를 받을 길이 없다.
     Deaf,
     Turn,
-    /// 데몬이 옛 프로세스를 끝내고 다시 띄우는 중이다. `before`는 옛 프로세스가 끝나지 않아 다시 띄우기가 실패하면 돌아갈 상태다. 그동안 온 사건도 `before`에 적용한다.
-    Relaunching {
-        before: Box<AgentState>,
-    },
     /// 노드 쪽 연결의 판이 데몬과 맞지 않는다.
     Mismatch,
 }
@@ -56,8 +52,6 @@ pub enum AgentEvent {
     /// 서버 연결이 끊겼다.
     ServerLost,
     RelaunchStarted,
-    /// 옛 프로세스가 끝나지 않아 다시 띄우기를 그만두었다. 옛 프로세스가 그대로 돈다.
-    RelaunchFailed,
     Relaunched,
     Slept,
     Exited,
@@ -73,7 +67,7 @@ impl AgentState {
     pub fn cut(&self) -> bool {
         match self {
             Self::Listening => false,
-            Self::Blocked { before } | Self::Relaunching { before } => before.cut(),
+            Self::Blocked { before } => before.cut(),
             Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
         }
     }
@@ -84,15 +78,7 @@ impl AgentState {
         Some(match (self, event) {
             (_, E::Exited | E::Slept) => return None,
             (_, E::Relaunched) => S::Starting,
-            (S::Relaunching { before }, E::RelaunchFailed) => *before,
-            (S::Relaunching { before }, E::RelaunchStarted) => S::Relaunching { before },
-            (S::Relaunching { before }, event) => S::Relaunching {
-                before: Box::new(before.next(event)?),
-            },
-            (state, E::RelaunchStarted) => S::Relaunching {
-                before: Box::new(state),
-            },
-            (state, E::RelaunchFailed) => state,
+            (state, E::RelaunchStarted) => state,
             (_, E::VersionMismatch) => S::Mismatch,
             (S::Mismatch, _) => S::Mismatch,
             (S::Blocked { before }, E::DialogCleared) => *before,
@@ -164,11 +150,7 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
     let turn_began = to == Some(AgentState::Turn)
         && !matches!(
             &now,
-            Some(
-                AgentState::Turn
-                    | AgentState::Blocked { before: _ }
-                    | AgentState::Relaunching { before: _ }
-            )
+            Some(AgentState::Turn | AgentState::Blocked { before: _ })
         );
     let replaced = matches!(
         event,

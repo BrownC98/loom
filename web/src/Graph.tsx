@@ -3,7 +3,7 @@ import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MarkerType, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
-import { agentLabel, canResume, recentAgent } from './catalog';
+import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
@@ -194,7 +194,7 @@ type GroupData = {
   onChipRow: (height: number) => void;
 };
 type Chip = { path: string; label: string; className: string | undefined; creating: boolean; deleting: boolean };
-type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
 type RepoData = { name: string; path: string; wsl: WslPlace | null; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
@@ -361,7 +361,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
             </IconButton>
-            <NodeMenu view={data.view} defaultView={data.defaultView} resumable={data.resumable} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
+            <NodeMenu view={data.view} defaultView={data.defaultView} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       >
@@ -400,7 +400,7 @@ function Simple({ data }: NodeProps<SimpleNode>) {
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
             <BookmarkButton view={data.view} />
-            <NodeMenu view={data.view} defaultView={data.defaultView} resumable={data.resumable} onRemove={data.onRemove} onRefusal={data.onRefusal} />
+            <NodeMenu view={data.view} defaultView={data.defaultView} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       />
@@ -858,7 +858,6 @@ export function Graph(props: {
         view,
         defaultView: props.settings.cardView,
         agentLabel: agentLabel(props.agents, view.agent),
-        resumable: canResume(props.agents, view.agent),
         onRefusal: setRefusal,
         selected: selected === view.id,
         focusAsk: selected === view.id ? props.focusAsk : 0,
@@ -1313,7 +1312,6 @@ export function Graph(props: {
                 <NodeMenu
                   view={zoomedView}
                   defaultView={props.settings.cardView}
-                  resumable={canResume(props.agents, zoomedView.agent)}
                   onRemove={() => {
                     setExpanded(null);
                     removeNode(zoomedView.id).catch((err: Error) => setRefusal(err.message));

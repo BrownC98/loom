@@ -347,6 +347,10 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' IN ('notRelated', 'notChild');"#,
     ),
     M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn required brief heads.'))
+            WHERE entry ->> '$.reason.code' = 'missingHeads';",
+    ),
+    M::up(
         r#"CREATE TABLE gate_votes (
             repo INTEGER NOT NULL,
             branch TEXT NOT NULL,

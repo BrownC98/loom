@@ -498,7 +498,6 @@ pub(super) mod tests {
 
     #[cfg(unix)]
     pub(in crate::profile) fn run(file: &str, fake_loom: &str, script: &str) -> (String, String) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         super::super::write_extensions(dir.path()).unwrap();
         let module = |name: &str, code: &str| {
@@ -540,8 +539,7 @@ pub(super) mod tests {
             "#!/bin/sh\necho start >> \"$0.in\"\nstart=$(grep -c start \"$0.in\")\n\
              answer() {{ id=$(echo \"$1\" | sed 's/.*\"id\":\\([0-9]*\\).*/\\1/'); echo \"{{\\\"id\\\":$id$2}}\"; }}\n{fake_loom}\n"
         );
-        std::fs::write(&loom, body).unwrap();
-        std::fs::set_permissions(&loom, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::fake_exe::write_executable(&loom, &body);
         let harness = format!(
             "import ext from './{file}';
              const on = {{}}; const sent = []; const tools = {{}};

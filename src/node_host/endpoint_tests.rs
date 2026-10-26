@@ -328,7 +328,7 @@ fn an_endpoint_takes_a_stale_socket_but_never_a_live_one_or_an_inherited_name() 
     );
 
     let stale = endpoint(dir.path(), "stale");
-    drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
+    crate::fake_exe::stale_socket(Path::new(&stale));
     assert!(Endpoint::open(&stale, drop).is_ok());
 
     let inherited = endpoint(dir.path(), "inherited");

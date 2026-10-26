@@ -829,23 +829,18 @@ mod tests {
         }
 
         fn with_linux(name: &str, body: &str, linux: Option<&str>) -> Self {
-            use std::os::unix::fs::PermissionsExt;
+            use crate::fake_exe::{seal, write_executable};
             let dir = tempfile::tempdir().unwrap();
             let fake = dir.path().join("loom.exe");
-            std::fs::write(&fake, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::write(dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
+            write_executable(&fake, &format!("#!/bin/sh\n{body}\n"));
+            write_executable(&dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n");
             let linux = linux.map(|body| {
                 let linux = dir.path().join("loom-linux-test");
-                std::fs::write(&linux, format!("#!/bin/sh\n{body}\n")).unwrap();
-                let mode = std::fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(&linux, mode).unwrap();
+                write_executable(&linux, &format!("#!/bin/sh\n{body}\n"));
                 linux
             });
             write_shim(dir.path(), &fake, linux.as_deref()).unwrap();
-            for file in ["loom.exe", "wslpath", "loom"] {
-                let mode = std::fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(dir.path().join(file), mode).unwrap();
-            }
+            seal(&dir.path().join("loom"));
             let token = format!("{name}{}", std::process::id());
             Shim { dir, token }
         }

@@ -403,11 +403,9 @@ mod git_runs {
         }
 
         fn hook(&self, name: &str, text: &str) {
-            use std::os::unix::fs::PermissionsExt;
             let path = self.main.join(".git/hooks").join(name);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, text).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::fake_exe::write_executable(&path, text);
         }
 
         fn publish_logs(&self) -> String {

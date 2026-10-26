@@ -399,7 +399,10 @@ impl App {
             Queued::Ended => self.revive_ended(node.id, plan).await,
             Queued::Refused => Err(Refusal::Relaunching(node.name).into()),
             Queued::Kept(Phase::AtTurnEnd) | Queued::Added(Phase::AtTurnEnd) => {
-                Ok(Relaunched::AtTurnEnd)
+                match self.run_unless_busy(node.id) {
+                    true => Ok(Relaunched::Now),
+                    false => Ok(Relaunched::AtTurnEnd),
+                }
             }
             Queued::Kept(Phase::Running) => Ok(Relaunched::Now),
             Queued::Added(Phase::Running) => {
@@ -484,28 +487,36 @@ impl App {
                     );
                 }
             }
-            if self.at_turn_end(node.id) {
-                self.server_turn_ended(node.id);
-            }
+            self.run_unless_busy(node.id);
         }
         Ok(())
     }
 
-    pub(super) fn server_turn_ended(self: &Arc<Self>, node: NodeId) {
-        let server = self.codex.lock().unwrap().contains_key(&node)
-            || self.opencode2.lock().unwrap().contains_key(&node);
-        if server && !self.busy(node) {
-            self.run_at_turn_end(node, None);
-        }
+    pub(super) fn run_unless_busy(self: &Arc<Self>, node: NodeId) -> bool {
+        self.run_claimed(node, None, |now| !now.busy)
     }
 
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {
-        let plan = self.change_plan(node, |now| match now.pending {
-            Some((Phase::AtTurnEnd, plan)) => (Some((Phase::Running, plan.clone())), Some(plan)),
-            kept => (kept, None),
+        self.run_claimed(node, guard, |_| true);
+    }
+
+    fn run_claimed(
+        self: &Arc<Self>,
+        node: NodeId,
+        guard: Option<Guard>,
+        ready: impl FnOnce(&crate::graph::Planned) -> bool,
+    ) -> bool {
+        let plan = self.change_plan(node, |now| {
+            let ready = ready(&now);
+            match now.pending {
+                Some((Phase::AtTurnEnd, plan)) if ready => {
+                    (Some((Phase::Running, plan.clone())), Some(plan))
+                }
+                kept => (kept, None),
+            }
         });
         let Some(plan) = plan else {
-            return;
+            return false;
         };
         let app = self.clone();
         tokio::spawn(async move {
@@ -537,6 +548,7 @@ impl App {
                 eprintln!("loom: 노드 {}를 턴 끝에 다시 띄우지 못했다: {e}", node.0);
             }
         });
+        true
     }
 
     pub(super) fn kept_running(&self, node: NodeId) {

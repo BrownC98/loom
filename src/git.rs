@@ -53,8 +53,6 @@ fn failure(out: &std::process::Output) -> String {
         .unwrap_or_else(|| format!("git이 {}로 끝났다", out.status))
 }
 
-/// wsl.exe가 배포판 시작 경고(`wsl: Processing /etc/fstab with mount -a failed.`)를 모든 호출의 stderr 앞에 붙인다.
-/// 그 줄은 git의 답이 아니다.
 fn git_text(text: &[u8]) -> String {
     String::from_utf8_lossy(text)
         .lines()

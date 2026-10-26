@@ -9,9 +9,9 @@ use crate::daemon::gate::{
     FailRequest, Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
 };
 use crate::daemon::{
-    AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
-    GuardRequest, IdleReply, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
-    RemoveRequest, Reported, SpawnRequest, SpawnRun, WaitRequest,
+    AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
+    DoneRequest, GuardRequest, IdleReply, IdleRequest, NewAgent, NoteRequest, RelaunchRequest,
+    Relaunched, RemoveRequest, Reported, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
 use crate::profile::cursor;
@@ -562,6 +562,12 @@ fn with_doc_link(text: &str, doc: Option<&Path>) -> String {
 pub fn adopt(name: String) -> Result<(), String> {
     call::<()>("adopt", &AdoptRequest { name }, None)?;
     println!("You are the parent now. Messages that node kept move to your inbox.");
+    Ok(())
+}
+
+pub fn detach(name: String) -> Result<(), String> {
+    call::<()>("detach", &DetachRequest { name: name.clone() }, None)?;
+    println!("{name} is a root node now. Its loom ask goes to the human inbox.");
     Ok(())
 }
 

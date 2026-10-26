@@ -46,6 +46,28 @@ impl Graph {
         related(&self.lock(), from, to)
     }
 
+    pub fn any_node(&self, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
+        let db = self.lock();
+        if let Some(id) = node_id(&db, from, to)? {
+            let exists: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
+                [id],
+                |r| r.get(0),
+            )?;
+            return if exists {
+                Ok(NodeId(id))
+            } else {
+                Err(Refusal::NotFound(to.to_owned()))
+            };
+        }
+        match related(&db, from, to) {
+            Err(Refusal::NotRelated(_)) => {}
+            found => return found.map(|(id, _)| id),
+        }
+        drop(db);
+        self.find(to)
+    }
+
     pub fn steerable(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
         steerable(&self.lock(), from, to)
     }

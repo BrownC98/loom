@@ -31,9 +31,9 @@ mod waits;
 
 pub use commands::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked,
-    DoneRequest, EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest, NoteRequest,
-    RelaunchRequest, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest,
-    Taken, WaitRequest,
+    DetachRequest, DoneRequest, EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest,
+    NoteRequest, RelaunchRequest, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun,
+    TakeRequest, Taken, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -94,8 +94,8 @@ use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 use crate::wsl;
 use verbs::{
-    Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_done, agent_note,
-    agent_remove, agent_set_role, agent_spawn, traced,
+    Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
+    agent_note, agent_remove, agent_set_role, agent_spawn, traced,
 };
 
 #[derive(Embed)]

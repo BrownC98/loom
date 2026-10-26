@@ -485,6 +485,21 @@ pub(super) async fn agent_adopt(
     traced(&app, parent, Attempt::verb(&req.name), &via, adopted)
 }
 
+pub(super) async fn agent_detach(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<DetachRequest>,
+) -> Result<Json<()>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let via = gate::via(&headers, "/api/agent/detach");
+    let detached = app
+        .graph
+        .any_node(caller, &req.name)
+        .and_then(|child| app.graph.detach(child))
+        .map_err(Problem::from);
+    traced(&app, caller, Attempt::verb(&req.name), &via, detached)
+}
+
 pub(super) async fn agent_remove(
     State(app): State<Arc<App>>,
     headers: HeaderMap,

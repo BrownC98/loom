@@ -1,12 +1,11 @@
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, EyeOff, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
+import { nodePty, relaunchNode, removeNode } from './api';
 import type { Theme } from './gen/Theme';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
-import { relaunchableState } from './catalog';
 import { watchComposition, type Composition } from './composition';
 import { InboxPanel, waitCount } from './Inbox';
 import { AgentLine, stateLabel } from './NodeCard';
@@ -78,7 +77,6 @@ export function Phone(props: {
   waiting: NodeView[];
   nodes: ReadonlyMap<NodeId, NodeView>;
   agentLabel: (view: NodeView) => string;
-  resumable: (view: NodeView) => boolean;
   online: boolean;
   inbox: ReactNode;
   tree: ReactNode;
@@ -99,7 +97,7 @@ export function Phone(props: {
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} askOpen={askOpen} setAskOpen={setAskOpen} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => (isNodeEntry(history.state) ? history.back() : props.onRoute({ screen: 'nodes' }))} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} askOpen={askOpen} setAskOpen={setAskOpen} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} online={props.online} onBack={() => (isNodeEntry(history.state) ? history.back() : props.onRoute({ screen: 'nodes' }))} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -258,7 +256,7 @@ export function NodeTitle(props: { view: NodeView; agentLabel: string }) {
   );
 }
 
-function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => void; view: NodeView; waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
+function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => void; view: NodeView; waiting: NodeView[]; agentLabel: string; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -380,7 +378,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
           </button>
         </form>
       </div>
-      {sheet === 'actions' && <ActionSheet view={view} resumable={props.resumable} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
+      {sheet === 'actions' && <ActionSheet view={view} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
     </>
   );
 }
@@ -527,15 +525,11 @@ function swallowNextClick() {
   window.addEventListener('pointerdown', drop, { capture: true, once: true });
 }
 
-function ActionSheet(props: { view: NodeView; resumable: boolean; onCtrlC: () => void; onClose: () => void; onRemoved: () => void }) {
+function ActionSheet(props: { view: NodeView; onCtrlC: () => void; onClose: () => void; onRemoved: () => void }) {
   const { t } = useTranslation();
   const bookmark = bookmarkToggle(props.view);
-  const resumable = props.resumable && relaunchableState(props.view);
-  const [queued, setQueued] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (resumable) relaunchQueued(props.view.id).then(setQueued, () => setQueued(false));
-  }, [resumable, props.view.id]);
-  const relaunch: MenuItem[] = resumable ? [{ label: queued ? t('node.relaunchQueued') : t('node.relaunch'), disabled: queued !== false, run: () => relaunchNode(props.view.id) }] : [];
+  const offer = props.view.relaunch;
+  const relaunch: MenuItem[] = offer ? [{ label: offer === 'queued' ? t('node.relaunchQueued') : t('node.relaunch'), disabled: offer === 'queued', run: () => relaunchNode(props.view.id) }] : [];
   return (
     <MenuSheet
       title={props.view.name}

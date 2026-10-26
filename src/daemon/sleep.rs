@@ -10,12 +10,12 @@ use tokio::sync::broadcast::error::RecvError;
 use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
 use crate::graph::{
-    Active, AgentChange, AgentEvent, AgentState, Entry, IdleEnd, NodeId, Phase, Plan,
+    Active, AgentChange, AgentEvent, AgentState, Attempt, Entry, IdleEnd, NodeId, Phase, Plan,
     ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::{self, Profile, claude};
-use crate::protocol::{MessageId, ServerLink};
+use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
@@ -30,7 +30,6 @@ pub struct Sleeps {
     stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
     settled: Mutex<HashMap<NodeId, Instant>>,
-    unwoken: Mutex<HashMap<NodeId, Option<MessageId>>>,
     changed: Notify,
 }
 
@@ -70,17 +69,6 @@ impl Sleeps {
     pub fn settled(&self, node: NodeId) {
         self.settled.lock().unwrap().insert(node, now());
         self.changed();
-    }
-
-    fn unwoken(&self, node: NodeId, newest: Option<MessageId>) {
-        self.unwoken.lock().unwrap().insert(node, newest);
-    }
-
-    fn mail_since_unwoken(&self, node: NodeId, newest: Option<MessageId>) -> bool {
-        let unwoken = self.unwoken.lock().unwrap();
-        unwoken
-            .get(&node)
-            .is_none_or(|seen| newest.map(|m| m.0) > seen.map(|m| m.0))
     }
 
     fn settle_due(&self, node: NodeId, now: Instant) -> Option<Instant> {
@@ -183,15 +171,15 @@ impl App {
         match change.to {
             Some(AgentState::Deaf) => {}
             Some(AgentState::Blocked { .. }) => return,
-            _ => return self.relaunches.heard(change.node),
+            _ => return self.attempt_cleared(change.node, Attempt::Deaf),
         }
         let lost = match change.by {
             AgentEvent::WaitClosed {
                 by: IdleEnd::Gone | IdleEnd::Error,
             } => change.from == Some(AgentState::Listening),
             AgentEvent::ServerLost | AgentEvent::DialogCleared => true,
-            AgentEvent::TurnEnded | AgentEvent::RelaunchFailed => false,
-            _ => self.relaunches.held(change.node),
+            AgentEvent::TurnEnded => false,
+            _ => self.held(change.node),
         };
         if lost {
             self.recover(change.node);
@@ -201,7 +189,9 @@ impl App {
     fn recover_stored(self: &Arc<Self>) -> rusqlite::Result<()> {
         for node in self.graph.active()? {
             let id = node.id;
-            if self.agent_state(id) != Some(AgentState::Deaf) {
+            if self.agent_state(id) != Some(AgentState::Deaf)
+                || !self.graph.mail_since_attempt(id, Attempt::Deaf)?
+            {
                 continue;
             }
             self.recover(id);
@@ -253,21 +243,39 @@ impl App {
 
     pub(super) fn draft_ended(self: &Arc<Self>, id: NodeId) {
         match self.graph.end_draft(id) {
-            Ok(true) if self.relaunches.held(id) => self.recover(id),
+            Ok(true) if self.held(id) => self.recover(id),
             Ok(_) => {}
             Err(e) => eprintln!("loom: 노드 {}의 입력 중 표시를 지우지 못했다: {e}", id.0),
         }
     }
 
     fn refused(&self, id: NodeId) {
-        let newest = self.graph.newest_mail(id).ok().flatten();
-        self.relaunches.refused(id, newest);
+        if let Err(e) = self.graph.attempted(id, Attempt::Deaf) {
+            eprintln!("loom: 노드 {}의 살리기 시도를 적지 못했다: {e}", id.0);
+        }
+    }
+
+    fn held(&self, id: NodeId) -> bool {
+        self.graph
+            .attempt_held(id, Attempt::Deaf)
+            .inspect_err(|e| eprintln!("loom: 노드 {}의 살리기 시도를 읽지 못했다: {e}", id.0))
+            .unwrap_or(false)
+    }
+
+    fn attempt_cleared(&self, id: NodeId, cause: Attempt) {
+        if let Err(e) = self.graph.attempt_cleared(id, cause) {
+            eprintln!("loom: 노드 {}의 살리기 시도를 지우지 못했다: {e}", id.0);
+        }
     }
 
     fn recover_held_with_mail(self: &Arc<Self>) {
         let mailed = self
-            .relaunches
-            .mail_since_refused(|id| self.graph.newest_mail(id).ok().flatten());
+            .graph
+            .mailed_since_attempt(Attempt::Deaf)
+            .unwrap_or_else(|e| {
+                eprintln!("loom: 살리기를 미룬 노드를 보지 못했다: {e}");
+                Vec::new()
+            });
         for id in mailed {
             self.refused(id);
             self.recover(id);
@@ -275,7 +283,10 @@ impl App {
     }
 
     fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
-        if self.agent_state(id) != Some(AgentState::Deaf) || self.sleeps.stopping(id) {
+        if self.agent_state(id) != Some(AgentState::Deaf)
+            || self.sleeps.stopping(id)
+            || self.relaunching(id)
+        {
             return Ok(None);
         }
         let Some(node) = self.graph.active()?.into_iter().find(|n| n.id == id) else {
@@ -322,10 +333,7 @@ impl App {
         let knocked = std::mem::take(&mut *self.sleeps.knocked.lock().unwrap());
         let mut waking = Vec::new();
         for id in self.graph.sleepers_with_mail()? {
-            if self
-                .sleeps
-                .mail_since_unwoken(id, self.graph.newest_mail(id)?)
-            {
+            if self.graph.mail_since_attempt(id, Attempt::Wake)? {
                 waking.push(id);
             }
         }
@@ -335,11 +343,10 @@ impl App {
             if !unattached.contains(&id) {
                 continue;
             }
-            let newest = self.graph.newest_mail(id)?;
-            if (knocked.contains(&id) || self.sleeps.mail_since_unwoken(id, newest))
+            if (knocked.contains(&id) || self.graph.mail_since_attempt(id, Attempt::Wake)?)
                 && self.host.take_unattached(id)
             {
-                self.sleeps.unwoken(id, newest);
+                self.graph.attempted(id, Attempt::Wake)?;
                 let app = self.clone();
                 tokio::spawn(async move {
                     if let Err(e) = app.resume_node(node).await {
@@ -354,11 +361,11 @@ impl App {
             }
         }
         for id in waking {
-            self.sleeps.unwoken(id, self.graph.newest_mail(id)?);
+            self.graph.attempted(id, Attempt::Wake)?;
             let app = self.clone();
             tokio::spawn(async move {
                 match app.relaunch_by_id(id, Plan::Resume).await {
-                    Ok(_) => drop(app.sleeps.unwoken.lock().unwrap().remove(&id)),
+                    Ok(_) => app.attempt_cleared(id, Attempt::Wake),
                     Err(e) => eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
                 }
             });

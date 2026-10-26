@@ -416,13 +416,6 @@ impl Graph {
         Ok(waking)
     }
 
-    pub fn newest_mail(&self, node: NodeId) -> rusqlite::Result<Option<MessageId>> {
-        Ok(waking(&self.lock(), node)?
-            .into_iter()
-            .map(|d| d.id)
-            .max_by_key(|id| id.0))
-    }
-
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -740,6 +733,10 @@ fn steer_where(
 
 fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
     Ok(waking(db, to)?.len() as u32)
+}
+
+pub(super) fn newest(db: &Connection, to: NodeId) -> rusqlite::Result<Option<u32>> {
+    Ok(waking(db, to)?.iter().map(|d| d.id.0).max())
 }
 
 fn waking(db: &Connection, to: NodeId) -> rusqlite::Result<Vec<Delivery>> {

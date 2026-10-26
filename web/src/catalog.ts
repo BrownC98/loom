@@ -19,8 +19,3 @@ export function agentLabel(agents: AgentView[], id: AgentId | null): string {
   return agents.find((a) => a.id === id)?.label ?? id;
 }
 
-export const relaunchableState = (view: NodeView) => view.state.kind === 'running' || view.state.kind === 'done';
-
-export function canResume(agents: AgentView[], id: AgentId | null): boolean {
-  return agents.some((a) => a.id === id && a.profile !== null);
-}

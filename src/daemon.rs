@@ -116,7 +116,7 @@ struct App {
     sessions: sessions::Sessions,
     first_inputs: sessions::FirstInputs,
     idle: idle::IdleWaits,
-    relaunches: relaunch::Relaunches,
+    relaunch_exits: tokio::sync::Notify,
     sleeps: sleep::Sleeps,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
@@ -314,6 +314,9 @@ impl App {
             if let Err(e) = app.resume().await {
                 eprintln!("loom: 노드에 다시 붙지 못했다: {e}");
             }
+            if let Err(e) = app.finish_stops() {
+                eprintln!("loom: 끝내던 다시 띄우기를 보지 못했다: {e}");
+            }
             if let Err(e) = app.relaunch_stale() {
                 eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
             }
@@ -428,7 +431,7 @@ impl App {
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
             idle,
-            relaunches: relaunch::Relaunches::default(),
+            relaunch_exits: tokio::sync::Notify::new(),
             sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),

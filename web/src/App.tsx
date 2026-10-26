@@ -20,7 +20,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
-import { agentLabel, canResume } from './catalog';
+import { agentLabel } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
@@ -475,7 +475,6 @@ export function App() {
         waiting={waiting}
         nodes={nodes}
         agentLabel={(v) => agentLabel(agents, v.agent)}
-        resumable={(v) => canResume(agents, v.agent)}
         online={online}
         inbox={<InboxPanel waiting={waiting} onSelect={openNode} onFocus={openNode} />}
         tree={
@@ -579,7 +578,6 @@ export function App() {
                   view={dockedView}
                   defaultView={settings.cardView}
                   agentLabel={agentLabel(agents, dockedView.agent)}
-                  resumable={canResume(agents, dockedView.agent)}
                   focusAsk={focusAsk}
                   onNavigate={(dir) => {
                     const to = graph.current?.neighbor(dockedView.id, dir);

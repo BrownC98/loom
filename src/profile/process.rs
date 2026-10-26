@@ -85,6 +85,19 @@ impl Served {
         }
     }
 
+    pub async fn end(&self) -> Result<(), String> {
+        let Some(pid) = self.pid else {
+            return Ok(());
+        };
+        let distro = self.distro.clone();
+        tokio::task::spawn_blocking(move || match distro {
+            Some(distro) => distro.end(vec![pid]),
+            None => Snapshot::now().end_trees([pid]),
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
     pub fn here(&self) -> Option<u32> {
         self.pid.filter(|_| self.distro.is_none())
     }

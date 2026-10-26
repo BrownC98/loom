@@ -628,6 +628,13 @@ impl App {
         if profile == Profile::Claude {
             let _ = self.stop_claude_background(&node, &resume).await;
         }
+        if let Some(old) = &node.server
+            && let Err(e) = self.end_server(old).await
+        {
+            prepared.discarder()();
+            let _ = self.graph.lost(node.id);
+            return Err(format!("옛 서버가 끝나지 않았다: {e}"));
+        }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
             .map(|()| Stop::Stopped)

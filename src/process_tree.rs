@@ -122,6 +122,175 @@ impl Snapshot {
             })
             .count()
     }
+
+    pub fn end_trees(&self, roots: impl IntoIterator<Item = u32>) -> Result<(), String> {
+        let pids: Vec<u32> = roots
+            .into_iter()
+            .flat_map(|root| subtree(&self.parents, root))
+            .collect();
+        let exits: Vec<Exit> = pids.iter().filter_map(|&pid| Exit::watch(pid)).collect();
+        for &pid in &pids {
+            if let Some(process) = self.system.process(Pid::from_u32(pid)) {
+                process.kill();
+            }
+        }
+        let deadline = std::time::Instant::now() + END_WAIT;
+        exits.into_iter().try_for_each(|exit| exit.wait(deadline))
+    }
+}
+
+const END_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn not_ended(pid: u32) -> String {
+    format!(
+        "process {pid} did not end within {} seconds",
+        END_WAIT.as_secs()
+    )
+}
+
+#[cfg(target_os = "linux")]
+struct Exit {
+    pid: u32,
+    fd: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+impl Exit {
+    fn watch(pid: u32) -> Option<Self> {
+        use std::os::fd::FromRawFd;
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+        let fd = libc::c_int::try_from(fd).ok().filter(|&fd| fd >= 0)?;
+        Some(Exit {
+            pid,
+            fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) },
+        })
+    }
+
+    fn wait(self, deadline: std::time::Instant) -> Result<(), String> {
+        use std::os::fd::AsRawFd;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let mut ready = libc::pollfd {
+                fd: self.fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ms = libc::c_int::try_from(left.as_millis()).unwrap_or(libc::c_int::MAX);
+            match unsafe { libc::poll(&mut ready, 1, ms) } {
+                0 => return Err(not_ended(self.pid)),
+                1.. => return Ok(()),
+                _ => {
+                    let e = std::io::Error::last_os_error();
+                    if e.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(e.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct Exit {
+    pid: u32,
+    queue: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "macos")]
+impl Exit {
+    fn watch(pid: u32) -> Option<Self> {
+        use std::os::fd::FromRawFd;
+        let queue = unsafe { libc::kqueue() };
+        if queue < 0 {
+            return None;
+        }
+        let queue = unsafe { std::os::fd::OwnedFd::from_raw_fd(queue) };
+        let change = libc::kevent {
+            ident: pid as libc::uintptr_t,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_ONESHOT,
+            fflags: libc::NOTE_EXIT,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        let added = unsafe {
+            use std::os::fd::AsRawFd;
+            libc::kevent(
+                queue.as_raw_fd(),
+                &change,
+                1,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            )
+        };
+        (added == 0).then_some(Exit { pid, queue })
+    }
+
+    fn wait(self, deadline: std::time::Instant) -> Result<(), String> {
+        use std::os::fd::AsRawFd;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let limit = libc::timespec {
+                tv_sec: left.as_secs() as libc::time_t,
+                tv_nsec: left.subsec_nanos() as libc::c_long,
+            };
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            match unsafe {
+                libc::kevent(
+                    self.queue.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    &mut event,
+                    1,
+                    &limit,
+                )
+            } {
+                0 => return Err(not_ended(self.pid)),
+                1.. => return Ok(()),
+                _ => {
+                    let e = std::io::Error::last_os_error();
+                    if e.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(e.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+struct Exit {
+    pid: u32,
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl Exit {
+    fn watch(pid: u32) -> Option<Self> {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        (!handle.is_null()).then_some(Exit { pid, handle })
+    }
+
+    fn wait(self, deadline: std::time::Instant) -> Result<(), String> {
+        use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let ms = u32::try_from(left.as_millis()).unwrap_or(u32::MAX - 1);
+        match unsafe { WaitForSingleObject(self.handle, ms) } {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => Err(not_ended(self.pid)),
+            _ => Err(std::io::Error::last_os_error().to_string()),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Exit {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle) };
+    }
 }
 
 pub fn end_if_runs(pid: u32, arg: &str) {

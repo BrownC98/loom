@@ -734,9 +734,17 @@ impl App {
     }
 
     fn stop_server(&self, server: &ServerLink) {
+        self.served_by(server).stop();
+    }
+
+    pub(super) async fn end_server(&self, server: &ServerLink) -> Result<(), String> {
+        self.served_by(server).end().await
+    }
+
+    fn served_by(&self, server: &ServerLink) -> Served {
         let (ServerLink::Codex { pid, distro, .. } | ServerLink::OpenCode2 { pid, distro, .. }) =
             server;
-        self.served(*pid, distro.clone()).stop();
+        self.served(*pid, distro.clone())
     }
 
     fn endpoint(&self, token: &str, inside: Option<&wsl::Inside>) -> Option<String> {

@@ -342,6 +342,11 @@ const STEPS: &[M] = &[
     ),
     M::up("ALTER TABLE nodes ADD COLUMN setup INTEGER NOT NULL DEFAULT 0;"),
     M::up(
+        r#"UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value',
+            'Old rule: steer, interrupt, loom rm and loom done --keep went only to a parent or child: ' || (entry ->> '$.reason.value')))
+            WHERE entry ->> '$.reason.code' IN ('notRelated', 'notChild');"#,
+    ),
+    M::up(
         "CREATE TABLE recovery_attempts (
             node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
             cause TEXT NOT NULL,

@@ -59,10 +59,6 @@ impl Logins {
             next: AtomicU32::default(),
         }
     }
-
-    pub fn end_others(&self) {
-        self.host.end_others(&[]);
-    }
 }
 
 #[derive(Serialize, TS)]
@@ -334,7 +330,7 @@ async fn login(
     };
     app.logins
         .host
-        .spawn(login, cmd, None, on_exit)
+        .spawn_while_linked(login, &cmd, on_exit)
         .map_err(|e| {
             app.logins.states.lock().unwrap().remove(&login);
             discard();

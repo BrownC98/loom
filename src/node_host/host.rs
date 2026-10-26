@@ -55,6 +55,7 @@ struct State {
     exit: Option<Exit>,
     endpoint_failed: Option<String>,
     closed: bool,
+    while_linked: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,6 +67,8 @@ pub struct Spec {
     setup: Option<Vec<OsString>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     endpoint: Option<OsString>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    while_linked: bool,
 }
 
 impl Spec {
@@ -79,6 +82,14 @@ impl Spec {
                 .collect(),
             setup: setup.map(|s| s.get_argv().clone()),
             endpoint: cmd.get_env(ENDPOINT_ENV).map(Into::into),
+            while_linked: false,
+        }
+    }
+
+    pub fn while_linked(self) -> Self {
+        Self {
+            while_linked: true,
+            ..self
         }
     }
 
@@ -102,8 +113,10 @@ pub fn run() -> Result<(), String> {
     let mut spec: Spec =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("command: {e}"))?;
     let endpoint = spec.endpoint.take();
+    let while_linked = spec.while_linked;
     let (cmd, setup) = spec.commands();
     let started = start(cmd, setup, endpoint.as_deref())?;
+    started.host.state.lock().unwrap().while_linked = while_linked;
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{}", started.address)
         .and_then(|()| stdout.flush())
@@ -425,6 +438,10 @@ impl Host {
         let mut state = self.state.lock().unwrap();
         if state.client.as_ref().is_some_and(|(id, _)| *id == me) {
             state.client = None;
+            if state.while_linked {
+                drop(state);
+                self.kill();
+            }
         }
     }
 }

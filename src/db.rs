@@ -340,6 +340,13 @@ const STEPS: &[M] = &[
         DELETE FROM events
             WHERE entry ->> 'kind' = 'agentStateDisagreed' AND entry ->> '$.state.kind' IN ('asleep', 'ended');"#,
     ),
+    M::up(
+        "CREATE TABLE node_hosts (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            unreached TEXT
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

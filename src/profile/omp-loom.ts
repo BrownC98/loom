@@ -34,7 +34,7 @@ export default function (pi: Api) {
   pi.on("agent_end", (event: AgentEnd, ctx) => {
     if (!main(ctx) || (event.willContinue && !event.awaitingAsyncWork)) return;
     const last = event.messages.findLast((message) => message.role === "assistant");
-    if (last?.stopReason === "aborted") return;
+    if (last?.stopReason === "aborted") return loom.aborted(ctx);
     loom.settled(ctx, lastText(event.messages));
   });
 }

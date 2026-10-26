@@ -83,14 +83,20 @@ impl App {
         node: NodeId,
         ended: EndedTurn,
     ) -> rusqlite::Result<Option<String>> {
-        self.turn_ends.stopped(node, ended.turn.as_deref());
+        if let Some(turn) = ended.turn.as_deref()
+            && self.graph.turn_was_ended(node, turn)?
+        {
+            return Ok(None);
+        }
         if let Some(text) = ended.reply {
             self.turn_ends.said(node, &text, None);
         }
-        let nudge = self.turn_end(node)?;
-        if nudge.is_none() {
+        let nudge = self.turn_end(node);
+        if !matches!(nudge, Ok(Some(_))) {
             self.run_at_turn_end(node, None);
         }
+        let nudge = nudge?;
+        self.turn_ends.stopped(node, ended.turn.as_deref());
         Ok(nudge.map(str::to_owned))
     }
 

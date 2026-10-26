@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use super::relaunch::provider_of;
 use super::{AgentError, App, EndedTurn, IdleReply, IdleRequest, TakeRequest, Taken, for_agent};
-use crate::graph::{IdleEnd, NodeId};
-use crate::profile::{self, BATCH_LIMIT_BYTES, ServerAdapter, Signal};
+use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId};
+use crate::profile::{self, BATCH_LIMIT_BYTES, Change, ServerAdapter, Signal, Status};
 use crate::protocol::{Delivery, Kind, MessageId, Refusal};
 use axum::http::StatusCode;
 
@@ -173,18 +173,28 @@ impl App {
         self: Arc<Self>,
         node: NodeId,
         mut server: impl ServerAdapter,
+        current: impl Fn(&App) -> bool,
     ) {
+        let mut seen = server.status();
         loop {
+            if !current(&self) {
+                return;
+            }
             let mut mail = pin!(self.graph.mail_changed());
             mail.as_mut().enable();
-            match server.signal().await {
+            let change = match seen.take() {
+                Some(now) => self.server_status(node, now),
+                None => None,
+            };
+            match server.signal(change).await {
                 Some(Signal::TurnEnded(reply)) => {
                     match self.turn_ended(node, EndedTurn { reply, turn: None }) {
-                        Ok(Some(nudge)) => {
-                            if let Err(e) = server.start_turn(&nudge).await {
-                                eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
+                        Ok(Some(nudge)) => match server.start_turn(&nudge).await {
+                            Ok(()) => self.feed(node, AgentEvent::InputSent),
+                            Err(e) => {
+                                eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0)
                             }
-                        }
+                        },
                         Ok(None) => {}
                         Err(e) => eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0),
                     }
@@ -206,16 +216,40 @@ impl App {
             }
             tokio::select! {
                 () = mail => {}
-                alive = server.changed() => if !alive {
-                    return;
+                alive = server.changed() => match alive {
+                    true => seen = server.status(),
+                    false => {
+                        if current(&self) {
+                            self.feed(node, AgentEvent::ServerLost);
+                        }
+                        return;
+                    }
                 },
             }
         }
     }
 
+    fn server_status(&self, node: NodeId, now: Status) -> Option<Change> {
+        let event = match now {
+            Status::Busy => AgentEvent::ServerBusy,
+            Status::Idle => AgentEvent::ServerIdle,
+        };
+        match self.graph.agent_event(node, event) {
+            Ok(before) => Some(Change {
+                before: status_of(before.as_ref()),
+                now,
+            }),
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
+                None
+            }
+        }
+    }
+
     async fn deliver_batch(&self, node: NodeId, server: &mut impl ServerAdapter) -> bool {
+        let now = status_of(self.agent_state(node).as_ref());
         let mut taken = Vec::new();
-        for kinds in server.takes() {
+        for kinds in server.takes(now) {
             match self.take_mail(node, kinds, BATCH_LIMIT_BYTES) {
                 Ok(found) if !found.is_empty() => {
                     taken = found;
@@ -235,11 +269,12 @@ impl App {
             server.stop_shells().await;
         }
         let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-        match server.inject(&taken).await {
+        match server.inject(&taken, now).await {
             Ok(()) => {
                 if let Err(e) = self.graph.ack(node, &ids) {
                     eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
                 }
+                self.feed(node, AgentEvent::InputSent);
                 true
             }
             Err(e) => {
@@ -270,5 +305,13 @@ impl App {
             .find(|n| n.id == node)
             .as_ref()
             .and_then(provider_of)
+    }
+}
+
+fn status_of(state: Option<&AgentState>) -> Status {
+    match state {
+        Some(AgentState::Turn) => Status::Busy,
+        Some(AgentState::Blocked { before }) => status_of(Some(before)),
+        _ => Status::Idle,
     }
 }

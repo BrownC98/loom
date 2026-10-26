@@ -378,7 +378,6 @@ pub(super) async fn agent_said(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.turn_ends.said(node, req.text, req.turn.as_deref());
-    app.sleeps.changed();
     Ok(Json(()))
 }
 

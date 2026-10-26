@@ -27,7 +27,6 @@ const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
 const PROTOCOL = 2;
 const RETRY_MS = 250;
-const REOPEN_MS = 1000;
 const INTERRUPT_POLL_MS = 1000;
 
 function parse(line: string): Reply | undefined {
@@ -96,7 +95,6 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   const shutdown = new AbortController();
   let hook: Hook | undefined;
   let next = 0;
-  let waits = 0;
   let running = 0;
   let polling = false;
 
@@ -125,15 +123,8 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   };
 
   const wait = async (event: string, ctx: C, reply?: string) => {
-    const id = ++waits;
-    const current = () => !shutdown.signal.aborted && id === waits && ctx.isIdle();
-    for (;;) {
-      const answer = await call({ event, reply }, ctx);
-      if (answer?.text) return deliver(answer.text, ctx);
-      if (answer || !current()) return;
-      await new Promise((resolve) => setTimeout(resolve, REOPEN_MS));
-      if (!current()) return;
-    }
+    const answer = await call({ event, reply }, ctx);
+    if (answer?.text) deliver(answer.text, ctx);
   };
 
   pi.on("before_agent_start", async (event: Event & { prompt: string }, ctx) => {

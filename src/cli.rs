@@ -173,12 +173,8 @@ pub fn cursor_rules() -> Result<(), String> {
 
 fn wait_until_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
     match through_endpoint() {
-        true => again_after_cut(
-            None,
-            |_| idle_once(&mut request),
-            |e, _| answered_later(RECONNECT_AFTER, e),
-        ),
-        false => until_answered(RECONNECT_AFTER, || idle_once(&mut request)),
+        true => again_after_cut(None, |_| idle_once(&mut request), |e, _| Err(e.into())),
+        false => idle_once(&mut request).map_err(Into::into),
     }
 }
 
@@ -188,28 +184,6 @@ fn idle_once(request: &mut IdleRequest) -> Result<IdleReply, CallError> {
         request.turn_end = None;
     }
     reply
-}
-
-fn until_answered<T>(
-    pause: Duration,
-    mut attempt: impl FnMut() -> Result<T, CallError>,
-) -> Result<T, String> {
-    loop {
-        match attempt() {
-            Ok(value) => return Ok(value),
-            Err(e) => answered_later(pause, e)?,
-        }
-    }
-}
-
-fn answered_later(pause: Duration, error: CallError) -> Result<(), String> {
-    match error.through_url() {
-        CallError::Unreachable(_) | CallError::Failed(_) | CallError::NotConnected(_) => {
-            std::thread::sleep(pause);
-            Ok(())
-        }
-        e => Err(e.into()),
-    }
 }
 
 fn reconnecting<T>(

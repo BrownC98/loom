@@ -24,3 +24,7 @@ INSERT INTO gates_new (repo, branch, owner, gate, target, worktree, state, head,
     SELECT repo, branch, owner, gate, target, worktree, state, head, opened, queued, seq, batch FROM gates;
 DROP TABLE gates;
 ALTER TABLE gates_new RENAME TO gates;
+CREATE TRIGGER batch_unchecked_on_leave AFTER UPDATE OF batch ON gates
+WHEN OLD.batch IS NOT NULL AND NEW.batch IS NOT OLD.batch AND NEW.state != '"merged"' BEGIN
+    UPDATE batches SET base = NULL, tip = NULL WHERE id = OLD.batch;
+END;

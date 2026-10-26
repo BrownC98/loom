@@ -407,6 +407,69 @@ impl Graph {
             .collect()
     }
 
+    pub fn waiting_rounds(&self, owner: NodeId) -> rusqlite::Result<Vec<(RepoId, String)>> {
+        self.lock()
+            .prepare(
+                "SELECT repo, branch FROM gates WHERE owner = ?1 AND state IN (?2, ?3) AND batch IS NULL ORDER BY rowid",
+            )?
+            .query_map(
+                params![
+                    owner.0,
+                    to_json(&GateState::Ready),
+                    to_json(&GateState::Passed)
+                ],
+                |r| Ok((RepoId(r.get(0)?), r.get(1)?)),
+            )?
+            .collect()
+    }
+
+    pub fn tell_gate(&self, repo: RepoId, branch: &str, target: &str) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let Some(row) = load(&tx, repo, branch)? else {
+            return Ok(());
+        };
+        if !matches!(row.state, GateState::Ready | GateState::Passed) || !exists(&tx, row.gate)? {
+            return Ok(());
+        }
+        let what = MessageKind::Ready {
+            branch: branch.to_owned(),
+            head: row.head.clone(),
+            worktree: row.worktree.clone(),
+            target: target.to_owned(),
+        };
+        let trace = trace(
+            &tx,
+            Caller::Loom,
+            GateVerb::Ready,
+            branch,
+            Some(row.state),
+            Some(row.state),
+            Vec::new(),
+        )?;
+        let body = protocol::next_step(
+            GateCall::Ready,
+            Receiver::Gate,
+            row.target_kind(),
+            branch,
+            &row.head,
+        );
+        post(
+            &tx,
+            Caller::Loom,
+            row.gate,
+            Kind::Queue,
+            &what,
+            &body,
+            None,
+            &trace,
+        )?;
+        tx.commit()?;
+        self.publish_node(&db, row.gate)?;
+        self.mail.notify_waiters();
+        Ok(())
+    }
+
     pub fn open_round(&self, repo: RepoId, branch: &str) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM gates WHERE repo = ?1 AND branch = ?2

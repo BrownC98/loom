@@ -114,6 +114,38 @@ impl App {
         }
     }
 
+    pub(super) fn parent_changed(self: &Arc<Self>, owners: &[NodeId]) {
+        let app = self.clone();
+        let owners = owners.to_vec();
+        tokio::spawn(async move {
+            for owner in owners {
+                if let Err(e) = app.tell_new_gate(owner).await {
+                    eprintln!("loom: gate of node {}: {e}", owner.0);
+                }
+            }
+        });
+    }
+
+    async fn tell_new_gate(&self, owner: NodeId) -> Result<(), Refusal> {
+        let rounds = self.graph.waiting_rounds(owner)?;
+        if rounds.is_empty() {
+            return Ok(());
+        }
+        let gate_worktree = match self.graph.gate_for(owner)? {
+            GateChoice::Parent { worktree, .. } => Some(worktree),
+            GateChoice::Owner => None,
+        };
+        for (repo, branch) in rounds {
+            let dir = self
+                .repos
+                .path(repo)
+                .map_err(|e| Refusal::Git(e.to_string()))?;
+            let target = target_of(&dir, gate_worktree.as_deref()).await?;
+            self.graph.tell_gate(repo, &branch, &target)?;
+        }
+        Ok(())
+    }
+
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {
         let place = self.graph.place_of(node)?;
         self.repos

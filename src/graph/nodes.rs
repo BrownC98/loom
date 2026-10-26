@@ -678,7 +678,7 @@ impl Graph {
         caller: NodeId,
         name: &str,
         limits: TreeLimits,
-    ) -> Result<(NodeId, Vec<String>), Refusal> {
+    ) -> Result<(NodeId, Vec<(NodeId, String)>), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let id = mailbox::any_node(&tx, caller, name)?;
@@ -694,7 +694,7 @@ impl Graph {
             match adopt_in(&tx, caller, child, limits) {
                 Ok(adoption) => {
                     adoptions.extend(adoption);
-                    moved.push(child_name);
+                    moved.push((child, child_name));
                 }
                 Err(Refusal::NameTaken(_)) => refused.push(format!(
                     "{child_name} (you, your parent or a child of yours has this name)"

@@ -374,7 +374,10 @@ impl App {
             let graph = graph.clone();
             move || graph.publish_view_changed()
         }));
-        let devices = Arc::new(Devices::new(database.clone()));
+        let devices = Arc::new(Devices::new(database.clone(), {
+            let graph = graph.clone();
+            move || graph.publish_view_changed()
+        }));
         let idle = idle::IdleWaits::new(graph.clone());
         let shim = db_path.with_file_name("wsl");
         let linux_loom = match cfg!(windows) {

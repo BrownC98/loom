@@ -5,36 +5,40 @@ import type { InviteView } from './gen/InviteView';
 import type { PhoneView } from './gen/PhoneView';
 import { ago, dayAndTime } from './i18n';
 
-const INVITE_POLL_MS = 2000;
-
-export function PhoneTab() {
+export function PhoneTab(props: { viewVersion: number }) {
   const { t } = useTranslation();
   const [view, setView] = useState<PhoneView | null>(null);
-  const [invite, setInvite] = useState<{ view: InviteView; until: number } | null>(null);
+  const [invite, setInvite] = useState<InviteView | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [consent, setConsent] = useState('');
 
-  const refresh = useCallback(() => getPhone().then(setView, (e: Error) => setError(e.message)), []);
-  useEffect(() => void refresh(), [refresh]);
+  const refresh = useCallback(
+    () =>
+      getPhone().then(
+        (next) => {
+          setView(next);
+          if (!next.inviteOpen) setInvite(null);
+        },
+        (e: Error) => setError(e.message),
+      ),
+    [],
+  );
+  useEffect(() => void refresh(), [refresh, props.viewVersion]);
 
   useEffect(() => {
     if (!invite) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    const poll = setInterval(
-      () =>
-        getPhone().then((next) => {
-          setView(next);
-          if (!next.inviteOpen) setInvite(null);
-        }, () => {}),
-      INVITE_POLL_MS,
-    );
-    return () => {
-      clearInterval(tick);
-      clearInterval(poll);
-    };
+    return () => clearInterval(tick);
   }, [invite]);
+
+  const left = invite ? Math.max(0, Math.ceil((invite.until - now) / 1000)) : 0;
+  useEffect(() => {
+    if (!invite || left > 0) return;
+    setInvite(null);
+    void refresh();
+  }, [invite, left, refresh]);
 
   const act = (work: () => Promise<unknown>) => {
     setBusy(true);
@@ -45,9 +49,9 @@ export function PhoneTab() {
   };
   const open = () =>
     act(() =>
-      createInvite().then((view) => {
+      createInvite().then((next) => {
         setNow(Date.now());
-        setInvite({ view, until: Date.now() + view.ttlSecs * 1000 });
+        setInvite(next);
       }),
     );
 
@@ -62,7 +66,6 @@ export function PhoneTab() {
   if (!view) return error ? <p className="hint">{error}</p> : null;
   const tailnet = view.tailnet;
   const serving = tailnet.kind === 'ready' && tailnet.serving;
-  const left = invite ? Math.max(0, Math.ceil((invite.until - now) / 1000)) : 0;
   const door = (ip: string) => (view.port == null ? ip : `${ip}:${view.port}`);
   const lan = view.addresses.filter((a) => !a.tailnet).map((a) => door(a.ip));
   const remote = view.addresses.filter((a) => a.tailnet).map((a) => door(a.ip));
@@ -100,12 +103,12 @@ export function PhoneTab() {
         )}
         {invite && (
           <div className="pair-box">
-            <img className="qr" alt={t('pairing.qrAlt')} src={`data:image/svg+xml;utf8,${encodeURIComponent(invite.view.qrSvg)}`} />
+            <img className="qr" alt={t('pairing.qrAlt')} src={`data:image/svg+xml;utf8,${encodeURIComponent(invite.qrSvg)}`} />
             <div className="pair-text">
               <b>{t('pairing.scan')}</b>
               <span className="hint">{t('pairing.typeCode')}</span>
               <span className="pair-code" translate="no">
-                {invite.view.code}
+                {invite.code}
               </span>
               <span className="hint">{t('pairing.left', { min: Math.floor(left / 60), sec: left % 60 })}</span>
               <span>

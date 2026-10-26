@@ -8,4 +8,8 @@ url: string, code: string,
 /**
  * `url`의 QR 그림(SVG 글).
  */
-qrSvg: string, ttlSecs: number, };
+qrSvg: string, 
+/**
+ * 코드를 쓸 수 있는 마지막 때(Unix 밀리초). 화면은 남은 시간을 보이기만 하고, 쓸 수 있는지는 데몬이 쓸 때 본다.
+ */
+until: number, };

@@ -209,6 +209,7 @@ export function attachPty(
       if (typeof e.data === 'string') {
         const notice = JSON.parse(e.data) as PtyNotice;
         if (typeof notice === 'object' && 'beat' in notice) return link.beat(notice.beat.quietMs);
+        if (notice === 'gone') link.beat(undefined);
         return handlers.onNotice(notice);
       }
       const bytes = new Uint8Array(e.data as ArrayBuffer);

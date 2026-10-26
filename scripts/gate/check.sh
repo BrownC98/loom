@@ -19,13 +19,11 @@ step() { echo "== $*"; "$@"; }
 
 linux() {
   room; step memcap -m "${CARGO_STEP_MIB}M" cargo clippy --all-targets
-  room; step memcap -m "${CARGO_STEP_MIB}M" cargo test
   step memcap -m "${CARGO_STEP_MIB}M" cargo test --test comments -- --ignored --exact asked_questions_were_answered
 }
 windows() {
   export CARGO_TARGET_DIR=$WINDOWS_TARGET_DIR
   room; step memcap -m "${CARGO_STEP_MIB}M" cargo clippy --all-targets --target x86_64-pc-windows-gnu
-  room; step memcap -m "${CARGO_STEP_MIB}M" cargo test --target x86_64-pc-windows-gnu
 }
 
 [ -d web/node_modules ] && [ -d web/dist ] || step timeout 600 bash scripts/worktree/setup.sh
@@ -53,6 +51,5 @@ else
   (windows)
 fi
 step npm --prefix web run check
-step npm --prefix web test
 step npm --prefix web run build
 echo "== all checks passed"

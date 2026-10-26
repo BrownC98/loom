@@ -9,6 +9,7 @@ const SCHEMA_DIR: &str = "src/profile/codex/schema";
 
 fn main() {
     println!("cargo::rerun-if-changed={SCHEMA_DIR}");
+    println!("cargo::rerun-if-changed=src/db/changes");
     let mut definitions: BTreeMap<String, Value> = BTreeMap::new();
     let mut files: Vec<_> = std::fs::read_dir(SCHEMA_DIR)
         .expect("스키마 폴더가 있다")

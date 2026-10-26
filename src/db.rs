@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use rusqlite_migration::{M, MigrationDefinitionError, Migrations};
+use rust_embed::Embed;
 
 const STEPS: &[M] = &[
     M::up(
@@ -389,7 +390,18 @@ const STEPS: &[M] = &[
         ALTER TABLE gates DROP COLUMN merged;"#,
     ),
 ];
+const BASE_STEPS: usize = 51;
+const _: () = assert!(
+    STEPS.len() == BASE_STEPS,
+    "STEPS is frozen. Add a DB change as a file src/db/changes/<UTC yyyymmdd-hhmm>-<name>.sql"
+);
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
+
+#[derive(Embed)]
+#[folder = "src/db/changes"]
+struct Changes;
+
+const NAME_TIME: &str = "yyyymmdd-hhmm-";
 
 pub fn default_path() -> std::io::Result<PathBuf> {
     let dir = data_dir()?;
@@ -428,16 +440,67 @@ pub fn open(path: &Path) -> std::io::Result<Database> {
     conn.pragma_update(None, "foreign_keys", true)
         .map_err(std::io::Error::other)?;
     match MIGRATIONS.to_latest(&mut conn) {
-        Ok(()) => Ok(Database(Arc::new(Mutex::new(conn)))),
+        Ok(()) => {}
         Err(rusqlite_migration::Error::MigrationDefinition(
             MigrationDefinitionError::DatabaseTooFarAhead,
-        )) => Err(std::io::Error::other(format!(
-            "this loom ({}) is older than the data in {}. Open the newer loom.",
-            crate::protocol::VERSION,
-            path.display()
-        ))),
-        Err(e) => Err(std::io::Error::other(e)),
+        )) => return Err(too_new(path)),
+        Err(e) => return Err(std::io::Error::other(e)),
     }
+    apply_changes(&mut conn, path)?;
+    Ok(Database(Arc::new(Mutex::new(conn))))
+}
+
+fn too_new(path: &Path) -> std::io::Error {
+    std::io::Error::other(format!(
+        "this loom ({}) is older than the data in {}. Open the newer loom.",
+        crate::protocol::VERSION,
+        path.display()
+    ))
+}
+
+fn apply_changes(conn: &mut Connection, path: &Path) -> std::io::Result<()> {
+    let mut names: Vec<String> = Changes::iter()
+        .filter(|n| n.ends_with(".sql"))
+        .map(String::from)
+        .collect();
+    names.sort();
+    if let Some(bad) = names.iter().find(|n| !is_change_name(n)) {
+        return Err(std::io::Error::other(format!(
+            "src/db/changes/{bad}: the name must be {NAME_TIME}<name>.sql"
+        )));
+    }
+    let tx = conn.transaction().map_err(std::io::Error::other)?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS db_changes (name TEXT PRIMARY KEY);")
+        .map_err(std::io::Error::other)?;
+    let applied: Vec<String> = tx
+        .prepare("SELECT name FROM db_changes")
+        .and_then(|mut s| s.query_map([], |row| row.get(0))?.collect())
+        .map_err(std::io::Error::other)?;
+    if applied.iter().any(|a| !names.contains(a)) {
+        return Err(too_new(path));
+    }
+    for name in names.iter().filter(|n| !applied.contains(n)) {
+        let file = Changes::get(name).expect("an embedded file has its name");
+        let sql = std::str::from_utf8(&file.data)
+            .map_err(|e| std::io::Error::other(format!("{name}: {e}")))?;
+        tx.execute_batch(sql)
+            .and_then(|()| tx.execute("INSERT INTO db_changes (name) VALUES (?1)", [name]))
+            .map_err(|e| std::io::Error::other(format!("DB change {name}: {e}")))?;
+    }
+    tx.commit().map_err(std::io::Error::other)
+}
+
+fn is_change_name(name: &str) -> bool {
+    let Some((time, rest)) = name.split_at_checked(NAME_TIME.len()) else {
+        return false;
+    };
+    time.bytes().zip(NAME_TIME.bytes()).all(|(c, form)| {
+        if form == b'-' {
+            c == b'-'
+        } else {
+            c.is_ascii_digit()
+        }
+    }) && rest.len() > ".sql".len()
 }
 
 pub fn import(db: &Database, from: &Path) -> Result<(), String> {

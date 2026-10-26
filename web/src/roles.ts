@@ -1,7 +1,7 @@
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
 
-export const canChooseModel = (agent: AgentView | undefined): boolean => agent?.choosesModel ?? true;
+export const canChooseModel = (agent: AgentView | undefined): boolean => agent === undefined || agent.modelRule !== 'fixed';
 
 export const blankToNull = (text: string): string | null => (text.trim() === '' ? null : text.trim());
 
@@ -13,6 +13,6 @@ export function runnerText(role: Role, agents: readonly AgentView[], text: { non
   return [label, role.model ?? text.cliDefault, role.effort ?? text.cliDefault].join(' · ');
 }
 
-export const effortWithoutModel = (agent: AgentView | undefined, model: string, effort: string): boolean => agent?.effortNeedsModel === true && blankToNull(effort) !== null && blankToNull(model) === null;
+export const effortWithoutModel = (agent: AgentView | undefined, model: string, effort: string): boolean => agent?.modelRule === 'effortNeedsModel' && blankToNull(effort) !== null && blankToNull(model) === null;
 
 export const rolesChanged = (before: readonly Role[], after: readonly Role[]): boolean => JSON.stringify(before) !== JSON.stringify(after);

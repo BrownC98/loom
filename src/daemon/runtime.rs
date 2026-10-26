@@ -95,10 +95,7 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root, None).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(place, start.agent(), None, &prepared.launched(), |id| {
-                self.setups.lock().unwrap().insert(id);
-                self.launch(id, prepared)
-            })
+            .add_setup(place, &prepared.launched(), |id| self.launch(id, prepared))
             .inspect_err(|_| discard())?;
         Ok(())
     }
@@ -308,9 +305,8 @@ impl App {
                 return;
             }
             app.sessions.exited(id);
-            let setup = app.setups.lock().unwrap().remove(&id);
             if exit == Exit::Command(0)
-                && (setup || !app.host.has_output(id))
+                && (app.graph.is_setup(id).unwrap_or(false) || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
                 app.host.kill(id);

@@ -56,14 +56,35 @@ impl Graph {
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
+        self.insert_root(place, agent, task, false, launched, start)
+    }
+
+    pub fn add_setup(
+        &self,
+        place: &Place,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
+    ) -> Result<NodeId, Refusal> {
+        self.insert_root(place, None, None, true, launched, start)
+    }
+
+    fn insert_root(
+        &self,
+        place: &Place,
+        agent: Option<AgentId>,
+        task: Option<&str>,
+        setup: bool,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
+    ) -> Result<NodeId, Refusal> {
         let id = {
             let mut db = self.lock();
             let tx = db.transaction()?;
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
             let id = insert(&tx, &name, &agent, None, place)?;
             tx.execute(
-                "UPDATE nodes SET task = ?2 WHERE id = ?1",
-                params![id.0, task],
+                "UPDATE nodes SET task = ?2, setup = ?3 WHERE id = ?1",
+                params![id.0, task, setup],
             )?;
             keep(&tx, id, launched)?;
             tx.commit()?;
@@ -189,6 +210,14 @@ impl Graph {
                 Err(Refusal::Launch(e))
             }
         }
+    }
+
+    pub fn is_setup(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND setup)",
+            [id.0],
+            |row| row.get(0),
+        )
     }
 
     pub fn discard_finished_shell(&self, id: NodeId) -> rusqlite::Result<bool> {

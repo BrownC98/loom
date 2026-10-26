@@ -38,7 +38,7 @@ pub use commands::{
 use origin::ViaRemote;
 use runtime::Prepared;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::IntoFuture;
 use std::hash::Hash;
@@ -115,7 +115,6 @@ struct App {
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
     sessions: sessions::Sessions,
     first_inputs: sessions::FirstInputs,
-    setups: Mutex<HashSet<NodeId>>,
     idle: idle::IdleWaits,
     relaunches: relaunch::Relaunches,
     sleeps: sleep::Sleeps,
@@ -428,7 +427,6 @@ impl App {
             opencode2: Mutex::default(),
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
-            setups: Mutex::default(),
             idle,
             relaunches: relaunch::Relaunches::default(),
             sleeps: sleep::Sleeps::default(),

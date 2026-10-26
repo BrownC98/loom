@@ -223,8 +223,10 @@ pub enum Entry {
     /// 에이전트 상태가 바뀌었다(`AgentState`). 화면 이벤트 콘솔은 보이지 않는다.
     AgentStateChanged {
         node: Who,
-        from: AgentState,
-        to: AgentState,
+        /// 없으면 프로세스가 없었다.
+        from: Option<AgentState>,
+        /// 없으면 프로세스가 끝났다.
+        to: Option<AgentState>,
         by: AgentEvent,
     },
     /// 그림자 단계의 옛 판정(`check`: `busy`·`listening`의 값 `old`)과 상태 기계(`state`)가 달랐다. 지금 데몬은 남기지 않는다. 옛 이벤트 기록을 읽으려고 남긴다. 화면 이벤트 콘솔은 보이지 않는다.

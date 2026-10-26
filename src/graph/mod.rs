@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::types::Type;
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
@@ -63,6 +63,36 @@ pub enum NodeState {
     SetupFailed {
         code: u32,
     },
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Work {
+    Running,
+    Done { summary: String },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProcessOutcome {
+    Asleep,
+    Exited { code: u32 },
+    Lost,
+    SetupFailed { code: u32 },
+}
+
+fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
+    match (work, process) {
+        (Work::Done { summary }, _) => NodeState::Done { summary },
+        (Work::Running, None | Some(ProcessOutcome::Asleep)) => NodeState::Running,
+        (Work::Running, Some(ProcessOutcome::Exited { code })) => {
+            NodeState::Exited { code: Some(code) }
+        }
+        (Work::Running, Some(ProcessOutcome::Lost)) => NodeState::Exited { code: None },
+        (Work::Running, Some(ProcessOutcome::SetupFailed { code })) => {
+            NodeState::SetupFailed { code }
+        }
+    }
 }
 
 /// 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
@@ -176,7 +206,7 @@ pub struct Graph {
     linked: fn(&AgentId) -> bool,
 }
 
-pub(super) const REACHABLE: &str = "(process_exited = 0 OR asleep = 1)";
+pub(super) const REACHABLE: &str = "(process IS NULL OR process ->> 'kind' = 'asleep')";
 
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL),
@@ -184,7 +214,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id),
-    n.card_view, n.reply,
+    n.card_view, n.reply, n.process,
     EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id)
     FROM nodes n";
 
@@ -380,11 +410,11 @@ fn view_from_row(
     linked: fn(&AgentId) -> bool,
 ) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
-    let state: NodeState = from_json(row, 4)?;
+    let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
     let agent: Option<AgentId> = from_json(row, 2)?;
     let offered = agent.as_ref().is_some_and(linked)
         && matches!(state, NodeState::Running | NodeState::Done { .. });
-    let relaunch = offered.then_some(match row.get(16)? {
+    let relaunch = offered.then_some(match row.get(17)? {
         true => RelaunchOffer::Queued,
         false => RelaunchOffer::Ready,
     });
@@ -451,9 +481,19 @@ fn optional_json<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result
 }
 
 fn state_of(db: &Connection, id: NodeId) -> rusqlite::Result<NodeState> {
-    db.query_row("SELECT state FROM nodes WHERE id = ?1", [id.0], |row| {
-        from_json(row, 0)
+    db.query_row(
+        "SELECT state, process FROM nodes WHERE id = ?1",
+        [id.0],
+        |row| Ok(node_state(from_json(row, 0)?, optional_json(row, 1)?)),
+    )
+}
+
+fn process_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<ProcessOutcome>> {
+    db.query_row("SELECT process FROM nodes WHERE id = ?1", [id.0], |row| {
+        optional_json(row, 0)
     })
+    .optional()
+    .map(Option::flatten)
 }
 
 fn parent_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<NodeId>> {
@@ -511,15 +551,24 @@ fn name_of(db: &Connection, id: NodeId) -> rusqlite::Result<String> {
     })
 }
 
-fn set_state(db: &Connection, id: NodeId, state: &NodeState) -> rusqlite::Result<()> {
-    let entry = events::Entry::State {
-        node: events::who(db, id)?,
-        from: state_of(db, id)?,
-        to: state.clone(),
-    };
+fn set_work(db: &Connection, id: NodeId, work: &Work) -> rusqlite::Result<()> {
+    let from = state_of(db, id)?;
     db.execute(
         "UPDATE nodes SET state = ?2 WHERE id = ?1",
-        params![id.0, to_json(state)],
+        params![id.0, to_json(work)],
     )?;
+    note_state(db, id, from)
+}
+
+fn note_state(db: &Connection, id: NodeId, from: NodeState) -> rusqlite::Result<()> {
+    let to = state_of(db, id)?;
+    if to == from {
+        return Ok(());
+    }
+    let entry = events::Entry::State {
+        node: events::who(db, id)?,
+        from,
+        to,
+    };
     events::write(db, &entry, None)
 }

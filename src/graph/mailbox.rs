@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
-    Graph, HUMAN, NodeId, NodeState, REACHABLE, Toward, ambiguous, from_json, optional_json,
-    parent_of, set_state, state_of, to_json,
+    Graph, HUMAN, NodeId, NodeState, REACHABLE, Toward, Work, ambiguous, from_json, optional_json,
+    parent_of, set_work, state_of, to_json,
 };
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
@@ -403,7 +403,7 @@ impl Graph {
         let sleepers = db
             .prepare(
                 "SELECT DISTINCT n.id FROM nodes n JOIN messages m ON m.recipient = n.id
-                 WHERE n.asleep = 1 AND m.delivered = 0 ORDER BY n.id",
+                 WHERE n.process ->> 'kind' = 'asleep' AND m.delivered = 0 ORDER BY n.id",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -543,10 +543,10 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_state(
+        set_work(
             &tx,
             node,
-            &NodeState::Done {
+            &Work::Done {
                 summary: summary.to_owned(),
             },
         )?;
@@ -703,7 +703,7 @@ pub(super) fn requeue_unread(db: &Connection, node: NodeId) -> rusqlite::Result<
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     let done = matches!(state_of(db, node), Ok(NodeState::Done { .. }));
     if done {
-        set_state(db, node, &NodeState::Running)?;
+        set_work(db, node, &Work::Running)?;
     }
     Ok(done)
 }

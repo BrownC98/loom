@@ -40,7 +40,7 @@ else
   [ -e "$exe" ] && mv "$exe" "$exe.$(date +%s).old"
   mv "$exe.new" "$exe"
   rm -f "$dir"/loom.exe.*.old 2>/dev/null || true
-  printf '#!/bin/sh\nexec "%s" "$@"\n' "$exe" >"$bin.new"
+  printf '#!/bin/sh\ncase $1 in serve|start|stop|open) [ "$HOME" = '"'%s'"' ] || { echo "loom: this command would act on the human'"'"'s Windows daemon; build a Linux test binary instead (see AGENTS.md \\"데몬 띄우기(시험)\\")" >&2; exit 2; } ;; esac\nexec "%s" "$@"\n' "$(printf %s "$HOME" | sed "s/'/'\\\\''/g")" "$exe" >"$bin.new"
   chmod +x "$bin.new"
   mv "$bin.new" "$bin"
 fi

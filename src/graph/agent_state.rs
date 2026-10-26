@@ -26,8 +26,6 @@ pub enum AgentState {
     Turn,
     /// 노드 쪽 연결의 판이 데몬과 맞지 않는다.
     Mismatch,
-    Asleep,
-    Ended,
 }
 
 /// 에이전트 경로가 보내는 공통 사건.
@@ -65,31 +63,22 @@ pub enum AgentEvent {
 
 impl AgentState {
     pub fn busy(&self) -> bool {
-        !matches!(
-            self,
-            Self::Listening | Self::Deaf | Self::Blocked { .. } | Self::Asleep | Self::Ended
-        )
+        !matches!(self, Self::Listening | Self::Deaf | Self::Blocked { .. })
     }
 
     pub fn cut(&self) -> bool {
         match self {
-            Self::Listening | Self::Asleep | Self::Ended => false,
+            Self::Listening => false,
             Self::Blocked { before } => before.cut(),
             Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
         }
     }
 
-    pub fn next(self, event: &AgentEvent) -> AgentState {
+    pub fn next(self, event: &AgentEvent) -> Option<AgentState> {
         use AgentEvent as E;
         use AgentState as S;
-        match (self, event) {
-            (_, E::Exited) => S::Ended,
-            (S::Ended, E::Relaunched) => S::Starting,
-            (S::Ended, E::Slept) => S::Asleep,
-            (S::Ended, _) => S::Ended,
-            (_, E::Slept) => S::Asleep,
-            (S::Asleep, E::Relaunched) => S::Starting,
-            (S::Asleep, _) => S::Asleep,
+        Some(match (self, event) {
+            (_, E::Exited | E::Slept) => return None,
             (_, E::Relaunched) => S::Starting,
             (state, E::RelaunchStarted) => state,
             (_, E::VersionMismatch) => S::Mismatch,
@@ -97,7 +86,7 @@ impl AgentState {
             (S::Blocked { before }, E::DialogCleared) => *before,
             (S::Blocked { before }, E::Dialog) => S::Blocked { before },
             (S::Blocked { before }, event) => S::Blocked {
-                before: Box::new(before.next(event)),
+                before: Box::new(before.next(event)?),
             },
             (state, E::Dialog) => S::Blocked {
                 before: Box::new(state),
@@ -116,36 +105,31 @@ impl AgentState {
             (state, E::WaitClosed { .. }) => state,
             (S::Starting | S::Turn, E::TurnEnded) => S::Deaf,
             (state, E::TurnEnded) => state,
-        }
+        })
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentChange {
     pub node: NodeId,
-    pub from: AgentState,
-    pub to: AgentState,
+    pub from: Option<AgentState>,
+    pub to: Option<AgentState>,
     pub by: AgentEvent,
 }
 
 struct Stored {
-    state: AgentState,
+    state: Option<AgentState>,
     seq: i64,
 }
 
 fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
     db.query_row(
-        "SELECT s.state, coalesce(s.seq, 0), n.process_exited, n.asleep
+        "SELECT s.state, coalesce(s.seq, 0)
          FROM nodes n LEFT JOIN agent_states s ON s.node = n.id WHERE n.id = ?1",
         [node.0],
         |row| {
-            let state = optional_json(row, 0)?.unwrap_or(match (row.get(2)?, row.get(3)?) {
-                (_, true) => AgentState::Asleep,
-                (true, false) => AgentState::Ended,
-                (false, false) => AgentState::Starting,
-            });
             Ok(Stored {
-                state,
+                state: optional_json(row, 0)?,
                 seq: row.get(1)?,
             })
         },
@@ -153,13 +137,17 @@ fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
     .optional()
 }
 
-fn store(db: &Connection, node: NodeId, stored: &Stored) -> rusqlite::Result<()> {
+fn store(db: &Connection, node: NodeId, state: &AgentState, seq: i64) -> rusqlite::Result<()> {
     db.execute(
         "INSERT INTO agent_states (node, state, seq, changed_ns) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT (node) DO UPDATE SET state = excluded.state, seq = excluded.seq, changed_ns = excluded.changed_ns",
-        params![node.0, to_json(&stored.state), stored.seq, nanos(SystemTime::now())],
+        params![node.0, to_json(state), seq, nanos(SystemTime::now())],
     )?;
     Ok(())
+}
+
+pub(super) fn start(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
+    store(db, node, &AgentState::Starting, 0)
 }
 
 fn nanos(at: SystemTime) -> i64 {
@@ -174,11 +162,15 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         return Ok(0);
     };
     let moved = move_mail(db, node, &event)?;
-    let to = now.state.clone().next(&event);
-    let turn_began = to == AgentState::Turn
+    let to = match now.state.clone() {
+        Some(state) => state.next(&event),
+        None if event == AgentEvent::Relaunched => Some(AgentState::Starting),
+        None => None,
+    };
+    let turn_began = to == Some(AgentState::Turn)
         && !matches!(
             &now.state,
-            AgentState::Turn | AgentState::Blocked { before: _ }
+            Some(AgentState::Turn | AgentState::Blocked { before: _ })
         );
     let replaced = matches!(
         event,
@@ -193,14 +185,10 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
     if to == now.state {
         return Ok(moved);
     }
-    store(
-        db,
-        node,
-        &Stored {
-            state: to.clone(),
-            seq: now.seq + 1,
-        },
-    )?;
+    match &to {
+        Some(state) => store(db, node, state, now.seq + 1)?,
+        None => drop(db.execute("DELETE FROM agent_states WHERE node = ?1", [node.0])?),
+    }
     let entry = Entry::AgentStateChanged {
         node: events::who(db, node)?,
         from: now.state,
@@ -228,7 +216,7 @@ fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Res
 }
 
 pub(super) fn state_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
-    Ok(load(db, node)?.map(|s| s.state))
+    Ok(load(db, node)?.and_then(|s| s.state))
 }
 
 impl Graph {

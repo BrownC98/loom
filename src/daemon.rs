@@ -38,7 +38,7 @@ pub use commands::{
 use origin::ViaRemote;
 use runtime::Prepared;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::IntoFuture;
 use std::hash::Hash;
@@ -115,7 +115,6 @@ struct App {
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
     sessions: sessions::Sessions,
     first_inputs: sessions::FirstInputs,
-    setups: Mutex<HashSet<NodeId>>,
     idle: idle::IdleWaits,
     relaunch_exits: tokio::sync::Notify,
     sleeps: sleep::Sleeps,
@@ -403,7 +402,7 @@ impl App {
             ))
         });
         let host = NodeHost::new(pty_dir.join("nodes")).with_links(links);
-        let turn_ends = turn_end::TurnEnds::stored(graph.clone()).map_err(std::io::Error::other)?;
+        let turn_ends = turn_end::TurnEnds::new(graph.clone());
         Ok(App {
             repos,
             host: match &distros {
@@ -431,7 +430,6 @@ impl App {
             opencode2: Mutex::default(),
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
-            setups: Mutex::default(),
             idle,
             relaunch_exits: tokio::sync::Notify::new(),
             sleeps: sleep::Sleeps::default(),

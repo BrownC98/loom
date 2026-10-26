@@ -316,6 +316,32 @@ const STEPS: &[M] = &[
     ),
     M::up("ALTER TABLE nodes DROP COLUMN branched_from;"),
     M::up(
+        r#"ALTER TABLE nodes ADD COLUMN process TEXT;
+        UPDATE nodes SET process = CASE
+            WHEN state ->> 'kind' = 'exited' AND state ->> '$.code' IS NOT NULL
+                THEN json_object('kind', 'exited', 'code', state ->> '$.code')
+            WHEN state ->> 'kind' = 'exited' THEN '{"kind":"lost"}'
+            WHEN state ->> 'kind' = 'setupFailed' THEN json_object('kind', 'setupFailed', 'code', state ->> '$.code')
+            WHEN asleep = 1 THEN '{"kind":"asleep"}'
+            WHEN process_exited = 1 THEN '{"kind":"lost"}'
+        END;
+        UPDATE nodes SET state = '{"kind":"running"}' WHERE state ->> 'kind' IN ('exited', 'setupFailed');
+        ALTER TABLE nodes DROP COLUMN process_exited;
+        ALTER TABLE nodes DROP COLUMN asleep;
+        DELETE FROM agent_states WHERE state ->> 'kind' IN ('asleep', 'ended')
+            OR node IN (SELECT id FROM nodes WHERE process IS NOT NULL);
+        INSERT INTO agent_states (node, state, seq, changed_ns)
+            SELECT id, '{"kind":"starting"}', 0, unixepoch() * 1000000000 FROM nodes
+            WHERE process IS NULL AND id NOT IN (SELECT node FROM agent_states);
+        UPDATE events SET entry = json_set(entry, '$.from', json('null'))
+            WHERE entry ->> 'kind' = 'agentStateChanged' AND entry ->> '$.from.kind' IN ('asleep', 'ended');
+        UPDATE events SET entry = json_set(entry, '$.to', json('null'))
+            WHERE entry ->> 'kind' = 'agentStateChanged' AND entry ->> '$.to.kind' IN ('asleep', 'ended');
+        DELETE FROM events
+            WHERE entry ->> 'kind' = 'agentStateDisagreed' AND entry ->> '$.state.kind' IN ('asleep', 'ended');"#,
+    ),
+    M::up("ALTER TABLE nodes ADD COLUMN setup INTEGER NOT NULL DEFAULT 0;"),
+    M::up(
         "CREATE TABLE recovery_attempts (
             node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
             cause TEXT NOT NULL,
@@ -323,6 +349,7 @@ const STEPS: &[M] = &[
             PRIMARY KEY (node, cause)
         );
         UPDATE agent_states SET state = state -> 'before' WHERE state ->> 'kind' = 'relaunching';
+        UPDATE agent_states SET state = '{\"kind\":\"starting\"}' WHERE state ->> 'kind' IN ('asleep', 'ended');
         DELETE FROM events WHERE entry ->> 'kind' IN ('agentStateChanged', 'agentStateDisagreed')
             AND (entry LIKE '%\"relaunching\"%' OR entry LIKE '%\"relaunchFailed\"%');",
     ),

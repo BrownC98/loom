@@ -77,7 +77,7 @@ impl super::adapter::Adapter for Codex {
     fn facts(&self) -> Facts {
         Facts {
             provider: Some(Provider::Codex),
-            hooked: false,
+            sleeps: true,
             listens_at_start: true,
             pinned: Some(CMD),
             usage_part: "usage/codex",

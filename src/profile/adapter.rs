@@ -11,7 +11,7 @@ use crate::skills::Launch;
 
 pub struct Facts {
     pub provider: Option<Provider>,
-    pub hooked: bool,
+    pub sleeps: bool,
     pub listens_at_start: bool,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,

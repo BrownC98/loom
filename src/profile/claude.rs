@@ -69,7 +69,7 @@ impl Adapter for Claude {
     fn facts(&self) -> Facts {
         Facts {
             provider: Some(Provider::Claude),
-            hooked: true,
+            sleeps: true,
             listens_at_start: true,
             pinned: None,
             usage_part: "usage/claude",

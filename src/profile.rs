@@ -162,8 +162,8 @@ impl Profile {
         adapter(self).facts().provider
     }
 
-    pub fn hooked(self) -> bool {
-        adapter(self).facts().hooked
+    pub fn sleeps(self) -> bool {
+        adapter(self).facts().sleeps
     }
 
     pub fn listens_at_start(self) -> bool {

@@ -53,7 +53,7 @@ impl Adapter for Omp {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/omp",

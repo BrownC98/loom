@@ -387,12 +387,7 @@ impl App {
         if self.holds_mail(node.id) || !self.listening(node.id) {
             return false;
         }
-        match profile_of(node) {
-            Some(profile) if profile.hooked() || profile == Profile::Codex => {
-                node.session.is_some()
-            }
-            Some(_) | None => false,
-        }
+        profile_of(node).is_some_and(Profile::sleeps) && node.session.is_some()
     }
 
     fn listening(&self, node: NodeId) -> bool {

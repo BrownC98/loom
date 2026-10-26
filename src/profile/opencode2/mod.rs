@@ -50,7 +50,7 @@ impl super::adapter::Adapter for OpenCode2 {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: false,
+            sleeps: false,
             listens_at_start: true,
             pinned: Some(CMD),
             usage_part: "usage/opencode2",

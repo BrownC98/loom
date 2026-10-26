@@ -8,7 +8,7 @@ use portable_pty::CommandBuilder;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use super::adapter::{Carry, Chosen, Command, Facts, InputSeen, ResumeError, Serve, Server};
 use super::process::Served;
@@ -354,6 +354,7 @@ impl Server for Node {
     }
 
     fn link(self: Arc<Self>) -> Box<dyn ServerAdapter> {
+        let (read, models) = mpsc::unbounded_channel();
         Box::new(Adapter {
             thread: self.server.thread(),
             limited: self.server.limited(),
@@ -361,6 +362,9 @@ impl Server for Node {
             moved: true,
             limit_hit: false,
             fresh: None,
+            read,
+            models,
+            model: None,
         })
     }
 }
@@ -372,6 +376,9 @@ struct Adapter {
     moved: bool,
     limit_hit: bool,
     fresh: Option<server::Thread>,
+    read: mpsc::UnboundedSender<Model>,
+    models: mpsc::UnboundedReceiver<Model>,
+    model: Option<Model>,
 }
 
 impl Adapter {
@@ -427,17 +434,23 @@ impl ServerAdapter for Adapter {
             if std::mem::take(&mut self.limit_hit) {
                 signals.push(Signal::Report(Report::RateLimited));
             }
+            if let Some(model) = self.model.take() {
+                signals.push(Signal::Report(Report::Model(model)));
+            }
             if let Some(thread) = self.fresh.take() {
                 let wait = thread.waiting.map(|kind| (kind, String::new(), None));
                 signals.push(Signal::Report(Report::HumanWait(wait)));
                 signals.push(Signal::Report(Report::Session(Session(thread.id.clone()))));
-                let call = |method, params| self.node.server.call(method, params);
-                match model(call, &thread.id).await {
-                    Ok(model) => signals.push(Signal::Report(Report::Model(model))),
-                    Err(e) => {
-                        eprintln!("loom: Codex 스레드 {}의 모델을 읽지 못했다: {e}", thread.id)
+                let (node, read) = (self.node.clone(), self.read.clone());
+                tokio::spawn(async move {
+                    let call = |method, params| node.server.call(method, params);
+                    match model(call, &thread.id).await {
+                        Ok(model) => drop(read.send(model)),
+                        Err(e) => {
+                            eprintln!("loom: Codex 스레드 {}의 모델을 읽지 못했다: {e}", thread.id)
+                        }
                     }
-                }
+                });
             }
             signals.extend(self.turn_signal(change).await);
             signals
@@ -454,6 +467,10 @@ impl ServerAdapter for Adapter {
                 hit = self.limited.changed() => {
                     self.limit_hit = hit.is_ok();
                     hit.is_ok()
+                }
+                Some(model) = self.models.recv() => {
+                    self.model = Some(model);
+                    true
                 }
             }
         })

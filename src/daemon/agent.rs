@@ -85,7 +85,7 @@ impl App {
     ) -> rusqlite::Result<Option<String>> {
         self.turn_ends.stopped(node, ended.turn.as_deref());
         if let Some(text) = ended.reply {
-            self.turn_ends.said(node, text, None);
+            self.turn_ends.said(node, &text, None);
         }
         let nudge = self.turn_end(node)?;
         if nudge.is_none() {
@@ -114,7 +114,8 @@ impl App {
         let mut wait = match after_turn {
             true => self.idle.open_after_turn(node),
             false => self.idle.open(node),
-        };
+        }
+        .map_err(|e| for_agent(Refusal::from(e)))?;
         if let Some(arrival) = arrival {
             arrival.arrived();
         }

@@ -623,7 +623,7 @@ impl App {
             let _ = self.stop_claude_background(&node, &resume).await;
         }
         if let Some(old) = &node.server
-            && let Err(e) = self.end_server(old).await
+            && let Err(e) = self.end_server(node.id, old).await
         {
             prepared.discarder()();
             let _ = self.graph.lost(node.id);
@@ -1006,17 +1006,10 @@ impl App {
     }
 
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
-        let server = match &node.server {
-            Some(
-                ServerLink::Codex {
-                    pid, distro: None, ..
-                }
-                | ServerLink::OpenCode2 {
-                    pid, distro: None, ..
-                },
-            ) => *pid,
-            _ => None,
-        };
+        let server = node
+            .server
+            .as_ref()
+            .and_then(|server| self.served_by(node.id, server).here());
         [self.host.pid(node.id), server]
             .into_iter()
             .flatten()

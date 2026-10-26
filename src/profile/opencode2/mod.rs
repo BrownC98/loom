@@ -230,7 +230,6 @@ impl Node {
         crate::protocol::ServerLink::OpenCode2 {
             url: self.server.url().to_owned(),
             pid: self.server.process().pid,
-            distro: self.server.process().distro_name(),
             session: self.session.clone(),
             password: self.server.password().to_owned(),
         }

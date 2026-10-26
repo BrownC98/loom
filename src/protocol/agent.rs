@@ -41,15 +41,11 @@ pub enum ServerLink {
     Codex {
         url: String,
         pid: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        distro: Option<String>,
         thread: Option<String>,
     },
     OpenCode2 {
         url: String,
         pid: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        distro: Option<String>,
         session: String,
         password: String,
     },

@@ -1,11 +1,12 @@
 use std::io::{self, Read, Write};
 
-use crate::protocol::PTY_HOST;
+use crate::protocol::{PTY_HOST, STREAMS as STREAMS_LINK};
 
 const MAGIC: &[u8; 8] = b"loom-pty";
 pub const VERSION: u32 = PTY_HOST.now;
 pub const STREAMS_SINCE: u32 = 4;
 pub const ENDPOINT_FAILED_SINCE: u32 = 4;
+pub const HELD_SINCE: u32 = 5;
 const MAX_BODY: usize = 1 << 20;
 
 const HELLO: u8 = 0;
@@ -17,6 +18,7 @@ const PID: u8 = 5;
 const SETUP_FAILED: u8 = 6;
 const STREAMS: u8 = 7;
 const ENDPOINT_FAILED: u8 = 8;
+const HELD: u8 = 9;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
@@ -29,6 +31,7 @@ pub enum Frame {
     SetupFailed(u32),
     Streams { version: u32 },
     EndpointFailed(String),
+    Held(u32),
 }
 
 pub enum Link {
@@ -52,6 +55,7 @@ pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
         Frame::SetupFailed(code) => (SETUP_FAILED, code.to_le_bytes().to_vec()),
         Frame::Streams { version } => (STREAMS, [&MAGIC[..], &version.to_le_bytes()].concat()),
         Frame::EndpointFailed(error) => (ENDPOINT_FAILED, error.as_bytes().to_vec()),
+        Frame::Held(count) => (HELD, count.to_le_bytes().to_vec()),
     };
     let mut buf = Vec::with_capacity(5 + body.len());
     buf.push(kind);
@@ -94,6 +98,7 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
         ENDPOINT_FAILED => Ok(Frame::EndpointFailed(
             String::from_utf8_lossy(&body).into_owned(),
         )),
+        HELD => Ok(Frame::Held(u32_at(0)?)),
         _ => Err(invalid("unknown frame")),
     }
 }
@@ -113,14 +118,20 @@ pub fn greet(stream: &mut (impl Read + Write)) -> io::Result<Greeted> {
     )
 }
 
-pub fn greet_streams(stream: &mut (impl Read + Write)) -> io::Result<()> {
-    greet_as(
-        stream,
-        &Frame::Streams {
-            version: crate::protocol::STREAMS,
-        },
-    )
-    .map(drop)
+pub fn greet_streams(stream: &mut (impl Read + Write), host: u32) -> io::Result<Option<u32>> {
+    let counted = host >= HELD_SINCE;
+    let version = match counted {
+        true => STREAMS_LINK.now,
+        false => STREAMS_LINK.oldest,
+    };
+    greet_as(stream, &Frame::Streams { version })?;
+    if !counted {
+        return Ok(None);
+    }
+    match read(stream)? {
+        Frame::Held(count) => Ok(Some(count)),
+        _ => Err(invalid("pty-host did not count its held connections")),
+    }
 }
 
 fn greet_as(stream: &mut (impl Read + Write), hello: &Frame) -> io::Result<Greeted> {
@@ -135,7 +146,7 @@ fn greet_as(stream: &mut (impl Read + Write), hello: &Frame) -> io::Result<Greet
 pub fn welcome(stream: &mut (impl Read + Write), pid: Option<u32>) -> io::Result<Link> {
     let link = match read(stream)? {
         Frame::Hello { version, .. } => Link::Terminal { version },
-        Frame::Streams { version } if version == crate::protocol::STREAMS => Link::Streams,
+        Frame::Streams { version } if version == STREAMS_LINK.now => Link::Streams,
         Frame::Streams { version } => {
             return Err(invalid(&format!("stream link version {version}")));
         }
@@ -215,13 +226,31 @@ mod tests {
     }
 
     #[test]
-    fn version_4_streams_bytes_are_frozen_and_pick_the_stream_link() {
+    fn version_4_streams_bytes_are_frozen() {
         let mut out = Vec::new();
         write(&mut out, &Frame::Streams { version: 1 }).unwrap();
         assert_eq!(
             out,
             [&[7, 12, 0, 0, 0][..], b"loom-pty", &[1, 0, 0, 0]].concat()
         );
+        let mut host = Duplex {
+            input: std::io::Cursor::new(hello_from(STREAMS_SINCE)),
+            output: Vec::new(),
+        };
+        assert_eq!(greet_streams(&mut host, STREAMS_SINCE).unwrap(), None);
+        assert_eq!(host.output, out, "a version 4 host gets stream link 1");
+    }
+
+    #[test]
+    fn version_5_held_bytes_are_frozen_and_pick_the_stream_link() {
+        let mut out = Vec::new();
+        write(&mut out, &Frame::Streams { version: 2 }).unwrap();
+        assert_eq!(
+            out,
+            [&[7, 12, 0, 0, 0][..], b"loom-pty", &[2, 0, 0, 0]].concat()
+        );
+        assert_eq!(held(3), [9, 4, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(read(&mut held(3).as_slice()).unwrap(), Frame::Held(3));
         let mut daemon = Duplex {
             input: std::io::Cursor::new(out),
             output: Vec::new(),
@@ -234,14 +263,40 @@ mod tests {
                 pid: Some(5)
             }
         );
-        let mut newer = Vec::new();
-        write(&mut newer, &Frame::Streams { version: 2 }).unwrap();
-        let mut newer = Duplex {
-            input: std::io::Cursor::new(newer),
+
+        let mut host = Duplex {
+            input: std::io::Cursor::new([hello_from(HELD_SINCE), held(3)].concat()),
             output: Vec::new(),
         };
-        assert!(welcome(&mut newer, None).is_err());
-        assert!(newer.output.is_empty());
+        assert_eq!(greet_streams(&mut host, HELD_SINCE).unwrap(), Some(3));
+        let mut uncounted = Duplex {
+            input: std::io::Cursor::new(hello_from(HELD_SINCE)),
+            output: Vec::new(),
+        };
+        assert!(greet_streams(&mut uncounted, HELD_SINCE).is_err());
+
+        for other in [1, 3] {
+            let mut stream = Vec::new();
+            write(&mut stream, &Frame::Streams { version: other }).unwrap();
+            let mut other = Duplex {
+                input: std::io::Cursor::new(stream),
+                output: Vec::new(),
+            };
+            assert!(welcome(&mut other, None).is_err());
+            assert!(other.output.is_empty());
+        }
+    }
+
+    fn hello_from(version: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write(&mut bytes, &Frame::Hello { version, pid: None }).unwrap();
+        bytes
+    }
+
+    fn held(count: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write(&mut bytes, &Frame::Held(count)).unwrap();
+        bytes
     }
 
     #[test]

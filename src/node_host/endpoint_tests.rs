@@ -53,8 +53,8 @@ impl Daemon {
             );
         runtime.spawn(async move {
             while let Some((node, link)) = linked.recv().await {
-                if let Linked::Streams(link) = link {
-                    tunnel::carry(link, node, doors.clone()).unwrap();
+                if let Linked::Streams { link, .. } = link {
+                    tunnel::carry(link, move || node, doors.clone()).unwrap();
                 }
             }
         });
@@ -68,6 +68,14 @@ impl Daemon {
             host,
             waits,
         }
+    }
+}
+
+impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>>
+    for NodeId
+{
+    fn connect_info(stream: axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>) -> NodeId {
+        *stream.remote_addr()
     }
 }
 
@@ -195,7 +203,7 @@ fn an_old_pty_host_attaches_without_a_stream_link() {
     assert_eq!(host.pid(NODE), Some(9));
     let (_daemon, second) = old.join().unwrap();
     assert!(!second, "a version 3 host gets no stream link");
-    assert!(linked.try_recv().is_err());
+    assert!(matches!(linked.try_recv(), Ok((NODE, Linked::Terminal))));
 }
 
 #[test]
@@ -331,4 +339,39 @@ fn an_endpoint_takes_a_stale_socket_but_never_a_live_one_or_an_inherited_name() 
         !Path::new(&inherited).exists(),
         "only the spec gives a host its endpoint"
     );
+}
+
+#[test]
+fn a_host_counts_the_connections_it_held_for_the_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    let hosts = dir.path().join("hosts");
+    std::fs::create_dir_all(&hosts).unwrap();
+    let at = endpoint(dir.path(), "count");
+    let counted = |id: NodeId, endpoint: Option<&OsString>| {
+        let started =
+            host::start(waiting_command(), None, endpoint.map(OsString::as_os_str)).unwrap();
+        std::fs::write(hosts.join(id.0.to_string()), started.address.to_string()).unwrap();
+        std::thread::spawn(move || started.wait());
+    };
+    counted(NODE, Some(&at));
+    counted(NodeId(2), None);
+    let _held = [asking(&at, "/echo", "a"), asking(&at, "/echo", "b")];
+    std::thread::sleep(HELD);
+    let (links, mut linked) = tokio::sync::mpsc::unbounded_channel();
+    let host = NodeHost::new(hosts).with_links(links);
+    let mut held = |id: NodeId| {
+        host.resume(id, |_| {}).unwrap();
+        match linked.try_recv() {
+            Ok((got, Linked::Streams { held, .. })) if got == id => held,
+            _ => panic!("no stream link"),
+        }
+    };
+    assert_eq!(held(NODE), Some(2));
+    assert_eq!(
+        held(NodeId(2)),
+        Some(0),
+        "a host without an endpoint holds nothing"
+    );
+    host.kill(NODE);
+    host.kill(NodeId(2));
 }

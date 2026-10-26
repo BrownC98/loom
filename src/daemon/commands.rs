@@ -9,7 +9,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/status", post(agent_status))
         .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/take", post(agent_take))
-        .route("/api/agent/idle", post(agent_idle))
+        .route(IDLE_PATH, post(agent_idle))
         .route("/api/agent/ack", post(agent_ack))
         .route(
             "/api/agent/interrupt-pending",
@@ -39,6 +39,8 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/fail", post(gate::agent_fail))
         .route("/api/agent/task", post(agent_task))
 }
+
+pub(super) const IDLE_PATH: &str = "/api/agent/idle";
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new().route("/api/agent/spawn", post(agent_spawn))
@@ -290,11 +292,13 @@ pub(super) async fn agent_take(
 pub(super) async fn agent_idle(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    arrival: Option<axum::Extension<arrival::Arrival>>,
     Json(req): Json<Option<IdleRequest>>,
 ) -> Result<Json<IdleReply>, AgentError> {
     let node = app.caller(&headers)?;
     let current = || app.caller(&headers).is_ok();
-    app.wait_idle(node, req.unwrap_or_default(), current)
+    let arrival = arrival.map(|axum::Extension(arrival)| arrival);
+    app.wait_idle(node, req.unwrap_or_default(), arrival, current)
         .await
         .map(Json)
 }
@@ -370,6 +374,7 @@ pub(super) async fn agent_said(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.turn_ends.said(node, req.text, req.turn.as_deref());
+    app.sleeps.changed();
     Ok(Json(()))
 }
 

@@ -555,7 +555,7 @@ impl Fixture {
             turn_end,
             ..IdleRequest::default()
         };
-        agent_idle(self.state(), headers(token, "idle"), Json(Some(req)))
+        agent_idle(self.state(), headers(token, "idle"), None, Json(Some(req)))
     }
 
     async fn idle_request(&self, token: &str) {

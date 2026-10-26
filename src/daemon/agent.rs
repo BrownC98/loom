@@ -91,6 +91,7 @@ impl App {
         self: &Arc<Self>,
         node: NodeId,
         req: IdleRequest,
+        arrival: Option<super::arrival::Arrival>,
         current: impl Fn() -> bool,
     ) -> Result<IdleReply, AgentError> {
         self.keep_transcript(node, req.transcript.as_deref())
@@ -105,6 +106,9 @@ impl App {
             true => self.idle.open_after_turn(node),
             false => self.idle.open(node),
         };
+        if let Some(arrival) = arrival {
+            arrival.arrived();
+        }
         let alive = match self.graph.relations(node) {
             Ok(relations) => relations.me.alive,
             Err(e) => {

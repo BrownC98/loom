@@ -59,12 +59,12 @@ impl TurnEnds {
         }
     }
 
-    pub fn said_before(&self, node: NodeId, grace: Duration) -> bool {
+    pub fn reply_age(&self, node: NodeId) -> Option<Duration> {
         self.said_at
             .lock()
             .unwrap()
             .get(&node)
-            .is_some_and(|at| at.elapsed() >= grace)
+            .map(Instant::elapsed)
     }
 
     pub fn human(&self, node: NodeId) {

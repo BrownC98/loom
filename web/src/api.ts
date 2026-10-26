@@ -49,7 +49,7 @@ import type { UpdateView } from './gen/UpdateView';
 import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
-import { QUIET_LIMIT_MS, reconnecting } from './link';
+import { reconnecting } from './link';
 
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
@@ -167,9 +167,12 @@ function socketUrl(path: string): string {
 export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): () => void {
   const link = reconnecting(socketUrl('/api/events'), {
     onOpen: () => onLink(true),
-    onMessage: (e) => onEvent(JSON.parse(e.data) as GraphEvent),
+    onMessage: (e) => {
+      const event = JSON.parse(e.data) as GraphEvent;
+      if (event.kind === 'beat') link.beat(event.quietMs);
+      else onEvent(event);
+    },
     onDrop: () => onLink(false),
-    quietLimitMs: QUIET_LIMIT_MS,
   });
   return link.close;
 }
@@ -192,7 +195,7 @@ export function attachPty(
     onAttach: () => void;
     onBacklog: (bytes: Uint8Array) => void;
     onOutput: (bytes: Uint8Array) => void;
-    onNotice: (notice: PtyNotice) => void;
+    onNotice: (notice: Exclude<PtyNotice, { beat: unknown }>) => void;
   },
 ): PtyLink {
   const encoder = new TextEncoder();
@@ -203,7 +206,12 @@ export function attachPty(
       handlers.onAttach();
     },
     onMessage: (e) => {
-      if (typeof e.data === 'string') return handlers.onNotice(JSON.parse(e.data) as PtyNotice);
+      if (typeof e.data === 'string') {
+        const notice = JSON.parse(e.data) as PtyNotice;
+        if (typeof notice === 'object' && 'beat' in notice) return link.beat(notice.beat.quietMs);
+        if (notice === 'gone') link.beat(undefined);
+        return handlers.onNotice(notice);
+      }
       const bytes = new Uint8Array(e.data as ArrayBuffer);
       if (backlogNext) {
         backlogNext = false;

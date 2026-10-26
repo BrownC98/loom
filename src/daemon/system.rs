@@ -1,6 +1,6 @@
 use futures_util::{Sink, Stream};
 
-use super::pulse::{self, Beat, Heard, Pulse};
+use super::pulse::{Beat, Heard, Pulse};
 use super::waits::serve_file;
 use super::*;
 
@@ -92,26 +92,6 @@ async fn event_log(State(app): State<Arc<App>>) -> Result<Json<EventLog>, Proble
     app.graph.event_log().map(Json).map_err(internal)
 }
 
-/// 화면이 `/api/events`로 보내는 글 프레임. 데몬은 이 값에 맞춰 박동 간격을 바꾼다.
-/// 보내지 않은 화면에는 15초마다 박동을 보낸다.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, TS)]
-#[serde(tag = "pace", rename_all = "camelCase")]
-#[ts(export)]
-pub enum Pace {
-    /// 사람이 화면을 보고 있다.
-    Front,
-    /// 화면이 뒤에 있다. 휴대폰 서비스는 늘 이것을 보낸다.
-    Back,
-}
-
-fn beat(pace: Option<Pace>) -> Duration {
-    match pace {
-        None => pulse::BEAT,
-        Some(Pace::Front) => pulse::FRONT_BEAT,
-        Some(Pace::Back) => pulse::BACK_BEAT,
-    }
-}
-
 async fn events(
     ws: WebSocketUpgrade,
     State(app): State<Arc<App>>,
@@ -120,17 +100,22 @@ async fn events(
     let devices = app.devices.clone();
     ws.on_upgrade(move |socket| {
         let (to_view, from_view) = socket.split();
-        origin::until_removed(devices, via, send_events(to_view, from_view, app, beat))
+        origin::until_removed(devices, via, send_events(to_view, from_view, app))
     })
+}
+
+fn beat(pulse: &Pulse) -> GraphEvent {
+    GraphEvent::Beat {
+        quiet_ms: pulse.quiet_ms(),
+    }
 }
 
 async fn send_events<E>(
     mut to_view: impl Sink<Message> + Unpin,
     mut from_view: impl Stream<Item = Result<Message, E>> + Unpin,
     app: Arc<App>,
-    beat: fn(Option<Pace>) -> Duration,
 ) {
-    let mut pulse = Pulse::new(beat(None));
+    let mut pulse = Pulse::new();
     loop {
         let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
             return;
@@ -138,7 +123,7 @@ async fn send_events<E>(
         if send_json(&mut to_view, &GraphEvent::Snapshot { nodes: snapshot })
             .await
             .is_err()
-            || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
+            || send_json(&mut to_view, &beat(&pulse)).await.is_err()
         {
             return;
         }
@@ -157,8 +142,11 @@ async fn send_events<E>(
                 },
                 heard = pulse.listen(&mut from_view) => match heard {
                     Heard::Frame(Some(Ok(Message::Text(text)))) => {
-                        if let Ok(pace) = serde_json::from_str(&text) {
-                            pulse.pace(beat(Some(pace)));
+                        if pulse.paced(&text) {
+                            if send_json(&mut to_view, &beat(&pulse)).await.is_err() {
+                                return;
+                            }
+                            pulse.sent();
                         }
                     }
                     Heard::Frame(Some(Ok(_))) => {}
@@ -171,7 +159,7 @@ async fn send_events<E>(
                     }
                     Heard::Beat(Beat::Send) => {
                         if to_view.send(Message::Ping(Default::default())).await.is_err()
-                            || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
+                            || send_json(&mut to_view, &beat(&pulse)).await.is_err()
                         {
                             return;
                         }

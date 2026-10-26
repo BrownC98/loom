@@ -67,7 +67,7 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     AgentEvent, CardView, EventLog, Graph, GraphEvent, IdleEnd, Kept, Launched, Listed, NewChild,
-    NodeId, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
+    NodeId, NodeView, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};

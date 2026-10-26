@@ -160,30 +160,14 @@ pub enum RelaunchOffer {
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum GraphEvent {
-    /// 연결할 때 먼저 한 번 보내는 노드 목록 전체. 화면은 가진 노드를 이 목록으로 바꾼다.
-    /// 그래서 연결이 끊긴 동안 지운 노드가 화면에 남지 않는다(2026-10-20 사람 보고: 지운 노드 카드가 데몬을 다시 띄운 뒤에도 남음).
-    Snapshot {
-        nodes: Vec<NodeView>,
-    },
-    Node(Box<NodeView>),
+    /// 노드나 그 대기가 바뀌었다. 값은 담지 않는다. 화면은 `GET /api/nodes`로 노드 목록을 다시 읽는다. 연결하면 먼저 한 번 보낸다.
+    Nodes,
     /// `child`와 그 부모 사이 간선으로 메시지가 `toward` 쪽으로 갔다.
-    Message {
-        child: NodeId,
-        toward: Toward,
-    },
+    Message { child: NodeId, toward: Toward },
     /// 부모·자식이 아닌 두 노드 사이로 메시지가 `from`에서 `to`로 갔다. 둘 사이에는 간선이 없다.
-    Hop {
-        from: NodeId,
-        to: NodeId,
-    },
-    /// 노드를 지웠다. 자식은 부모 없이 남고 `Node` 이벤트로 따로 온다.
-    Removed {
-        id: NodeId,
-    },
+    Hop { from: NodeId, to: NodeId },
     /// 이벤트 기록에 한 줄을 더했다.
-    Recorded {
-        record: Box<EventRecord>,
-    },
+    Recorded { record: Box<EventRecord> },
     /// 설정, 카드 자리, 카드 크기, 업데이트 상태 가운데 하나가 바뀌었거나 짝짓기 코드가 닫혔거나(짝지음, 다섯 번 틀림) 로그인 창의 명령이 끝났다. 값은 담지 않는다. 화면은 보고 있는 것을 다시 읽는다.
     ViewChanged,
     /// 데몬이 연결이 살아 있음을 알린다. 스냅숏 바로 뒤, `Pace`를 받은 바로 뒤, 다른 이벤트를 보내지 않은 동안 화면이 정한 간격(`Pace`)마다 보낸다.
@@ -307,13 +291,11 @@ impl Graph {
             .collect()
     }
 
-    pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
-        let db = self.lock();
-        let views = db
+    pub fn views(&self) -> rusqlite::Result<Vec<NodeView>> {
+        self.lock()
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
             .query_map([], |row| view_from_row(row, self.linked))?
-            .collect::<rusqlite::Result<_>>()?;
-        Ok((views, self.events.subscribe()))
+            .collect()
     }
 
     fn lock(&self) -> Db<'_> {
@@ -373,12 +355,8 @@ impl Graph {
         events::write(&self.lock(), entry, None)
     }
 
-    fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
-            view_from_row(row, self.linked)
-        })?;
-        let _ = self.events.send(GraphEvent::Node(Box::new(view)));
-        Ok(())
+    fn publish_nodes(&self) {
+        let _ = self.events.send(GraphEvent::Nodes);
     }
 
     pub fn mail_changed(&self) -> Notified<'_> {

@@ -116,56 +116,51 @@ async fn send_events<E>(
     app: Arc<App>,
 ) {
     let mut pulse = Pulse::new();
+    let mut rx = app.graph.changes();
+    if send_json(&mut to_view, &GraphEvent::Nodes).await.is_err()
+        || send_json(&mut to_view, &beat(&pulse)).await.is_err()
+    {
+        return;
+    }
+    pulse.sent();
     loop {
-        let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
-            return;
-        };
-        if send_json(&mut to_view, &GraphEvent::Snapshot { nodes: snapshot })
-            .await
-            .is_err()
-            || send_json(&mut to_view, &beat(&pulse)).await.is_err()
-        {
-            return;
-        }
-        pulse.sent();
-        loop {
-            tokio::select! {
-                event = rx.recv() => match event {
-                    Ok(event) => {
-                        if send_json(&mut to_view, &event).await.is_err() {
+        tokio::select! {
+            event = rx.recv() => {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(RecvError::Lagged(_)) => GraphEvent::Nodes,
+                    Err(RecvError::Closed) => return,
+                };
+                if send_json(&mut to_view, &event).await.is_err() {
+                    return;
+                }
+                pulse.sent();
+            },
+            heard = pulse.listen(&mut from_view) => match heard {
+                Heard::Frame(Some(Ok(Message::Text(text)))) => {
+                    if pulse.paced(&text) {
+                        if send_json(&mut to_view, &beat(&pulse)).await.is_err() {
                             return;
                         }
                         pulse.sent();
                     }
-                    Err(RecvError::Lagged(_)) => break,
-                    Err(RecvError::Closed) => return,
-                },
-                heard = pulse.listen(&mut from_view) => match heard {
-                    Heard::Frame(Some(Ok(Message::Text(text)))) => {
-                        if pulse.paced(&text) {
-                            if send_json(&mut to_view, &beat(&pulse)).await.is_err() {
-                                return;
-                            }
-                            pulse.sent();
-                        }
+                }
+                Heard::Frame(Some(Ok(_))) => {}
+                Heard::Frame(Some(Err(_)) | None) => return,
+                Heard::Beat(Beat::Dead) => return,
+                Heard::Beat(Beat::Ping) => {
+                    if to_view.send(Message::Ping(Default::default())).await.is_err() {
+                        return;
                     }
-                    Heard::Frame(Some(Ok(_))) => {}
-                    Heard::Frame(Some(Err(_)) | None) => return,
-                    Heard::Beat(Beat::Dead) => return,
-                    Heard::Beat(Beat::Ping) => {
-                        if to_view.send(Message::Ping(Default::default())).await.is_err() {
-                            return;
-                        }
+                }
+                Heard::Beat(Beat::Send) => {
+                    if to_view.send(Message::Ping(Default::default())).await.is_err()
+                        || send_json(&mut to_view, &beat(&pulse)).await.is_err()
+                    {
+                        return;
                     }
-                    Heard::Beat(Beat::Send) => {
-                        if to_view.send(Message::Ping(Default::default())).await.is_err()
-                            || send_json(&mut to_view, &beat(&pulse)).await.is_err()
-                        {
-                            return;
-                        }
-                    }
-                },
-            }
+                }
+            },
         }
     }
 }

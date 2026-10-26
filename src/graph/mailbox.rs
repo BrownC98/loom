@@ -205,7 +205,7 @@ impl Graph {
         tx.commit()?;
         match to_id {
             Some(to_id) => self.publish_sent(&db, from, to_id)?,
-            None => self.publish_node(&db, from)?,
+            None => self.publish_nodes(),
         }
         Ok(Sent {
             id,
@@ -219,7 +219,7 @@ impl Graph {
         from: NodeId,
         to: NodeId,
     ) -> rusqlite::Result<()> {
-        self.publish_node(db, to)?;
+        self.publish_nodes();
         if parent_of(db, from)? == Some(to) {
             self.publish_message(from, Toward::Parent);
         } else if parent_of(db, to)? == Some(from) {
@@ -361,7 +361,7 @@ impl Graph {
         let resumed = !taken.is_empty() && resume(&tx, node)?;
         tx.commit()?;
         if resumed {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
         }
         Ok(taken)
     }
@@ -383,7 +383,7 @@ impl Graph {
         let resumed = resume(&tx, node)?;
         tx.commit()?;
         if resumed || steered > 0 {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
         }
         if steered > 0 {
             self.mail.notify_waiters();
@@ -448,7 +448,7 @@ impl Graph {
         };
         tx.commit()?;
         if read > 0 {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -463,7 +463,7 @@ impl Graph {
             params![node.0, ids],
         )?;
         if released > 0 {
-            self.publish_node(&db, node)?;
+            self.publish_nodes();
         }
         Ok(())
     }
@@ -485,7 +485,7 @@ impl Graph {
             params![node.0, ids],
         )?;
         tx.commit()?;
-        self.publish_node(&db, node)?;
+        self.publish_nodes();
         Ok(again)
     }
 
@@ -537,9 +537,8 @@ impl Graph {
             }
         }
         tx.commit()?;
-        self.publish_node(&db, node)?;
-        if let Some(parent) = parent {
-            self.publish_node(&db, parent)?;
+        self.publish_nodes();
+        if parent.is_some() {
             self.publish_message(node, Toward::Parent);
         }
         Ok(())

@@ -29,6 +29,7 @@ import type { NewNode } from './gen/NewNode';
 import type { NewRepo } from './gen/NewRepo';
 import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
+import type { NodeView } from './gen/NodeView';
 import type { OpenFile } from './gen/OpenFile';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
@@ -75,6 +76,7 @@ export const savePastedFile = (file: File, node: NodeId | null) =>
     data: file,
   });
 
+export const getNodes = () => call<NodeView[]>('GET', '/api/nodes');
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}`);
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);

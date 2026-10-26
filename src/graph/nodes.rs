@@ -56,14 +56,35 @@ impl Graph {
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
+        self.insert_root(place, agent, task, false, launched, start)
+    }
+
+    pub fn add_setup(
+        &self,
+        place: &Place,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
+    ) -> Result<NodeId, Refusal> {
+        self.insert_root(place, None, None, true, launched, start)
+    }
+
+    fn insert_root(
+        &self,
+        place: &Place,
+        agent: Option<AgentId>,
+        task: Option<&str>,
+        setup: bool,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
+    ) -> Result<NodeId, Refusal> {
         let id = {
             let mut db = self.lock();
             let tx = db.transaction()?;
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
             let id = insert(&tx, &name, &agent, None, place)?;
             tx.execute(
-                "UPDATE nodes SET task = ?2 WHERE id = ?1",
-                params![id.0, task],
+                "UPDATE nodes SET task = ?2, setup = ?3 WHERE id = ?1",
+                params![id.0, task, setup],
             )?;
             keep(&tx, id, launched)?;
             tx.commit()?;
@@ -189,6 +210,14 @@ impl Graph {
                 Err(Refusal::Launch(e))
             }
         }
+    }
+
+    pub fn is_setup(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND setup)",
+            [id.0],
+            |row| row.get(0),
+        )
     }
 
     pub fn discard_finished_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -681,14 +710,16 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn remove(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn remove(&self, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(removal) = remove_in(&tx, id)? else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         tx.commit()?;
-        removal.publish(self, &db)
+        let children = removal.children.clone();
+        removal.publish(self, &db)?;
+        Ok(children)
     }
 
     pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -841,14 +872,21 @@ impl Graph {
         Ok(())
     }
 
-    pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
+    pub fn adopt(
+        &self,
+        parent: NodeId,
+        child: NodeId,
+        limits: TreeLimits,
+    ) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(adoption) = adopt_in(&tx, parent, child, limits)? else {
-            return Ok(());
+            return Ok(false);
         };
         tx.commit()?;
-        Ok(adoption.publish(self, &db)?)
+        let was_root = adoption.was_root;
+        adoption.publish(self, &db)?;
+        Ok(was_root)
     }
 
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
@@ -934,6 +972,7 @@ struct Adoption {
     parent: NodeId,
     child: NodeId,
     told_old: Option<NodeId>,
+    was_root: bool,
 }
 
 impl Adoption {
@@ -1002,6 +1041,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         parent: old,
         child,
         told_old,
+        was_root: false,
     })
 }
 
@@ -1086,6 +1126,7 @@ fn adopt_in(
         parent,
         child,
         told_old,
+        was_root: old.is_none(),
     }))
 }
 

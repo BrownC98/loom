@@ -95,18 +95,15 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root, None).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(place, start.agent(), None, &prepared.launched(), |id| {
-                self.setups.lock().unwrap().insert(id);
-                self.launch(id, prepared)
-            })
+            .add_setup(place, &prepared.launched(), |id| self.launch(id, prepared))
             .inspect_err(|_| discard())?;
         Ok(())
     }
 
-    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
-        self.graph.remove(node)?;
+    pub(super) fn remove(&self, node: NodeId) -> rusqlite::Result<Vec<NodeId>> {
+        let children = self.graph.remove(node)?;
         self.host.kill(node);
-        Ok(())
+        Ok(children)
     }
 
     pub(super) fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
@@ -121,6 +118,7 @@ impl App {
             account: _,
             inside,
             rules: _,
+            position,
         } = prepared;
         self.first_inputs.launched(id, first_input);
         self.turn_ends.launched(id);
@@ -152,7 +150,17 @@ impl App {
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         self.ptys_changed.notify_waiters();
+        if self.position_of(id).is_ok_and(|now| now != position) {
+            self.position_changed(&[id]);
+        }
         Ok(())
+    }
+
+    pub(super) fn position_of(&self, id: NodeId) -> Result<Position, Refusal> {
+        Ok(match self.graph.relations(id)?.parent {
+            Some(_) => Position::Child,
+            None => Position::Root,
+        })
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
@@ -359,9 +367,8 @@ impl App {
                 return;
             }
             app.sessions.exited(id);
-            let setup = app.setups.lock().unwrap().remove(&id);
             if exit == Exit::Command(0)
-                && (setup || !app.host.has_output(id))
+                && (app.graph.is_setup(id).unwrap_or(false) || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
                 app.host.kill(id);
@@ -665,6 +672,7 @@ impl App {
             profile,
             codex,
             opencode2,
+            position,
             first_input: match start {
                 Start::Agent { brief, .. } => !brief.trim().is_empty(),
                 Start::Command { .. } => false,
@@ -767,6 +775,7 @@ pub(super) struct Prepared {
     pub(super) profile: Option<Profile>,
     pub(super) codex: Option<Arc<CodexServer>>,
     pub(super) opencode2: Option<Arc<opencode2::Node>>,
+    pub(super) position: Position,
     pub(super) first_input: bool,
 }
 

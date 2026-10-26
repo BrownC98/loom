@@ -340,6 +340,7 @@ const STEPS: &[M] = &[
         DELETE FROM events
             WHERE entry ->> 'kind' = 'agentStateDisagreed' AND entry ->> '$.state.kind' IN ('asleep', 'ended');"#,
     ),
+    M::up("ALTER TABLE nodes ADD COLUMN setup INTEGER NOT NULL DEFAULT 0;"),
     M::up(
         "CREATE TABLE node_hosts (
             node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,

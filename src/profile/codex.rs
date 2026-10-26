@@ -9,8 +9,13 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
-use crate::protocol::{Delivery, Kind, Model, WaitKind};
+use std::path::Path;
+
+use portable_pty::CommandBuilder;
+
+use super::adapter::{Command, Facts, NoServer};
+use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 use server::CodexServer;
@@ -60,20 +65,64 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
-    let mut args = Vec::new();
-    if let Some(model) = &choice.model {
-        args.extend(["-m".into(), model.clone()]);
-    }
-    if let Some(effort) = &choice.effort {
-        let effort = serde_json::to_string(effort).expect("문자열은 늘 직렬화된다");
-        args.extend(["-c".into(), format!("model_reasoning_effort={effort}")]);
-    }
-    args
-}
+pub const CMD: &str = "codex";
 
-pub fn args(app_server: &str) -> Vec<String> {
-    vec!["--remote".into(), app_server.into()]
+pub struct Codex;
+
+impl super::adapter::Adapter for Codex {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: Some(Provider::Codex),
+            hooked: false,
+            listens_at_start: true,
+            pinned: Some(CMD),
+            usage_part: "usage/codex",
+            waiting: WAITING,
+        }
+    }
+
+    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+        match resume {
+            Some(thread) => vec!["resume".into(), thread.into()],
+            None => bypass.to_vec(),
+        }
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        let Some(Remote::Codex { url }) = at.remote else {
+            return Err(NoServer);
+        };
+        cmd.args(["--remote", url]);
+        Ok(())
+    }
+
+    fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
+        let mut args = Vec::new();
+        if let Some(model) = &choice.model {
+            args.extend(["-m".into(), model.clone()]);
+        }
+        if let Some(effort) = &choice.effort {
+            let effort = serde_json::to_string(effort).expect("문자열은 늘 직렬화된다");
+            args.extend(["-c".into(), format!("model_reasoning_effort={effort}")]);
+        }
+        Some(args)
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn install(&self, _: &Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
+        let installed = version_output.split_whitespace().last()?;
+        (installed != PINNED_VERSION).then(|| VersionMismatch {
+            installed: installed.to_owned(),
+            pinned: PINNED_VERSION.to_owned(),
+        })
+    }
 }
 
 pub fn server_args(launch: Launch) -> Vec<String> {
@@ -114,15 +163,7 @@ pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
 }
 
 pub fn installed_version() -> Option<String> {
-    super::installed_version("codex")
-}
-
-pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
-    let installed = version_output.split_whitespace().last()?;
-    (installed != PINNED_VERSION).then(|| VersionMismatch {
-        installed: installed.to_owned(),
-        pinned: PINNED_VERSION.to_owned(),
-    })
+    super::installed_version(CMD)
 }
 
 pub async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>

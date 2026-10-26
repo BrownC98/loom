@@ -4,8 +4,11 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Handed, HookEvent, Report, Shown, Signals, Take};
-use crate::protocol::{Delivery, Kind, Model, WaitKind};
+use portable_pty::CommandBuilder;
+
+use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
@@ -52,15 +55,55 @@ const ALLOWED: [&str; 20] = [
     "Bash(loom verdict:*)",
 ];
 
-pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
-    let mut args = Vec::new();
-    if let Some(model) = &choice.model {
-        args.extend(["--model".into(), model.clone()]);
+pub struct Claude;
+
+impl Adapter for Claude {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: Some(Provider::Claude),
+            hooked: true,
+            listens_at_start: true,
+            pinned: None,
+            usage_part: "usage/claude",
+            waiting: WAITING,
+        }
     }
-    if let Some(effort) = &choice.effort {
-        args.extend(["--effort".into(), effort.clone()]);
+
+    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+        resume
+            .into_iter()
+            .flat_map(|session| ["--resume".into(), session.into()])
+            .chain(bypass.iter().cloned())
+            .collect()
     }
-    args
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        cmd.args(args(at.plugin, at.launch, at.brief));
+        Ok(())
+    }
+
+    fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
+        let mut args = Vec::new();
+        if let Some(model) = &choice.model {
+            args.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(effort) = &choice.effort {
+            args.extend(["--effort".into(), effort.clone()]);
+        }
+        Some(args)
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn install(&self, _: &Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
 }
 
 pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {

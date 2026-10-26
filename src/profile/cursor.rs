@@ -3,8 +3,11 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Handed, HookEvent, Report, Shown, Signals, Take};
-use crate::protocol::{Delivery, Kind, Model, WaitKind};
+use portable_pty::CommandBuilder;
+
+use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -73,7 +76,7 @@ const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
 
-pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
+fn write_plugin(dir: &Path) -> std::io::Result<()> {
     let manifest = dir.join(".cursor-plugin").join("plugin.json");
     std::fs::create_dir_all(manifest.parent().expect("파일 경로에는 부모가 있다"))?;
     std::fs::write(manifest, MANIFEST)?;
@@ -168,11 +171,61 @@ fn hooks() -> Value {
     })
 }
 
-pub fn args(plugin: &Path) -> Vec<String> {
-    vec!["--plugin-dir".into(), plugin.to_string_lossy().into_owned()]
+pub struct Cursor;
+
+impl Adapter for Cursor {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: None,
+            hooked: true,
+            listens_at_start: false,
+            pinned: None,
+            usage_part: "usage/cursor",
+            waiting: WAITING,
+        }
+    }
+
+    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+        resume
+            .into_iter()
+            .flat_map(|session| ["--resume".into(), session.into()])
+            .chain(bypass.iter().cloned())
+            .collect()
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        cmd.args([
+            "--plugin-dir".into(),
+            at.plugin.to_string_lossy().into_owned(),
+        ]);
+        cmd.env(POSITION_ENV, position_value(at.launch.position));
+        cmd.env(SKILLS_ENV, skills_value(at.launch.skills));
+        Ok(())
+    }
+
+    fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
+        let model = match (&choice.model, &choice.effort) {
+            (Some(model), Some(effort)) => format!("{model}-{effort}"),
+            (Some(model), None) => model.clone(),
+            (None, _) => return None,
+        };
+        Some(vec!["--model".into(), model])
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn install(&self, dir: &Path) -> std::io::Result<()> {
+        write_plugin(dir)
+    }
+
+    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
 }
 
-pub fn position_value(position: Position) -> &'static str {
+fn position_value(position: Position) -> &'static str {
     match position {
         Position::Root => "root",
         Position::Child => "child",
@@ -230,15 +283,6 @@ pub fn usage() -> String {
 
 pub fn rules(launch: Launch) -> Value {
     json!({ "additional_context": crate::skills::always_on(launch) })
-}
-
-pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Option<Vec<String>> {
-    let model = match (&choice.model, &choice.effort) {
-        (Some(model), Some(effort)) => format!("{model}-{effort}"),
-        (Some(model), None) => model.clone(),
-        (None, _) => return None,
-    };
-    Some(vec!["--model".into(), model])
 }
 
 pub struct Hook {

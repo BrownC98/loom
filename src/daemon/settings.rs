@@ -132,7 +132,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
 }
 
 async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismatch> {
-    let reads = profile::PINNED.into_iter().filter_map(|(profile, cmd)| {
+    let reads = profile::pinned().into_iter().filter_map(|(profile, cmd)| {
         let program = inside.find(&[cmd.to_owned()])?.to_owned();
         let mut cmd = tokio::process::Command::from(
             inside.server(&[program.as_str(), "--version"], &[] as &[(&str, &str)]),

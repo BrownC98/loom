@@ -16,7 +16,12 @@ use crate::protocol::{
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
+use portable_pty::CommandBuilder;
+
+use super::adapter::{Command, Facts, NoServer};
+use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
+use crate::protocol::ModelChoice;
+use crate::screen::{Dialog, Grammar};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
@@ -36,22 +41,58 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-pub fn args(url: &str, session: &str) -> Vec<String> {
-    vec![
-        "--server".into(),
-        url.into(),
-        "--session".into(),
-        session.into(),
-    ]
-}
+pub struct OpenCode2;
 
-pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
-    let last = version_output.split_whitespace().last()?;
-    let installed = last.strip_prefix('v').unwrap_or(last);
-    (installed != PINNED_VERSION).then(|| VersionMismatch {
-        installed: installed.to_owned(),
-        pinned: PINNED_VERSION.to_owned(),
-    })
+impl super::adapter::Adapter for OpenCode2 {
+    fn facts(&self) -> Facts {
+        Facts {
+            provider: None,
+            hooked: false,
+            listens_at_start: true,
+            pinned: Some(CMD),
+            usage_part: "usage/opencode2",
+            waiting: WAITING,
+        }
+    }
+
+    fn leading_args(&self, _: Option<&str>, bypass: &[String]) -> Vec<String> {
+        bypass.to_vec()
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+        let Some(Remote::OpenCode2 {
+            url,
+            session,
+            password,
+        }) = at.remote
+        else {
+            return Err(NoServer);
+        };
+        cmd.args(["--server", url, "--session", session]);
+        cmd.env(PASSWORD_ENV, password);
+        Ok(())
+    }
+
+    fn choice_args(&self, _: &ModelChoice) -> Option<Vec<String>> {
+        None
+    }
+
+    fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
+        None
+    }
+
+    fn install(&self, _: &Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
+        let last = version_output.split_whitespace().last()?;
+        let installed = last.strip_prefix('v').unwrap_or(last);
+        (installed != PINNED_VERSION).then(|| VersionMismatch {
+            installed: installed.to_owned(),
+            pinned: PINNED_VERSION.to_owned(),
+        })
+    }
 }
 
 #[derive(Deserialize)]

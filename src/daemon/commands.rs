@@ -28,6 +28,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/question-box", post(agent_question_box))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
+        .route("/api/agent/detach", post(agent_detach))
         .route("/api/agent/rm", post(agent_remove))
         .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
         .route(
@@ -148,6 +149,11 @@ pub struct AckRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct AdoptRequest {
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DetachRequest {
     pub name: String,
 }
 

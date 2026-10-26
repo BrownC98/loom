@@ -612,6 +612,7 @@ const ko: typeof en = {
       mailboxFull_nameless: '메일함이 가득 찼습니다. 받는 노드가 `loom wait`로 읽은 뒤 다시 보내십시오.',
       notRelated: '{{value}}: 부모나 자식 노드가 아닙니다. 조정·중단은 부모와 자식 사이에만 보낼 수 있습니다. 조정은 같은 브랜치의 검토자끼리도 보낼 수 있습니다. `--steer`·`--interrupt` 없이 `loom note`로 보내십시오.',
       notRelated_nameless: '부모나 자식 노드가 아닙니다. 조정·중단은 부모와 자식 사이에만 보낼 수 있습니다. 조정은 같은 브랜치의 검토자끼리도 보낼 수 있습니다. `--steer`·`--interrupt` 없이 `loom note`로 보내십시오.',
+      alreadyRoot: '{{value}}: 이미 뿌리 노드입니다. 부모가 없습니다.',
       notChild: '{{value}}: 자식 노드가 아닙니다. 자기 자식만 지우거나 남길 수 있습니다.',
       noResume: '{{value}}: 셸·명령 노드라 새 프로세스로 이을 에이전트 대화가 없습니다.',
       noLink: '{{value}}: loom이 이 에이전트와 메시지를 주고받지 못합니다. claude, codex, cursor, opencode2 가운데 하나를 고릅니다.',

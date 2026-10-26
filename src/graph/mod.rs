@@ -249,14 +249,6 @@ impl Graph {
         place_of(&self.lock(), id)
     }
 
-    pub fn branch_renamed(&self, repo: RepoId, from: &str, to: &str) -> rusqlite::Result<()> {
-        self.lock().execute(
-            "UPDATE nodes SET branched_from = ?3 WHERE repo = ?1 AND branched_from = ?2",
-            params![repo.0, from, to],
-        )?;
-        Ok(())
-    }
-
     pub fn nodes_in(&self, worktree: &str) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare("SELECT id FROM nodes WHERE worktree = ?1 ORDER BY id")?

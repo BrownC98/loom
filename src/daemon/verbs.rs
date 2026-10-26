@@ -55,21 +55,18 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
             let workspace = app.workspace(&repo).await?;
-            let parent_branch = worktree::find(&repo, &place.worktree).await?.branch;
             let from = std::path::Path::new(&place.worktree);
             let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
             let made = worktree::create(&repo, from, &workspace, branch, "HEAD", unowned).await?;
-            Some((repo, made, parent_branch))
+            Some((repo, made))
         }
         None => None,
     };
-    let made = worktree.as_ref().map(|(_, made, _)| made.as_str());
-    let branched_from = worktree.as_ref().and_then(|(_, _, from)| from.as_deref());
+    let made = worktree.as_ref().map(|(_, made)| made.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let child = NewChild {
         name: &name,
         worktree: made,
-        branched_from,
         agent: start.agent(),
         brief: &queued_brief,
         role,
@@ -483,6 +480,21 @@ pub(super) async fn agent_adopt(
             Ok(app.graph.adopt(parent, child, limits)?)
         });
     traced(&app, parent, Attempt::verb(&req.name), &via, adopted)
+}
+
+pub(super) async fn agent_detach(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<DetachRequest>,
+) -> Result<Json<()>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let via = gate::via(&headers, "/api/agent/detach");
+    let detached = app
+        .graph
+        .any_node(caller, &req.name)
+        .and_then(|child| app.graph.detach(child))
+        .map_err(Problem::from);
+    traced(&app, caller, Attempt::verb(&req.name), &via, detached)
 }
 
 pub(super) async fn agent_remove(

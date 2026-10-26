@@ -58,8 +58,6 @@ pub enum GateVerb {
 }
 
 impl GateVerb {
-    pub const ALL: [GateVerb; 3] = [GateVerb::Ready, GateVerb::Verdict, GateVerb::Queue];
-
     pub fn command(self) -> &'static str {
         match self {
             GateVerb::Ready => "loom ready",
@@ -122,15 +120,20 @@ impl GateCall {
         }
     }
 
-    const ALL: [GateCall; 7] = [
-        GateCall::Ready,
-        GateCall::Verdict(Judgment::Pass),
-        GateCall::Verdict(Judgment::Block),
-        GateCall::Requeue,
-        GateCall::End(MergeEnd::Merged),
-        GateCall::End(MergeEnd::Rework),
-        GateCall::End(MergeEnd::Failed),
-    ];
+    const ALL: [GateCall; 7] = match GateCall::Ready {
+        GateCall::Ready
+        | GateCall::Verdict(Judgment::Pass | Judgment::Block)
+        | GateCall::Requeue
+        | GateCall::End(MergeEnd::Merged | MergeEnd::Rework | MergeEnd::Failed) => [
+            GateCall::Ready,
+            GateCall::Verdict(Judgment::Pass),
+            GateCall::Verdict(Judgment::Block),
+            GateCall::Requeue,
+            GateCall::End(MergeEnd::Merged),
+            GateCall::End(MergeEnd::Rework),
+            GateCall::End(MergeEnd::Failed),
+        ],
+    };
 }
 
 /// 지금 상태에서 할 수 없는 관문 호출. 에이전트는 이 글을 보고 같은 턴에 맞는 동사를 부른다.
@@ -188,15 +191,14 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
 }
 
 fn allowed(state: GateState) -> Vec<GateVerb> {
-    GateVerb::ALL
-        .into_iter()
-        .filter(|verb| sender(*verb) != Sender::Loom)
-        .filter(|verb| {
-            GateCall::ALL
-                .iter()
-                .any(|call| call.verb() == *verb && next(state, *call).is_some())
-        })
-        .collect()
+    let mut verbs = Vec::new();
+    for call in GateCall::ALL {
+        let verb = call.verb();
+        if sender(verb) != Sender::Loom && next(state, call).is_some() && !verbs.contains(&verb) {
+            verbs.push(verb);
+        }
+    }
+    verbs
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -689,7 +691,9 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
+    pub const ALL: &[Kind] = match Kind::Queue {
+        Kind::Queue | Kind::Steer | Kind::Interrupt => &[Kind::Queue, Kind::Steer, Kind::Interrupt],
+    };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -710,102 +714,32 @@ pub const BATCH_SEPARATOR: &str = "\n\n";
 impl Delivery {
     pub fn text(&self) -> String {
         let mode = match self.kind {
-            Kind::Queue => None,
-            Kind::Steer => Some("steer"),
+            Kind::Queue => "",
+            Kind::Steer => ", mode: steer",
             Kind::Interrupt => {
-                Some("interrupt. Stop your current work and do what this message says")
+                ", mode: interrupt. Stop your current work and do what this message says"
             }
         };
-        message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
+        let note = MessageKind::Note;
+        let what = self.what.as_ref().unwrap_or(&note);
+        let from = if what.by_loom() { LOOM } else { &self.from };
+        let mut lines = vec![format!(
+            "loom message #{} (from: {from}, kind: {}{mode})",
+            self.id.0,
+            what.word()
+        )];
+        let repeated = what.repeats_file(&self.body);
+        lines.extend(
+            what.fields()
+                .into_iter()
+                .filter(|(name, _)| !(repeated && *name == Field::File))
+                .map(|(name, value)| format!("{}: {value}", name.word())),
+        );
+        if !self.body.is_empty() {
+            lines.push(self.body.clone());
+        }
+        lines.join("\n")
     }
-}
-
-pub fn message_text(
-    id: u32,
-    from: &str,
-    what: Option<&MessageKind>,
-    mode: Option<&str>,
-    body: &str,
-) -> String {
-    let note = MessageKind::Note;
-    let what = what.unwrap_or(&note);
-    let from = if what.by_loom() { LOOM } else { from };
-    let mode = mode.map(|m| format!(", mode: {m}")).unwrap_or_default();
-    let mut lines = vec![format!(
-        "loom message #{id} (from: {from}, kind: {}{mode})",
-        what.word()
-    )];
-    let repeated = what.repeats_file(body);
-    lines.extend(
-        what.fields()
-            .into_iter()
-            .filter(|(name, _)| !(repeated && *name == Field::File))
-            .map(|(name, value)| format!("{}: {value}", name.word())),
-    );
-    if !body.is_empty() {
-        lines.push(body.to_owned());
-    }
-    lines.join("\n")
-}
-
-pub struct GateFacts {
-    pub branch: String,
-    pub head: String,
-    pub worktree: String,
-    pub target: String,
-    pub findings: Option<String>,
-    pub reviewer: Option<String>,
-    pub sha: Option<String>,
-    pub cause: Option<String>,
-    pub log: Option<String>,
-}
-
-pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
-    let GateFacts {
-        branch,
-        head,
-        worktree,
-        target,
-        findings,
-        reviewer,
-        sha,
-        cause,
-        log,
-    } = facts;
-    Some(match call {
-        GateCall::Ready => MessageKind::Ready {
-            branch,
-            head,
-            worktree,
-            target,
-        },
-        GateCall::Verdict(judgment) => MessageKind::Verdict {
-            branch,
-            head,
-            judgment,
-            findings,
-            reviewer,
-        },
-        GateCall::Requeue => return None,
-        GateCall::End(MergeEnd::Merged) => MessageKind::Merged {
-            branch,
-            head,
-            sha: sha.unwrap_or_default(),
-            log,
-        },
-        GateCall::End(MergeEnd::Rework) => MessageKind::Rework {
-            branch,
-            head,
-            cause,
-            log,
-        },
-        GateCall::End(MergeEnd::Failed) => MessageKind::Failed {
-            branch,
-            head,
-            cause,
-            log,
-        },
-    })
 }
 
 pub struct KindWord {
@@ -883,7 +817,7 @@ pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
 
-/// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
+/// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`stops`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -911,12 +845,12 @@ pub enum Finding {
 }
 
 impl Finding {
-    pub fn end(&self) -> Option<MergeEnd> {
+    pub fn stops(&self) -> bool {
         match self {
             Finding::RawGateWord { .. }
             | Finding::HeadMoved { .. }
-            | Finding::SourceDirty { .. } => Some(MergeEnd::Rework),
-            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => None,
+            | Finding::SourceDirty { .. } => true,
+            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => false,
         }
     }
 }
@@ -965,10 +899,6 @@ pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
             commit: (*sha).to_owned(),
         })
         .collect()
-}
-
-pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
-    findings.iter().find_map(Finding::end)
 }
 
 #[macro_export]

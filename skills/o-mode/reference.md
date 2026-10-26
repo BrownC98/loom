@@ -7,6 +7,7 @@ Procedures from [o-mode](SKILL.md) for rare tasks. Read this file when you do on
 | Task | Command or action |
 |---|---|
 | Handover | In the new lead, `loom adopt <coordinator name>`. Look at the relations and the kept messages |
+| Make a node a root again | `loom detach <name>`. Its `loom ask` then goes to the human inbox. Messages already sent stay with the old parent |
 | Send an action to all children | `loom note` to each live child. A coordinator sends the action on to its own children |
 | Reassign after a failure | Make sure that the old node stopped, then spawn a node with a new name. In the brief, write the kept branch and results |
 

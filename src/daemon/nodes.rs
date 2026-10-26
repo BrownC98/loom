@@ -6,6 +6,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/nodes", post(create_node))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
+        .route("/api/nodes/{id}/detach", post(detach_node))
         .route("/api/nodes/{id}/name", put(rename_node))
         .route("/api/nodes/{id}/steer-queued", post(steer_queued))
         .route(
@@ -92,6 +93,14 @@ async fn adopt_node(
 ) -> Result<Json<()>, Problem> {
     let limits = app.tree_limits()?;
     app.graph.adopt(NodeId(parent), NodeId(id), limits)?;
+    Ok(Json(()))
+}
+
+async fn detach_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.detach(NodeId(id))?;
     Ok(Json(()))
 }
 

@@ -610,6 +610,7 @@ const en = {
       mailboxFull_nameless: 'The mailbox is full. Send again after the receiver reads it with `loom wait`.',
       notRelated: '{{value}}: not my parent or child. Steer and interrupt go only between parent and child; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt.',
       notRelated_nameless: 'Not my parent or child. Steer and interrupt go only between parent and child; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt.',
+      alreadyRoot: '{{value}}: already a root node. It has no parent.',
       notChild: '{{value}}: not my child. I can remove, relaunch or keep only my own children.',
       noResume: '{{value}}: this node runs a shell or command, which has no agent session to continue in a new process.',
       noLink: '{{value}}: loom has no message link for this agent. Pick claude, codex, cursor, or opencode2.',

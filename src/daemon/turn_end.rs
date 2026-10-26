@@ -118,6 +118,16 @@ impl TurnEnds {
         gated_repo: impl FnOnce() -> bool,
         unreported_root: impl FnOnce() -> bool,
     ) -> TurnEnd {
+        let flags = match self.graph.take_turn_flags(node) {
+            Ok(flags) => flags,
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0);
+                return TurnEnd {
+                    reply: None,
+                    nudge: None,
+                };
+            }
+        };
         let reply = self.said.lock().unwrap().remove(&node);
         self.said_at.lock().unwrap().remove(&node);
         let mut current = self.turn.lock().unwrap();
@@ -126,10 +136,6 @@ impl TurnEnds {
             ended.entry(node).or_default().insert(turn);
         }
         drop(current);
-        let flags = self.graph.take_turn_flags(node).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0);
-            0
-        });
         let (human, called, nudged, asked) = (
             flags & HUMAN != 0,
             flags & CALLED != 0,

@@ -1,12 +1,16 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, NoServer};
+use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
-use crate::protocol::{Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL};
+use crate::accounts::{AccountId, Site};
+use crate::protocol::{
+    Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Session,
+};
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 
@@ -41,10 +45,10 @@ impl Adapter for Pi {
         }
     }
 
-    fn leading_args(&self, resume: Option<&str>, bypass: &[String]) -> Vec<String> {
+    fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {
         resume
             .into_iter()
-            .flat_map(|session| ["--session".into(), session.into()])
+            .flat_map(|session| ["--session".into(), session.0.clone()])
             .chain(bypass.iter().cloned())
             .collect()
     }
@@ -70,6 +74,23 @@ impl Adapter for Pi {
 
     fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
         None
+    }
+
+    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
+        Ok(())
+    }
+
+    fn end_detached<'a>(
+        &'a self,
+        _: &'a Session,
+        _: &'a Site,
+        _: Option<&'a AccountId>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn record(&self, session: &Session) -> Option<PathBuf> {
+        Some(PathBuf::from(&session.0))
     }
 }
 
@@ -322,7 +343,7 @@ impl HookEvent for Request {
             hook: event.name().to_owned(),
             model: event.model(),
             take: event.take(),
-            transcript: event.transcript(),
+            session: event.transcript().map(Session),
             prompt: event.prompt().map(str::to_owned),
             human_input: event.prompt().is_some(),
             turn_end: event.turn_ends(),

@@ -135,7 +135,7 @@ fn step(signals: &Signals) -> Step {
     match signals.take {
         None => Step::Skip,
         Some(Take::WhenIdle) => Step::Idle(IdleRequest {
-            transcript: signals.transcript.clone(),
+            session: signals.session.clone(),
             rate_limited: signals.rate_limited,
             turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
                 reply,
@@ -146,7 +146,7 @@ fn step(signals: &Signals) -> Step {
             hook: signals.hook.clone(),
             kinds: kinds.to_vec(),
             limit_bytes: BATCH_LIMIT_BYTES,
-            transcript: signals.transcript.clone(),
+            session: signals.session.clone(),
             human_input: signals.human_input,
             prompt: signals.prompt.clone(),
             turn: signals.turn.clone(),

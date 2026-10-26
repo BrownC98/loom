@@ -1,4 +1,5 @@
 mod agent;
+mod link;
 mod refusal;
 mod waits;
 
@@ -10,6 +11,7 @@ use ts_rs::TS;
 pub use agent::{
     AgentId, InsideError, LaunchError, Model, ModelChoice, Provider, ServerLink, StartDigests,
 };
+pub use link::Session;
 pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
 };

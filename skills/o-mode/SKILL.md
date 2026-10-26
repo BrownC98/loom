@@ -20,7 +20,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 - To change the agent of a running node, use `loom relaunch <target> --agent <id>` (any node); do not remove and spawn again. For new nodes, only the human changes the role table.
 - A high-risk edit scope goes to the high-risk role. That alone needs no worker.
 - The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one coordinator in a new worktree. It keeps the work context: current work, children, decisions, waiting approvals. It reads only the coordinator's `done` and the gate's merged and failed results, not result files.
-- The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
+- The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its facts short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
 - A coordinator does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the coordinator only reads and reviews there. It also takes pieces that wait for one product decision.
 - Write unique names in the human's language. A branch has the name of its work (`알림표시통일`), a node `<role> <work>`, the lead `<repository> <role>`.
 - A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
@@ -37,8 +37,10 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 
 ## Merge and cleanup
 
-- Merge only with `loom ready`, `loom verdict` and `loom fail`. Do not merge or push to main by hand.
+- Merge only with `loom ready` and `loom verdict`. Do not merge or push to main by hand.
 - The owner commits, does the checks and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
+- To change a branch before the queue takes it, commit and call `loom ready` again. The new round replaces the open round, and its reviewers get it.
+- A verdict names the head that the reviewer judged: `loom verdict <branch> <head> pass|block`. Copy the head from the round message that loom sends. loom refuses a verdict for another head.
 - A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review. A block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.
 - The gate gives a high-risk branch to main (storage, concurrency, delivery, auth, process lifecycle, module contracts) two reviewers, else one; if unsure, two. The queue waits for all live reviewers, so spawn all of them before the first verdict.
 - After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. So call `loom done` before `loom ready`.

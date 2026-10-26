@@ -13,12 +13,6 @@ pub(super) async fn agent_spawn(
 }
 
 async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<NodeId, Problem> {
-    let missing = task::missing_heads(&req.brief);
-    if !req.brief.trim().is_empty() && !missing.is_empty() {
-        return Err(
-            Refusal::MissingHeads(missing.iter().map(|h| (*h).to_owned()).collect()).into(),
-        );
-    }
     let place = app.graph.place_of(parent).map_err(Refusal::from)?;
     let tasks = app.tasks_for(&place.worktree).await?;
     let (dir, fresh) = match &req.worktree {
@@ -31,26 +25,11 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     };
     let given = req.brief.clone();
     let name = req.run.name();
-    let (start, queued_brief, role, review) = match &req.run {
-        SpawnRun::Command { line, .. } => (
-            Start::Command { line: line.clone() },
-            req.brief.clone(),
-            None,
-            None,
-        ),
-        SpawnRun::Role { role, .. } => (
-            role_start(app, role, &req.brief)?,
-            String::new(),
-            Some(role.trim()),
-            None,
-        ),
-        SpawnRun::Review { role, branch } => (
-            role_start(app, role, &req.brief)?,
-            String::new(),
-            Some(role.trim()),
-            Some(branch.trim()),
-        ),
+    let (role, review) = match &req.run {
+        SpawnRun::Role { role, .. } => (role.trim(), None),
+        SpawnRun::Review { role, branch } => (role.trim(), Some(branch.trim())),
     };
+    let start = role_start(app, role, &req.brief)?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
@@ -68,7 +47,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         name: &name,
         worktree: made,
         agent: start.agent(),
-        brief: &queued_brief,
         role,
         task: &dir.folder,
         review,

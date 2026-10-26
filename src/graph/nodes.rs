@@ -5,7 +5,7 @@ use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
-    Work, from_json, mailbox, name_of, node_state, note_state, optional_json, parent_of,
+    Work, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
     place_label, place_of, process_of, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
@@ -18,8 +18,7 @@ pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
-    pub brief: &'a str,
-    pub role: Option<&'a str>,
+    pub role: &'a str,
     pub task: &'a str,
     pub review: Option<&'a str>,
 }
@@ -106,15 +105,11 @@ impl Graph {
             name,
             worktree,
             agent,
-            brief,
             role,
             task,
             review,
         } = child;
         let name = checked_name(name)?;
-        if brief.len() > BRIEF_LIMIT_BYTES {
-            return Err(Refusal::BriefTooLong(brief.len()));
-        }
         let mut db = self.lock();
         let tx = db.transaction()?;
         if let Some(max) = limits.max_depth
@@ -124,14 +119,12 @@ impl Graph {
         }
         check_children(&tx, parent, limits)?;
         let place = place_of(&tx, parent)?;
-        match (review, role) {
-            (Some(branch), role) => {
-                super::gate::check_review(&tx, parent, place.repo, branch, role)?;
-            }
-            (None, Some(role)) if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
+        match review {
+            Some(branch) => super::gate::check_review(&tx, parent, place.repo, branch, role)?,
+            None if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
                 return Err(Refusal::LeadChildNeedsWorktree(role.to_owned()));
             }
-            (None, _) => {}
+            None => {}
         }
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?2
@@ -151,25 +144,10 @@ impl Graph {
             "UPDATE nodes SET role = ?2, task = ?3, review = ?4 WHERE id = ?1",
             params![id.0, role, task, review],
         )?;
-        let has_brief = !brief.trim().is_empty();
-        if has_brief {
-            mailbox::enqueue(
-                &tx,
-                parent,
-                Some(id),
-                Kind::Queue,
-                &MessageKind::Note,
-                brief,
-                Default::default(),
-            )?;
-        }
         keep(&tx, id, launched)?;
         tx.commit()?;
         drop(db);
         self.started(id, start)?;
-        if has_brief {
-            self.publish_message(id, Toward::Child);
-        }
         Ok(id)
     }
 
@@ -254,16 +232,29 @@ impl Graph {
     }
 
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
-        let what = |node| MessageKind::Exited {
-            node,
-            code: Some(code),
+        let what = |node| {
+            Some(MessageKind::Exited {
+                node,
+                code: Some(code),
+            })
         };
         self.end_process(id, ProcessOutcome::Exited { code }, what, String::new())
     }
 
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
-        let what = |node| MessageKind::Exited { node, code: None };
+        let what = |node| Some(MessageKind::Exited { node, code: None });
         self.end_process(id, ProcessOutcome::Lost, what, String::new())
+    }
+
+    pub fn host_gone(&self, id: NodeId) -> rusqlite::Result<()> {
+        self.end_process(id, ProcessOutcome::HostGone, |_| None, String::new())
+    }
+
+    pub fn hosts_gone(&self) -> rusqlite::Result<Vec<NodeId>> {
+        self.lock()
+            .prepare("SELECT id FROM nodes WHERE process ->> 'kind' = 'hostGone' ORDER BY id")?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect()
     }
 
     pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
@@ -271,7 +262,7 @@ impl Graph {
         while !output.is_char_boundary(start) {
             start += 1;
         }
-        let what = |node| MessageKind::SetupFailed { node, code };
+        let what = |node| Some(MessageKind::SetupFailed { node, code });
         let output = output[start..].to_owned();
         self.end_process(id, ProcessOutcome::SetupFailed { code }, what, output)
     }
@@ -280,7 +271,7 @@ impl Graph {
         &self,
         id: NodeId,
         ended: ProcessOutcome,
-        what: impl FnOnce(String) -> MessageKind,
+        what: impl FnOnce(String) -> Option<MessageKind>,
         notice: String,
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
@@ -291,30 +282,34 @@ impl Graph {
         let tx = db.transaction()?;
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
-            "UPDATE nodes SET process = ?2, wait = NULL WHERE id = ?1 AND process IS NULL",
+            "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL WHERE id = ?1 AND process IS NULL",
             params![id.0, to_json(&ended)],
         )?;
         if changed == 0 {
             return Ok(());
         }
+        hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
         note_state(&tx, id, state.clone())?;
-        if state == NodeState::Running {
-            let what = what(name_of(&tx, id)?);
+        let what = match state {
+            NodeState::Running => what(name_of(&tx, id)?),
+            _ => None,
+        };
+        if let Some(what) = &what {
             mailbox::enqueue(
                 &tx,
                 id,
                 parent,
                 Kind::Queue,
-                &what,
+                what,
                 &notice,
                 Default::default(),
             )?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
-        if state == NodeState::Running
+        if what.is_some()
             && let Some(parent) = parent
         {
             self.publish_node(&db, parent)?;
@@ -348,12 +343,13 @@ impl Graph {
         agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL
-             WHERE id = ?1 AND process IS NULL AND state ->> 'kind' = 'done'",
+             WHERE id = ?1 AND process IS NULL AND sleeping = 1 AND state ->> 'kind' = 'done'",
             params![id.0, to_json(&ProcessOutcome::Asleep)],
         )?;
         if changed == 0 {
             return Ok(false);
         }
+        hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         tx.commit()?;
         self.prompts.lock().unwrap().remove(&id);
@@ -361,16 +357,22 @@ impl Graph {
         Ok(true)
     }
 
-    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn begin_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 1 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 1 WHERE id = ?1 AND sleeping = 0 AND process IS NULL",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
-    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<()> {
+    pub fn cancel_sleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock()
-            .execute("UPDATE nodes SET sleeping = 0 WHERE id = ?1", [id.0])
-            .map(drop)
+            .execute(
+                "UPDATE nodes SET sleeping = 0 WHERE id = ?1 AND sleeping = 1",
+                [id.0],
+            )
+            .map(|changed| changed > 0)
     }
 
     pub fn sleeping(&self, id: NodeId) -> rusqlite::Result<bool> {
@@ -422,7 +424,7 @@ impl Graph {
         agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, state = ?3
-             WHERE id = ?1 AND process IS NOT NULL AND state ->> 'kind' = 'done'",
+             WHERE id = ?1 AND process ->> 'kind' IN ('asleep', 'hostGone')",
             params![
                 id.0,
                 to_json(&ProcessOutcome::Lost),

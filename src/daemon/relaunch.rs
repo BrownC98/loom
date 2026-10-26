@@ -32,10 +32,13 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
+const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
+     Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
 const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
-const CODEX_ROLLOUT_DEPTH: usize = 5;
+const CODEX_DATE_DIRS: usize = 3;
+const CODEX_ROLLOUT_DEPTH: usize = CODEX_DATE_DIRS + 2;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
 
@@ -255,14 +258,20 @@ impl App {
             .ended(id)
             .map_err(internal)?
             .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
+        let ended = self.graph.process(id).map_err(internal)?;
+        let asleep = ended == Some(ProcessOutcome::Asleep);
+        let waiting = asleep || ended == Some(ProcessOutcome::HostGone);
         if profile_of(&node).is_none() {
+            if waiting {
+                self.graph.sleep_lost(id).map_err(internal)?;
+            }
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let asleep = self.graph.process(id).map_err(internal)? == Some(ProcessOutcome::Asleep);
-        let notice = match asleep {
-            true => WOKEN_NOTICE,
-            false => REVIVED_NOTICE,
+        let notice = match ended {
+            Some(ProcessOutcome::Asleep) => WOKEN_NOTICE,
+            Some(ProcessOutcome::HostGone) => HOST_GONE_NOTICE,
+            _ => REVIVED_NOTICE,
         };
         let running = self.change_plan(id, |now| match now.pending {
             Some((phase, kept)) if phase.started() => (Some((phase, kept)), true),
@@ -297,7 +306,7 @@ impl App {
         .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
         self.finish_plan(id);
         let kept = match &result {
-            Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
+            Err(ReviveError::NoSession(_)) if waiting => self.graph.sleep_lost(id),
             Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
             _ => Ok(()),
         };
@@ -349,7 +358,10 @@ impl App {
             Queued::Ended => self.revive_ended(node.id, plan).await,
             Queued::Refused => Err(Refusal::Relaunching(node.name).into()),
             Queued::Kept(Phase::AtTurnEnd) | Queued::Added(Phase::AtTurnEnd) => {
-                Ok(Relaunched::AtTurnEnd)
+                match self.run_unless_busy(node.id) {
+                    true => Ok(Relaunched::Now),
+                    false => Ok(Relaunched::AtTurnEnd),
+                }
             }
             Queued::Added(Phase::Running) => {
                 let app = self.clone();
@@ -432,9 +444,7 @@ impl App {
                     );
                 }
             }
-            if self.at_turn_end(node.id) {
-                self.server_turn_ended(node.id);
-            }
+            self.run_unless_busy(node.id);
         }
         Ok(())
     }
@@ -462,21 +472,31 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn server_turn_ended(self: &Arc<Self>, node: NodeId) {
-        let server = self.codex.lock().unwrap().contains_key(&node)
-            || self.opencode2.lock().unwrap().contains_key(&node);
-        if server && !self.busy(node) {
-            self.run_at_turn_end(node, None);
-        }
+    pub(super) fn run_unless_busy(self: &Arc<Self>, node: NodeId) -> bool {
+        self.run_claimed(node, None, |now| !now.busy)
     }
 
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {
-        let plan = self.change_plan(node, |now| match now.pending {
-            Some((Phase::AtTurnEnd, plan)) => (Some((Phase::Running, plan.clone())), Some(plan)),
-            kept => (kept, None),
+        self.run_claimed(node, guard, |_| true);
+    }
+
+    fn run_claimed(
+        self: &Arc<Self>,
+        node: NodeId,
+        guard: Option<Guard>,
+        ready: impl FnOnce(&crate::graph::Planned) -> bool,
+    ) -> bool {
+        let plan = self.change_plan(node, |now| {
+            let ready = ready(&now);
+            match now.pending {
+                Some((Phase::AtTurnEnd, plan)) if ready => {
+                    (Some((Phase::Running, plan.clone())), Some(plan))
+                }
+                kept => (kept, None),
+            }
         });
         let Some(plan) = plan else {
-            return;
+            return false;
         };
         let app = self.clone();
         tokio::spawn(async move {
@@ -508,6 +528,7 @@ impl App {
                 eprintln!("loom: 노드 {}를 턴 끝에 다시 띄우지 못했다: {e}", node.0);
             }
         });
+        true
     }
 
     pub(super) fn kept_running(&self, node: NodeId) {
@@ -913,7 +934,7 @@ impl App {
             .login_dir(provider, target.as_ref())
             .ok_or("홈 폴더를 찾지 못했다")?;
         if profile == Profile::Codex {
-            return self.copy_codex_thread(node.id, &site, &new_root).await;
+            return copy_codex_thread(node, &site, &new_root);
         }
         let transcript = node.transcript.as_deref().map(|t| site.local(t));
         let session = copy_claude_session(transcript.as_deref(), &new_root)?;
@@ -1005,27 +1026,53 @@ impl App {
             .flat_map(|root| snapshot.session_leaders_under(root))
             .collect()
     }
+}
 
-    async fn copy_codex_thread(
-        &self,
-        node: NodeId,
-        site: &Site,
-        new_root: &Path,
-    ) -> Result<String, String> {
-        let server = self.codex.lock().unwrap().get(&node).cloned();
-        let thread = server
-            .as_ref()
-            .and_then(|s| s.thread().borrow().as_ref().map(|t| t.id.clone()));
-        let (Some(server), Some(thread)) = (server, thread) else {
-            return Err(format!("노드 {}에는 이어 갈 Codex 스레드가 없다", node.0));
-        };
-        let rollout = server
-            .rollout(&thread)
-            .await?
-            .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
-        copy_session(&site.local(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
-        Ok(thread)
+fn copy_codex_thread(node: &Active, site: &Site, new_root: &Path) -> Result<String, String> {
+    let Some(ServerLink::Codex {
+        thread: Some(thread),
+        ..
+    }) = &node.server
+    else {
+        return Err(format!(
+            "노드 {}에는 이어 갈 Codex 스레드가 없다",
+            node.id.0
+        ));
+    };
+    let old_root = site
+        .login_dir(Provider::Codex, node.account.as_ref())
+        .ok_or("홈 폴더를 찾지 못했다")?;
+    if old_root == new_root {
+        return Ok(thread.clone());
     }
+    let rollout = codex_rollout(&old_root, thread)
+        .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
+    copy_session(&rollout, CODEX_ROLLOUT_DEPTH, new_root)?;
+    Ok(thread.clone())
+}
+
+fn codex_rollout(root: &Path, thread: &str) -> Option<PathBuf> {
+    let name = format!("-{thread}.jsonl");
+    let mut dirs = vec![root.join("sessions")];
+    for _ in 0..CODEX_DATE_DIRS {
+        dirs = dirs
+            .iter()
+            .flat_map(|dir| children(dir))
+            .filter(|path| path.is_dir())
+            .collect();
+    }
+    dirs.iter()
+        .flat_map(|dir| children(dir))
+        .find(|file| file.to_string_lossy().ends_with(&name))
+}
+
+fn children(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect()
 }
 
 enum Queued {

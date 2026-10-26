@@ -27,32 +27,13 @@ type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
 #[derive(Default)]
 pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
-    stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
     settled: Mutex<HashMap<NodeId, Instant>>,
     changed: Notify,
 }
 
 impl Sleeps {
-    pub fn stopping(&self, node: NodeId) -> bool {
-        self.stopping.lock().unwrap().contains(&node)
-    }
-
-    pub fn unless_stopping<T>(&self, node: NodeId, take: impl FnOnce() -> T) -> Option<T> {
-        let stopping = self.stopping.lock().unwrap();
-        (!stopping.contains(&node)).then(take)
-    }
-
-    pub(super) fn begin(&self, node: NodeId) -> bool {
-        self.stopping.lock().unwrap().insert(node)
-    }
-
-    fn cancel(&self, node: NodeId) -> bool {
-        self.stopping.lock().unwrap().remove(&node)
-    }
-
     pub fn exited(&self, node: NodeId) {
-        self.stopping.lock().unwrap().remove(&node);
         self.resting.lock().unwrap().remove(&node);
         self.settled.lock().unwrap().remove(&node);
     }
@@ -81,12 +62,8 @@ impl Sleeps {
         None
     }
 
-    fn rest_again(&self, node: NodeId) -> bool {
-        let cancelled = self.cancel(node);
-        if cancelled {
-            self.resting.lock().unwrap().insert(node, now());
-        }
-        cancelled
+    fn rest_again(&self, node: NodeId) {
+        self.resting.lock().unwrap().insert(node, now());
     }
 
     fn due(&self, resting: &[NodeId], now: Instant) -> Vec<NodeId> {
@@ -145,10 +122,18 @@ impl App {
                 tokio::select! {
                     () = mail => {}
                     () = changed => {}
+                    () = app.distro_up() => app.attempts_forgotten(Attempt::Wake),
                     () = until(turns.into_iter().chain(resting).min()) => {}
                 }
             }
         });
+    }
+
+    async fn distro_up(&self) {
+        match &self.distros {
+            Some(distros) => distros.up().await,
+            None => std::future::pending().await,
+        }
     }
 
     pub(super) fn watch_agents(self: &Arc<Self>) {
@@ -268,6 +253,12 @@ impl App {
         }
     }
 
+    fn attempts_forgotten(&self, cause: Attempt) {
+        if let Err(e) = self.graph.attempts_forgotten(cause) {
+            eprintln!("loom: 살리기 시도를 지우지 못했다: {e}");
+        }
+    }
+
     fn recover_held_with_mail(self: &Arc<Self>) {
         let mailed = self
             .graph
@@ -277,14 +268,13 @@ impl App {
                 Vec::new()
             });
         for id in mailed {
-            self.refused(id);
             self.recover(id);
         }
     }
 
     fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
         if self.agent_state(id) != Some(AgentState::Deaf)
-            || self.sleeps.stopping(id)
+            || self.graph.sleeping(id)?
             || self.relaunching(id)
         {
             return Ok(None);
@@ -337,22 +327,30 @@ impl App {
                 waking.push(id);
             }
         }
-        let unattached = self.host.unattached();
+        let unreached = self.graph.unreached_hosts()?;
         for node in self.graph.active()? {
             let id = node.id;
-            if !unattached.contains(&id) {
+            if !unreached.contains(&id) {
                 continue;
             }
             if (knocked.contains(&id) || self.graph.mail_since_attempt(id, Attempt::Wake)?)
-                && self.host.take_unattached(id)
+                && self.graph.claim_unreached(id)?
             {
                 self.graph.attempted(id, Attempt::Wake)?;
                 let app = self.clone();
                 tokio::spawn(async move {
                     if let Err(e) = app.resume_node(node).await {
                         eprintln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
+                    } else if !app.graph.unreached_hosts().is_ok_and(|u| u.contains(&id)) {
+                        app.attempt_cleared(id, Attempt::Wake);
+                        app.sleeps.changed();
                     }
                 });
+            }
+        }
+        for id in self.graph.hosts_gone()? {
+            if knocked.contains(&id) || self.graph.mail_since_attempt(id, Attempt::Wake)? {
+                waking.push(id);
             }
         }
         for id in knocked {
@@ -378,7 +376,7 @@ impl App {
             return Ok(());
         };
         let hooked = profile_of(&node).is_some_and(Profile::hooked);
-        if hooked && !self.sleeps.stopping(id) {
+        if hooked && !self.graph.sleeping(id)? {
             self.idle.lose_unheld(id);
         }
         Ok(())
@@ -390,7 +388,7 @@ impl App {
             let id = node.id;
             let profile = profile_of(&node);
             if !profile.is_some_and(Profile::ends_turns_by_stop_hook)
-                || self.sleeps.stopping(id)
+                || self.graph.sleeping(id)?
                 || self.agent_state(id) != Some(AgentState::Turn)
             {
                 continue;
@@ -531,21 +529,19 @@ impl App {
     }
 
     fn start_sleep(&self, id: NodeId) -> bool {
-        if !self.sleeps.begin(id) {
-            return false;
-        }
-        if let Err(e) = self.graph.begin_sleep(id) {
+        self.graph.begin_sleep(id).unwrap_or_else(|e| {
             eprintln!("loom: 노드 {}의 재우기 표시를 쓰지 못했다: {e}", id.0);
-            self.sleeps.cancel(id);
-            return false;
-        }
-        true
+            false
+        })
     }
 
     fn sleep_cancelled(&self, id: NodeId) -> bool {
-        let cancelled = self.sleeps.rest_again(id);
-        if cancelled && let Err(e) = self.graph.cancel_sleep(id) {
+        let cancelled = self.graph.cancel_sleep(id).unwrap_or_else(|e| {
             eprintln!("loom: 노드 {}의 재우기 표시를 지우지 못했다: {e}", id.0);
+            false
+        });
+        if cancelled {
+            self.sleeps.rest_again(id);
         }
         cancelled
     }

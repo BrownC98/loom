@@ -347,6 +347,48 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' IN ('notRelated', 'notChild');"#,
     ),
     M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn required brief heads.'))
+            WHERE entry ->> '$.reason.code' = 'missingHeads';",
+    ),
+    M::up(
+        "CREATE TABLE node_hosts (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            address TEXT NOT NULL,
+            unreached TEXT
+        );",
+    ),
+    M::up(
+        r#"CREATE TABLE gate_votes (
+            repo INTEGER NOT NULL,
+            branch TEXT NOT NULL,
+            reviewer INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            vote TEXT,
+            head TEXT NOT NULL,
+            findings TEXT,
+            PRIMARY KEY (repo, branch, reviewer)
+        );
+        INSERT INTO gate_votes (repo, branch, reviewer, vote, head, findings)
+        WITH v AS (SELECT id, entry ->> '$.from.id' AS reviewer, entry ->> '$.gate.branch' AS branch,
+                entry -> '$.what.judgment' AS judgment, entry ->> '$.what.head' AS head, entry ->> '$.what.findings' AS findings
+                FROM events WHERE entry ->> '$.kind' = 'message' AND entry ->> '$.gate.verb' = 'verdict'),
+            last AS (SELECT * FROM v WHERE id IN (SELECT max(id) FROM v GROUP BY reviewer, branch)),
+            r AS (SELECT entry ->> '$.from.id' AS owner, entry ->> '$.gate.branch' AS branch, max(id) AS id
+                FROM events WHERE entry ->> '$.kind' = 'message' AND entry ->> '$.gate.verb' = 'ready' GROUP BY 1, 2)
+        SELECT g.repo, g.branch, n.id, CASE WHEN l.id > coalesce(r.id, 0) THEN l.judgment END, l.head, l.findings
+        FROM last l JOIN nodes n ON n.id = l.reviewer JOIN gates g ON g.repo = n.repo AND g.branch = l.branch
+        LEFT JOIN r ON r.owner = g.owner AND r.branch = g.branch
+        WHERE l.head IS NOT NULL;
+        CREATE TABLE gate_merges (
+            repo INTEGER NOT NULL,
+            target TEXT NOT NULL,
+            sha TEXT NOT NULL,
+            PRIMARY KEY (repo, target, sha)
+        );
+        INSERT OR IGNORE INTO gate_merges (repo, target, sha) SELECT repo, target, merged FROM gates WHERE merged IS NOT NULL;
+        ALTER TABLE gates DROP COLUMN verdict;
+        ALTER TABLE gates DROP COLUMN merged;"#,
+    ),
+    M::up(
         "CREATE TABLE recovery_attempts (
             node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
             cause TEXT NOT NULL,

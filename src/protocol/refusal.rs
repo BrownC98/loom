@@ -90,8 +90,6 @@ pub enum Refusal {
     BareLink(String),
     /// `loom ask` 질문이 선택지를 내놓는데 표준 꼴 `(A: … / B: …, 권장: A)`가 아니다. 받은편지함이 선택 단추를 만들지 못한다.
     BadChoices,
-    /// `loom spawn`의 지시문에 머리가 빠졌다. 값은 빠진 머리다.
-    MissingHeads(Vec<String>),
     /// `--doc`의 파일이나 사람이 읽는 글 속 `file://` 링크의 파일이 `show.sh`를 지난 user-doc HTML 그대로가 아니다. 값은 그 경로나 주소다.
     UncheckedDoc(String),
     /// `loom done --image`의 파일이 그림 파일(`IMAGE_EXTENSIONS`)이 아니거나 없다. 값은 그 경로다.
@@ -123,7 +121,7 @@ pub enum Refusal {
     PromptChanged(WaitId),
     /// 관문 상태에서 할 수 없는 관문 호출.
     Gate(IllegalStep),
-    /// 관문 호출을 부를 수 없는 노드가 불렀다: 판정은 관문이 띄운 검토자만, `loom fail`은 관문만 부른다.
+    /// 판정을 부를 수 없는 노드가 불렀다. 판정은 관문이 띄운 검토자만 부른다.
     NotGate {
         branch: String,
         gate: String,
@@ -139,6 +137,13 @@ pub enum Refusal {
     Uncommitted(String),
     /// 담당 브랜치가 대상 브랜치와 같다. 값은 브랜치다.
     SameAsTarget(String),
+    /// 열린 관문 차례가 이미 담당 워크트리의 지금 커밋이다. 새 커밋만 차례를 갈음한다. 값은 브랜치다.
+    SameHead(String),
+    /// 판정이 적은 커밋이 열린 차례의 커밋이 아니다. `head`는 열린 차례의 커밋이다.
+    StaleHead {
+        branch: String,
+        head: String,
+    },
     /// block 판정에 결함 파일이 없다.
     NoFindings,
     /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작한다(`protocol::kind_word`). `verb`는 대신 쓸 명령이다.
@@ -318,7 +323,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it, and only {gate} calls `loom fail`."
+                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it."
             ),
             Refusal::NoRound(branch) => write!(
                 f,
@@ -337,9 +342,17 @@ impl fmt::Display for Refusal {
                 f,
                 "{branch} is the target branch itself. If you work in your parent's branch, report with `loom done`."
             ),
+            Refusal::StaleHead { branch, head } => write!(
+                f,
+                "{branch}: the open round is head {head}, not the head that you gave. Review {head}, then call `loom verdict {branch} {head} pass|block`."
+            ),
+            Refusal::SameHead(branch) => write!(
+                f,
+                "{branch}: the open gate round already has this commit. Commit the change first; then `loom ready {branch}` replaces the round."
+            ),
             Refusal::NoFindings => write!(
                 f,
-                "A block verdict needs the findings file: `loom verdict <branch> block --findings <file>`."
+                "A block verdict needs the findings file: `loom verdict <branch> <head> block --findings <file>`."
             ),
             Refusal::KindWord { word, verb } => write!(
                 f,
@@ -369,12 +382,6 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
-            Refusal::MissingHeads(missing) => write!(
-                f,
-                "The brief has no {} head. Give each head as a line that starts with the head and a colon (`Goal: …`) or as a markdown heading (`## Goal`). The heads are: {}.",
-                missing.join(", "),
-                crate::task::BRIEF_HEADS.join(", ")
-            ),
             Refusal::UncheckedDoc(path) => write!(
                 f,
                 "{path}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it."

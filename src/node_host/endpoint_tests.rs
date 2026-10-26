@@ -13,17 +13,23 @@ use super::*;
 use crate::graph::NodeId;
 use crate::tunnel;
 
-const NODE: NodeId = NodeId(1);
+pub(super) const NODE: NodeId = NodeId(1);
 const HELD: Duration = Duration::from_millis(300);
 
-struct Daemon {
+pub(super) struct Daemon {
     runtime: tokio::runtime::Runtime,
-    host: NodeHost<NodeId>,
+    pub(super) host: NodeHost<NodeId>,
     waits: Arc<Notify>,
 }
 
 impl Daemon {
     fn start(hosts: &Path) -> Daemon {
+        let daemon = Daemon::new(NodeHost::new(hosts.to_path_buf()));
+        daemon.host.resume(NODE, |_| {}).unwrap();
+        daemon
+    }
+
+    pub(super) fn new(host: NodeHost<NodeId>) -> Daemon {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -61,8 +67,7 @@ impl Daemon {
         runtime.spawn(async move {
             axum::serve(door, router.into_make_service_with_connect_info::<NodeId>()).await
         });
-        let host = NodeHost::new(hosts.to_path_buf()).with_links(links);
-        host.resume(NODE, |_| {}).unwrap();
+        let host = host.with_links(links);
         Daemon {
             runtime,
             host,
@@ -80,12 +85,12 @@ impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, tunn
 }
 
 #[cfg(unix)]
-fn endpoint(dir: &Path, name: &str) -> OsString {
+pub(super) fn endpoint(dir: &Path, name: &str) -> OsString {
     dir.join("run").join(format!("{name}.sock")).into()
 }
 
 #[cfg(windows)]
-fn endpoint(_: &Path, name: &str) -> OsString {
+pub(super) fn endpoint(_: &Path, name: &str) -> OsString {
     format!(r"\\.\pipe\loom-test-{}-{name}", std::process::id()).into()
 }
 
@@ -117,7 +122,7 @@ fn connect(at: &OsString) -> impl Read + Write {
     .unwrap()
 }
 
-fn ask(at: &OsString, path: &str, body: &str) -> String {
+pub(super) fn ask(at: &OsString, path: &str, body: &str) -> String {
     let mut conn = connect(at);
     write!(
         conn,
@@ -255,7 +260,6 @@ fn a_host_reports_an_endpoint_it_cannot_bind_to_the_daemon() {
     let started = host::start(waiting_command(), None, Some(&at)).unwrap();
     std::fs::create_dir_all(&hosts).unwrap();
     std::fs::write(hosts.join("1"), started.address.to_string()).unwrap();
-    let stop = started.stopper();
     std::thread::spawn(move || started.wait());
     let (links, mut linked) = tokio::sync::mpsc::unbounded_channel();
     let host = NodeHost::new(hosts).with_links(links);
@@ -266,48 +270,7 @@ fn a_host_reports_an_endpoint_it_cannot_bind_to_the_daemon() {
         }
     };
     assert!(failed.starts_with(&*at.to_string_lossy()), "{failed}");
-    stop();
-}
-
-#[cfg(unix)]
-#[test]
-fn the_outer_host_carries_the_terminal_and_the_endpoint_of_the_inner_host() {
-    let dir = tempfile::tempdir().unwrap();
-    let hosts = dir.path().join("hosts");
-    let at = endpoint(dir.path(), "inner");
-    let started = host::start(waiting_command(), None, Some(&at)).unwrap();
-    let inner = started.address;
-    std::thread::spawn(move || started.wait());
-    let forwarding = tokio::runtime::Runtime::new().unwrap();
-    let outer = forwarding.block_on(async move {
-        let (a, b) = tokio::io::duplex(1 << 16);
-        let (from_outer, to_outer) = tokio::io::split(a);
-        let (from_inner, to_inner) = tokio::io::split(b);
-        tokio::spawn(inner::carry_in(
-            inner,
-            from_outer,
-            to_outer,
-            std::future::pending(),
-        ));
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let outer = listener.local_addr().unwrap();
-        tokio::spawn(inner::carry_out(listener, from_inner, to_inner));
-        outer
-    });
-    std::fs::create_dir_all(&hosts).unwrap();
-    std::fs::write(hosts.join("1"), outer.to_string()).unwrap();
-
-    let daemon = Daemon::start(&hosts);
-    let mut attached = daemon.host.attach(NODE).unwrap();
-    let mut seen = String::from_utf8_lossy(&attached.backlog).into_owned();
-    while !seen.contains("ready") {
-        let chunk = attached.output.blocking_recv().unwrap();
-        seen.push_str(&String::from_utf8_lossy(&chunk));
-    }
-    assert!(ask(&at, "/echo", "inside").ends_with("inside from 1"));
-    daemon.host.kill(NODE);
+    host.kill(NODE);
 }
 
 #[cfg(unix)]

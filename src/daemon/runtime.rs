@@ -1,7 +1,11 @@
 use super::*;
+use crate::distro::Distro;
 use crate::graph::Entry;
+use crate::profile::process::Served;
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
+
+const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
 
 impl App {
     pub(super) fn tree_limits(&self) -> Result<TreeLimits, Problem> {
@@ -51,7 +55,8 @@ impl App {
     pub(super) async fn tasks_for(&self, worktree: &str) -> Result<task::Tasks, Problem> {
         match wsl::of(std::path::Path::new(worktree)) {
             Some(at) => {
-                let home = self.homes.get(&at.distro).await.map_err(LaunchError::Wsl)?;
+                let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
+                let home = self.homes.get(&distro).await.map_err(LaunchError::Wsl)?;
                 Ok(task::Tasks::wsl(&home, |linux| {
                     PathBuf::from(wsl::windows_path(&at.distro, linux))
                 }))
@@ -123,15 +128,12 @@ impl App {
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         match (&inside, &self.linux_loom) {
             (Some(inside), Some(loom)) => {
-                let launcher = inside.wrap(&inner_launcher(inside, loom, &cmd));
-                self.host.spawn_inner(id, launcher, cmd, setup, on_exit)?
+                let name = loom.file_name().unwrap_or_default().to_string_lossy();
+                let start = inside.start(inside.bin_file(&name), &cmd, setup.as_ref());
+                self.host
+                    .spawn_in(id, inside.distro.name(), start, on_exit)?
             }
-            (Some(inside), None) => self.host.spawn(
-                id,
-                inside.wrap(&cmd),
-                setup.map(|setup| inside.wrap(&setup)),
-                on_exit,
-            )?,
+            (Some(_), None) => return Err(LINUX_LOOM_MISSING.into()),
             (None, _) => self.host.spawn(id, cmd, setup, on_exit)?,
         }
         self.follow_screen(id, profile, &token);
@@ -145,27 +147,34 @@ impl App {
                 continue;
             }
             let (codex, opencode2) = match node.server.clone() {
-                Some(ServerLink::Codex { url, pid, thread }) => {
-                    match CodexServer::reconnect(url, pid, thread).await {
-                        Ok(server) => (Some(Arc::new(server)), None),
-                        Err(e) => {
-                            eprintln!(
-                                "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
-                                node.id.0
-                            );
-                            (None, None)
-                        }
+                Some(ServerLink::Codex {
+                    url,
+                    pid,
+                    distro,
+                    thread,
+                }) => match CodexServer::reconnect(url, self.served(pid, distro), thread).await {
+                    Ok(server) => (Some(Arc::new(server)), None),
+                    Err(e) => {
+                        eprintln!(
+                            "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
+                            node.id.0
+                        );
+                        (None, None)
                     }
-                }
+                },
                 Some(ServerLink::OpenCode2 {
                     url,
                     pid,
+                    distro,
                     session,
                     password,
                 }) => (
                     None,
                     Some(Arc::new(opencode2::Node::reconnect(
-                        url, pid, session, password,
+                        url,
+                        self.served(pid, distro),
+                        session,
+                        password,
                     ))),
                 ),
                 None => (None, None),
@@ -175,13 +184,13 @@ impl App {
                 .node_wsl(Some(node.id))
                 .ok()
                 .flatten()
-                .map(|at| at.distro);
+                .and_then(|at| self.distro(&at.distro).ok());
             let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
             let sleeping = self.graph.sleeping(node.id)? && self.sleeps.begin(node.id);
             if let Err(unattached) = self.host.resume(node.id, on_exit) {
                 self.sleeps.exited(node.id);
                 if let Some(server) = &node.server {
-                    stop_server(server);
+                    self.stop_server(server);
                 }
                 if !(sleeping && self.graph.slept(node.id)?) {
                     self.graph.lost(node.id)?;
@@ -202,7 +211,7 @@ impl App {
                 self.sleeps.exited(node.id);
                 self.host.kill(node.id);
                 if let Some(server) = &node.server {
-                    stop_server(server);
+                    self.stop_server(server);
                 }
                 continue;
             }
@@ -255,7 +264,7 @@ impl App {
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
-        distro: Option<String>,
+        distro: Option<Distro>,
         token: &str,
         codex: &Option<Arc<CodexServer>>,
         opencode2: &Option<Arc<opencode2::Node>>,
@@ -467,11 +476,13 @@ impl App {
         let mut env = self.node_env(&token)?.to_vec();
         let plugin = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
-            Some(at) => Site::wsl(
-                wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
-                    .await
-                    .map_err(LaunchError::Wsl)?,
-            ),
+            Some(at) => {
+                let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
+                let commands = profile::commands(start);
+                let paths = [plugin.as_path()];
+                let inside = wsl::inside(&at, distro, &commands, &self.shim, &paths);
+                Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
+            }
             None => self.pc_site(),
         };
         if profile == Some(Profile::Cursor)
@@ -605,11 +616,44 @@ impl App {
             .and_then(|nodes| nodes.into_iter().find(|n| n.id == node))
             .map(|n| n.token);
         let Some(token) = token else { return };
+        let Ok(distro) = self.distro(&at.distro) else {
+            return;
+        };
         tokio::spawn(async move {
-            if let Err(e) = wsl::end_shells(&at.distro, &token).await {
+            if let Err(e) = wsl::end_shells(&distro, &token).await {
                 eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
             }
         });
+    }
+
+    pub(super) fn distro(&self, name: &str) -> Result<Distro, crate::protocol::InsideError> {
+        self.distros
+            .as_ref()
+            .map(|distros| distros.distro(name))
+            .ok_or_else(|| crate::protocol::InsideError::Start {
+                distro: name.into(),
+                cause: LINUX_LOOM_MISSING.into(),
+            })
+    }
+
+    fn served(&self, pid: Option<u32>, distro: Option<String>) -> Served {
+        match distro.map(|name| self.distro(&name)) {
+            None => Served { pid, distro: None },
+            Some(Ok(distro)) => Served {
+                pid,
+                distro: Some(distro),
+            },
+            Some(Err(_)) => Served {
+                pid: None,
+                distro: None,
+            },
+        }
+    }
+
+    fn stop_server(&self, server: &ServerLink) {
+        let (ServerLink::Codex { pid, distro, .. } | ServerLink::OpenCode2 { pid, distro, .. }) =
+            server;
+        self.served(*pid, distro.clone()).stop();
     }
 
     fn endpoint(&self, token: &str, inside: Option<&wsl::Inside>) -> Option<String> {
@@ -619,10 +663,7 @@ impl App {
             .map(|b| format!("{b:02x}"))
             .collect();
         match inside {
-            Some(inside) => self
-                .linux_loom
-                .as_ref()
-                .map(|_| format!("{}/.loom/run/{hash}.sock", inside.home())),
+            Some(inside) => Some(format!("{}/.loom/run/{hash}.sock", inside.home())),
             None if cfg!(windows) => Some(format!(r"\\.\pipe\loom-{hash}")),
             None => Some(
                 self.run_dir
@@ -690,7 +731,7 @@ fn user_cursor_hooks(site: &Site) -> Option<PathBuf> {
     }
 }
 
-fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: String, token: String) {
+fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: Distro, token: String) {
     runtime.spawn(async move {
         if let Err(e) = wsl::end_token(&distro, &token).await {
             eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
@@ -827,23 +868,6 @@ impl
     }
 }
 
-fn inner_launcher(
-    inside: &wsl::Inside,
-    loom: &std::path::Path,
-    cmd: &portable_pty::CommandBuilder,
-) -> portable_pty::CommandBuilder {
-    let name = loom.file_name().unwrap_or_default().to_string_lossy();
-    let mut launcher = portable_pty::CommandBuilder::from_argv(vec![
-        inside.bin_file(&name).into(),
-        "pty-host".into(),
-        "--inner".into(),
-    ]);
-    for (key, value) in cmd.iter_extra_env_as_str() {
-        launcher.env(key, value);
-    }
-    launcher
-}
-
 pub(super) fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
     headers
         .get(header::AUTHORIZATION)
@@ -892,13 +916,6 @@ async fn follow_codex_model(
         if let Err(e) = saved {
             eprintln!("loom: 노드 {}의 모델을 읽지 못했다: {e}", node.0);
         }
-    }
-}
-
-fn stop_server(server: &ServerLink) {
-    let (ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) = server;
-    if let Some(root) = pid {
-        process_tree::Snapshot::now().kill_trees([*root]);
     }
 }
 

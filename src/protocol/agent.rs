@@ -41,11 +41,15 @@ pub enum ServerLink {
     Codex {
         url: String,
         pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distro: Option<String>,
         thread: Option<String>,
     },
     OpenCode2 {
         url: String,
         pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distro: Option<String>,
         session: String,
         password: String,
     },
@@ -81,7 +85,7 @@ pub enum LaunchError {
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoModelChoice(String),
     /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
-    Wsl(crate::wsl::InsideError),
+    Wsl(InsideError),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -130,3 +134,29 @@ impl std::fmt::Display for LaunchError {
 }
 
 pub type StartDigests = BTreeMap<String, String>;
+
+/// 배포판을 쓸 수 없다. 에이전트에게는 `Display` 글이, 화면에는 코드와 값이 간다.
+#[derive(Debug, PartialEq, serde::Serialize, ts_rs::TS)]
+#[serde(tag = "code", rename_all = "camelCase")]
+#[ts(export)]
+pub enum InsideError {
+    /// 배포판이 시작하지 못했다. `cause`는 배포판 호스트(`wsl.exe`)나 배포판 안 명령의 오류 글이다.
+    Start { distro: String, cause: String },
+    /// 배포판 안에서 Windows 프로그램을 띄울 수 없다(`/etc/wsl.conf` `[interop] enabled=false`). 노드의 `loom` 명령이 닿지 않는다.
+    Interop { distro: String },
+}
+
+impl std::fmt::Display for InsideError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InsideError::Start { distro, cause } => write!(
+                f,
+                "Could not start {distro}: {cause}. Run `wsl -d {distro}` in a terminal to see the cause."
+            ),
+            InsideError::Interop { distro } => write!(
+                f,
+                "{distro} cannot run Windows programs (WSL interop is off), so the node could not use loom commands. Set [interop] enabled=true in /etc/wsl.conf, run `wsl --shutdown`, and try again."
+            ),
+        }
+    }
+}

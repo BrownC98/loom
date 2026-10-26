@@ -4,6 +4,7 @@ pub mod cursor;
 pub mod omp;
 pub mod opencode2;
 pub mod pi;
+pub mod process;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -225,7 +226,7 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 version_warning: None,
             };
             let inside = wsl.iter().map(|inside| AgentAt {
-                distro: Some(inside.distro.clone()),
+                distro: Some(inside.distro.name().to_owned()),
                 path: inside.find(names()).map(str::to_owned),
                 version_warning: None,
             });
@@ -500,7 +501,7 @@ fn agent_command(
     let not_installed = || LaunchError::NotInstalled {
         agent: agent.label.clone(),
         command: agent.cmd.clone(),
-        distro: inside.map(|i| i.distro.clone()),
+        distro: inside.map(|i| i.distro.name().to_owned()),
     };
     let argv = match inside {
         Some(inside) => vec![

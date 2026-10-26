@@ -1679,6 +1679,7 @@ mod tests {
                 server: Some(ServerLink::Codex {
                     url: "http://127.0.0.1:9".into(),
                     pid: None,
+                    distro: None,
                     thread: Some("t".into()),
                 }),
                 ..launched("server")

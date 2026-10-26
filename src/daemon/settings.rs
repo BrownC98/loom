@@ -379,9 +379,10 @@ impl App {
             }
         }
         let commands = profile::catalog_commands();
-        let read = found
-            .values()
-            .map(|at| wsl::inside(at, &commands, &self.shim, &[]));
+        let read = found.values().map(|at| async {
+            let distro = self.distro(&at.distro)?;
+            wsl::inside(at, distro, &commands, &self.shim, &[]).await
+        });
         let mut sites = vec![self.pc_site()];
         for inside in join_all(read).await {
             match inside {
@@ -407,11 +408,11 @@ impl App {
 
     pub(super) async fn site_at(&self, cwd: &std::path::Path) -> Result<Site, Problem> {
         Ok(match wsl::of(cwd) {
-            Some(at) => Site::wsl(
-                wsl::inside(&at, &["claude", "codex"], &self.shim, &[])
-                    .await
-                    .map_err(LaunchError::Wsl)?,
-            ),
+            Some(at) => {
+                let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
+                let inside = wsl::inside(&at, distro, &["claude", "codex"], &self.shim, &[]);
+                Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
+            }
             None => self.pc_site(),
         })
     }

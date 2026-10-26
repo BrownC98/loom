@@ -124,6 +124,50 @@ impl Snapshot {
     }
 }
 
+pub fn end_if_runs(pid: u32, arg: &str) {
+    let pid = Pid::from_u32(pid);
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+    );
+    let runs = system
+        .process(pid)
+        .is_some_and(|p| p.cmd().iter().any(|a| a == arg));
+    if runs {
+        Snapshot::now().kill_trees([pid.as_u32()]);
+    }
+}
+
+pub fn own_exe() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    Ok(exe
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+        .map_or(exe.clone(), std::path::PathBuf::from))
+}
+
+pub fn announced(mut cmd: std::process::Command, input: &[u8]) -> Result<String, String> {
+    use std::io::{BufRead, Write};
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    detach(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let sent = child
+        .stdin
+        .take()
+        .expect("stdin을 piped로 열었다")
+        .write_all(input);
+    let mut line = String::new();
+    let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
+    let read = std::io::BufReader::new(stdout).read_line(&mut line);
+    std::thread::spawn(move || child.wait());
+    sent.and(read).map_err(|e| e.to_string())?;
+    Ok(line.trim().to_owned())
+}
+
 #[cfg(unix)]
 pub fn detach(cmd: &mut std::process::Command) {
     std::os::unix::process::CommandExt::process_group(cmd, 0);
@@ -159,8 +203,9 @@ pub fn free_port() -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Result<(), String> {
+pub async fn until_listening(exited: impl Future<Output = ()>, port: u16) -> Result<(), String> {
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
+    tokio::pin!(exited);
     loop {
         if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
             .await
@@ -169,7 +214,7 @@ pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Re
             return Ok(());
         }
         tokio::select! {
-            _ = child.wait() => return Err("exited before listening".into()),
+            () = &mut exited => return Err("exited before listening".into()),
             _ = tokio::time::sleep(POLL) => {}
         }
     }

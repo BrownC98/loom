@@ -5,6 +5,7 @@ mod commit_graph;
 mod daemon;
 mod db;
 mod devices;
+mod distro;
 #[cfg(all(test, unix))]
 mod fake_exe;
 mod git;
@@ -231,8 +232,11 @@ enum Cli {
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
     #[command(hide = true)]
-    PtyHost {
-        /// Windows pty-host가 WSL 배포판 안에서 띄운다. stdin·stdout의 스트림이 바깥 pty-host로 간다.
+    PtyHost,
+    /// Windows 데몬이 WSL 배포판마다 하나 띄운다. 그 배포판의 노드 pty-host를 띄우고 잇는다.
+    #[command(hide = true)]
+    DistroHost {
+        /// 배포판 호스트가 배포판 안에서 띄운다. stdin·stdout의 스트림이 Windows 쪽 배포판 호스트로 간다.
         #[arg(long)]
         inner: bool,
     },
@@ -352,8 +356,9 @@ fn main() -> ExitCode {
             file,
             checked: true,
         } => user_doc::record_checked(&wsl::from_caller(file)),
-        Cli::PtyHost { inner: false } => node_host::run(),
-        Cli::PtyHost { inner: true } => node_host::inner(),
+        Cli::PtyHost => node_host::run(),
+        Cli::DistroHost { inner: false } => distro::outer(),
+        Cli::DistroHost { inner: true } => distro::inner(node_host::start_in_distro),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -1,15 +1,14 @@
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{Value, json};
-use tokio::process::Command;
 use tokio::sync::watch;
 
 use crate::process_tree::{self, Snapshot};
+use crate::profile::process::Served;
 use crate::protocol::PermissionReply;
 use crate::wsl::Inside;
 
@@ -22,7 +21,7 @@ pub struct Server {
     url: String,
     password: String,
     auth: String,
-    pid: Option<u32>,
+    process: Served,
     stopped: Arc<watch::Sender<bool>>,
 }
 
@@ -36,40 +35,20 @@ impl Server {
     ) -> Result<Self, String> {
         let port = process_tree::free_port()?;
         let port_text = port.to_string();
-        let args = ["serve", "--hostname", "127.0.0.1", "--port", &port_text];
+        let argv = [
+            program,
+            "serve",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port_text,
+        ]
+        .map(str::to_owned);
         let mut env = node_env.to_vec();
         env.push((super::PASSWORD_ENV, password.clone().into()));
-        let mut cmd = match inside {
-            Some(inside) => inside.server(&[&[program][..], &args[..]].concat(), &env),
-            None => {
-                let mut cmd = process_tree::command(program);
-                cmd.args(args)
-                    .current_dir(cwd)
-                    .envs(env.iter().map(|(k, v)| (k, v)));
-                cmd
-            }
-        };
-        process_tree::detach(&mut cmd);
-        let mut child = Command::from(cmd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        let pid = child.id();
-        let listening = tokio::time::timeout(
-            REPLY_TIMEOUT,
-            process_tree::until_listening(&mut child, port),
-        )
-        .await
-        .unwrap_or_else(|_| Err("did not listen".into()));
-        tokio::spawn(async move { child.wait().await });
-        let server = Self::connect(format!("http://127.0.0.1:{port}"), password, pid);
-        let ready = match listening {
-            Ok(()) => server.ready().await,
-            Err(e) => Err(e),
-        };
-        if let Err(e) = ready {
+        let process = Served::start(&argv, cwd, inside, &env, port, REPLY_TIMEOUT).await?;
+        let server = Self::connect(format!("http://127.0.0.1:{port}"), password, process);
+        if let Err(e) = server.ready().await {
             server.stop();
             return Err(e);
         }
@@ -98,19 +77,19 @@ impl Server {
         }
     }
 
-    pub fn connect(url: String, password: String, pid: Option<u32>) -> Self {
+    pub fn connect(url: String, password: String, process: Served) -> Self {
         let basic = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{password}"));
         Self {
             url,
             password,
             auth: format!("Basic {basic}"),
-            pid,
+            process,
             stopped: Arc::new(watch::channel(false).0),
         }
     }
 
-    pub fn pid(&self) -> Option<u32> {
-        self.pid
+    pub fn process(&self) -> &Served {
+        &self.process
     }
 
     pub fn url(&self) -> &str {
@@ -199,7 +178,9 @@ impl Server {
     }
 
     pub async fn stop_shells(&self, session: &str) {
-        let Some(root) = self.pid else { return };
+        let Some(root) = self.process.here() else {
+            return;
+        };
         let shells = match self.call("GET", "/api/shell", None).await {
             Ok(reply) => reply,
             Err(e) => return eprintln!("loom: OpenCode 2 셸 목록을 읽지 못했다: {e}"),
@@ -216,9 +197,7 @@ impl Server {
     }
 
     pub fn stop(&self) {
-        if let Some(root) = self.pid {
-            Snapshot::now().kill_trees([root]);
-        }
+        self.process.stop();
     }
 
     async fn call(
@@ -352,7 +331,14 @@ mod tests {
                 r#"{"version":"2.0.32","pid":1,"capabilities":{"persistentPty":true}}"#,
             ),
         ]);
-        let server = Server::connect(url, "pw".into(), None);
+        let server = Server::connect(
+            url,
+            "pw".into(),
+            Served {
+                pid: None,
+                distro: None,
+            },
+        );
         server.ready().await.unwrap();
         assert_eq!(asked.load(Ordering::Relaxed), 2);
     }
@@ -363,7 +349,14 @@ mod tests {
             500,
             r#"{"code":"service_failed","message":"The background service could not start."}"#,
         )]);
-        let server = Server::connect(url, "pw".into(), None);
+        let server = Server::connect(
+            url,
+            "pw".into(),
+            Served {
+                pid: None,
+                distro: None,
+            },
+        );
         let err = server.ready().await.unwrap_err();
         assert!(err.contains("service_failed"), "{err}");
         assert_eq!(asked.load(Ordering::Relaxed), 1);
@@ -372,7 +365,14 @@ mod tests {
     #[tokio::test]
     async fn other_errors_keep_the_old_message_shape() {
         let (url, _) = fake_server(&[(401, r#"{"code":"unauthorized"}"#)]);
-        let server = Server::connect(url, "pw".into(), None);
+        let server = Server::connect(
+            url,
+            "pw".into(),
+            Served {
+                pid: None,
+                distro: None,
+            },
+        );
         let err = server.create_session(Path::new(".")).await.unwrap_err();
         assert_eq!(err, r#"POST /api/session: 401 {"code":"unauthorized"}"#);
     }

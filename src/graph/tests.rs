@@ -1731,6 +1731,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
     let path = dir.path().join("loom.db");
     let server = ServerLink::Codex {
         url: "ws://127.0.0.1:1".into(),
+        distro: None,
         pid: Some(9),
         thread: None,
     };

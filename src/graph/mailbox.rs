@@ -468,6 +468,27 @@ impl Graph {
         Ok(())
     }
 
+    pub fn release_refused(&self, node: NodeId, ids: &[MessageId]) -> Result<bool, Refusal> {
+        let mut db = self.lock();
+        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+            .expect("숫자 목록은 늘 직렬화된다");
+        let tx = db.transaction()?;
+        let again: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM messages WHERE recipient = ?1 AND refused = 1
+                AND id IN (SELECT value FROM json_each(?2)))",
+            params![node.0, ids],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "UPDATE messages SET sent_at = NULL, printed = 0, refused = 1
+             WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
+            params![node.0, ids],
+        )?;
+        tx.commit()?;
+        self.publish_node(&db, node)?;
+        Ok(again)
+    }
+
     pub fn done(
         &self,
         node: NodeId,

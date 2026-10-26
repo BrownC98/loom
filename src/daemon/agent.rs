@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::relaunch::provider_of;
 use super::{AgentError, App, EndedTurn, IdleReply, IdleRequest, TakeRequest, Taken, for_agent};
 use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId};
-use crate::profile::{self, BATCH_LIMIT_BYTES, Change, ServerAdapter, Signal, Status};
+use crate::profile::{self, BATCH_LIMIT_BYTES, Change, NotTaken, ServerAdapter, Signal, Status};
 use crate::protocol::{Delivery, Kind, MessageId, Refusal};
 use axum::http::StatusCode;
 
@@ -83,14 +83,20 @@ impl App {
         node: NodeId,
         ended: EndedTurn,
     ) -> rusqlite::Result<Option<String>> {
-        self.turn_ends.stopped(node, ended.turn.as_deref());
+        if let Some(turn) = ended.turn.as_deref()
+            && self.graph.turn_was_ended(node, turn)?
+        {
+            return Ok(None);
+        }
         if let Some(text) = ended.reply {
             self.turn_ends.said(node, &text, None);
         }
-        let nudge = self.turn_end(node)?;
-        if nudge.is_none() {
+        let nudge = self.turn_end(node);
+        if !matches!(nudge, Ok(Some(_))) {
             self.run_at_turn_end(node, None);
         }
+        let nudge = nudge?;
+        self.turn_ends.stopped(node, ended.turn.as_deref());
         Ok(nudge.map(str::to_owned))
     }
 
@@ -279,12 +285,28 @@ impl App {
             }
             Err(e) => {
                 eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0);
-                if let Err(e) = self.graph.release(node, &ids) {
-                    eprintln!("loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}", node.0);
+                let released = match &e {
+                    NotTaken::EventFollows(_) => self.graph.release(node, &ids).map(|()| false),
+                    NotTaken::ServerStopped(_) => self.graph.release_refused(node, &ids),
+                };
+                match released {
+                    Ok(false) => {}
+                    Ok(true) => self.end_refused(node, &e),
+                    Err(e) => eprintln!("loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}", node.0),
                 }
                 false
             }
         }
+    }
+
+    fn end_refused(&self, node: NodeId, cause: &NotTaken) {
+        let notice = format!(
+            "The agent server refused the same mail again after loom started it again: {cause}"
+        );
+        if let Err(e) = self.graph.lost_because(node, notice) {
+            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", node.0);
+        }
+        self.host.stop(node);
     }
 
     fn keep_transcript(&self, node: NodeId, path: Option<&str>) -> Result<(), Refusal> {

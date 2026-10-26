@@ -92,6 +92,14 @@ impl Graph {
             .map(drop)
     }
 
+    pub fn turn_was_ended(&self, node: NodeId, turn: &str) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS (SELECT 1 FROM ended_turns WHERE node = ?1 AND turn = ?2)",
+            params![node.0, turn],
+            |row| row.get(0),
+        )
+    }
+
     pub fn take_turn(&self, node: NodeId) -> rusqlite::Result<TurnTaken> {
         let mut db = self.lock();
         let tx = db.transaction()?;

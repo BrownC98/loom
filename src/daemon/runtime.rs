@@ -179,33 +179,32 @@ impl App {
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
             return Ok(());
         }
+        let place_distro = self.place_distro(node.id);
         let (codex, opencode2) = match node.server.clone() {
-            Some(ServerLink::Codex {
-                url,
-                pid,
-                distro,
-                thread,
-            }) => match CodexServer::reconnect(url, self.served(pid, distro), thread).await {
-                Ok(server) => (Some(Arc::new(server)), None),
-                Err(e) => {
-                    eprintln!(
-                        "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
-                        node.id.0
-                    );
-                    (None, None)
+            Some(ServerLink::Codex { url, pid, thread }) => {
+                match CodexServer::reconnect(url, self.served(pid, place_distro.clone()), thread)
+                    .await
+                {
+                    Ok(server) => (Some(Arc::new(server)), None),
+                    Err(e) => {
+                        eprintln!(
+                            "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
+                            node.id.0
+                        );
+                        (None, None)
+                    }
                 }
-            },
+            }
             Some(ServerLink::OpenCode2 {
                 url,
                 pid,
-                distro,
                 session,
                 password,
             }) => (
                 None,
                 Some(Arc::new(opencode2::Node::reconnect(
                     url,
-                    self.served(pid, distro),
+                    self.served(pid, place_distro.clone()),
                     session,
                     password,
                 ))),
@@ -213,11 +212,9 @@ impl App {
             None => (None, None),
         };
         let profile = node.agent.as_ref().and_then(profile::profile_of);
-        let distro = self
-            .node_wsl(Some(node.id))
-            .ok()
-            .flatten()
-            .and_then(|at| self.distro(&at.distro).ok());
+        let distro = place_distro
+            .as_deref()
+            .and_then(|name| self.distro(name).ok());
         let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
         let app = self.clone();
         let id = node.id;
@@ -226,7 +223,7 @@ impl App {
         let attached = tokio::task::spawn_blocking(move || {
             let at = address
                 .ok_or_else(|| "no pty-host address".to_owned())
-                .and_then(|text| text.parse())
+                .and_then(|text| node_host::Address::parse(&text, place_distro))
                 .map_err(node_host::Unattached::Failed)?;
             app.host.resume(id, &at, on_exit)
         })
@@ -238,7 +235,7 @@ impl App {
                 return self.host_unreached(node.id, cause);
             }
             if let Some(server) = &node.server {
-                self.stop_server(server);
+                self.stop_server(node.id, server);
             }
             let gone = unattached == node_host::Unattached::Gone;
             match self.graph.slept(node.id)? || self.graph.stop_lost(node.id)? {
@@ -260,7 +257,7 @@ impl App {
             self.sleeps.exited(node.id);
             self.host.kill(node.id);
             if let Some(server) = &node.server {
-                self.stop_server(server);
+                self.stop_server(node.id, server);
             }
             return Ok(());
         }
@@ -294,7 +291,11 @@ impl App {
                         self.graph.set_host(id, text.trim())?
                     }
                     _ => {
-                        if let Ok(at) = text.parse() {
+                        let distro = id
+                            .ok()
+                            .filter(|_| nodes)
+                            .and_then(|id| self.place_distro(id));
+                        if let Ok(at) = node_host::Address::parse(&text, distro) {
                             self.host.end_at(&at);
                         }
                     }
@@ -730,18 +731,21 @@ impl App {
         }
     }
 
-    fn stop_server(&self, server: &ServerLink) {
-        self.served_by(server).stop();
+    fn stop_server(&self, node: NodeId, server: &ServerLink) {
+        self.served_by(node, server).stop();
     }
 
-    pub(super) async fn end_server(&self, server: &ServerLink) -> Result<(), String> {
-        self.served_by(server).end().await
+    pub(super) async fn end_server(&self, node: NodeId, server: &ServerLink) -> Result<(), String> {
+        self.served_by(node, server).end().await
     }
 
-    fn served_by(&self, server: &ServerLink) -> Served {
-        let (ServerLink::Codex { pid, distro, .. } | ServerLink::OpenCode2 { pid, distro, .. }) =
-            server;
-        self.served(*pid, distro.clone())
+    pub(super) fn served_by(&self, node: NodeId, server: &ServerLink) -> Served {
+        let (ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) = server;
+        self.served(*pid, self.place_distro(node))
+    }
+
+    fn place_distro(&self, node: NodeId) -> Option<String> {
+        self.node_wsl(Some(node)).ok().flatten().map(|at| at.distro)
     }
 
     fn endpoint(&self, token: &str, inside: Option<&wsl::Inside>) -> Option<String> {

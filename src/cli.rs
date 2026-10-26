@@ -171,19 +171,12 @@ pub fn cursor_rules() -> Result<(), String> {
     Ok(())
 }
 
-fn wait_until_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
+fn wait_until_mail(request: IdleRequest) -> Result<IdleReply, String> {
+    let idle = || call("idle", &request, None);
     match through_endpoint() {
-        true => again_after_cut(None, |_| idle_once(&mut request), |e, _| Err(e.into())),
-        false => idle_once(&mut request).map_err(Into::into),
+        true => again_after_cut(None, |_| idle(), |e, _| Err(e.into())),
+        false => idle().map_err(Into::into),
     }
-}
-
-fn idle_once(request: &mut IdleRequest) -> Result<IdleReply, CallError> {
-    let reply = call("idle", &*request, None);
-    if !reply.as_ref().is_err_and(CallError::not_sent) {
-        request.turn_end = None;
-    }
-    reply
 }
 
 fn reconnecting<T>(
@@ -643,14 +636,6 @@ impl CallError {
         match self {
             CallError::FellBack(e) => *e,
             e => e,
-        }
-    }
-
-    fn not_sent(&self) -> bool {
-        match self {
-            CallError::NotConnected(_) => true,
-            CallError::FellBack(e) => e.not_sent(),
-            _ => false,
         }
     }
 }

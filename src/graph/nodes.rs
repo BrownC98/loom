@@ -242,8 +242,12 @@ impl Graph {
     }
 
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
+        self.lost_because(id, String::new())
+    }
+
+    pub fn lost_because(&self, id: NodeId, cause: String) -> rusqlite::Result<()> {
         let what = |node| Some(MessageKind::Exited { node, code: None });
-        self.end_process(id, ProcessOutcome::Lost, what, String::new())
+        self.end_process(id, ProcessOutcome::Lost, what, cause)
     }
 
     pub fn host_gone(&self, id: NodeId) -> rusqlite::Result<()> {

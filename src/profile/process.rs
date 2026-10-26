@@ -101,10 +101,6 @@ impl Served {
     pub fn here(&self) -> Option<u32> {
         self.pid.filter(|_| self.distro.is_none())
     }
-
-    pub fn distro_name(&self) -> Option<String> {
-        self.distro.as_ref().map(|d| d.name().to_owned())
-    }
 }
 
 async fn listen(

@@ -21,6 +21,7 @@ let started = 0;
 const SKILLS = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
 const EXIT_MARK = "[loom: exited";
+const IDLE_COMMAND = "loom-idle";
 const WAIT_LIMIT_S = 1800;
 
 export function bashQuote(path: string, windows = process.platform === "win32"): string {
@@ -84,7 +85,16 @@ export default function (pi: ExtensionAPI) {
       effort: ctx.thinkingLevel,
     }),
     ours: (event) => !event.parentToolCallId && (event.messageType ?? "user") === "user",
+    busy: () => pi.sendUserMessage(`/${IDLE_COMMAND}`, { expandPromptTemplates: true }),
     background: "run_in_background",
+  });
+
+  pi.registerCommand(IDLE_COMMAND, {
+    description: "Wait for loom mail when pi is idle again",
+    handler: async (_args, ctx) => {
+      await ctx.waitForIdle();
+      loom.idle(ctx);
+    },
   });
 
   const bash = createBashToolDefinition(process.cwd());

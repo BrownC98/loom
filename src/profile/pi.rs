@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{Handed, HookEvent, Shown, Signals, Take};
-use crate::protocol::{Delivery, Kind, Model, PI_HOOK as PROTOCOL};
+use crate::protocol::{Delivery, Kind, MessageId, Model, PI_HOOK as PROTOCOL};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
@@ -11,6 +11,7 @@ const EXTENSION_FILE: &str = "pi-loom.ts";
 const HOOK: &str = include_str!("loom-hook.ts");
 const EXTENSIONS: [(&str, &str); 2] = [("loom-hook.ts", HOOK), (EXTENSION_FILE, EXTENSION)];
 pub(super) const IDLE_FLAG: &str = "--loom-idle";
+const UNNUMBERED: u32 = 2;
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -93,11 +94,12 @@ pub fn request(line: &str) -> Result<Request, Unserved> {
     let id = header.id;
     let unserved = |error| Err(Unserved { id, error });
     match (header.protocol, id) {
-        (Some(PROTOCOL), Some(_)) | (None, _) => {}
+        (Some(PROTOCOL), Some(_)) | (None, None) => {}
         (Some(PROTOCOL), None) => {
             return unserved(format!("a hook protocol {PROTOCOL} request has no id"));
         }
-        (Some(other), _) => {
+        (other, _) => {
+            let other = other.unwrap_or(UNNUMBERED);
             return unserved(format!(
                 "the pi extension speaks hook protocol {other}, but this loom speaks {PROTOCOL}"
             ));
@@ -138,6 +140,11 @@ pub enum Event {
         #[serde(flatten)]
         state: State,
     },
+    Ack {
+        ids: Vec<MessageId>,
+        #[serde(flatten)]
+        state: State,
+    },
 }
 
 #[derive(Deserialize)]
@@ -153,6 +160,8 @@ pub struct Reply {
     id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ids: Vec<MessageId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -165,7 +174,15 @@ impl Event {
             | Event::Prompt { state, .. }
             | Event::ToolCall { state }
             | Event::ToolResult { state }
-            | Event::Settled { state, .. } => state,
+            | Event::Settled { state, .. }
+            | Event::Ack { state, .. } => state,
+        }
+    }
+
+    pub fn acked(&self) -> Option<&[MessageId]> {
+        match self {
+            Event::Ack { ids, .. } => Some(ids),
+            _ => None,
         }
     }
 
@@ -177,12 +194,13 @@ impl Event {
             Event::ToolCall { .. } => "tool_call",
             Event::ToolResult { .. } => "tool_result",
             Event::Settled { .. } => "settled",
+            Event::Ack { .. } => "ack",
         }
     }
 
     pub fn take(&self) -> Option<Take> {
         Some(match self {
-            Event::SessionStart { .. } => return None,
+            Event::SessionStart { .. } | Event::Ack { .. } => return None,
             Event::Idle { .. } | Event::Settled { .. } => Take::WhenIdle,
             Event::Prompt { .. } | Event::ToolResult { .. } => Take::Now(Kind::ALL),
             Event::ToolCall { .. } => Take::Now(&[Kind::Interrupt]),
@@ -263,6 +281,7 @@ fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
     Reply {
         id,
         text: super::hook_text(taken, note),
+        ids: taken.iter().map(|d| d.id).collect(),
         error: None,
     }
 }
@@ -271,6 +290,16 @@ fn nudge(id: Option<u64>, text: String) -> Reply {
     Reply {
         id,
         text: Some(text),
+        ids: Vec::new(),
+        error: None,
+    }
+}
+
+pub fn acked(id: u64) -> Reply {
+    Reply {
+        id: Some(id),
+        text: None,
+        ids: Vec::new(),
         error: None,
     }
 }
@@ -279,6 +308,7 @@ pub fn failed(id: Option<u64>, error: String) -> Reply {
     Reply {
         id,
         text: None,
+        ids: Vec::new(),
         error: Some(error),
     }
 }

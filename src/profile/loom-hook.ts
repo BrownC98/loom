@@ -4,9 +4,10 @@ export type State = { transcript?: string; model?: string; effort?: string };
 export type Harness<Context> = {
   state(ctx: Context): State;
   ours(event: Event, ctx: Context): boolean;
+  busy?(): void;
   background: string;
 };
-type Reply = { id?: number; text?: string; error?: string };
+type Reply = { id?: number; text?: string; ids?: number[]; error?: string };
 type Part = { type: string; text?: string };
 export type Message = { role: string; content: string | Part[] };
 type Hook = { child: ChildProcess; pending: Map<number, (reply: Reply | undefined) => void>; open: boolean };
@@ -25,8 +26,7 @@ type Api<C> = {
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
-const PROTOCOL = 2;
-const RETRY_MS = 250;
+const PROTOCOL = 3;
 const INTERRUPT_POLL_MS = 1000;
 
 function parse(line: string): Reply | undefined {
@@ -97,6 +97,7 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   let next = 0;
   let running = 0;
   let polling = false;
+  let interrupted = false;
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
@@ -113,29 +114,29 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     });
   };
 
-  const deliver = (text: string, ctx: C) => {
-    if (shutdown.signal.aborted) return;
-    if (ctx.isIdle() || ctx.signal) {
-      pi.sendMessage({ customType: MESSAGE, content: text, display: true }, { triggerTurn: true, deliverAs: "steer" });
-    } else {
-      setTimeout(() => deliver(text, ctx), RETRY_MS);
-    }
+  const handed = (reply: Reply | undefined, ctx: C) => {
+    if (reply?.ids?.length) void call({ event: "ack", ids: reply.ids }, ctx);
+    return reply?.text;
   };
 
-  const wait = async (event: string, ctx: C, reply?: string) => {
-    const answer = await call({ event, reply }, ctx);
-    if (answer?.text) deliver(answer.text, ctx);
+  const deliver = (reply: Reply | undefined, ctx: C) => {
+    if (!reply?.text || shutdown.signal.aborted) return;
+    if (!(ctx.isIdle() || ctx.signal)) return harness.busy?.();
+    pi.sendMessage({ customType: MESSAGE, content: reply.text, display: true }, { triggerTurn: true, deliverAs: "steer" });
+    handed(reply, ctx);
   };
+
+  const wait = async (event: string, ctx: C, reply?: string) => deliver(await call({ event, reply }, ctx), ctx);
 
   pi.on("before_agent_start", async (event: Event & { prompt: string }, ctx) => {
     if (!harness.ours(event, ctx)) return;
-    const { text } = (await call({ event: "prompt", prompt: event.prompt }, ctx)) ?? {};
+    const text = handed(await call({ event: "prompt", prompt: event.prompt }, ctx), ctx);
     if (text) return { message: { customType: MESSAGE, content: text, display: true } };
   });
 
   pi.on("tool_call", async (event: Event & { toolName: string; input: Record<string, unknown> }, ctx) => {
     if (!harness.ours(event, ctx)) return;
-    const { text } = (await call({ event: "tool_call" }, ctx)) ?? {};
+    const text = handed(await call({ event: "tool_call" }, ctx), ctx);
     if (text) return { block: true, reason: text };
     const { input } = event;
     const command = input.command;
@@ -147,7 +148,7 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
 
   pi.on("tool_result", async (event: Event & { content: Part[]; structuredContent?: unknown }, ctx) => {
     if (!harness.ours(event, ctx)) return;
-    const { text } = (await call({ event: "tool_result" }, ctx)) ?? {};
+    const text = handed(await call({ event: "tool_result" }, ctx), ctx);
     if (text) return { content: [...event.content, { type: "text", text }], structuredContent: event.structuredContent };
   });
 
@@ -157,6 +158,9 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     async start(ctx: C, idle: boolean) {
       await call({ event: "session_start" }, ctx);
       if (idle || pi.getFlag(IDLE_FLAG) === true) void wait("idle", ctx);
+    },
+    idle(ctx: C) {
+      void wait("idle", ctx);
     },
     settled(ctx: C, reply: string | undefined) {
       void wait("settled", ctx, reply);
@@ -173,10 +177,9 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
             running = 0;
             return;
           }
-          const { text } = (await call({ event: "tool_call" }, ctx)) ?? {};
-          if (text) {
-            stop();
-            return deliver(text, ctx);
+          if ((await call({ event: "tool_call" }, ctx))?.text) {
+            interrupted = true;
+            return stop();
           }
         }
       } finally {
@@ -185,6 +188,11 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     },
     finished() {
       running = Math.max(0, running - 1);
+    },
+    aborted(ctx: C) {
+      if (!interrupted) return;
+      interrupted = false;
+      void wait("idle", ctx);
     },
   };
 }

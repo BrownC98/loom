@@ -145,7 +145,6 @@ impl CodexServer {
         ServerLink::Codex {
             url: self.url.clone(),
             pid: self.process.pid,
-            distro: self.process.distro_name(),
             thread: self.thread.borrow().as_ref().map(|t| t.id.clone()),
         }
     }

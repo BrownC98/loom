@@ -1,30 +1,28 @@
 mod server;
 
-use std::collections::HashSet;
 use std::ffi::OsString;
 use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
 use crate::profile::process::Served;
-use crate::protocol::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
+use crate::protocol::{
+    Delivery, Kind, MessageId, Model, PermissionReply, Prompt, PromptKey, PromptOption,
+};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-use super::{Change, ServerAdapter, Signal, Status, VersionMismatch};
+use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
 pub const PASSWORD_ENV: &str = "OPENCODE_PASSWORD";
 pub const CMD: &str = "opencode2";
-const PROMPT_ATTEMPTS: u32 = 5;
-const PROMPT_RETRY_DELAY: Duration = Duration::from_secs(1);
+const LOOM_INBOX: &str = "msg_loom";
 
 const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
 
@@ -186,7 +184,6 @@ pub struct Node {
     model: watch::Receiver<Model>,
     permission: watch::Receiver<()>,
     turns: Mutex<Option<mpsc::UnboundedReceiver<Seen>>>,
-    sent: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Node {
@@ -233,7 +230,6 @@ impl Node {
         crate::protocol::ServerLink::OpenCode2 {
             url: self.server.url().to_owned(),
             pid: self.server.process().pid,
-            distro: self.server.process().distro_name(),
             session: self.session.clone(),
             password: self.server.password().to_owned(),
         }
@@ -243,9 +239,7 @@ impl Node {
         let (tx, model) = watch::channel(Model::default());
         let (tx_permission, permission) = watch::channel(());
         let (tx_turns, turns) = mpsc::unbounded_channel();
-        let sent = Arc::new(Mutex::new(HashSet::new()));
         let ours = session.clone();
-        let ours_sent = sent.clone();
         let mut said = None;
         server.follow_events(move |event| {
             if let Some(selected) = selected_model(&event, &ours) {
@@ -268,7 +262,7 @@ impl Node {
                     said = None;
                     let _ = tx_turns.send(Seen::Stopped);
                 }
-                Some(TurnEvent::Enqueued { id }) if !ours_sent.lock().unwrap().remove(&id) => {
+                Some(TurnEvent::Enqueued { id }) if !id.starts_with(LOOM_INBOX) => {
                     let _ = tx_turns.send(Seen::Human);
                 }
                 Some(TurnEvent::Enqueued { .. }) | None => {}
@@ -280,7 +274,6 @@ impl Node {
             model,
             permission,
             turns: Mutex::new(Some(turns)),
-            sent,
         }
     }
 
@@ -333,6 +326,7 @@ impl Node {
             stopped: self.server.stopped(),
             api: self.clone(),
             pending: Some(Seen::Connected),
+            ended: false,
         }
     }
 }
@@ -350,11 +344,15 @@ struct Adapter<A> {
     turns: Option<mpsc::UnboundedReceiver<Seen>>,
     stopped: watch::Receiver<bool>,
     pending: Option<Seen>,
+    ended: bool,
 }
 
 impl<A: Api> ServerAdapter for Adapter<A> {
     fn takes(&self, _: Status) -> &'static [&'static [Kind]] {
-        &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]]
+        match self.ended {
+            true => &[],
+            false => &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]],
+        }
     }
 
     fn status(&mut self) -> Option<Status> {
@@ -375,6 +373,9 @@ impl<A: Api> ServerAdapter for Adapter<A> {
     }
 
     async fn changed(&mut self) -> bool {
+        if self.ended {
+            return false;
+        }
         let Self {
             turns,
             stopped,
@@ -399,8 +400,10 @@ impl<A: Api> ServerAdapter for Adapter<A> {
         }
     }
 
-    async fn inject(&mut self, taken: &[Delivery], _: Status) -> Result<(), String> {
-        deliver(&*self.api, taken, PROMPT_RETRY_DELAY).await
+    async fn inject(&mut self, taken: &[Delivery], _: Status) -> Result<(), NotTaken> {
+        deliver(&*self.api, taken)
+            .await
+            .map_err(|e| NotTaken::ServerStopped(self.refused(e)))
     }
 
     async fn stop_shells(&self) {
@@ -408,11 +411,21 @@ impl<A: Api> ServerAdapter for Adapter<A> {
     }
 
     async fn start_turn(&mut self, text: &str) -> Result<(), String> {
-        put(&*self.api, text, Inbox::Queue, PROMPT_RETRY_DELAY).await
+        let sent = self.api.prompt(&[], text, Inbox::Queue).await;
+        sent.map_err(|e| self.refused(e))
     }
 
     async fn steer(&mut self, text: &str) -> Result<(), String> {
-        put(&*self.api, text, Inbox::Steer, PROMPT_RETRY_DELAY).await
+        let sent = self.api.prompt(&[], text, Inbox::Steer).await;
+        sent.map_err(|e| self.refused(e))
+    }
+}
+
+impl<A: Api> Adapter<A> {
+    fn refused(&mut self, cause: String) -> String {
+        self.api.stop_server();
+        self.ended = true;
+        format!("{cause}; loom stopped the OpenCode 2 server")
     }
 }
 
@@ -435,11 +448,12 @@ trait Api: Send + Sync {
     fn interrupt(&self) -> impl Future<Output = Result<(), String>> + Send;
     fn prompt(
         &self,
-        id: &str,
+        mail: &[MessageId],
         text: &str,
         inbox: Inbox,
     ) -> impl Future<Output = Result<(), String>> + Send;
     fn stop_shells(&self) -> impl Future<Output = ()> + Send;
+    fn stop_server(&self);
 }
 
 impl Api for Node {
@@ -447,19 +461,23 @@ impl Api for Node {
         self.server.interrupt(&self.session).await
     }
 
-    async fn prompt(&self, id: &str, text: &str, inbox: Inbox) -> Result<(), String> {
-        self.sent.lock().unwrap().insert(id.to_owned());
+    async fn prompt(&self, mail: &[MessageId], text: &str, inbox: Inbox) -> Result<(), String> {
+        let id = inbox_id(&self.session, mail)?;
         self.server
-            .prompt(&self.session, id, text, inbox.as_str())
+            .prompt(&self.session, &id, text, inbox.as_str())
             .await
     }
 
     async fn stop_shells(&self) {
         self.server.stop_shells(&self.session).await;
     }
+
+    fn stop_server(&self) {
+        self.server.stop();
+    }
 }
 
-async fn deliver(api: &impl Api, taken: &[Delivery], retry_delay: Duration) -> Result<(), String> {
+async fn deliver(api: &impl Api, taken: &[Delivery]) -> Result<(), String> {
     if taken.iter().any(|d| d.kind == Kind::Interrupt)
         && let Err(e) = api.interrupt().await
     {
@@ -469,48 +487,22 @@ async fn deliver(api: &impl Api, taken: &[Delivery], retry_delay: Duration) -> R
         true => Inbox::Queue,
         false => Inbox::Steer,
     };
-    put(api, &super::message_text(taken), inbox, retry_delay).await
+    let mail: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
+    api.prompt(&mail, &super::message_text(taken), inbox).await
 }
 
-async fn put(
-    api: &impl Api,
-    text: &str,
-    inbox: Inbox,
-    retry_delay: Duration,
-) -> Result<(), String> {
-    let id = message_id();
-    let mut attempt = 1;
-    loop {
-        match api.prompt(&id, text, inbox).await {
-            Ok(()) => return Ok(()),
-            Err(e) if attempt == PROMPT_ATTEMPTS => return Err(e),
-            Err(_) => {
-                attempt += 1;
-                tokio::time::sleep(retry_delay).await;
-            }
-        }
-    }
-}
-
-fn message_id() -> String {
-    static LAST: AtomicU64 = AtomicU64::new(0);
-    const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    let now = ms * 0x1000;
-    let next = |last: u64| now.max(last + 1);
-    let last = LAST
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
-            Some(next(last))
-        })
-        .expect("늘 Some을 돌려준다");
-    let time = next(last) & 0xFFFF_FFFF_FFFF;
-    let mut random = [0u8; 14];
-    let _ = getrandom::fill(&mut random);
-    let tail: String = random
-        .iter()
-        .map(|b| BASE62[*b as usize % BASE62.len()] as char)
-        .collect();
-    format!("msg_{time:012x}{tail}")
+fn inbox_id(session: &str, mail: &[MessageId]) -> Result<String, String> {
+    let session = session.strip_prefix("ses_").unwrap_or(session);
+    let input = match mail.is_empty() {
+        true => format!(
+            "n{:016x}",
+            getrandom::u64().map_err(|e| format!("inbox id: {e}"))?
+        ),
+        false => mail
+            .iter()
+            .map(|id| id.0.to_string())
+            .collect::<Vec<_>>()
+            .join("_"),
+    };
+    Ok(format!("{LOOM_INBOX}_{session}_{input}"))
 }

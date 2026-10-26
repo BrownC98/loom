@@ -80,16 +80,20 @@ impl App {
         Ok(profile::questions_note(&self.graph.open_questions(node)?))
     }
 
-    pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId, ended: EndedTurn) -> Option<String> {
+    pub(super) fn turn_ended(
+        self: &Arc<Self>,
+        node: NodeId,
+        ended: EndedTurn,
+    ) -> rusqlite::Result<Option<String>> {
         self.turn_ends.stopped(node, ended.turn.as_deref());
         if let Some(text) = ended.reply {
             self.turn_ends.said(node, text, None);
         }
-        let nudge = self.turn_end(node);
+        let nudge = self.turn_end(node)?;
         if nudge.is_none() {
             self.run_at_turn_end(node, None);
         }
-        nudge.map(str::to_owned)
+        Ok(nudge.map(str::to_owned))
     }
 
     pub(super) async fn wait_idle(
@@ -103,7 +107,9 @@ impl App {
             .map_err(for_agent)?;
         let after_turn = req.turn_end.is_some();
         if let Some(ended) = req.turn_end
-            && let Some(nudge) = self.turn_ended(node, ended)
+            && let Some(nudge) = self
+                .turn_ended(node, ended)
+                .map_err(|e| for_agent(Refusal::from(e)))?
         {
             return Ok(IdleReply::Nudge { nudge });
         }
@@ -174,10 +180,14 @@ impl App {
             mail.as_mut().enable();
             match server.signal().await {
                 Some(Signal::TurnEnded(reply)) => {
-                    if let Some(nudge) = self.turn_ended(node, EndedTurn { reply, turn: None })
-                        && let Err(e) = server.start_turn(&nudge).await
-                    {
-                        eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
+                    match self.turn_ended(node, EndedTurn { reply, turn: None }) {
+                        Ok(Some(nudge)) => {
+                            if let Err(e) = server.start_turn(&nudge).await {
+                                eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0),
                     }
                 }
                 Some(Signal::Stopped) => self.run_at_turn_end(node, None),

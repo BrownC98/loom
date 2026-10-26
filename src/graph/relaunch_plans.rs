@@ -54,7 +54,7 @@ impl Graph {
         let tx = db.transaction()?;
         let ended: bool = tx
             .query_row(
-                "SELECT process_exited FROM nodes WHERE id = ?1",
+                "SELECT process IS NOT NULL FROM nodes WHERE id = ?1",
                 [node.0],
                 |row| row.get(0),
             )

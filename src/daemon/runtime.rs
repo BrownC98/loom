@@ -138,18 +138,19 @@ impl App {
             return Err(e.to_string());
         }
         match self.host.resume(id, &at, on_exit) {
-            Ok(()) => {}
+            Ok(()) => {
+                self.follow_screen(id, profile, &token);
+                self.follow_servers(id, codex, opencode2, &token);
+                self.ptys_changed.notify_waiters();
+            }
             Err(node_host::Unattached::Unreached(cause)) => {
-                return self.host_unreached(id, &cause).map_err(|e| e.to_string());
+                self.host_unreached(id, &cause).map_err(|e| e.to_string())?;
             }
             Err(e) => {
                 self.host.end_at(&at);
                 return Err(e.to_string());
             }
         }
-        self.follow_screen(id, profile, &token);
-        self.follow_servers(id, codex, opencode2, &token);
-        self.ptys_changed.notify_waiters();
         if self.position_of(id).is_ok_and(|now| now != position) {
             self.position_changed(&[id]);
         }

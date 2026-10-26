@@ -193,11 +193,6 @@ async fn rename_worktree(
     let repo = app.repos.path(id)?;
     let listed = worktree::find(&repo, &req.path).await?;
     worktree::rename(&repo, &listed, &req.name).await?;
-    if let Some(branch) = &listed.branch {
-        app.graph
-            .branch_renamed(id, branch, req.name.trim())
-            .map_err(internal)?;
-    }
     Ok(Json(app.repo_view(id, &repo).await))
 }
 

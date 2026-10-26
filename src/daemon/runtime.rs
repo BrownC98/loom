@@ -153,7 +153,10 @@ impl App {
             }
         }
         if self.position_of(id).is_ok_and(|now| now != position) {
-            self.position_changed(&[id]);
+            if let Err(e) = self.graph.plan_resume(id) {
+                eprintln!("loom: 노드 {}의 다시 띄우기를 계획하지 못했다: {e}", id.0);
+            }
+            self.run_unless_busy(id);
         }
         Ok(())
     }

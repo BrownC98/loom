@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
+use super::relaunch_plans::resume_at_turn_end;
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, ProcessOutcome, REACHABLE, Toward,
     Work, from_json, hosts, mailbox, name_of, node_state, note_state, optional_json, parent_of,
@@ -644,6 +645,9 @@ impl Graph {
         let Some(removal) = remove_in(&tx, id)? else {
             return Ok(Vec::new());
         };
+        for &child in &removal.children {
+            resume_at_turn_end(&tx, child, self.linked)?;
+        }
         tx.commit()?;
         let children = removal.children.clone();
         removal.publish(self, &db)?;
@@ -791,27 +795,24 @@ impl Graph {
         Ok(())
     }
 
-    pub fn adopt(
-        &self,
-        parent: NodeId,
-        child: NodeId,
-        limits: TreeLimits,
-    ) -> Result<bool, Refusal> {
+    pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(adoption) = adopt_in(&tx, parent, child, limits)? else {
-            return Ok(false);
+            return Ok(());
         };
+        if adoption.was_root {
+            resume_at_turn_end(&tx, child, self.linked)?;
+        }
         tx.commit()?;
-        let was_root = adoption.was_root;
-        adoption.publish(self, &db)?;
-        Ok(was_root)
+        Ok(adoption.publish(self, &db)?)
     }
 
     pub fn detach(&self, child: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let adoption = detach_in(&tx, child)?;
+        resume_at_turn_end(&tx, child, self.linked)?;
         tx.commit()?;
         Ok(adoption.publish(self, &db)?)
     }

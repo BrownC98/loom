@@ -532,7 +532,7 @@ pub async fn changes(path: &Path) -> Result<Vec<String>, RepoProblem> {
     if !path.is_dir() {
         return Ok(Vec::new());
     }
-    let status = git::run(path, &["status", "--porcelain", "--untracked-files=all"])
+    let status = git::run(path, &["status", "--porcelain", "--untracked-files=normal"])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(status.lines().map(str::to_owned).collect())

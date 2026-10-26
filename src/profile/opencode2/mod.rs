@@ -16,7 +16,7 @@ use crate::protocol::{
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-use super::{Change, ServerAdapter, Signal, Status, VersionMismatch};
+use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
@@ -392,8 +392,10 @@ impl<A: Api> ServerAdapter for Adapter<A> {
         }
     }
 
-    async fn inject(&mut self, taken: &[Delivery], _: Status) -> Result<(), String> {
-        deliver(&*self.api, taken).await
+    async fn inject(&mut self, taken: &[Delivery], _: Status) -> Result<(), NotTaken> {
+        deliver(&*self.api, taken)
+            .await
+            .map_err(|e| NotTaken::ServerStopped(self.refused(e)))
     }
 
     async fn stop_shells(&self) {
@@ -401,11 +403,20 @@ impl<A: Api> ServerAdapter for Adapter<A> {
     }
 
     async fn start_turn(&mut self, text: &str) -> Result<(), String> {
-        self.api.prompt(&[], text, Inbox::Queue).await
+        let sent = self.api.prompt(&[], text, Inbox::Queue).await;
+        sent.map_err(|e| self.refused(e))
     }
 
     async fn steer(&mut self, text: &str) -> Result<(), String> {
-        self.api.prompt(&[], text, Inbox::Steer).await
+        let sent = self.api.prompt(&[], text, Inbox::Steer).await;
+        sent.map_err(|e| self.refused(e))
+    }
+}
+
+impl<A: Api> Adapter<A> {
+    fn refused(&self, cause: String) -> String {
+        self.api.stop_server();
+        format!("{cause}; loom stopped the OpenCode 2 server")
     }
 }
 
@@ -433,6 +444,7 @@ trait Api: Send + Sync {
         inbox: Inbox,
     ) -> impl Future<Output = Result<(), String>> + Send;
     fn stop_shells(&self) -> impl Future<Output = ()> + Send;
+    fn stop_server(&self);
 }
 
 impl Api for Node {
@@ -449,6 +461,10 @@ impl Api for Node {
 
     async fn stop_shells(&self) {
         self.server.stop_shells(&self.session).await;
+    }
+
+    fn stop_server(&self) {
+        self.server.stop();
     }
 }
 

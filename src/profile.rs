@@ -116,6 +116,19 @@ pub struct Change {
     pub now: Status,
 }
 
+pub enum NotTaken {
+    EventFollows(String),
+    ServerStopped(String),
+}
+
+impl std::fmt::Display for NotTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotTaken::EventFollows(e) | NotTaken::ServerStopped(e) => f.write_str(e),
+        }
+    }
+}
+
 pub trait ServerAdapter: Send {
     fn takes(&self, now: Status) -> &'static [&'static [Kind]];
     fn status(&mut self) -> Option<Status>;
@@ -125,7 +138,7 @@ pub trait ServerAdapter: Send {
         &mut self,
         taken: &[Delivery],
         now: Status,
-    ) -> impl Future<Output = Result<(), String>> + Send;
+    ) -> impl Future<Output = Result<(), NotTaken>> + Send;
     fn stop_shells(&self) -> impl Future<Output = ()> + Send;
     fn start_turn(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn steer(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;

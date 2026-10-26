@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use super::{Change, ServerAdapter, Signal, Status, VersionMismatch};
+use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
@@ -241,8 +241,11 @@ where
         self.thread.changed().await.is_ok()
     }
 
-    async fn inject(&mut self, taken: &[Delivery], now: Status) -> Result<(), String> {
-        deliver(&self.call, &self.thread()?, now, taken).await
+    async fn inject(&mut self, taken: &[Delivery], now: Status) -> Result<(), NotTaken> {
+        let thread = self.thread().map_err(NotTaken::EventFollows)?;
+        deliver(&self.call, &thread, now, taken)
+            .await
+            .map_err(NotTaken::EventFollows)
     }
 
     async fn stop_shells(&self) {

@@ -13,6 +13,27 @@ use tokio::sync::mpsc;
 
 use wire::{Frame, MAX_CHUNK};
 
+#[cfg(windows)]
+pub fn open_pipe(
+    at: &std::path::Path,
+    options: &std::fs::OpenOptions,
+) -> io::Result<std::fs::File> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
+    const PIPE_BUSY: i32 = 231;
+    loop {
+        match options.open(at) {
+            Err(e) if e.raw_os_error() == Some(PIPE_BUSY) => {
+                let name: Vec<u16> = at.as_os_str().encode_wide().chain([0]).collect();
+                if unsafe { WaitNamedPipeW(name.as_ptr(), NMPWAIT_WAIT_FOREVER) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            opened => return opened,
+        }
+    }
+}
+
 pub const ENDPOINT_ENV: &str = "LOOM_SOCKET";
 const BATCH_BYTES: usize = 256 * 1024;
 

@@ -45,33 +45,20 @@ impl Wire for std::os::unix::net::UnixStream {
 
 #[cfg(windows)]
 fn open(at: &std::path::Path) -> io::Result<Box<dyn Wire>> {
-    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
-    use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
-    const PIPE_BUSY: i32 = 231;
-    loop {
-        match std::fs::OpenOptions::new()
+    let file = crate::tunnel::open_pipe(
+        at,
+        std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(FILE_FLAG_OVERLAPPED)
-            .open(at)
-        {
-            Err(e) if e.raw_os_error() == Some(PIPE_BUSY) => {
-                let name: Vec<u16> = at.as_os_str().encode_wide().chain([0]).collect();
-                if unsafe { WaitNamedPipeW(name.as_ptr(), NMPWAIT_WAIT_FOREVER) } == 0 {
-                    return Err(io::Error::last_os_error());
-                }
-            }
-            opened => {
-                return Ok(Box::new(pipe::Pipe {
-                    file: opened?,
-                    read: None,
-                    write: None,
-                }));
-            }
-        }
-    }
+            .custom_flags(FILE_FLAG_OVERLAPPED),
+    )?;
+    Ok(Box::new(pipe::Pipe {
+        file,
+        read: None,
+        write: None,
+    }))
 }
 
 #[cfg(windows)]

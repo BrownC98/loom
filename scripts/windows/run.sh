@@ -7,5 +7,6 @@ dir=$(wslpath "$temp")/loom-cargo-run/$$
 mkdir -p "$dir"
 trap 'rm -rf "$dir"' EXIT
 cp "$exe" "$dir/"
-export WSLENV="${WSLENV:+$WSLENV:}TS_RS_EXPORT_DIR/p"
+export TS_RS_EXPORT_DIR="$temp\\loom-cargo-run\\$$\\gen"
+export WSLENV="${WSLENV:+$WSLENV:}TS_RS_EXPORT_DIR"
 "$dir/$(basename "$exe")" "$@"

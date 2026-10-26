@@ -257,10 +257,15 @@ export function App() {
   }, []);
   const afterStop = () => (isTauri() ? exit(0) : setStopped(true));
   const rescan = () => getAgents().then(setAgents);
+  const settingsReads = useRef(0);
+  const readSettings = () => {
+    const asked = ++settingsReads.current;
+    return getSettings().then((next) => asked === settingsReads.current && setSettings(next));
+  };
   const sendSettings = (patch: SettingsPatch) =>
     putSettings(patch)
       .catch(() => {})
-      .finally(() => getSettings().then(setSettings));
+      .finally(readSettings);
   const saveSettings = (next: SettingsView) => {
     const patch = settingsPatch(settings, next);
     return patch ? sendSettings(patch) : Promise.resolve();
@@ -268,7 +273,7 @@ export function App() {
   const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settings));
   const resetSettings = (patch: SettingsPatch) => void sendSettings(patch);
   const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
-    getSettings().then(setSettings);
+    void readSettings();
     refreshUsage();
   });
   const [switching, setSwitching] = useState<{ provider: Provider; distro: string | null; to: AccountId | null; nodes: MovableNode[] } | null>(null);
@@ -305,9 +310,7 @@ export function App() {
 
   useEffect(() => {
     rescan();
-    getSettings()
-      .then(setSettings)
-      .finally(() => setSettingsLoaded(true));
+    readSettings().finally(() => setSettingsLoaded(true));
     refreshUsage();
     const timer = window.setInterval(refreshUsage, USAGE_REFRESH_MS);
     return () => clearInterval(timer);
@@ -384,14 +387,14 @@ export function App() {
           newBuildServed()
             .then((stale) => stale && location.reload())
             .catch(() => {});
-          getSettings().then(setSettings);
+          void readSettings();
           setViewVersion((n) => n + 1);
           break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;
         case 'viewChanged':
-          getSettings().then(setSettings);
+          void readSettings();
           setViewVersion((n) => n + 1);
           break;
         case 'recorded':

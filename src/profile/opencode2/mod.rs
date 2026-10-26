@@ -2,6 +2,7 @@ mod server;
 
 use std::collections::HashSet;
 use std::ffi::OsString;
+use std::future::Future;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,7 +16,7 @@ use crate::protocol::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey,
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-use super::{Mailbox, VersionMismatch};
+use super::{ServerAdapter, Signal, VersionMismatch};
 use server::Server;
 
 pub const PINNED_VERSION: &str = "2.0.32";
@@ -82,11 +83,6 @@ enum TurnEvent {
     Succeeded,
     Stopped,
     Enqueued { id: String },
-}
-
-enum Turn {
-    Ended(Option<String>),
-    HumanInput,
 }
 
 fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
@@ -203,7 +199,7 @@ pub struct Node {
     model: watch::Receiver<Model>,
     working: watch::Receiver<bool>,
     permission: watch::Receiver<Option<Permission>>,
-    turns: Mutex<Option<mpsc::UnboundedReceiver<Turn>>>,
+    turns: Mutex<Option<mpsc::UnboundedReceiver<Signal>>>,
     sent: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -297,13 +293,15 @@ impl Node {
                 Some(TurnEvent::Said(text)) => said = Some(text),
                 Some(TurnEvent::Succeeded) => {
                     tx_working.send_replace(false);
-                    let _ = tx_turns.send(Turn::Ended(said.take()));
+                    let _ = tx_turns.send(Signal::TurnEnded(said.take()));
                 }
                 Some(TurnEvent::Stopped) => {
                     tx_working.send_replace(false);
+                    said = None;
+                    let _ = tx_turns.send(Signal::Stopped);
                 }
                 Some(TurnEvent::Enqueued { id }) if !ours_sent.lock().unwrap().remove(&id) => {
-                    let _ = tx_turns.send(Turn::HumanInput);
+                    let _ = tx_turns.send(Signal::HumanInput);
                 }
                 Some(TurnEvent::Enqueued { .. }) | None => {}
             }
@@ -349,71 +347,110 @@ impl Node {
         }
     }
 
-    pub async fn stop_shells(&self) {
-        self.server.stop_shells(&self.session).await;
-    }
-
     pub fn stop(&self) {
         self.server.stop();
     }
 
-    pub async fn run(&self, mailbox: impl Mailbox) {
-        let api = Session {
-            server: &self.server,
-            id: &self.session,
-            sent: &self.sent,
-        };
-        let mut stopped = self.server.stopped();
-        let mut turns = self.turns.lock().unwrap().take();
-        loop {
-            let changed = mailbox.changed();
-            match next(&mailbox) {
-                Ok(Some(batch)) => {
-                    if batch.interrupt {
-                        self.stop_shells().await;
-                    }
-                    match deliver(&api, &batch, PROMPT_RETRY_DELAY).await {
-                        Ok(()) => {
-                            if let Err(e) = mailbox.ack(&batch.taken) {
-                                eprintln!("loom: OpenCode 2 노드의 받음 확인을 쓰지 못했다: {e}");
-                            }
-                            continue;
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "loom: OpenCode 2 세션 {}에 메시지를 넘기지 못했다: {e}",
-                                self.session
-                            );
-                            if let Err(e) = mailbox.release(&batch.taken) {
-                                eprintln!(
-                                    "loom: OpenCode 2 노드의 메시지를 큐로 돌리지 못했다: {e}"
-                                );
-                            }
-                        }
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => eprintln!("loom: OpenCode 2 노드의 메일함을 읽지 못했다: {e}"),
+    pub fn adapter(self: &Arc<Self>) -> impl ServerAdapter + use<> {
+        Adapter {
+            turns: self.turns.lock().unwrap().take(),
+            stopped: self.server.stopped(),
+            api: self.clone(),
+            pending: None,
+        }
+    }
+}
+
+struct Adapter<A> {
+    api: Arc<A>,
+    turns: Option<mpsc::UnboundedReceiver<Signal>>,
+    stopped: watch::Receiver<bool>,
+    pending: Option<Signal>,
+}
+
+impl<A: Api> ServerAdapter for Adapter<A> {
+    fn takes(&self) -> &'static [&'static [Kind]] {
+        &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]]
+    }
+
+    async fn signal(&mut self) -> Option<Signal> {
+        self.pending.take()
+    }
+
+    async fn changed(&mut self) -> bool {
+        let Self {
+            turns,
+            stopped,
+            pending,
+            ..
+        } = self;
+        let turn = async {
+            match turns.as_mut() {
+                Some(turns) => turns.recv().await,
+                None => std::future::pending().await,
             }
-            let turn = tokio::select! {
-                _ = changed => continue,
-                _ = stopped.wait_for(|s| *s) => return,
-                Some(turn) = async { turns.as_mut()?.recv().await } => turn,
-            };
-            let (text, inbox) = match turn {
-                Turn::Ended(reply) => (mailbox.turn_ended(reply), Inbox::Queue),
-                Turn::HumanInput => (mailbox.human_input(), Inbox::Steer),
-            };
-            if let Some(text) = text
-                && let Err(e) = put(&api, &text, inbox, PROMPT_RETRY_DELAY).await
-            {
-                eprintln!(
-                    "loom: OpenCode 2 세션 {}을 다시 일하게 하지 못했다: {e}",
-                    self.session
-                );
+        };
+        tokio::select! {
+            _ = stopped.wait_for(|s| *s) => false,
+            turn = turn => {
+                match turn {
+                    Some(turn) => *pending = Some(turn),
+                    None => *turns = None,
+                }
+                true
             }
         }
     }
+
+    async fn inject(&mut self, taken: &[Delivery]) -> Result<(), String> {
+        deliver(&*self.api, taken, PROMPT_RETRY_DELAY).await
+    }
+
+    async fn stop_shells(&self) {
+        self.api.stop_shells().await;
+    }
+
+    async fn start_turn(&mut self, text: &str) -> Result<(), String> {
+        put(&*self.api, text, Inbox::Queue, PROMPT_RETRY_DELAY).await
+    }
+
+    async fn steer(&mut self, text: &str) -> Result<(), String> {
+        put(&*self.api, text, Inbox::Steer, PROMPT_RETRY_DELAY).await
+    }
+}
+
+#[cfg(test)]
+pub fn recording_adapter(
+    turns: mpsc::UnboundedReceiver<Signal>,
+    stopped: watch::Receiver<bool>,
+) -> (impl ServerAdapter, Arc<Mutex<Vec<String>>>) {
+    struct Recorded(Arc<Mutex<Vec<String>>>);
+    impl Api for Recorded {
+        async fn interrupt(&self) -> Result<(), String> {
+            self.0.lock().unwrap().push("interrupt".into());
+            Ok(())
+        }
+
+        async fn prompt(&self, _id: &str, text: &str, inbox: Inbox) -> Result<(), String> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("{} {text}", inbox.as_str()));
+            Ok(())
+        }
+
+        async fn stop_shells(&self) {
+            self.0.lock().unwrap().push("stop shells".into());
+        }
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let adapter = Adapter {
+        api: Arc::new(Recorded(calls.clone())),
+        turns: Some(turns),
+        stopped,
+        pending: None,
+    };
+    (adapter, calls)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -431,66 +468,45 @@ impl Inbox {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct Batch {
-    taken: Vec<Delivery>,
-    inbox: Inbox,
-    interrupt: bool,
+trait Api: Send + Sync {
+    fn interrupt(&self) -> impl Future<Output = Result<(), String>> + Send;
+    fn prompt(
+        &self,
+        id: &str,
+        text: &str,
+        inbox: Inbox,
+    ) -> impl Future<Output = Result<(), String>> + Send;
+    fn stop_shells(&self) -> impl Future<Output = ()> + Send;
 }
 
-fn next(mailbox: &impl Mailbox) -> Result<Option<Batch>, String> {
-    let urgent = mailbox.take(&[Kind::Steer, Kind::Interrupt], super::BATCH_LIMIT_BYTES)?;
-    if !urgent.is_empty() {
-        let interrupt = urgent.iter().any(|d| d.kind == Kind::Interrupt);
-        return Ok(Some(Batch {
-            taken: urgent,
-            inbox: Inbox::Steer,
-            interrupt,
-        }));
-    }
-    let queued = mailbox.take(&[Kind::Queue], super::BATCH_LIMIT_BYTES)?;
-    Ok((!queued.is_empty()).then_some(Batch {
-        taken: queued,
-        inbox: Inbox::Queue,
-        interrupt: false,
-    }))
-}
-
-trait Api {
-    async fn interrupt(&self) -> Result<(), String>;
-    async fn prompt(&self, id: &str, text: &str, inbox: Inbox) -> Result<(), String>;
-}
-
-struct Session<'a> {
-    server: &'a Server,
-    id: &'a str,
-    sent: &'a Mutex<HashSet<String>>,
-}
-
-impl Api for Session<'_> {
+impl Api for Node {
     async fn interrupt(&self) -> Result<(), String> {
-        self.server.interrupt(self.id).await
+        self.server.interrupt(&self.session).await
     }
 
     async fn prompt(&self, id: &str, text: &str, inbox: Inbox) -> Result<(), String> {
         self.sent.lock().unwrap().insert(id.to_owned());
-        self.server.prompt(self.id, id, text, inbox.as_str()).await
+        self.server
+            .prompt(&self.session, id, text, inbox.as_str())
+            .await
+    }
+
+    async fn stop_shells(&self) {
+        self.server.stop_shells(&self.session).await;
     }
 }
 
-async fn deliver(api: &impl Api, batch: &Batch, retry_delay: Duration) -> Result<(), String> {
-    if batch.interrupt
+async fn deliver(api: &impl Api, taken: &[Delivery], retry_delay: Duration) -> Result<(), String> {
+    if taken.iter().any(|d| d.kind == Kind::Interrupt)
         && let Err(e) = api.interrupt().await
     {
         eprintln!("loom: OpenCode 2 실행을 멈추지 못했다: {e}");
     }
-    put(
-        api,
-        &super::message_text(&batch.taken),
-        batch.inbox,
-        retry_delay,
-    )
-    .await
+    let inbox = match taken.iter().all(|d| d.kind == Kind::Queue) {
+        true => Inbox::Queue,
+        false => Inbox::Steer,
+    };
+    put(api, &super::message_text(taken), inbox, retry_delay).await
 }
 
 async fn put(
@@ -554,45 +570,6 @@ mod tests {
             kind,
             body: body.into(),
             what: Some(crate::protocol::MessageKind::Note),
-        }
-    }
-
-    #[derive(Default)]
-    struct FakeMailbox {
-        queued: Mutex<Vec<Delivery>>,
-        takes: Mutex<Vec<(Vec<Kind>, usize)>>,
-    }
-
-    impl Mailbox for FakeMailbox {
-        fn changed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-            Box::pin(std::future::pending())
-        }
-
-        fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
-            self.takes
-                .lock()
-                .unwrap()
-                .push((kinds.to_vec(), limit_bytes));
-            let mut queued = self.queued.lock().unwrap();
-            let (taken, kept) = queued.drain(..).partition(|d| kinds.contains(&d.kind));
-            *queued = kept;
-            Ok(taken)
-        }
-
-        fn ack(&self, _taken: &[Delivery]) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn release(&self, _taken: &[Delivery]) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn turn_ended(&self, _reply: Option<String>) -> Option<String> {
-            None
-        }
-
-        fn human_input(&self) -> Option<String> {
-            None
         }
     }
 
@@ -679,48 +656,17 @@ mod tests {
             }
             Ok(())
         }
-    }
 
-    #[test]
-    fn steer_and_interrupt_go_before_the_queue_and_share_the_batch_limit() {
-        let mailbox = FakeMailbox::default();
-        *mailbox.queued.lock().unwrap() = vec![
-            delivery(Kind::Queue, "a"),
-            delivery(Kind::Steer, "b"),
-            delivery(Kind::Interrupt, "c"),
-        ];
-        let first = next(&mailbox).unwrap().unwrap();
-        assert_eq!(first.inbox, Inbox::Steer);
-        assert!(first.interrupt);
-        assert_eq!(
-            first.taken,
-            [delivery(Kind::Steer, "b"), delivery(Kind::Interrupt, "c")]
-        );
-        let second = next(&mailbox).unwrap().unwrap();
-        assert_eq!(second.inbox, Inbox::Queue);
-        assert!(!second.interrupt);
-        assert_eq!(second.taken, [delivery(Kind::Queue, "a")]);
-        assert_eq!(next(&mailbox).unwrap(), None);
-        let limit = crate::profile::BATCH_LIMIT_BYTES;
-        assert!(
-            mailbox
-                .takes
-                .lock()
-                .unwrap()
-                .iter()
-                .all(|(_, l)| *l == limit)
-        );
+        async fn stop_shells(&self) {
+            self.calls.lock().unwrap().push("stop shells".into());
+        }
     }
 
     #[tokio::test]
     async fn interrupt_stops_the_run_then_steers_the_body() {
         let api = FakeApi::default();
-        let batch = Batch {
-            taken: vec![delivery(Kind::Interrupt, "멈춰라")],
-            inbox: Inbox::Steer,
-            interrupt: true,
-        };
-        deliver(&api, &batch, Duration::ZERO).await.unwrap();
+        let taken = [delivery(Kind::Interrupt, "멈춰라")];
+        deliver(&api, &taken, Duration::ZERO).await.unwrap();
         let calls = api.calls.lock().unwrap();
         assert_eq!(calls[0], "interrupt");
         assert!(calls[1].starts_with("steer msg_"), "{}", calls[1]);
@@ -736,12 +682,8 @@ mod tests {
             fail: 2,
             ..FakeApi::default()
         };
-        let batch = Batch {
-            taken: vec![delivery(Kind::Queue, "a")],
-            inbox: Inbox::Queue,
-            interrupt: false,
-        };
-        deliver(&api, &batch, PROMPT_RETRY_DELAY).await.unwrap();
+        let taken = [delivery(Kind::Queue, "a")];
+        deliver(&api, &taken, PROMPT_RETRY_DELAY).await.unwrap();
         let calls = api.calls.lock().unwrap();
         assert_eq!(calls.len(), 3);
         assert!(calls.iter().all(|c| *c == calls[0]), "{calls:?}");
@@ -753,12 +695,8 @@ mod tests {
             fail: u32::MAX,
             ..FakeApi::default()
         };
-        let batch = Batch {
-            taken: vec![delivery(Kind::Queue, "a")],
-            inbox: Inbox::Queue,
-            interrupt: false,
-        };
-        let err = deliver(&api, &batch, PROMPT_RETRY_DELAY).await.unwrap_err();
+        let taken = [delivery(Kind::Queue, "a")];
+        let err = deliver(&api, &taken, PROMPT_RETRY_DELAY).await.unwrap_err();
         assert_eq!(err, "연결이 끊겼다");
         assert_eq!(api.calls.lock().unwrap().len(), PROMPT_ATTEMPTS as usize);
     }

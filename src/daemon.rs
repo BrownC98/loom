@@ -1,3 +1,5 @@
+mod agent;
+mod arrival;
 mod carry;
 mod commands;
 pub mod gate;
@@ -44,7 +46,6 @@ use std::future::IntoFuture;
 use std::hash::Hash;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -75,13 +76,12 @@ use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::process_tree;
-use crate::profile::claude;
 use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::omp;
 use crate::profile::opencode2;
-use crate::profile::{self, Mailbox, Profile, Remote, Start, VersionMismatch};
+use crate::profile::{self, Profile, Remote, Start, VersionMismatch};
 use crate::protocol::{
     Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
     Refusal, ServerLink, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
@@ -222,7 +222,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
-    let (doors, endpoint_door) = tunnel::Door::<NodeId>::new();
+    let (doors, endpoint_door) = tunnel::Door::<arrival::Caller>::new();
     let (links, linked) = tokio::sync::mpsc::unbounded_channel();
     let app = Arc::new(App::new(
         db::open(&db_path)?,
@@ -255,12 +255,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             })
             .map_err(std::io::Error::other)?;
     }
-    app.resume().await.map_err(std::io::Error::other)?;
-    if let Err(e) = app.relaunch_stale() {
-        eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
-    }
-    app.watch_sleep();
-    app.watch_agents();
+    app.start_nodes();
     let node_routes = commands::node_routes();
     let router = node_routes
         .clone()
@@ -301,20 +296,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
-    let node_routes = node_routes.layer(axum::middleware::from_fn(origin::same_site));
-    let endpoint = axum::serve(
-        endpoint_door,
-        node_routes
-            .clone()
-            .layer(axum::middleware::from_fn_with_state(
-                app.clone(),
-                runtime::from_its_node,
-            ))
-            .with_state(app.clone())
-            .into_make_service_with_connect_info::<NodeId>(),
-    )
-    .into_future();
-    let node_routes = node_routes.with_state(app);
+    let endpoint = axum::serve(endpoint_door, endpoint_routes(&app)).into_future();
+    let node_routes = node_routes
+        .layer(axum::middleware::from_fn(origin::same_site))
+        .with_state(app);
     match node_door {
         Some(door) => {
             let node = axum::serve(door, node_routes).into_future();
@@ -322,6 +307,35 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         }
         None => tokio::try_join!(main, endpoint).map(drop),
     }
+}
+
+impl App {
+    fn start_nodes(self: &Arc<Self>) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = app.resume().await {
+                eprintln!("loom: 노드에 다시 붙지 못했다: {e}");
+            }
+            if let Err(e) = app.relaunch_stale() {
+                eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
+            }
+            app.watch_sleep();
+            app.watch_agents();
+        });
+    }
+}
+
+fn endpoint_routes(
+    app: &Arc<App>,
+) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, arrival::Caller> {
+    commands::node_routes()
+        .layer(axum::middleware::from_fn(origin::same_site))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            runtime::from_its_node,
+        ))
+        .with_state(app.clone())
+        .into_make_service_with_connect_info::<arrival::Caller>()
 }
 
 fn node_url(listen: SocketAddr) -> String {
@@ -474,6 +488,169 @@ mod tests {
         assert_eq!(
             for_agent(Refusal::EmptyName),
             (StatusCode::BAD_REQUEST, "Give a name.".into())
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_daemon_answers_http_while_a_host_resume_blocks() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                tokio::sync::mpsc::unbounded_channel().0,
+            )
+            .unwrap(),
+        );
+        let place = Place {
+            repo: crate::worktree::RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let hosts = dir.path().join("pty").join("nodes");
+        std::fs::create_dir_all(&hosts).unwrap();
+        let mut nodes = Vec::new();
+        for name in ["a", "b", "c"] {
+            let launched = crate::graph::Launched {
+                token: name.into(),
+                server: None,
+                account: None,
+                rules: None,
+            };
+            let id = app
+                .graph
+                .add_root(&place, None, None, &launched, |_| Ok(()))
+                .unwrap();
+            std::fs::write(
+                hosts.join(id.0.to_string()),
+                silent.local_addr().unwrap().to_string(),
+            )
+            .unwrap();
+            nodes.push(id);
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let routes = settings::routes().with_state(app.clone());
+        tokio::spawn(async move { axum::serve(listener, routes).await });
+
+        let started = std::time::Instant::now();
+        app.start_nodes();
+        let mut http = tokio::net::TcpStream::connect(address).await.unwrap();
+        http.write_all(
+            b"GET /api/settings HTTP/1.1\r\nhost: 127.0.0.1\r\nconnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+        let mut answer = String::new();
+        http.read_to_string(&mut answer).await.unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            app.graph.active().unwrap().len(),
+            nodes.len(),
+            "the hosts still block their resume"
+        );
+        while !app.graph.active().unwrap().is_empty() {
+            assert!(started.elapsed() < Duration::from_secs(30));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_node_removed_during_startup_is_not_attached_after_its_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                tokio::sync::mpsc::unbounded_channel().0,
+            )
+            .unwrap(),
+        );
+        let place = Place {
+            repo: crate::worktree::RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let mut nodes = Vec::new();
+        for name in ["blocked", "removed"] {
+            let launched = crate::graph::Launched {
+                token: name.into(),
+                server: None,
+                account: None,
+                rules: None,
+            };
+            nodes.push(
+                app.graph
+                    .add_root(&place, None, None, &launched, |_| Ok(()))
+                    .unwrap(),
+            );
+        }
+        let [blocked, removed] = nodes[..] else {
+            unreachable!()
+        };
+        let hosts = dir.path().join("pty/nodes");
+        std::fs::create_dir_all(&hosts).unwrap();
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std::fs::write(
+            hosts.join(blocked.0.to_string()),
+            silent.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let blocker = std::thread::spawn(move || {
+            let (link, _) = silent.accept().unwrap();
+            entered.send(()).unwrap();
+            gate.recv().unwrap();
+            drop(link);
+        });
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'still here'; exec cat >/dev/null"]);
+        crate::node_host::in_process(&hosts, removed, cmd);
+        app.start_nodes();
+        tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            app.host.attach(removed).is_none(),
+            "resume is still at the first host"
+        );
+        app.remove(removed).unwrap();
+        assert!(!app.graph.active().unwrap().iter().any(|n| n.id == removed));
+        release.send(()).unwrap();
+        let resumed = tokio::time::timeout(Duration::from_secs(3), async {
+            while app.host.attach(removed).is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        app.host.kill(removed);
+        app.host.kill(blocked);
+        blocker.join().unwrap();
+        assert!(
+            !resumed,
+            "startup attached a deleted node and kept its process outside the graph"
         );
     }
 }

@@ -20,6 +20,7 @@ const KILL: u8 = 3;
 const EXIT: u8 = 4;
 const STREAMS: u8 = 7;
 const ENDPOINT_FAILED: u8 = 8;
+const HELD: u8 = 9;
 
 fn word(text: impl AsRef<OsStr>) -> Value {
     json!({ "Unix": text.as_ref().as_bytes() })
@@ -110,7 +111,7 @@ fn an_inner_host_delivers_the_exit_and_both_hosts_end_while_the_outer_pipe_is_op
         "cwd": word(home),
         "env": env(home),
         "inner": {
-            "version": 4,
+            "version": 5,
             "argv": ["sh", "-c", "printf ready; sleep .4; exit 3"],
             "setup": null,
             "endpoint": home.join("run/node.sock").to_str().unwrap(),
@@ -180,7 +181,8 @@ fn an_endpoint_out_of_files_reports_it_and_serves_its_waiting_clients_later() {
     assert!(failed.starts_with("accept: "), "{failed}");
     file_limit(child.id(), before);
 
-    let mut streams = attach(&address, STREAMS, 1);
+    let mut streams = attach(&address, STREAMS, 2);
+    assert_eq!(read_frame(&mut streams).0, HELD);
     let mut carried: Vec<u8> = Vec::new();
     let mut buf = [0u8; 4096];
     while carried.windows(10).filter(|w| *w == b"POST /held").count() < clients.len() {

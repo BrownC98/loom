@@ -3,6 +3,7 @@ use crate::protocol::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
 #[derive(Default)]
 pub struct Screen {
     pub text: String,
+    pub undimmed: String,
     pub to_cursor: String,
     pub cols: u16,
 }

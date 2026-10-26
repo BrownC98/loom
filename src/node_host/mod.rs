@@ -28,7 +28,8 @@ pub use inner::inner;
 pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
 
 pub enum Linked {
-    Streams(TcpStream),
+    Terminal,
+    Streams { link: TcpStream, held: Option<u32> },
     EndpointFailed(String),
 }
 
@@ -106,6 +107,8 @@ struct Pty {
     output: Mutex<Output>,
     size: watch::Sender<PtySize>,
     sizing: Mutex<Sizing>,
+    #[cfg(test)]
+    detached: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -224,21 +227,18 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             }
         };
         let pid = greeted.pid;
-        if greeted.version >= wire::STREAMS_SINCE
-            && let Some(links) = &self.links
-        {
-            match connect(at, wire::greet_streams) {
-                Ok((link, ())) => {
-                    let _ = links.send((id, Linked::Streams(link)));
-                }
+        let linked = match greeted.version >= wire::STREAMS_SINCE && self.links.is_some() {
+            true => match connect(at, |link| wire::greet_streams(link, greeted.version)) {
+                Ok((link, held)) => Linked::Streams { link, held },
                 Err(e) => {
                     let _ = wire::write(&mut reader, &Frame::Kill);
                     std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
                     let _ = std::fs::remove_file(&file);
                     return Err(Unattached::Silent(format!("node endpoint link: {e}")));
                 }
-            }
-        }
+            },
+            false => Linked::Terminal,
+        };
         let links = self.links.clone();
         let host = reader
             .try_clone()
@@ -254,8 +254,13 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
+            #[cfg(test)]
+            detached: Default::default(),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
+        if let Some(links) = &links {
+            let _ = links.send((id, linked));
+        }
         std::thread::spawn(move || {
             let exit = loop {
                 match wire::read(&mut reader) {
@@ -281,6 +286,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Err(_) => break Exit::Lost,
                 }
             };
+            #[cfg(test)]
+            if pty.detached.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
             let _ = std::fs::remove_file(file);
             on_exit(exit);
         });
@@ -308,6 +317,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 let _ = wire::write(&mut host, &Frame::Kill);
             }
             let _ = std::fs::remove_file(entry.path());
+        }
+    }
+
+    #[cfg(all(test, unix))]
+    pub fn detach(&self) {
+        for pty in self.nodes.write().unwrap().drain().map(|(_, pty)| pty) {
+            pty.detached
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = pty.host.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
     }
 
@@ -567,6 +585,7 @@ impl Pty {
         let at = screen.rows(0, col).nth(row.into());
         Screen {
             text: screen.contents(),
+            undimmed: undimmed(screen),
             to_cursor: above.chain(at).collect::<Vec<_>>().join("\n"),
             cols,
         }
@@ -596,6 +615,23 @@ impl Pty {
             let _ = wire::write(&mut *host, &Frame::Resize { cols, rows });
         }
     }
+}
+
+fn undimmed(screen: &vt100::Screen) -> String {
+    let (rows, cols) = screen.size();
+    let (rows, cols) = (rows.get(), cols.get());
+    let line = |row| {
+        let cells = (0..cols).filter_map(|col| screen.cell(row, col));
+        let text: String = cells
+            .filter(|cell| !cell.is_wide_continuation())
+            .map(|cell| match cell.dim() || !cell.has_contents() {
+                true => " ",
+                false => cell.contents(),
+            })
+            .collect();
+        text.trim_end().to_owned()
+    };
+    (0..rows).map(line).collect::<Vec<_>>().join("\n")
 }
 
 impl Output {
@@ -764,6 +800,39 @@ fn report_len(seq: &[u8]) -> Option<usize> {
     }
 }
 
+#[cfg(all(test, unix))]
+pub fn old_in_process(dir: &std::path::Path, id: impl Display, screen: &[u8]) {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        dir.join(id.to_string()),
+        listener.local_addr().unwrap().to_string(),
+    )
+    .unwrap();
+    let screen = screen.to_vec();
+    std::thread::spawn(move || {
+        for daemon in listener.incoming() {
+            let Ok(mut daemon) = daemon else { return };
+            let screen = screen.clone();
+            std::thread::spawn(move || {
+                if !matches!(wire::read(&mut daemon), Ok(Frame::Hello { .. })) {
+                    return;
+                }
+                let greeted = wire::write(
+                    &mut daemon,
+                    &Frame::Hello {
+                        version: 3,
+                        pid: None,
+                    },
+                )
+                .and_then(|()| wire::write(&mut daemon, &Frame::Resize { cols: 80, rows: 24 }))
+                .and_then(|()| wire::write(&mut daemon, &Frame::Data(screen)));
+                while greeted.is_ok() && wire::read(&mut daemon).is_ok() {}
+            });
+        }
+    });
+}
+
 #[cfg(test)]
 pub fn in_process(dir: &std::path::Path, id: impl Display, cmd: CommandBuilder) {
     let started = host::start(cmd, None, None).unwrap();
@@ -778,6 +847,21 @@ mod endpoint_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dim_text_like_an_input_placeholder_is_not_in_the_undimmed_screen() {
+        let size = |n| NonZeroU16::new(n).unwrap();
+        let mut parser = vt100::Parser::new(size(40), size(120), 0);
+        parser.process(include_bytes!("../profile/screens/claude-idle.txt"));
+        let screen = parser.screen();
+        let input = |text: String| text.lines().find(|l| l.starts_with('❯')).map(str::to_owned);
+        assert_eq!(
+            input(screen.contents()).as_deref(),
+            Some("❯\u{a0}Try \"write a test for styles.css\"")
+        );
+        assert_eq!(input(undimmed(screen)).as_deref(), Some("❯"));
+        assert!(undimmed(screen).contains("⏵⏵ auto mode on"));
+    }
 
     #[cfg(unix)]
     fn read_until(attached: &mut Attached, text: &str) -> String {

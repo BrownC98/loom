@@ -374,8 +374,9 @@ impl Host {
         let version = match greeted {
             Ok(Link::Terminal { version }) => version,
             Ok(Link::Streams) => {
-                if let Some(endpoint) = &*self.endpoint.lock().unwrap() {
-                    endpoint.carry(stream);
+                match &*self.endpoint.lock().unwrap() {
+                    Some(endpoint) => endpoint.carry(stream),
+                    None => drop(wire::write(&mut stream, &Frame::Held(0))),
                 }
                 return;
             }
@@ -455,7 +456,8 @@ impl Host {
                 | Frame::Pid(_)
                 | Frame::SetupFailed(_)
                 | Frame::Streams { .. }
-                | Frame::EndpointFailed(_) => {}
+                | Frame::EndpointFailed(_)
+                | Frame::Held(_) => {}
             }
         }
         let mut state = self.state.lock().unwrap();

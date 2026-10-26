@@ -13,6 +13,27 @@ use tokio::sync::mpsc;
 
 use wire::{Frame, MAX_CHUNK};
 
+#[cfg(windows)]
+pub fn open_pipe(
+    at: &std::path::Path,
+    options: &std::fs::OpenOptions,
+) -> io::Result<std::fs::File> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
+    const PIPE_BUSY: i32 = 231;
+    loop {
+        match options.open(at) {
+            Err(e) if e.raw_os_error() == Some(PIPE_BUSY) => {
+                let name: Vec<u16> = at.as_os_str().encode_wide().chain([0]).collect();
+                if unsafe { WaitNamedPipeW(name.as_ptr(), NMPWAIT_WAIT_FOREVER) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            opened => return opened,
+        }
+    }
+}
+
 pub const ENDPOINT_ENV: &str = "LOOM_SOCKET";
 const BATCH_BYTES: usize = 256 * 1024;
 
@@ -309,9 +330,9 @@ impl<A: Clone + Send + Sync + 'static> axum::serve::Listener for Door<A> {
     }
 }
 
-pub fn carry<A: Clone + Send + 'static>(
+pub fn carry<A: Send + 'static>(
     link: std::net::TcpStream,
-    at: A,
+    mut at: impl FnMut() -> A + Send + 'static,
     doors: mpsc::UnboundedSender<(Stream, A)>,
 ) -> io::Result<()> {
     link.set_nonblocking(true)?;
@@ -319,7 +340,7 @@ pub fn carry<A: Clone + Send + 'static>(
     let mut events = accept(reader, writer);
     tokio::spawn(async move {
         while let Some(stream) = events.recv().await {
-            if doors.send((stream, at.clone())).is_err() {
+            if doors.send((stream, at())).is_err() {
                 break;
             }
         }

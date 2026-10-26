@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::pin::pin;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +20,7 @@ use crate::graph::{
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
 use crate::profile::{self, Profile, Start};
-use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Provider, Refusal, ServerLink};
+use crate::protocol::{AgentId, MessageId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 use crate::skills::Position;
@@ -34,7 +33,7 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
-pub(super) const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
+const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
 const CODEX_ROLLOUT_DEPTH: usize = 5;
@@ -42,16 +41,29 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 #[derive(Default)]
 pub struct Relaunches {
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    refused: Mutex<HashMap<NodeId, Held>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Held {
-    Human,
-    Hook,
+    refused: Mutex<HashMap<NodeId, Option<MessageId>>>,
 }
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
+
+pub(super) enum ReviveError {
+    NoSession(String),
+    Failed(String),
+}
+
+impl From<String> for ReviveError {
+    fn from(error: String) -> Self {
+        ReviveError::Failed(error)
+    }
+}
+
+impl std::fmt::Display for ReviveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReviveError::NoSession(e) | ReviveError::Failed(e) => f.write_str(e),
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Stop {
@@ -74,12 +86,24 @@ impl Relaunches {
         self.exiting.lock().unwrap().contains_key(&node)
     }
 
-    pub(super) fn refused(&self, node: NodeId, by: Held) {
-        self.refused.lock().unwrap().insert(node, by);
+    pub(super) fn refused(&self, node: NodeId, newest: Option<MessageId>) {
+        self.refused.lock().unwrap().insert(node, newest);
     }
 
-    pub(super) fn held(&self, node: NodeId) -> Option<Held> {
-        self.refused.lock().unwrap().get(&node).copied()
+    pub(super) fn held(&self, node: NodeId) -> bool {
+        self.refused.lock().unwrap().contains_key(&node)
+    }
+
+    pub(super) fn mail_since_refused(
+        &self,
+        newest: impl Fn(NodeId) -> Option<MessageId>,
+    ) -> Vec<NodeId> {
+        let refused = self.refused.lock().unwrap().clone();
+        refused
+            .into_iter()
+            .filter(|(node, seen)| newest(*node).map(|m| m.0) > seen.map(|m| m.0))
+            .map(|(node, _)| node)
+            .collect()
     }
 
     pub(super) fn heard(&self, node: NodeId) {
@@ -221,37 +245,6 @@ impl App {
         }
     }
 
-    pub(super) fn take_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        if self.holds_mail(node) {
-            return Ok(Vec::new());
-        }
-        self.sleeps
-            .unless_stopping(node, || self.graph.take_waking(node, kinds, limit_bytes))
-            .unwrap_or(Ok(Vec::new()))
-    }
-
-    pub(super) async fn next_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        loop {
-            let mut changed = pin!(self.graph.mail_changed());
-            changed.as_mut().enable();
-            let taken = self.take_mail(node, kinds, limit_bytes)?;
-            if !taken.is_empty() {
-                return Ok(taken);
-            }
-            changed.await;
-        }
-    }
-
     pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {
         if let Err(e) = self.graph.agent_event(node, event) {
             eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
@@ -349,22 +342,24 @@ impl App {
                     let prepared = app.prepare_other(&node, &to).await?;
                     if let Err(e) = app.stop_old_claude(&node).await {
                         prepared.discarder()();
-                        return Err(e);
+                        return Err(e.into());
                     }
-                    app.run_other(node.id, prepared, &to).await
+                    Ok(app.run_other(node.id, prepared, &to).await?)
                 }
             }
         })
         .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+        .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
         self.drop_plan(id);
-        if asleep
-            && result.is_err()
-            && let Err(e) = self.graph.sleep_lost(id)
-        {
-            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+        let kept = match &result {
+            Err(ReviveError::NoSession(_)) if asleep => self.graph.sleep_lost(id),
+            Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
+            _ => Ok(()),
+        };
+        if let Err(e) = kept {
+            eprintln!("loom: 깨우지 못한 노드 {}를 적지 못했다: {e}", id.0);
         }
+        let result = result.map_err(|e| e.to_string());
         self.record_relaunch(who, switched, &result);
         result.map(|()| Relaunched::Now).map_err(internal)
     }
@@ -501,15 +496,11 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
-        self.run_at_turn_end(node, None);
-    }
-
     pub(super) fn server_turn_ended(self: &Arc<Self>, node: NodeId) {
         let server = self.codex.lock().unwrap().contains_key(&node)
             || self.opencode2.lock().unwrap().contains_key(&node);
         if server && !self.busy(node) {
-            self.turn_ended(node);
+            self.run_at_turn_end(node, None);
         }
     }
 
@@ -749,15 +740,13 @@ impl App {
 
     async fn old_record(&self, node: &Active) -> Option<String> {
         match profile_of(node)? {
-            Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp => {
-                node.transcript.clone()
-            }
+            profile if profile.hooked() => node.transcript.clone(),
             Profile::Codex => {
                 let server = self.codex.lock().unwrap().get(&node.id).cloned()?;
                 let thread = server.thread().borrow().as_ref().map(|t| t.id.clone())?;
                 server.rollout(&thread).await.ok().flatten()
             }
-            Profile::OpenCode2 => None,
+            _ => None,
         }
     }
 
@@ -794,20 +783,34 @@ impl App {
         Ok(())
     }
 
-    pub(super) async fn revive(self: &Arc<Self>, node: Active, notice: &str) -> Result<(), String> {
+    pub(super) async fn revive(
+        self: &Arc<Self>,
+        node: Active,
+        notice: &str,
+    ) -> Result<(), ReviveError> {
+        use ReviveError::NoSession;
         let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
-            return Err("프로필이 있는 에이전트가 아니다".into());
+            return Err(NoSession("프로필이 있는 에이전트가 아니다".into()));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let resume = match (profile, &node.server) {
             (Profile::Claude, _) => {
+                let record = self.transcript(&node).map_err(|e| e.to_string())?;
+                let gone = record.is_none_or(|path| {
+                    std::fs::metadata(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                });
+                if gone {
+                    return Err(NoSession("이어 갈 Claude 세션 기록이 없다".into()));
+                }
                 self.carry_session(&node, profile, &settings, Path::new(&place.worktree))
                     .await?
             }
             (Profile::Cursor, _) => session_id(node.transcript.as_deref().map(Path::new))
-                .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
-            (Profile::Pi | Profile::Omp, _) => pi_session(&node)?,
+                .ok_or_else(|| NoSession("이어 갈 Cursor 세션 기록이 없다".into()))?,
+            (Profile::Pi | Profile::Omp, _) => {
+                pi_session(&node).map_err(|e| NoSession(e.into()))?
+            }
             (
                 Profile::Codex,
                 Some(ServerLink::Codex {
@@ -817,7 +820,7 @@ impl App {
             ) => thread.clone(),
             (Profile::OpenCode2, Some(ServerLink::OpenCode2 { session, .. })) => session.clone(),
             (Profile::Codex | Profile::OpenCode2, _) => {
-                return Err("이어 갈 서버 세션이 없다".into());
+                return Err(NoSession("이어 갈 서버 세션이 없다".into()));
             }
         };
         let prepared = self
@@ -826,8 +829,9 @@ impl App {
         if profile == Profile::Claude {
             let _ = self.stop_claude_background(&node, &resume).await;
         }
-        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
-            .await
+        Ok(self
+            .run_resumed(node.id, prepared, &resume, &settings, &agent)
+            .await?)
     }
 
     async fn prepare_resumed(
@@ -968,7 +972,7 @@ impl App {
             eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
             true
         });
-        let opens_no_wait = matches!(profile, Profile::Cursor | Profile::Pi | Profile::Omp);
+        let opens_no_wait = !profile.listens_at_start();
         let first = match limited {
             true => Some(CONTINUE_PROMPT),
             false => (cut || unread || !stopped.is_empty() || opens_no_wait)
@@ -990,15 +994,6 @@ impl App {
             .filter(|lines| !lines.first().is_some_and(|shell| runs_hook(shell)))
             .filter_map(|lines| lines.get(1).or(lines.first()).map(|line| shown(line)))
             .collect()
-    }
-
-    pub(super) fn hook_running(&self, node: NodeId) -> bool {
-        self.host.pid(node).is_some_and(|root| {
-            Snapshot::now()
-                .command_lines(root)
-                .iter()
-                .any(|line| runs_hook(line))
-        })
     }
 
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
@@ -1301,7 +1296,7 @@ mod tests {
         let status = |token: &'static str| {
             let request = axum::http::Request::post("/api/agent/status")
                 .header("authorization", format!("Bearer {token}"))
-                .extension(ConnectInfo(mine))
+                .extension(ConnectInfo(super::super::arrival::callers(mine, 0, || {})()))
                 .body(axum::body::Body::empty())
                 .unwrap();
             let router = router.clone();
@@ -1502,7 +1497,13 @@ mod tests {
             )
             .unwrap();
         app.graph
-            .note(sender, &format!("#{}", id.0), Kind::Queue, "일", None)
+            .note(
+                sender,
+                &format!("#{}", id.0),
+                crate::protocol::Kind::Queue,
+                "일",
+                None,
+            )
             .unwrap();
         assert_eq!(
             brief(Profile::Claude),

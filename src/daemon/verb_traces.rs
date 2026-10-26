@@ -6,7 +6,7 @@ use super::commands::{
     agent_turn_end,
 };
 use super::*;
-use crate::graph::{AgentState, Entry, Round, TurnCheck};
+use crate::graph::{AgentState, Entry, Phase, Plan, Round, TurnCheck};
 use crate::protocol::{AgentId, Judgment};
 
 const UNTRACED: [(&str, &str); 16] = [
@@ -555,7 +555,7 @@ impl Fixture {
             turn_end,
             ..IdleRequest::default()
         };
-        agent_idle(self.state(), headers(token, "idle"), Json(Some(req)))
+        agent_idle(self.state(), headers(token, "idle"), None, Json(Some(req)))
     }
 
     async fn idle_request(&self, token: &str) {
@@ -1086,4 +1086,222 @@ async fn a_turn_end_that_opens_its_idle_wait_goes_from_turn_to_listening_in_one_
         "a hook of the old binary still passes through deaf"
     );
     old.abort();
+}
+
+impl Fixture {
+    async fn until(&self, what: &str, done: impl Fn() -> bool) {
+        for _ in 0..500 {
+            if done() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        panic!("{what} did not happen");
+    }
+
+    fn nudges(&self, mark: u32) -> usize {
+        self.since(mark)
+            .iter()
+            .filter(|e| matches!(e, Entry::Nudged { .. }))
+            .count()
+    }
+}
+
+#[tokio::test]
+async fn the_codex_adapter_delivers_mail_and_ends_each_turn_once_through_the_delivery_loop() {
+    use crate::profile::codex::{self, Status, server::Thread};
+    let t = fixture();
+    let calls = Arc::new(Mutex::new(Vec::<(String, serde_json::Value)>::new()));
+    let reply = serde_json::json!({ "data": [{ "id": "t", "itemsView": "full", "status": "completed",
+        "error": null, "items": [{ "type": "agentMessage", "id": "2", "text": "QUESTION: 병합할까요?" }] }] });
+    let recorded = calls.clone();
+    let call = move |method: &'static str, params: serde_json::Value| {
+        recorded.lock().unwrap().push((method.to_owned(), params));
+        let reply = reply.clone();
+        async move { Ok(reply) }
+    };
+    let starts = || {
+        let calls = calls.lock().unwrap();
+        calls.iter().filter(|(m, _)| m == "turn/start").count()
+    };
+    let thread = |status| {
+        Some(Thread {
+            id: "th".into(),
+            status,
+            waiting: None,
+        })
+    };
+    let busy = |t: &Option<Thread>| t.as_ref().map(|t| t.status == Status::Busy);
+    let (status, seen) = tokio::sync::watch::channel(thread(Status::Idle));
+    let follow = tokio::spawn(runtime::follow_server_turns(
+        t.app.clone(),
+        t.worker,
+        status.subscribe(),
+        busy,
+        |_: &App| true,
+    ));
+    let delivery = tokio::spawn(
+        t.app
+            .clone()
+            .deliver_loop(t.worker, codex::Adapter::new(call, seen, || {})),
+    );
+    let mark = t.mark();
+    t.app
+        .graph
+        .note(t.lead, "worker", Kind::Queue, "일을 하라", None)
+        .unwrap();
+    t.until("the mail starts a turn", || starts() == 1).await;
+    status.send_replace(thread(Status::Busy));
+    t.settled(t.worker, AgentState::Turn).await;
+    status.send_replace(thread(Status::Idle));
+    t.until("the turn end nudges once", || starts() == 2).await;
+    assert_eq!(t.nudges(mark), 1);
+    let nudge = calls.lock().unwrap().last().unwrap().1.clone();
+    assert!(
+        nudge.to_string().contains("kind word"),
+        "the nudge starts the next turn: {nudge}"
+    );
+    status.send_replace(thread(Status::Busy));
+    t.settled(t.worker, AgentState::Turn).await;
+    status.send_replace(thread(Status::Idle));
+    t.settled(t.worker, AgentState::Listening).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(starts(), 2, "a kind line is nudged once");
+    assert_eq!(t.nudges(mark), 1);
+    drop(status);
+    follow.await.unwrap();
+    delivery.await.unwrap();
+}
+
+#[tokio::test]
+async fn only_the_delivery_loop_ends_a_server_turn_and_runs_the_relaunch_held_for_it() {
+    use crate::profile::codex::{self, Status, server::Thread};
+    let t = fixture();
+    let command = t
+        .app
+        .graph
+        .add_root(&t.place, None, None, &launched("command-token"), |_| Ok(()))
+        .unwrap();
+    let call = |_: &'static str, _: serde_json::Value| async { Ok(serde_json::json!({})) };
+    let thread = |status| {
+        Some(Thread {
+            id: "th".into(),
+            status,
+            waiting: None,
+        })
+    };
+    let busy = |t: &Option<Thread>| t.as_ref().map(|t| t.status == Status::Busy);
+    let (status, seen) = tokio::sync::watch::channel(thread(Status::Busy));
+    let follow = tokio::spawn(runtime::follow_server_turns(
+        t.app.clone(),
+        command,
+        status.subscribe(),
+        busy,
+        |_: &App| true,
+    ));
+    t.settled(command, AgentState::Turn).await;
+    t.app
+        .graph
+        .plan_relaunch(command, |_| (Some((Phase::AtTurnEnd, Plan::Resume)), ()))
+        .unwrap();
+    status.send_replace(thread(Status::Idle));
+    t.settled(command, AgentState::Listening).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(
+        t.app.at_turn_end(command),
+        "the status follower only moves the agent state"
+    );
+    status.send_replace(thread(Status::Busy));
+    t.settled(command, AgentState::Turn).await;
+    let delivery = tokio::spawn(
+        t.app
+            .clone()
+            .deliver_loop(command, codex::Adapter::new(call, seen, || {})),
+    );
+    tokio::task::yield_now().await;
+    status.send_replace(thread(Status::Idle));
+    t.until("the turn end takes the held relaunch", || {
+        t.app.graph.relaunch_plan(command).unwrap().is_none()
+    })
+    .await;
+    drop(status);
+    follow.await.unwrap();
+    delivery.await.unwrap();
+}
+
+#[tokio::test]
+async fn the_opencode2_adapter_steers_first_and_queues_turn_ends_through_the_delivery_loop() {
+    let t = fixture();
+    let (turns, signals) = tokio::sync::mpsc::unbounded_channel();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (adapter, calls) = crate::profile::opencode2::recording_adapter(signals, stopped);
+    t.app
+        .graph
+        .note(t.lead, "worker", Kind::Queue, "다음 일", None)
+        .unwrap();
+    t.app
+        .graph
+        .note(t.lead, "worker", Kind::Interrupt, "멈춰라", None)
+        .unwrap();
+    let delivery = tokio::spawn(t.app.clone().deliver_loop(t.worker, adapter));
+    let seen = || calls.lock().unwrap().clone();
+    t.until("both batches go out", || seen().len() == 4).await;
+    let calls_now = seen();
+    assert_eq!(calls_now[..2], ["stop shells", "interrupt"]);
+    assert!(calls_now[2].starts_with("steer ") && calls_now[2].ends_with("멈춰라"));
+    assert!(calls_now[3].starts_with("queue ") && calls_now[3].ends_with("다음 일"));
+    let mark = t.mark();
+    turns
+        .send(crate::profile::Signal::TurnEnded(Some(
+            "QUESTION: 병합할까요?".into(),
+        )))
+        .unwrap();
+    t.until("the nudge is queued", || seen().len() == 5).await;
+    assert!(seen()[4].starts_with("queue ") && seen()[4].contains("kind word"));
+    assert_eq!(t.nudges(mark), 1);
+    stop.send_replace(true);
+    delivery.await.unwrap();
+}
+
+#[tokio::test]
+async fn an_opencode2_stopped_execution_takes_a_held_relaunch_but_keeps_the_turn_flags() {
+    let t = fixture();
+    let (turns, signals) = tokio::sync::mpsc::unbounded_channel();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (adapter, calls) = crate::profile::opencode2::recording_adapter(signals, stopped);
+    t.app.turn_ends.human(t.lead);
+    let delivery = tokio::spawn(t.app.clone().deliver_loop(t.lead, adapter));
+    let mark = t.mark();
+    turns.send(crate::profile::Signal::Stopped).unwrap();
+    turns
+        .send(crate::profile::Signal::TurnEnded(Some(
+            "A안과 B안 가운데 고르시면 진행합니다.".into(),
+        )))
+        .unwrap();
+    t.until("the nudge is queued", || calls.lock().unwrap().len() == 1)
+        .await;
+    assert!(calls.lock().unwrap()[0].starts_with("queue "));
+    assert_eq!(
+        t.nudges(mark),
+        1,
+        "the stopped execution kept the human flag"
+    );
+    stop.send_replace(true);
+    delivery.await.unwrap();
+
+    let (turns, signals) = tokio::sync::mpsc::unbounded_channel();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (adapter, _) = crate::profile::opencode2::recording_adapter(signals, stopped);
+    t.app
+        .graph
+        .plan_relaunch(t.worker, |_| (Some((Phase::AtTurnEnd, Plan::Resume)), ()))
+        .unwrap();
+    let delivery = tokio::spawn(t.app.clone().deliver_loop(t.worker, adapter));
+    turns.send(crate::profile::Signal::Stopped).unwrap();
+    t.until("the stopped execution takes the held relaunch", || {
+        !t.app.at_turn_end(t.worker)
+    })
+    .await;
+    stop.send_replace(true);
+    delivery.await.unwrap();
 }

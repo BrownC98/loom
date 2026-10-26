@@ -11,8 +11,8 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerLink, StartDigests,
-    TreeLimits,
+    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerLink, Session,
+    StartDigests, TreeLimits,
 };
 
 pub struct NewChild<'a> {
@@ -30,6 +30,7 @@ const NO_PARENT: &str = "(none)";
 pub struct Launched {
     pub token: String,
     pub server: Option<ServerLink>,
+    pub session: Option<Session>,
     pub account: Option<AccountId>,
     pub rules: Option<StartDigests>,
 }
@@ -40,7 +41,7 @@ pub struct Active {
     pub agent: Option<AgentId>,
     pub server: Option<ServerLink>,
     pub account: Option<AccountId>,
-    pub transcript: Option<String>,
+    pub session: Option<Session>,
     pub model: Model,
     pub token: String,
     pub role: Option<String>,
@@ -471,7 +472,7 @@ impl Graph {
     ) -> rusqlite::Result<()> {
         self.restarted(id, launched, |tx| {
             tx.execute(
-                "UPDATE nodes SET agent = ?2, model = ?3, effort = ?4, transcript = NULL WHERE id = ?1",
+                "UPDATE nodes SET agent = ?2, model = ?3, effort = ?4, session = NULL WHERE id = ?1",
                 params![id.0, to_json(&Some(agent)), model.model, model.effort],
             )
         })
@@ -489,11 +490,12 @@ impl Graph {
             return Ok(());
         };
         agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
+        let cleared = changed(&tx)?
+            + tx.execute(
+                "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
+                [id.0],
+            )?;
         keep(&tx, id, launched)?;
-        let cleared = tx.execute(
-            "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
-            [id.0],
-        )? + changed(&tx)?;
         let revived = tx.execute(
             "UPDATE nodes SET process = NULL, sleeping = 0 WHERE id = ?1 AND process IS NOT NULL",
             [id.0],
@@ -506,10 +508,10 @@ impl Graph {
         Ok(())
     }
 
-    pub fn set_transcript(&self, id: NodeId, path: &str) -> rusqlite::Result<()> {
+    pub fn set_session(&self, id: NodeId, session: &Session) -> rusqlite::Result<()> {
         self.lock().execute(
-            "UPDATE nodes SET transcript = ?2 WHERE id = ?1 AND transcript IS NOT ?2",
-            params![id.0, path],
+            "UPDATE nodes SET session = ?2 WHERE id = ?1 AND session IS NOT ?2",
+            params![id.0, session.0],
         )?;
         Ok(())
     }
@@ -572,14 +574,6 @@ impl Graph {
 
     pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
         caller_in(&self.lock(), token)
-    }
-
-    pub fn set_server(&self, id: NodeId, server: &ServerLink) -> rusqlite::Result<()> {
-        self.lock().execute(
-            "UPDATE nodes SET server = ?2 WHERE id = ?1 AND server IS NOT ?2",
-            params![id.0, to_json(server)],
-        )?;
-        Ok(())
     }
 
     pub fn set_model(&self, id: NodeId, model: &Model) -> rusqlite::Result<()> {
@@ -1122,7 +1116,7 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
     }
 }
 
-const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, server, account, transcript, model, effort, token, role, rules FROM nodes";
+const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, server, account, session, model, effort, token, role, rules FROM nodes";
 
 fn launch_row(row: &Row) -> rusqlite::Result<Active> {
     Ok(Active {
@@ -1131,7 +1125,7 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
         agent: from_json(row, 2)?,
         server: optional_json(row, 3)?,
         account: optional_json(row, 4)?,
-        transcript: row.get(5)?,
+        session: row.get::<_, Option<String>>(5)?.map(Session),
         model: Model {
             model: row.get(6)?,
             effort: row.get(7)?,
@@ -1151,13 +1145,15 @@ pub(super) fn caller_in(db: &Connection, token: &str) -> rusqlite::Result<Option
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE nodes SET token = ?2, server = ?3, account = ?4, rules = ?5 WHERE id = ?1",
+        "UPDATE nodes SET token = ?2, server = ?3, account = ?4, rules = ?5,
+         session = coalesce(?6, session) WHERE id = ?1",
         params![
             id.0,
             launched.token,
             launched.server.as_ref().map(to_json),
             launched.account.as_ref().map(to_json),
-            launched.rules.as_ref().map(to_json)
+            launched.rules.as_ref().map(to_json),
+            launched.session.as_ref().map(|s| &s.0)
         ],
     )?;
     Ok(())

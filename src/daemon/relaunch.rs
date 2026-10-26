@@ -1,6 +1,5 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::pin;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,20 +11,19 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
-use crate::accounts::{self, Site};
+use crate::accounts::Site;
 use crate::graph::{
     Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan,
     ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
-use crate::profile::codex;
+use crate::profile::adapter::{Carry, ResumeError};
 use crate::profile::{self, Profile, Start};
-use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, ServerLink};
+use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 
 pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
-const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
 const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session. \
@@ -36,30 +34,8 @@ const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or
      Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
 const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
-const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
-const CODEX_DATE_DIRS: usize = 3;
-const CODEX_ROLLOUT_DEPTH: usize = CODEX_DATE_DIRS + 2;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
-
-pub(super) enum ReviveError {
-    NoSession(String),
-    Failed(String),
-}
-
-impl From<String> for ReviveError {
-    fn from(error: String) -> Self {
-        ReviveError::Failed(error)
-    }
-}
-
-impl std::fmt::Display for ReviveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReviveError::NoSession(e) | ReviveError::Failed(e) => f.write_str(e),
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Stop {
@@ -290,7 +266,7 @@ impl App {
                 Plan::Resume => app.revive(node, notice).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
-                    if let Err(e) = app.stop_old_claude(&node).await {
+                    if let Err(e) = app.end_detached(&node).await {
                         prepared.discarder()();
                         return Err(e.into());
                     }
@@ -299,11 +275,11 @@ impl App {
             }
         })
         .await
-        .unwrap_or_else(|e| Err(ReviveError::Failed(e.to_string())));
+        .unwrap_or_else(|e| Err(ResumeError::Failed(e.to_string())));
         self.finish_plan(id);
         let kept = match &result {
-            Err(ReviveError::NoSession(_)) if waiting => self.graph.sleep_lost(id),
-            Err(ReviveError::Failed(_)) if asleep => self.graph.sleep_again(id),
+            Err(ResumeError::NoSession(_)) if waiting => self.graph.sleep_lost(id),
+            Err(ResumeError::Failed(_)) if asleep => self.graph.sleep_again(id),
             _ => Ok(()),
         };
         if let Err(e) = kept {
@@ -598,20 +574,10 @@ impl App {
             ));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
-        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
-        let cwd = Path::new(&place.worktree);
-        let resume = match profile {
-            Profile::Claude | Profile::Codex => {
-                self.carry_session(&node, profile, &settings, cwd).await?
-            }
-            Profile::Cursor => session_id(node.transcript.as_deref().map(Path::new))
-                .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
-            Profile::Pi | Profile::Omp => pi_session(&node)?,
-            Profile::OpenCode2 => match &node.server {
-                Some(ServerLink::OpenCode2 { session, .. }) => session.clone(),
-                _ => return Err("이어 갈 OpenCode 2 세션이 없다".into()),
-            },
-        };
+        let (resume, site) = self
+            .resumable(&node, profile, &settings)
+            .await
+            .map_err(|e| e.to_string())?;
         let brief = self.resumed_brief(&node, profile);
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, brief)
@@ -619,8 +585,10 @@ impl App {
         if self.end_old(&node, prepared.discarder(), guard).await? == Stop::Kept {
             return Ok(Stop::Kept);
         }
-        if profile == Profile::Claude {
-            let _ = self.stop_claude_background(&node, &resume).await;
+        if let Some(site) = &site {
+            let _ = profile::adapter(profile)
+                .end_detached(&resume, site, node.account.as_ref())
+                .await;
         }
         if let Some(old) = &node.server
             && let Err(e) = self.end_server(node.id, old).await
@@ -648,7 +616,7 @@ impl App {
             prepared.discarder()();
             return Ok(Stop::Kept);
         }
-        if let Err(e) = self.stop_old_claude(&node).await {
+        if let Err(e) = self.end_detached(&node).await {
             prepared.discarder()();
             return Err(e);
         }
@@ -660,13 +628,22 @@ impl App {
             .map(|()| Stop::Stopped)
     }
 
-    pub(super) async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
-        match session_id(node.transcript.as_deref().map(Path::new)) {
-            Some(session) if profile_of(node) == Some(Profile::Claude) => {
-                self.stop_claude_background(node, &session).await
-            }
-            _ => Ok(()),
+    pub(super) async fn end_detached(&self, node: &Active) -> Result<(), String> {
+        let (Some(profile), Some(session)) = (profile_of(node), &node.session) else {
+            return Ok(());
+        };
+        if profile.provider().is_none() {
+            return Ok(());
         }
+        let Ok(place) = self.graph.place_of(node.id) else {
+            return Ok(());
+        };
+        let Ok(site) = self.site_at(Path::new(&place.worktree)).await else {
+            return Ok(());
+        };
+        profile::adapter(profile)
+            .end_detached(session, &site, node.account.as_ref())
+            .await
     }
 
     pub(super) async fn end_old(
@@ -752,14 +729,10 @@ impl App {
     }
 
     async fn old_record(&self, node: &Active) -> Option<String> {
-        match profile_of(node)? {
-            profile if profile.hooked() => node.transcript.clone(),
-            Profile::Codex => {
-                let server = self.codex.lock().unwrap().get(&node.id).cloned()?;
-                let thread = server.thread().borrow().as_ref().map(|t| t.id.clone())?;
-                server.rollout(&thread).await.ok().flatten()
-            }
-            _ => None,
+        let session = node.session.as_ref()?;
+        match profile::adapter(profile_of(node)?).record(session) {
+            Some(path) => Some(path.to_string_lossy().into_owned()),
+            None => self.served_record(node.id, session).await,
         }
     }
 
@@ -800,51 +773,50 @@ impl App {
         self: &Arc<Self>,
         node: Active,
         notice: &str,
-    ) -> Result<(), ReviveError> {
-        use ReviveError::NoSession;
+    ) -> Result<(), ResumeError> {
         let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
-            return Err(NoSession("프로필이 있는 에이전트가 아니다".into()));
+            return Err(ResumeError::NoSession(
+                "프로필이 있는 에이전트가 아니다".into(),
+            ));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
-        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
-        let resume = match (profile, &node.server) {
-            (Profile::Claude, _) => {
-                let record = self.transcript(&node).map_err(|e| e.to_string())?;
-                let gone = record.is_none_or(|path| {
-                    std::fs::metadata(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-                });
-                if gone {
-                    return Err(NoSession("이어 갈 Claude 세션 기록이 없다".into()));
-                }
-                self.carry_session(&node, profile, &settings, Path::new(&place.worktree))
-                    .await?
-            }
-            (Profile::Cursor, _) => session_id(node.transcript.as_deref().map(Path::new))
-                .ok_or_else(|| NoSession("이어 갈 Cursor 세션 기록이 없다".into()))?,
-            (Profile::Pi | Profile::Omp, _) => {
-                pi_session(&node).map_err(|e| NoSession(e.into()))?
-            }
-            (
-                Profile::Codex,
-                Some(ServerLink::Codex {
-                    thread: Some(thread),
-                    ..
-                }),
-            ) => thread.clone(),
-            (Profile::OpenCode2, Some(ServerLink::OpenCode2 { session, .. })) => session.clone(),
-            (Profile::Codex | Profile::OpenCode2, _) => {
-                return Err(NoSession("이어 갈 서버 세션이 없다".into()));
-            }
-        };
+        let (resume, site) = self.resumable(&node, profile, &settings).await?;
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
-        if profile == Profile::Claude {
-            let _ = self.stop_claude_background(&node, &resume).await;
+        if let Some(site) = &site {
+            let _ = profile::adapter(profile)
+                .end_detached(&resume, site, node.account.as_ref())
+                .await;
         }
         Ok(self
             .run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await?)
+    }
+
+    async fn resumable(
+        &self,
+        node: &Active,
+        profile: Profile,
+        settings: &SettingsView,
+    ) -> Result<(Session, Option<Site>), ResumeError> {
+        let session = node.session.clone().ok_or_else(|| {
+            ResumeError::NoSession(format!("노드 {}에는 이어 갈 세션이 없다", node.id.0))
+        })?;
+        let Some(provider) = profile.provider() else {
+            return Ok((session, None));
+        };
+        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
+        let cwd = Path::new(&place.worktree);
+        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
+        let carry = Carry {
+            site: &site,
+            from: node.account.as_ref(),
+            to: settings.account(provider, site.distro()),
+            cwd,
+        };
+        profile::adapter(profile).carry(&session, &carry)?;
+        Ok((session, Some(site)))
     }
 
     async fn prepare_resumed(
@@ -852,22 +824,21 @@ impl App {
         node: &Active,
         agent: &AgentId,
         profile: Profile,
-        resume: &str,
+        resume: &Session,
         brief: String,
     ) -> Result<super::Prepared, String> {
+        let choice = ModelChoice {
+            model: node.model.model.clone(),
+            effort: node.model.effort.clone(),
+        };
         let start = Start::Agent {
             agent: agent.clone(),
             brief,
-            choice: match profile {
-                Profile::OpenCode2 => ModelChoice::default(),
-                Profile::Claude | Profile::Codex | Profile::Cursor | Profile::Pi | Profile::Omp => {
-                    ModelChoice {
-                        model: node.model.model.clone(),
-                        effort: node.model.effort.clone(),
-                    }
-                }
+            choice: match profile::adapter(profile).choice_args(&choice) {
+                Some(_) => choice,
+                None => ModelChoice::default(),
             },
-            resume: Some(resume.to_owned()),
+            resume: Some(resume.clone()),
         };
         self.prepare_start(node.id, &start).await
     }
@@ -885,20 +856,16 @@ impl App {
         self: &Arc<Self>,
         id: NodeId,
         prepared: super::Prepared,
-        resume: &str,
+        resume: &Session,
         settings: &SettingsView,
         agent: &AgentId,
     ) -> Result<(), String> {
         let discard = prepared.discarder();
-        if let Some(server) = &prepared.codex {
-            let bypass = !settings.bypass_off.contains(agent);
-            let call = |method, params| server.call(method, params);
-            if let Err(e) = codex::resume(call, resume, bypass).await {
-                discard();
-                let _ = self.graph.lost(id);
-                return Err(e);
-            }
-            server.follow_thread(resume.to_owned()).await;
+        let bypass = !settings.bypass_off.contains(agent);
+        if let Err(e) = prepared.open_session(resume, bypass).await {
+            discard();
+            let _ = self.graph.lost(id);
+            return Err(e);
         }
         if let Err(e) = self.graph.relaunched(id, &prepared.launched()) {
             discard();
@@ -915,59 +882,6 @@ impl App {
             eprintln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
         }
         Ok(())
-    }
-
-    async fn carry_session(
-        &self,
-        node: &Active,
-        profile: Profile,
-        settings: &SettingsView,
-        cwd: &Path,
-    ) -> Result<String, String> {
-        let provider = profile.provider().ok_or("계정이 없는 프로필이다")?;
-        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let target = settings.account(provider, site.distro()).cloned();
-        let new_root = site
-            .login_dir(provider, target.as_ref())
-            .ok_or("홈 폴더를 찾지 못했다")?;
-        if profile == Profile::Codex {
-            return copy_codex_thread(node, &site, &new_root);
-        }
-        let transcript = node.transcript.as_deref().map(|t| site.local(t));
-        let session = copy_claude_session(transcript.as_deref(), &new_root)?;
-        if let (Some(to), Some(from)) = (
-            site.accounts().config_dir(provider, target.as_ref()),
-            site.claude_files(node.account.as_ref()),
-        ) {
-            accounts::carry_claude_consent(&from, &to, &site.cli_cwd(cwd))
-                .map_err(|e| format!("{}: {e}", to.display()))?;
-        }
-        Ok(session)
-    }
-
-    async fn stop_claude_background(&self, node: &Active, session: &str) -> Result<(), String> {
-        let Ok(place) = self.graph.place_of(node.id) else {
-            return Ok(());
-        };
-        let Ok(site) = self.site_at(Path::new(&place.worktree)).await else {
-            return Ok(());
-        };
-        let account = node.account.as_ref();
-        let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
-            return Ok(());
-        };
-        let Some(out) = run_claude(list).await else {
-            return Ok(());
-        };
-        let Some(job) = background_job(&out, session) else {
-            return Ok(());
-        };
-        let stop = site
-            .command(Provider::Claude, &["stop", &job], account)
-            .map_err(|e| e.to_string())?;
-        run_claude(stop).await.map(drop).ok_or_else(|| {
-            format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")
-        })
     }
 
     fn resumed_brief(&self, node: &Active, profile: Profile) -> String {
@@ -1016,53 +930,6 @@ impl App {
             .flat_map(|root| snapshot.session_leaders_under(root))
             .collect()
     }
-}
-
-fn copy_codex_thread(node: &Active, site: &Site, new_root: &Path) -> Result<String, String> {
-    let Some(ServerLink::Codex {
-        thread: Some(thread),
-        ..
-    }) = &node.server
-    else {
-        return Err(format!(
-            "노드 {}에는 이어 갈 Codex 스레드가 없다",
-            node.id.0
-        ));
-    };
-    let old_root = site
-        .login_dir(Provider::Codex, node.account.as_ref())
-        .ok_or("홈 폴더를 찾지 못했다")?;
-    if old_root == new_root {
-        return Ok(thread.clone());
-    }
-    let rollout = codex_rollout(&old_root, thread)
-        .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
-    copy_session(&rollout, CODEX_ROLLOUT_DEPTH, new_root)?;
-    Ok(thread.clone())
-}
-
-fn codex_rollout(root: &Path, thread: &str) -> Option<PathBuf> {
-    let name = format!("-{thread}.jsonl");
-    let mut dirs = vec![root.join("sessions")];
-    for _ in 0..CODEX_DATE_DIRS {
-        dirs = dirs
-            .iter()
-            .flat_map(|dir| children(dir))
-            .filter(|path| path.is_dir())
-            .collect();
-    }
-    dirs.iter()
-        .flat_map(|dir| children(dir))
-        .find(|file| file.to_string_lossy().ends_with(&name))
-}
-
-fn children(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .collect()
 }
 
 enum Queued {
@@ -1122,98 +989,4 @@ fn shown(line: &str) -> String {
         Some((end, _)) => format!("{}…", &line[..end]),
         None => line.to_owned(),
     }
-}
-
-fn pi_session(node: &Active) -> Result<String, &'static str> {
-    node.transcript
-        .clone()
-        .ok_or("이어 갈 Pi·OMP 세션 기록이 없다")
-}
-
-fn session_id(transcript: Option<&Path>) -> Option<String> {
-    transcript?
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-}
-
-fn copy_claude_session(transcript: Option<&Path>, new_root: &Path) -> Result<String, String> {
-    let file = transcript
-        .filter(|f| f.is_file())
-        .ok_or("이어 갈 Claude 세션 기록이 없다")?;
-    let session = session_id(Some(file)).ok_or("세션 기록 파일 이름이 없다")?;
-    copy_session(file, CLAUDE_TRANSCRIPT_DEPTH, new_root)?;
-    let side = file.with_extension("");
-    if side.is_dir()
-        && let Some(to) = relocate(&side, CLAUDE_TRANSCRIPT_DEPTH, new_root)
-        && to != side
-    {
-        copy_dir(&side, &to).map_err(|e| format!("{}: {e}", side.display()))?;
-    }
-    Ok(session)
-}
-
-fn copy_session(file: &Path, depth: usize, new_root: &Path) -> Result<(), String> {
-    let to = relocate(file, depth, new_root)
-        .ok_or_else(|| format!("{}: 로그인 폴더 아래 기록 파일이 아니다", file.display()))?;
-    if to == file {
-        return Ok(());
-    }
-    let copied = to
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| copy_file(file, &to));
-    copied
-        .map(drop)
-        .map_err(|e| format!("{} → {}: {e}", file.display(), to.display()))
-}
-
-fn relocate(file: &Path, depth: usize, new_root: &Path) -> Option<PathBuf> {
-    let parts: Vec<_> = file.components().collect();
-    let tail = parts.get(parts.len().checked_sub(depth)?..)?;
-    Some(tail.iter().fold(new_root.to_path_buf(), |p, c| p.join(c)))
-}
-
-fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::write(to, std::fs::read(from)?)
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            copy_file(&entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
-async fn run_claude(cmd: std::process::Command) -> Option<Vec<u8>> {
-    let mut cmd = tokio::process::Command::from(cmd);
-    cmd.stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let out = tokio::time::timeout(CLAUDE_CLI_WAIT, cmd.output())
-        .await
-        .ok()?
-        .ok()?;
-    out.status.success().then_some(out.stdout)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ClaudeJob {
-    id: Option<String>,
-    kind: String,
-    session_id: String,
-}
-
-fn background_job(json: &[u8], session: &str) -> Option<String> {
-    let jobs: Vec<ClaudeJob> = serde_json::from_slice(json).ok()?;
-    jobs.into_iter()
-        .find(|j| j.kind == "background" && j.session_id == session)?
-        .id
 }

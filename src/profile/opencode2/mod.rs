@@ -425,6 +425,7 @@ impl super::adapter::Server for Node {
 
     fn link(self: Arc<Self>) -> Box<dyn ServerAdapter> {
         let turns = self.turns.lock().unwrap().take();
+        let (read, reads) = mpsc::unbounded_channel();
         Box::new(Adapter {
             turns,
             stopped: self.server.stopped(),
@@ -435,6 +436,11 @@ impl super::adapter::Server for Node {
             model_moved: false,
             asked: true,
             ended: false,
+            read,
+            reads,
+            sent: 0,
+            answered: 0,
+            read_wait: None,
         })
     }
 }
@@ -462,7 +468,14 @@ struct Adapter {
     model_moved: bool,
     asked: bool,
     ended: bool,
+    read: mpsc::UnboundedSender<(u64, PermissionWait)>,
+    reads: mpsc::UnboundedReceiver<(u64, PermissionWait)>,
+    sent: u64,
+    answered: u64,
+    read_wait: Option<PermissionWait>,
 }
+
+type PermissionWait = Option<(WaitKind, String, Option<Prompt>)>;
 
 impl ServerAdapter for Adapter {
     fn takes(&self, _: Status) -> &'static [&'static [Kind]] {
@@ -489,7 +502,11 @@ impl ServerAdapter for Adapter {
             }
             if std::mem::take(&mut self.asked) {
                 self.permission.borrow_and_update();
-                let wait = self.node.permission_wait().await;
+                self.sent += 1;
+                let (node, read, sent) = (self.node.clone(), self.read.clone(), self.sent);
+                tokio::spawn(async move { drop(read.send((sent, node.permission_wait().await))) });
+            }
+            if let Some(wait) = self.read_wait.take() {
                 signals.push(Signal::Report(Report::HumanWait(wait)));
             }
             let turn = match self.pending.take() {
@@ -516,6 +533,9 @@ impl ServerAdapter for Adapter {
                 pending,
                 model_moved,
                 asked,
+                reads,
+                answered,
+                read_wait,
                 ..
             } = self;
             let turn = async {
@@ -540,6 +560,13 @@ impl ServerAdapter for Adapter {
                 changed = permission.changed() => {
                     *asked = changed.is_ok();
                     changed.is_ok()
+                }
+                Some((sent, wait)) = reads.recv() => {
+                    if sent > *answered {
+                        *answered = sent;
+                        *read_wait = Some(wait);
+                    }
+                    true
                 }
             }
         })

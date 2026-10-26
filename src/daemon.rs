@@ -255,12 +255,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             })
             .map_err(std::io::Error::other)?;
     }
-    app.resume().await.map_err(std::io::Error::other)?;
-    if let Err(e) = app.relaunch_stale() {
-        eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
-    }
-    app.watch_sleep();
-    app.watch_agents();
+    app.start_nodes();
     let node_routes = commands::node_routes();
     let router = node_routes
         .clone()
@@ -311,6 +306,22 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             tokio::try_join!(main, node, endpoint).map(drop)
         }
         None => tokio::try_join!(main, endpoint).map(drop),
+    }
+}
+
+impl App {
+    fn start_nodes(self: &Arc<Self>) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = app.resume().await {
+                eprintln!("loom: 노드에 다시 붙지 못했다: {e}");
+            }
+            if let Err(e) = app.relaunch_stale() {
+                eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
+            }
+            app.watch_sleep();
+            app.watch_agents();
+        });
     }
 }
 
@@ -478,5 +489,80 @@ mod tests {
             for_agent(Refusal::EmptyName),
             (StatusCode::BAD_REQUEST, "Give a name.".into())
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_daemon_answers_http_while_a_host_resume_blocks() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                tokio::sync::mpsc::unbounded_channel().0,
+            )
+            .unwrap(),
+        );
+        let place = Place {
+            repo: crate::worktree::RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let hosts = dir.path().join("pty").join("nodes");
+        std::fs::create_dir_all(&hosts).unwrap();
+        let mut nodes = Vec::new();
+        for name in ["a", "b", "c"] {
+            let launched = crate::graph::Launched {
+                token: name.into(),
+                server: None,
+                account: None,
+                rules: None,
+            };
+            let id = app
+                .graph
+                .add_root(&place, None, None, &launched, |_| Ok(()))
+                .unwrap();
+            std::fs::write(
+                hosts.join(id.0.to_string()),
+                silent.local_addr().unwrap().to_string(),
+            )
+            .unwrap();
+            nodes.push(id);
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let routes = settings::routes().with_state(app.clone());
+        tokio::spawn(async move { axum::serve(listener, routes).await });
+
+        let started = std::time::Instant::now();
+        app.start_nodes();
+        let mut http = tokio::net::TcpStream::connect(address).await.unwrap();
+        http.write_all(
+            b"GET /api/settings HTTP/1.1\r\nhost: 127.0.0.1\r\nconnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+        let mut answer = String::new();
+        http.read_to_string(&mut answer).await.unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            app.graph.active().unwrap().len(),
+            nodes.len(),
+            "the hosts still block their resume"
+        );
+        while !app.graph.active().unwrap().is_empty() {
+            assert!(started.elapsed() < Duration::from_secs(30));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 }

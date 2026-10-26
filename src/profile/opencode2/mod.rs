@@ -326,6 +326,7 @@ impl Node {
             stopped: self.server.stopped(),
             api: self.clone(),
             pending: Some(Seen::Connected),
+            ended: false,
         }
     }
 }
@@ -343,11 +344,15 @@ struct Adapter<A> {
     turns: Option<mpsc::UnboundedReceiver<Seen>>,
     stopped: watch::Receiver<bool>,
     pending: Option<Seen>,
+    ended: bool,
 }
 
 impl<A: Api> ServerAdapter for Adapter<A> {
     fn takes(&self, _: Status) -> &'static [&'static [Kind]] {
-        &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]]
+        match self.ended {
+            true => &[],
+            false => &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]],
+        }
     }
 
     fn status(&mut self) -> Option<Status> {
@@ -368,6 +373,9 @@ impl<A: Api> ServerAdapter for Adapter<A> {
     }
 
     async fn changed(&mut self) -> bool {
+        if self.ended {
+            return false;
+        }
         let Self {
             turns,
             stopped,
@@ -414,8 +422,9 @@ impl<A: Api> ServerAdapter for Adapter<A> {
 }
 
 impl<A: Api> Adapter<A> {
-    fn refused(&self, cause: String) -> String {
+    fn refused(&mut self, cause: String) -> String {
         self.api.stop_server();
+        self.ended = true;
         format!("{cause}; loom stopped the OpenCode 2 server")
     }
 }

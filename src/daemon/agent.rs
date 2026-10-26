@@ -183,7 +183,7 @@ impl App {
     ) {
         let mut seen = server.status();
         loop {
-            if !current(&self) || self.graph.ended(node).is_ok_and(|ended| ended.is_some()) {
+            if !current(&self) {
                 return;
             }
             let mut mail = pin!(self.graph.mail_changed());

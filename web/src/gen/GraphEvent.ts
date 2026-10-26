@@ -4,4 +4,4 @@ import type { NodeId } from "./NodeId";
 import type { NodeView } from "./NodeView";
 import type { Toward } from "./Toward";
 
-export type GraphEvent = { "kind": "snapshot", nodes: Array<NodeView>, } | { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, toward: Toward, } | { "kind": "hop", from: NodeId, to: NodeId, } | { "kind": "removed", id: NodeId, } | { "kind": "recorded", record: EventRecord, } | { "kind": "viewChanged" } | { "kind": "beat" };
+export type GraphEvent = { "kind": "snapshot", nodes: Array<NodeView>, } | { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, toward: Toward, } | { "kind": "hop", from: NodeId, to: NodeId, } | { "kind": "removed", id: NodeId, } | { "kind": "recorded", record: EventRecord, } | { "kind": "viewChanged" } | { "kind": "beat", quietMs: number, };

@@ -4,4 +4,4 @@ import type { Resize } from "./Resize";
 /**
  * PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
  */
-export type PtyNotice = "gone" | { "size": Resize } | "settled";
+export type PtyNotice = "gone" | { "size": Resize } | "settled" | { "beat": { quietMs: number, } };

@@ -25,16 +25,17 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONObject
 
 class Watch : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val board = Board()
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val manager by lazy { getSystemService(NotificationManager::class.java) }
-    private val pace = Pace()
     private val again = Runnable { connect() }
     private val quiet = Runnable { dropped() }
     private var socket: WebSocket? = null
+    private var quietMs: Long? = null
     private var turn = 0
     private var at = 0
     private var linked = false
@@ -95,17 +96,16 @@ class Watch : Service() {
         val mine = ++turn
         socket = client(pin).newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(Pace.BACK_FRAME)
+                webSocket.send(BACK_FRAME)
                 main.post {
                     if (mine != turn) return@post
-                    pace.opened()
                     linked(true)
                     awaitFrame()
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                main.post { if (mine == turn) heard(board.apply(text)) }
+                main.post { if (mine == turn) heard(board.apply(text), text) }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -119,15 +119,15 @@ class Watch : Service() {
         })
     }
 
-    private fun heard(heard: Heard) {
-        pace.heard(heard)
+    private fun heard(heard: Heard, text: String) {
+        if (heard == Heard.BEAT) quietMs = runCatching { JSONObject(text).getLong("quietMs") }.getOrNull() ?: quietMs
         awaitFrame()
         if (heard == Heard.WAITS) show()
     }
 
     private fun awaitFrame() {
         main.removeCallbacks(quiet)
-        main.postDelayed(quiet, pace.quietMs)
+        quietMs?.let { main.postDelayed(quiet, it) }
     }
 
     private fun linked(on: Boolean) {
@@ -142,18 +142,18 @@ class Watch : Service() {
         main.removeCallbacks(quiet)
         socket?.cancel()
         socket = null
+        quietMs = null
     }
 
     private fun dropped() {
         drop()
         if (!linked) at++
         linked(false)
-        main.postDelayed(again, pace.dropped())
+        main.postDelayed(again, RETRY_MS)
     }
 
     private fun restart() {
         drop()
-        pace.restarted()
         connect()
     }
 
@@ -215,6 +215,9 @@ class Watch : Service() {
     companion object {
         const val EXTRA_NODE = "node"
         private const val WAIT_TAG = "wait"
+        private const val BACK_FRAME = "{\"pace\":\"back\"}"
+        private const val CONNECT_MS = 5_000L
+        private const val RETRY_MS = 1_000L
         private const val LINK_ID = 1
         private const val ASK_CHANNEL = "ask"
         private const val DONE_CHANNEL = "done"
@@ -227,7 +230,7 @@ class Watch : Service() {
             "input" to R.string.wait_input,
             "done" to R.string.wait_done,
         )
-        private val plain by lazy { OkHttpClient.Builder().callTimeout(Pace.CONNECT_MS, TimeUnit.MILLISECONDS).build() }
+        private val plain by lazy { OkHttpClient.Builder().callTimeout(CONNECT_MS, TimeUnit.MILLISECONDS).build() }
 
         @Volatile
         var front = false

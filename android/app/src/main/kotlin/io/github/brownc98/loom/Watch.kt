@@ -45,7 +45,7 @@ class Watch : Service() {
     private var limit: Long? = CONNECT_MS
     private var turn = 0
     private var at = 0
-    private var retryUntil = 0L
+    private var retryUntil: Long? = null
     private var linked = false
     private var stopped = false
     private val net by lazy { NetWatch(this, appeared = { if (!stopped && !linked && socket == null) restart() }, moved = { if (!stopped) restart() }) }
@@ -158,6 +158,7 @@ class Watch : Service() {
             return read()
         }
         if (read == null) return dropped()
+        retryUntil = null
         waits = read
         show()
     }
@@ -187,10 +188,11 @@ class Watch : Service() {
 
     private fun dropped() {
         drop()
-        val now = SystemClock.elapsedRealtime()
-        if (linked) retryUntil = now + RETRY_FOR_MS else at++
+        if (!linked) at++
         linked(false)
-        if (now < retryUntil) main.postDelayed(again, RETRY_MS)
+        val now = SystemClock.elapsedRealtime()
+        val until = retryUntil ?: (now + RETRY_FOR_MS).also { retryUntil = it }
+        if (now < until) main.postDelayed(again, RETRY_MS)
     }
 
     private fun restart() {

@@ -248,6 +248,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Watch.front = false
+        Watch.sync(this)
         CookieManager.getInstance().flush()
     }
 

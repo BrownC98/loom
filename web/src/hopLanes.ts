@@ -8,7 +8,7 @@ const END_GAP = 40;
 const LABEL_SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95];
 const LABEL_GAP = 2;
 
-export type HopEnd = { id: number; box: Box; room: Box };
+export type HopEnd = { id: number; box: Box; room: Box; bend: number };
 export type LabelSize = { width: number; height: number };
 export type HopPair = { key: string; source: HopEnd; target: HopEnd; label: { full: LabelSize; short: LabelSize } };
 export type HopRoute = { points: Point[]; label: { at: Point; short: boolean } | null; turned: boolean };
@@ -69,14 +69,16 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
   }
   const mid = (id: number) => (rects.get(id)!.l + rects.get(id)!.r) / 2;
   const room = Math.max(...pairs.map((p) => p.label.full.height)) + LABEL_GAP;
-  const below = pairs.filter((p) => rooms.get(p.source.id)!.t - up.b > room && rooms.get(p.target.id)!.t - up.b > room);
+  const bus = (end: HopEnd) => up.b + end.bend * (rects.get(end.id)!.t - up.b);
+  const floor = (p: HopPair) => Math.max(bus(p.source), bus(p.target)) + room / 2 + LABEL_GAP;
+  const below = pairs.filter((p) => Math.min(rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t) - room / 2 >= floor(p));
   if (below.length === 0) return routes;
   const span = (p: HopPair) => Math.abs(mid(p.source.id) - mid(p.target.id));
   const left = (p: HopPair) => Math.min(mid(p.source.id), mid(p.target.id));
   const order = [...below].sort((a, b) => span(a) - span(b) || left(a) - left(b) || (a.key < b.key ? -1 : 1));
-  const lo = up.b + room / 2;
+  const lo = Math.max(...order.map(floor));
   const hi = Math.min(...order.flatMap((p) => [rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t])) - room / 2;
-  const step = order.length > 1 ? Math.min(room, (hi - lo) / (order.length - 1)) : 0;
+  const step = order.length > 1 ? Math.max(0, Math.min(room, (hi - lo) / (order.length - 1))) : 0;
   const lane = (i: number) => lo + (order.length - 1 - i) * step;
 
   type End = { pair: number; id: number; toward: number };

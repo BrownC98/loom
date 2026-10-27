@@ -227,7 +227,9 @@ impl Graph {
         to: NodeId,
     ) -> rusqlite::Result<()> {
         self.publish_nodes();
-        if parent_of(db, from)? == Some(to) {
+        if from == to {
+            self.wake_mail();
+        } else if parent_of(db, from)? == Some(to) {
             self.publish_message(from, Toward::Parent);
         } else if parent_of(db, to)? == Some(from) {
             self.publish_message(to, Toward::Child);

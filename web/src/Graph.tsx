@@ -48,6 +48,7 @@ const EMPTY_GROUP: Size = { width: 320, height: 100 };
 const CARD_X = 20;
 const CARD_TOP = 60;
 const STEP_BEND = CARD_X + GROUP_GAP / 2;
+const CURVE_BEND = 0.5;
 const CARD_SIZE: Record<CardView, Size> = {
   standard: { width: 600, height: 466 },
   simple: { width: 260, height: 134 },
@@ -904,6 +905,7 @@ export function Graph(props: {
     }),
   ])];
 
+  const stepOf = (parent: Box, child: Box) => (props.settings.edgeStyle === 'step' ? stepAt(parent, child, direction, STEP_BEND) : null);
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
     const pulse = props.pulses.get(view.id);
@@ -915,7 +917,7 @@ export function Graph(props: {
     const to = positions.get(view.id);
     const boxes = from && to ? ([{ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }] as const) : null;
     const sides = boxes ? edgeSides(...boxes, direction) : TREE_SIDES[direction];
-    const step = boxes && props.settings.edgeStyle === 'step' ? stepAt(...boxes, direction, STEP_BEND) : null;
+    const step = boxes && stepOf(...boxes);
     const chosen = selected === view.id || selected === view.parent;
     const ends = boxes && { parent: { box: boxes[0], side: sides.parent }, child: { box: boxes[1], side: sides.child } };
     const heading = (toward: Toward) => (ends ? labelHeading(toward === 'child' ? ends.parent : ends.child, ends[toward], step) : 'right');
@@ -971,8 +973,9 @@ export function Graph(props: {
     const parent = props.views.get(hop.source)?.parent ?? null;
     const source = boxOf(hop.source);
     const target = boxOf(hop.target);
-    if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target) continue;
-    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box) });
+    const up = parent === null ? null : boxOf(parent);
+    if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target || !up) continue;
+    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box), bend: stepOf(up, box) ?? CURVE_BEND });
     siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop, turnedLabels)), short: hopLabelSize(hopShort(hop, turnedLabels)) } }]);
   }
   const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {

@@ -221,14 +221,8 @@ enum Cli {
     /// loom이 에이전트에 건 훅과 확장이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook {
         /// 훅을 건 에이전트 진입점.
-        entry: Option<HookEntry>,
+        entry: HookEntry,
     },
-    #[command(hide = true)]
-    CursorHook,
-    #[command(hide = true)]
-    CursorRules,
-    #[command(hide = true)]
-    PiHook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
@@ -300,10 +294,7 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Hook { entry } => cli::hook(entry.unwrap_or(HookEntry::Claude)),
-        Cli::CursorHook => cli::hook(HookEntry::Cursor),
-        Cli::CursorRules => cli::hook(HookEntry::CursorRules),
-        Cli::PiHook => cli::hook(HookEntry::Pi),
+        Cli::Hook { entry } => cli::hook(entry),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

@@ -239,6 +239,7 @@ enum Cli {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    take_shell_token();
     let result = match cli {
         Cli::Serve { listen, ready_to } => {
             forget_launcher_env();
@@ -353,6 +354,15 @@ fn main() -> ExitCode {
             eprintln!("loom: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn take_shell_token() {
+    if std::env::var_os(open::NODE_TOKEN_ENV).is_some() {
+        return;
+    }
+    if let Some(token) = profile::SHELL_TOKEN_ENVS.iter().find_map(std::env::var_os) {
+        unsafe { std::env::set_var(open::NODE_TOKEN_ENV, token) };
     }
 }
 

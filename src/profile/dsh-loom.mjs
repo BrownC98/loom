@@ -8,7 +8,8 @@ const ENTRY = "dsh";
 const IDLE_ENV = "LOOM_DSH_IDLE";
 const MODEL_ENV = "LOOM_DSH_MODEL";
 const EFFORT_ENV = "LOOM_DSH_EFFORT";
-const SHELL_LOOM = "BASH_FUNC_loom%%";
+const SHELL_TOKEN = "DSH_LOOM_TOKEN";
+const WSL_ENV = "WSLENV";
 const MODEL_NOTICE = "model-selection";
 const LAST = Number.MAX_SAFE_INTEGER;
 const INTERRUPT = { kind: "hook", reason: "loom interrupt" };
@@ -61,7 +62,15 @@ export function apply(ctx, config) {
   const shutdown = new AbortController();
   ctx.effect(() => () => shutdown.abort());
   const token = process.env.LOOM_TOKEN;
-  if (token) process.env[SHELL_LOOM] = `() { LOOM_TOKEN=${token} command loom "$@"; }`;
+  if (token && process.env[WSL_ENV] !== undefined)
+    process.env[WSL_ENV] = [process.env[WSL_ENV], SHELL_TOKEN].filter(Boolean).join(":");
+  ctx.inject(["shellEnv"], (inner) =>
+    inner.shellEnv.register({
+      name: "loom",
+      variables: { [SHELL_TOKEN]: { description: "The token of this loom node. The loom command reads it." } },
+      resolve: () => (token ? { [SHELL_TOKEN]: token } : {}),
+    }),
+  );
   const idleAtStart = process.env[IDLE_ENV] === "1";
   const chosen = chosenRoute(process.env[MODEL_ENV], process.env[EFFORT_ENV]);
   for (const name of [IDLE_ENV, MODEL_ENV, EFFORT_ENV]) delete process.env[name];

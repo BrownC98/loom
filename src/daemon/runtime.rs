@@ -656,7 +656,7 @@ impl App {
         Ok([
             ("LOOM_URL", self.url.clone().into()),
             ("LOOM_SPAWN_URL", self.spawn_url.clone().into()),
-            ("LOOM_TOKEN", token.into()),
+            (open::NODE_TOKEN_ENV, token.into()),
             ("PATH", node_path().map_err(internal)?),
         ])
     }
@@ -709,7 +709,10 @@ impl Prepared {
 
 fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: Distro, token: String) {
     runtime.spawn(async move {
-        if let Err(e) = wsl::end_token(&distro, &token).await {
+        let names: Vec<&str> = std::iter::once(open::NODE_TOKEN_ENV)
+            .chain(profile::SHELL_TOKEN_ENVS)
+            .collect();
+        if let Err(e) = wsl::end_token(&distro, &token, &names).await {
             eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
         }
     });

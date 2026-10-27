@@ -3,4 +3,4 @@
 /**
  * 선택지를 고르는 키. `Char`·`Tab`·`BackTab`은 누르면 바로 정한다(실측: 숫자 키 하나, Enter 없음).
  */
-export type PromptKey = { "kind": "char", "value": string } | { "kind": "tab" } | { "kind": "backTab" } | { "kind": "permission", "value": string } | { "kind": "move", "value": number } | { "kind": "line", "value": string };
+export type PromptKey = { "kind": "char", "value": string } | { "kind": "tab" } | { "kind": "backTab" } | { "kind": "permission", "value": string } | { "kind": "move", "value": number } | { "kind": "tick", "value": number } | { "kind": "line", "value": string } | { "kind": "enter" };

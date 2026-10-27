@@ -22,4 +22,4 @@ The loom inbox shows the human only questions in this form.
 - An answer to an approval or decision question can name only some decisions. Each decision that the human does not name takes its recommended option. Do not ask about it again.
 - You decide if terminal text from the human answers an open question. It can start with the number: "Q12: A". While one is open, loom tells you in that turn how to close it.
 - Do not ask only in chat. The human sees only inbox questions.
-- The Claude question tool (`AskUserQuestion`) also puts the question in the inbox.
+- Do not use the Claude question tool (`AskUserQuestion`): loom refuses it. Use `loom ask`.

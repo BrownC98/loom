@@ -4,4 +4,8 @@ import type { PromptKey } from "./PromptKey";
 /**
  * 승인 창의 선택지 하나. `label`은 터미널 글(영어) 그대로다.
  */
-export type PromptOption = { label: string, key: PromptKey, };
+export type PromptOption = { label: string, key: PromptKey, 
+/**
+ * 글로 답하는 선택지(「Tell Claude what to change」, 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
+ */
+writes: boolean, };

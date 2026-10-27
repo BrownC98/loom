@@ -440,11 +440,27 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         id: K,
         pick: impl FnOnce(&Keys<'_>) -> Result<Vec<u8>, E>,
     ) -> Result<(), E> {
+        self.strokes_if(id, Duration::ZERO, |keys| {
+            pick(keys).map(|bytes| vec![bytes])
+        })
+    }
+
+    pub fn strokes_if<E>(
+        &self,
+        id: K,
+        gap: Duration,
+        pick: impl FnOnce(&Keys<'_>) -> Result<Vec<Vec<u8>>, E>,
+    ) -> Result<(), E> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
-        let bytes = pick(&Keys(pty.as_deref()))?;
+        let strokes = pick(&Keys(pty.as_deref()))?;
         if let Some(host) = host.as_mut() {
-            let _ = wire::write(&mut **host, &Frame::Data(bytes));
+            for (at, bytes) in strokes.into_iter().enumerate() {
+                if at > 0 {
+                    std::thread::sleep(gap);
+                }
+                let _ = wire::write(&mut **host, &Frame::Data(bytes));
+            }
         }
         Ok(())
     }

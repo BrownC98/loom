@@ -14,6 +14,7 @@ import type { Step } from './gen/Step';
 import type { TextPart } from './gen/TextPart';
 import type { WaitId } from './gen/WaitId';
 import type { NodeId } from './gen/NodeId';
+import type { RepoId } from './gen/RepoId';
 import type { NodeView } from './gen/NodeView';
 import type { Who } from './gen/Who';
 import { useShowNodes } from './camera';
@@ -585,6 +586,8 @@ export function EventConsole(props: {
   records: EventRecord[] | null;
   views: ReadonlyMap<NodeId, NodeView>;
   agents: AgentView[];
+  graphRepos: RepoId[];
+  onRepo: (id: RepoId) => void;
   highlight: EventRecord | null;
   onHighlight: (record: EventRecord | null) => void;
 }) {
@@ -606,8 +609,14 @@ export function EventConsole(props: {
   const pick = (record: EventRecord) => {
     if (highlight?.id === record.id) return onHighlight(null);
     onHighlight(record);
+    const repoOf = (id: NodeId) => props.views.get(id)?.place.repo;
     const ids = involved(record.entry).filter((id) => props.views.has(id));
-    if (ids.length > 0) show(ids);
+    const inGraph = ids.filter((id) => props.graphRepos.includes(repoOf(id)!));
+    if (inGraph.length > 0) return show(inGraph);
+    if (ids.length === 0) return;
+    const repo = repoOf(ids[0])!;
+    props.onRepo(repo);
+    show(ids.filter((id) => repoOf(id) === repo));
   };
   const toggle = (c: Category) =>
     setHidden((prev) => {

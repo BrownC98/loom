@@ -385,6 +385,19 @@ impl Settings {
         }
     }
 
+    pub fn move_into_wsl(&self, distro: &str) -> rusqlite::Result<()> {
+        self.update(|view| {
+            if let Some(dir) = view.workspace_dir.take_if(|d| d.starts_with('/')) {
+                view.wsl_workspace_dirs
+                    .entry(distro.to_owned())
+                    .or_insert(dir);
+            }
+            let in_use = view.wsl_accounts.entry(distro.to_owned()).or_default();
+            in_use.claude = in_use.claude.take().or(view.claude_account.take());
+            in_use.codex = in_use.codex.take().or(view.codex_account.take());
+        })
+    }
+
     fn write<E: From<rusqlite::Error>>(
         &self,
         change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, E>,

@@ -516,6 +516,10 @@ impl Graph {
         Ok(())
     }
 
+    pub fn has_parent(&self, node: NodeId) -> Result<bool, Refusal> {
+        Ok(parent_of(&self.lock(), node)?.is_some())
+    }
+
     pub fn relations(&self, node: NodeId) -> Result<Relations, Refusal> {
         let db = self.lock();
         let read = |id: NodeId| -> rusqlite::Result<Peer> {

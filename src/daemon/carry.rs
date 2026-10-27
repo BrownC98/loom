@@ -109,49 +109,9 @@ impl App {
             }
         }
         let old = db::open(&file).map_err(|e| e.to_string())?;
-        to_windows(&old, at).map_err(|e| e.to_string())?;
-        drop(old);
-        db::import(&self.database, &file)
+        Settings::new(old, crate::profile::check_choice)
+            .move_into_wsl(&at.distro)
+            .map_err(|e| e.to_string())?;
+        db::import(&self.database, &file, |linux| at.unc(linux))
     }
-}
-
-fn to_windows(old: &db::Database, at: &WslPath) -> rusqlite::Result<()> {
-    {
-        let conn = old.lock();
-        for (table, column) in [("repos", "path"), ("nodes", "worktree")] {
-            let rows: Vec<(i64, String)> = conn
-                .prepare(&format!(
-                    "SELECT rowid, {column} FROM {table} WHERE {column} LIKE '/%' AND {column} NOT LIKE '//%'"
-                ))?
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?;
-            for (rowid, path) in rows {
-                conn.execute(
-                    &format!("UPDATE {table} SET {column} = ?1 WHERE rowid = ?2"),
-                    (at.unc(&path), rowid),
-                )?;
-            }
-        }
-        let spots: Vec<(String, String)> = conn
-            .prepare(
-                "SELECT spot, spot ->> 'path' FROM spots WHERE spot ->> 'kind' = 'worktree' AND spot ->> 'path' LIKE '/%'",
-            )?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        for (spot, path) in spots {
-            conn.execute(
-                "UPDATE spots SET spot = json_set(spot, '$.path', ?1) WHERE spot = ?2",
-                (at.unc(&path), spot),
-            )?;
-        }
-    }
-    let distro = at.distro.clone();
-    Settings::new(old.clone(), crate::profile::check_choice).update(|view| {
-        if let Some(dir) = view.workspace_dir.take_if(|d| d.starts_with('/')) {
-            view.wsl_workspace_dirs.entry(distro.clone()).or_insert(dir);
-        }
-        let in_use = view.wsl_accounts.entry(distro).or_default();
-        in_use.claude = in_use.claude.take().or(view.claude_account.take());
-        in_use.codex = in_use.codex.take().or(view.codex_account.take());
-    })
 }

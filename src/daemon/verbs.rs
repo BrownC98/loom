@@ -29,7 +29,7 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         SpawnRun::Role { role, .. } => (role.trim(), None),
         SpawnRun::Review { role, branch } => (role.trim(), Some(branch.trim())),
     };
-    let start = role_start(app, role, &req.brief)?;
+    let start = role_start(&app.settings, role, &req.brief)?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
@@ -86,7 +86,7 @@ pub(super) async fn agent_set_role(
 }
 
 fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> {
-    if app.graph.relations(caller)?.parent.is_some() {
+    if app.graph.has_parent(caller)? {
         return Err(Refusal::RolesHaveParent.into());
     }
     use crate::settings::SetRoleProblem;
@@ -99,9 +99,8 @@ fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> 
         })
 }
 
-fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {
-    let assigned = app
-        .settings
+fn role_start(settings: &Settings, role: &str, brief: &str) -> Result<Start, Problem> {
+    let assigned = settings
         .get()
         .map_err(internal)?
         .roles
@@ -289,9 +288,8 @@ pub(super) async fn agent_done(
         .iter()
         .try_for_each(|image| done_image(image))
         .and_then(|()| {
-            let parentless = app.graph.relations(node)?.parent.is_none();
-            let unchecked = if parentless {
-                unchecked_link(&app, node, &req.summary)?
+            let unchecked = if !app.graph.has_parent(node)? {
+                unchecked_link(&app.graph, node, &req.summary)?
             } else {
                 None
             };
@@ -358,8 +356,8 @@ fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, Refusal> {
 
 const INBOX: &str = "inbox";
 
-fn unchecked_link(app: &App, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
-    let folder = app.graph.place_of(node)?.worktree;
+fn unchecked_link(graph: &Graph, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
+    let folder = graph.place_of(node)?.worktree;
     Ok(user_doc::unchecked_link(
         text,
         std::path::Path::new(&folder),
@@ -373,13 +371,7 @@ pub(super) async fn agent_ask(
 ) -> Result<Json<AskResult>, AgentError> {
     let node = app.caller(&headers)?;
     let via = gate::via(&headers, "/api/agent/ask");
-    let has_parent = app
-        .graph
-        .relations(node)
-        .map_err(for_agent)?
-        .parent
-        .is_some();
-    if has_parent {
+    if app.graph.has_parent(node).map_err(for_agent)? {
         let sent = match req.doc {
             Some(_) => Err(Refusal::DocHasParent),
             None => app.graph.ask_parent(node, &req.question, Some(&via)),
@@ -394,7 +386,7 @@ pub(super) async fn agent_ask(
             sent.map(AskResult::Parent),
         );
     }
-    let asked = match unchecked_link(&app, node, &req.question) {
+    let asked = match unchecked_link(&app.graph, node, &req.question) {
         Ok(Some(link)) => Err(Refusal::UncheckedDoc(link)),
         Ok(None) => attach(req.doc.as_deref()),
         Err(e) => Err(e),

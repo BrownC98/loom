@@ -320,8 +320,9 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
+        held_by: &[Phase],
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, &Phase::ALL, |wakes| {
+        self.take_if(node, kinds, limit_bytes, held_by, |wakes| {
             wakes.contains(&true)
         })
     }

@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use super::idle::Wait;
 use super::relaunch::provider_of;
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, IdleEnd, NodeId, WaitSource};
+use crate::graph::{AgentEvent, IdleEnd, NodeId, Phase, WaitSource};
 use crate::profile::adapter::Port;
 use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
@@ -34,25 +34,18 @@ impl App {
         Ok(Taken { messages, note })
     }
 
-    pub(super) fn take_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        self.graph.take_waking(node, kinds, limit_bytes)
-    }
-
     pub(super) async fn next_mail(
         &self,
         node: NodeId,
         kinds: &[Kind],
-        limit_bytes: usize,
+        held_by: &[Phase],
     ) -> Result<Vec<Delivery>, Refusal> {
         loop {
             let mut changed = pin!(self.graph.mail_changed());
             changed.as_mut().enable();
-            let taken = self.take_mail(node, kinds, limit_bytes)?;
+            let taken = self
+                .graph
+                .take_waking(node, kinds, BATCH_LIMIT_BYTES, held_by)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -180,7 +173,7 @@ impl App {
             }
         }
         tokio::select! {
-            taken = self.next_mail(node, Kind::ALL, BATCH_LIMIT_BYTES) => match taken {
+            taken = self.next_mail(node, Kind::ALL, &Phase::STARTED) => match taken {
                 Ok(taken) => {
                     wait.hand_mail();
                     Ok(IdleReply::Mail(taken))
@@ -383,7 +376,7 @@ impl Port for AgentPort {
         Box::pin(async move {
             let node = self.bound().await;
             tokio::select! {
-                taken = self.app.next_mail(node, kinds, BATCH_LIMIT_BYTES) => taken,
+                taken = self.app.next_mail(node, kinds, &Phase::ALL) => taken,
                 () = self.until_ended() => std::future::pending().await,
             }
         })

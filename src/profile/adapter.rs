@@ -101,6 +101,7 @@ pub trait Port: Send + Sync {
     fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>>;
     fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>>;
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal>;
+    fn release(&self, ids: &[MessageId]) -> Result<(), Refusal>;
     fn report(&self, report: Report);
     fn ended(&self) -> BoxFuture<'_, ()>;
 }

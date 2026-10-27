@@ -109,6 +109,13 @@ impl Served {
         .map_err(|e| e.to_string())?
     }
 
+    pub async fn end_stored(rec: &Record) -> Result<(), String> {
+        match Self::stored::<serde::de::IgnoredAny>(rec) {
+            Some((served, _)) => served.end().await,
+            None => Ok(()),
+        }
+    }
+
     pub fn here(&self) -> Option<u32> {
         self.pid.filter(|_| self.distro.is_none())
     }

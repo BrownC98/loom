@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde::de::DeserializeOwned;
@@ -217,17 +218,8 @@ impl super::adapter::Adapter for Codex {
         Ok(super::copy_session(&rollout, ROLLOUT_DEPTH, &new_root)?)
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        rec: &'a Record,
-        _: &'a Site,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            match Served::stored::<State>(rec) {
-                Some((served, _)) => served.end().await,
-                None => Ok(()),
-            }
-        })
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
     }
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
@@ -447,11 +439,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                     Ok(IdleReply::Mail(mail)) if mail.is_empty() => {}
                     Ok(IdleReply::Mail(mail)) => {
                         let now = status.unwrap_or(Status::Idle);
-                        match hand(&server, &*port, &id, now, &mail).await {
-                            true => ours = true,
-                            false if now == Status::Idle => idle = Some(port.idle(IdleRequest::default())),
-                            false => {}
-                        }
+                        ours |= hand(&server, &*port, &id, now, &mail).await;
                     }
                     Ok(IdleReply::Nudge { nudge }) => {
                         let call = |method, params| server.call(method, params);
@@ -472,8 +460,9 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                         if interrupt {
                             server.stop_shells();
                         }
-                        ours |= hand(&server, &*port, &id, Status::Busy, &mail).await && interrupt;
-                        if status == Some(Status::Busy) {
+                        let handed = hand(&server, &*port, &id, Status::Busy, &mail).await;
+                        ours |= handed && interrupt;
+                        if handed && status == Some(Status::Busy) {
                             busy = Some(port.next_mail(BUSY_KINDS));
                         }
                     }
@@ -526,14 +515,22 @@ async fn human_input(
             return;
         }
     };
-    if let Some(wait) = idle.take() {
-        let _ = wait.await;
-    }
-    if let Some(note) = note {
-        let call = |method, params| server.call(method, params);
-        if let Err(e) = steer(call, thread, &note).await {
-            eprintln!("loom: Codex 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
+    let call = |method, params| server.call(method, params);
+    match idle.take().and_then(FutureExt::now_or_never) {
+        Some(Ok(IdleReply::Mail(mail))) if !mail.is_empty() => {
+            hand(server, port, thread, Status::Busy, &mail).await;
         }
+        Some(Ok(IdleReply::Nudge { nudge })) => {
+            if let Err(e) = steer(call, thread, &nudge).await {
+                eprintln!("loom: Codex 스레드 {thread}를 다시 일하게 하지 못했다: {e}");
+            }
+        }
+        _ => {}
+    }
+    if let Some(note) = note
+        && let Err(e) = steer(call, thread, &note).await
+    {
+        eprintln!("loom: Codex 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
     }
 }
 
@@ -565,7 +562,9 @@ async fn hand(
         }
         Err(cause) => {
             eprintln!("loom: Codex 스레드 {thread}에 메시지를 넘기지 못했다: {cause}");
-            port.report(Report::Refused { ids, cause });
+            if let Err(e) = port.release(&ids) {
+                eprintln!("loom: Codex 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}");
+            }
             false
         }
     }

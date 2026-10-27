@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::BoxFuture;
 use tokio::sync::watch;
 
+use super::idle::Wait;
 use super::relaunch::provider_of;
 use super::{AgentError, App, for_agent};
 use crate::graph::{AgentEvent, IdleEnd, NodeId, WaitSource};
@@ -116,6 +117,17 @@ impl App {
         arrival: Option<super::arrival::Arrival>,
         current: impl Fn() -> bool,
     ) -> Result<IdleReply, AgentError> {
+        let opened = self.open_wait(node, token, req, arrival)?;
+        self.listen(node, opened, current).await
+    }
+
+    fn open_wait(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: IdleRequest,
+        arrival: Option<super::arrival::Arrival>,
+    ) -> Result<Opened<'_>, AgentError> {
         self.keep_session(token, req.session.as_ref())
             .map_err(for_agent)?;
         let after_turn = req.turn_end.is_some();
@@ -124,9 +136,9 @@ impl App {
                 .turn_ended(node, ended)
                 .map_err(|e| for_agent(Refusal::from(e)))?
         {
-            return Ok(IdleReply::Nudge { nudge });
+            return Ok(Opened::Nudge(nudge));
         }
-        let mut wait = match after_turn {
+        let wait = match after_turn {
             true => self.idle.open_after_turn(node),
             false => self.idle.open(node),
         }
@@ -158,6 +170,19 @@ impl App {
         if !after_turn {
             self.run_at_turn_end(node, None);
         }
+        Ok(Opened::Wait(wait))
+    }
+
+    async fn listen(
+        &self,
+        node: NodeId,
+        opened: Opened<'_>,
+        current: impl Fn() -> bool,
+    ) -> Result<IdleReply, AgentError> {
+        let mut wait = match opened {
+            Opened::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
+            Opened::Wait(wait) => wait,
+        };
         while self.holds_mail(node) {
             let by = wait.ended().await;
             if !current() || !self.idle.reopen(&mut wait) {
@@ -272,6 +297,11 @@ impl App {
     }
 }
 
+enum Opened<'a> {
+    Nudge(String),
+    Wait(Wait<'a>),
+}
+
 pub(super) struct AgentPort {
     app: Arc<App>,
     token: String,
@@ -339,12 +369,23 @@ impl Port for AgentPort {
     }
 
     fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>> {
+        let bound = *self.node.borrow();
+        let Some(node) = bound else {
+            return Box::pin(async move {
+                let node = self.bound().await;
+                let waited = self
+                    .app
+                    .wait_idle(node, &self.token, req, None, || self.current(node))
+                    .await;
+                waited.map_err(|(_, e)| e)
+            });
+        };
+        let opened = self.app.open_wait(node, &self.token, req, None);
         Box::pin(async move {
-            let node = self.bound().await;
-            let waited = self
-                .app
-                .wait_idle(node, &self.token, req, None, || self.current(node))
-                .await;
+            let waited = match opened {
+                Ok(opened) => self.app.listen(node, opened, || self.current(node)).await,
+                Err(e) => Err(e),
+            };
             waited.map_err(|(_, e)| e)
         })
     }
@@ -362,6 +403,13 @@ impl Port for AgentPort {
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal> {
         match *self.node.borrow() {
             Some(node) => self.app.graph.ack(node, ids),
+            None => Ok(()),
+        }
+    }
+
+    fn release(&self, ids: &[MessageId]) -> Result<(), Refusal> {
+        match *self.node.borrow() {
+            Some(node) => self.app.graph.release(node, ids),
             None => Ok(()),
         }
     }

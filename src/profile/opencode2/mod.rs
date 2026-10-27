@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
+use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
@@ -169,17 +170,8 @@ impl super::adapter::Adapter for OpenCode2 {
         Ok(())
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        rec: &'a Record,
-        _: &'a Site,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            match Served::stored::<State>(rec) {
-                Some((served, _)) => served.end().await,
-                None => Ok(()),
-            }
-        })
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
     }
 
     fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {
@@ -497,24 +489,20 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
             let (node, read) = (node.clone(), read.clone());
             tokio::spawn(async move { drop(read.send((sent, node.permission_wait().await))) });
         }
+        let (mut held, mut note) = (None, None);
         match seen.take() {
             Some(Seen::Started) => {
                 if idle.is_some() && port.take(take_request(TURN_STEP, false)).is_ok() {
-                    settle(&mut idle).await;
+                    held = settle(&mut idle);
                 }
                 port.report(Report::Busy);
                 busy.get_or_insert_with(|| port.next_mail(BUSY_KINDS));
             }
             Some(Seen::Human) => match port.take(take_request(HUMAN_STEP, true)) {
                 Ok(taken) => {
-                    settle(&mut idle).await;
-                    if let Some(note) = taken.note
-                        && let Err(e) = node.prompt(&[], &note, Inbox::Steer).await
-                    {
-                        refused(&node, &*port, Vec::new(), e);
-                        (&mut ended).await;
-                        break;
-                    }
+                    held = settle(&mut idle);
+                    note = taken.note;
+                    rest = true;
                 }
                 Err(e) => eprintln!("loom: OpenCode 2 사람 입력을 처리하지 못했다: {e}"),
             },
@@ -524,6 +512,20 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
             }
             Some(Seen::Stopped) => busy = None,
             None => {}
+        }
+        if let Some(reply) = held
+            && let Err((ids, e)) = answer(&node, &*port, reply).await
+        {
+            refused(&node, &*port, ids, e);
+            (&mut ended).await;
+            break;
+        }
+        if let Some(note) = note
+            && let Err(e) = node.prompt(&[], &note, Inbox::Steer).await
+        {
+            refused(&node, &*port, Vec::new(), e);
+            (&mut ended).await;
+            break;
         }
         if busy.is_none() && idle.is_none() && !rest {
             let turn_end = turn_end.take();
@@ -570,11 +572,7 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
                         rest = true;
                         continue;
                     }
-                    Ok(IdleReply::Mail(mail)) => hand(&node, &*port, &mail).await,
-                    Ok(IdleReply::Nudge { nudge }) => node
-                        .prompt(&[], &nudge, Inbox::Queue)
-                        .await
-                        .map_err(|e| (Vec::new(), e)),
+                    Ok(reply) => answer(&node, &*port, reply).await,
                     Err(e) => {
                         eprintln!("loom: OpenCode 2 쉬는 대기가 끝났다: {e}");
                         rest = true;
@@ -609,9 +607,22 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
     node.server.stop();
 }
 
-async fn settle(idle: &mut Option<BoxFuture<'_, Result<IdleReply, String>>>) {
-    if let Some(wait) = idle.take() {
-        let _ = wait.await;
+fn settle(idle: &mut Option<BoxFuture<'_, Result<IdleReply, String>>>) -> Option<IdleReply> {
+    idle.take()?.now_or_never()?.ok()
+}
+
+async fn answer(
+    node: &Node,
+    port: &dyn Port,
+    reply: IdleReply,
+) -> Result<(), (Vec<MessageId>, String)> {
+    match reply {
+        IdleReply::Mail(mail) if mail.is_empty() => Ok(()),
+        IdleReply::Mail(mail) => hand(node, port, &mail).await,
+        IdleReply::Nudge { nudge } => node
+            .prompt(&[], &nudge, Inbox::Queue)
+            .await
+            .map_err(|e| (Vec::new(), e)),
     }
 }
 

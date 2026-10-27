@@ -150,7 +150,7 @@ pub(super) fn next_step(
             "Next: accept or return the branch yourself, with no reviewer. Check the result against the done-when of its brief (acceptance, not a code review), then call `loom verdict {branch} {head} pass`, or `loom verdict {branch} {head} block --findings <file>` with what in done-when is missing. Give this head: loom refuses a verdict for another head."
         ),
         (GateCall::Ready, _) => format!(
-            "Next: if the branch has no reviewer yet, spawn one as your child with `loom spawn --role <role> --review {branch}`. loom sends it this round's head. It reviews the branch and calls `loom verdict {branch} <head> pass|block --findings <file>`. loom sends each next round to the reviewers that the branch has."
+            "Next: nothing for reviewers. loom spawns one reviewer of {branch} per reviewer role as your children and sends them each round. They call `loom verdict {branch} <head> pass|block --findings <file>`."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
             "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()

@@ -415,9 +415,14 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again: the new round replaces this one.",
+        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom spawns one reviewer per reviewer role as children of the gate, and sends each next round to them. On pass, loom queues, checks and merges the branch and sends the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again: the new round replaces this one.",
         readied.gate, readied.target
     );
+    for problem in &readied.unseated {
+        println!(
+            "loom could not spawn the reviewer {problem}. Call `loom ready {branch}` again to try again."
+        );
+    }
     Ok(())
 }
 

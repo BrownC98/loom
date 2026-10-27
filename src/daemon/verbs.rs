@@ -12,7 +12,11 @@ pub(super) async fn agent_spawn(
     traced(&app, parent, Attempt::verb(&name), &via, spawned)
 }
 
-async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<NodeId, Problem> {
+pub(super) async fn spawn(
+    app: &Arc<App>,
+    parent: NodeId,
+    req: SpawnRequest,
+) -> Result<NodeId, Problem> {
     let place = app.graph.place_of(parent).map_err(Refusal::from)?;
     let tasks = app.tasks_for(&place.worktree).await?;
     let (dir, fresh) = match &req.worktree {
@@ -25,11 +29,17 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     };
     let given = req.brief.clone();
     let name = req.run.name();
-    let (role, review) = match &req.run {
-        SpawnRun::Role { role, .. } => (role.trim(), None),
-        SpawnRun::Review { role, branch } => (role.trim(), Some(branch.trim())),
+    let (role, review, brief) = match &req.run {
+        SpawnRun::Role { role, .. } => (role.trim(), None, req.brief.clone()),
+        SpawnRun::Review { role, branch } => (
+            role.trim(),
+            Some(branch.trim()),
+            format!("{}\n\n{REVIEW_RULES}", req.brief.trim())
+                .trim_start()
+                .to_owned(),
+        ),
     };
-    let start = role_start(&app.settings, role, &req.brief)?;
+    let start = role_start(&app.settings, role, &brief)?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
@@ -63,7 +73,7 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     spawned
 }
 
-fn role_refusal(e: RoleProblem) -> Refusal {
+pub(super) fn role_refusal(e: RoleProblem) -> Refusal {
     match e {
         RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
         RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },

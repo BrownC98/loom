@@ -155,7 +155,7 @@ pub enum Refusal {
     },
     /// 브랜치 담당이 자기 브랜치를 판정했다. 값은 브랜치다.
     OwnVerdict(String),
-    /// 판정한 노드가 이 브랜치의 검토자(`loom spawn --review <브랜치>`)가 아니다. `review`는 그 노드가 검토하는 브랜치다.
+    /// 판정한 노드가 이 브랜치의 검토자(`loom ready` 때 데몬이 띄운 노드, 또는 `loom spawn --review <브랜치>`)가 아니다. `review`는 그 노드가 검토하는 브랜치다.
     NotReviewer {
         branch: String,
         review: Option<String>,
@@ -325,7 +325,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it."
+                "{branch}: its gate is {gate}. Only {gate} and the reviewers that loom spawned as its children handle this branch."
             ),
             Refusal::NoRound(branch) => write!(
                 f,
@@ -362,16 +362,16 @@ impl fmt::Display for Refusal {
             ),
             Refusal::OwnVerdict(branch) => write!(
                 f,
-                "{branch}: you own this branch, so you cannot judge it. A reviewer that its gate spawned gives the verdict."
+                "{branch}: you own this branch, so you cannot judge it. A reviewer of the branch gives the verdict."
             ),
             Refusal::NotReviewer { branch, review } => match review {
                 Some(review) => write!(
                     f,
-                    "{branch}: you review {review}, so you cannot judge {branch}. The gate spawns a reviewer with `loom spawn --role <role> --review {branch}`."
+                    "{branch}: you review {review}, so you cannot judge {branch}. loom spawns the reviewers of {branch} at `loom ready {branch}`."
                 ),
                 None => write!(
                     f,
-                    "{branch}: only a reviewer that the gate spawned with `loom spawn --role <role> --review {branch}` judges this branch."
+                    "{branch}: only a reviewer of {branch} judges it. loom spawns them as the gate's children at `loom ready {branch}`."
                 ),
             },
             Refusal::CoordinatorAccepts { branch, gate } => write!(

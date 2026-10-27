@@ -47,6 +47,7 @@ impl super::adapter::Adapter for OpenCode2 {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
+            listens_after_stop: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Fixed,
             pinned: Some(CMD),

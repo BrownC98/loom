@@ -253,7 +253,10 @@ impl App {
                 self.feed(node, AgentEvent::TurnEnded);
                 self.run_at_turn_end(node, None);
                 self.turn_ends.stopped(node, turn.as_deref());
-                self.turn_stopped(node)
+                match self.profile(node).is_some_and(Profile::listens_after_stop) {
+                    true => Ok(()),
+                    false => self.turn_stopped(node),
+                }
             }
             Report::Busy => {
                 self.feed(node, AgentEvent::Busy);

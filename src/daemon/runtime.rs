@@ -1,10 +1,10 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::Distro;
-use crate::graph::{Active, Entry};
+use crate::graph::{Active, AgentState, Entry};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
-use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
+use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER, Report};
 use crate::tunnel::ENDPOINT_ENV;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
@@ -436,6 +436,7 @@ impl App {
                 let now = app.host.screen(id);
                 let found = profile::wait(profile, &now, *started.borrow_and_update());
                 let prompt = profile::prompt(profile, &now);
+                let asked = found.is_some() || prompt.is_some();
                 let written = match &found {
                     Some((kind, text)) => {
                         app.graph
@@ -448,6 +449,12 @@ impl App {
                 };
                 if let Err(e) = written {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                }
+                if !asked
+                    && profile::turn_stopped(profile, &now)
+                    && app.agent_state(id) == Some(AgentState::Turn)
+                {
+                    app.report(id, &token, Report::TurnStopped { turn: None });
                 }
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);

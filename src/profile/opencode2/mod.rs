@@ -170,17 +170,8 @@ impl super::adapter::Adapter for OpenCode2 {
         Ok(())
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        rec: &'a Record,
-        _: &'a Site,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            match Served::stored::<State>(rec) {
-                Some((served, _)) => served.end().await,
-                None => Ok(()),
-            }
-        })
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
     }
 
     fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {

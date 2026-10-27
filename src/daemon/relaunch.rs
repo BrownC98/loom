@@ -17,7 +17,8 @@ use crate::graph::{
     Plan, ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
-use crate::profile::adapter::{Carry, Record, ResumeError};
+use crate::profile::adapter::{Carry, ResumeError};
+use crate::profile::process::Served;
 use crate::profile::{self, ModelRule, Profile, Start};
 use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
 use crate::screen::Screen;
@@ -503,10 +504,9 @@ impl App {
         if self.end_old(&node, prepared.discarder(), guard).await? == Stop::Kept {
             return Ok(Stop::Kept);
         }
-        if let Err(e) = profile::adapter(profile)
-            .end_detached(&self.record_of(&node), &site)
-            .await
-        {
+        let old = self.record_of(&node);
+        let _ = profile::adapter(profile).end_detached(&old, &site).await;
+        if let Err(e) = Served::end_stored(&old).await {
             prepared.discarder()();
             let _ = self.graph.lost(node.id);
             return Err(format!("옛 세션이 끝나지 않았다: {e}"));
@@ -694,11 +694,9 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
-        let ended = Record {
-            state: None,
-            ..self.record_of(&node)
-        };
-        let _ = profile::adapter(profile).end_detached(&ended, &site).await;
+        let _ = profile::adapter(profile)
+            .end_detached(&self.record_of(&node), &site)
+            .await;
         Ok(self.run_resumed(node.id, prepared).await?)
     }
 

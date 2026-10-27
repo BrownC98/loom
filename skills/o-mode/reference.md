@@ -22,6 +22,7 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 - For screen work, check with an installed design check skill (for example `design-stack`) if there is one. The coordinator makes the mockup, checks the render and reports only the path, the version and the check result.
 - The lead checks the file with user-doc `show.sh` and attaches it with `loom ask "<question>" --doc <file>`. Nobody opens the human's browser. The head line names the lead as the node to answer to.
 - Before the human approves, do not write screen product code and do not spawn implementation workers. Show the version to approve and the open decisions.
+- If the approval names only some open decisions, each decision that it does not name takes its recommended option. Do not ask about it again.
 - Write the approved version, its path and its content in the implementation brief. Keep the node and the worktree while the approval waits.
 
 ## Blocked

@@ -136,7 +136,20 @@ function kindLabel(what: MessageKind, how: Kind, t: TFunction): string {
       return how === 'queue' ? t('events.type.note') : `${t('events.type.note')} · ${t(`events.how.${how}`)}`;
     case 'verdict':
       return t(`events.type.verdict.${what.judgment}`);
-    default:
+    case 'ask':
+    case 'answer':
+    case 'done':
+    case 'ready':
+    case 'withdrawn':
+    case 'merged':
+    case 'rework':
+    case 'failed':
+    case 'exited':
+    case 'setupFailed':
+    case 'removed':
+    case 'adopted':
+    case 'humanInput':
+    case 'rulesChanged':
       return t(`events.type.${what.kind}`);
   }
 }
@@ -476,7 +489,20 @@ function stepNote(what: MessageKind, id: number, step: Step, t: TFunction): stri
       return `#${id} · ${stepText}`;
     case 'answer':
       return `${t('events.answerTo', { ref: what.question.in === 'message' ? `#${what.question.id}` : `Q${what.question.id}` })} · ${stepText}`;
-    default:
+    case 'note':
+    case 'done':
+    case 'ready':
+    case 'verdict':
+    case 'withdrawn':
+    case 'merged':
+    case 'rework':
+    case 'failed':
+    case 'exited':
+    case 'setupFailed':
+    case 'removed':
+    case 'adopted':
+    case 'humanInput':
+    case 'rulesChanged':
       return stepText;
   }
 }

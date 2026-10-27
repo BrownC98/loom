@@ -159,9 +159,6 @@ pub trait Adapter: Sync {
     fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
-    fn turn_stopped(&self, _: &Screen) -> bool {
-        false
-    }
     fn install(&self, _: &Path) -> std::io::Result<()> {
         Ok(())
     }

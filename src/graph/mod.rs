@@ -22,7 +22,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 use ts_rs::TS;
 
-pub use agent_state::{AgentChange, AgentEvent, AgentState, TurnGen};
+pub use agent_state::{AgentChange, AgentEvent, AgentState};
 pub use deploys::Deploy;
 pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,

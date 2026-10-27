@@ -629,68 +629,23 @@ impl Keys<'_> {
     }
 }
 
-pub struct ScreenFollow {
-    parser: vt100::Parser,
-    size: watch::Receiver<PtySize>,
-    text: String,
-}
-
-impl Attached {
-    pub fn follow(&self) -> ScreenFollow {
-        let mut parser = parser_of(*self.size.borrow());
-        parser.process(&self.backlog);
-        let text = parser.screen().contents();
-        ScreenFollow {
-            parser,
-            size: self.size.clone(),
-            text,
-        }
-    }
-}
-
-impl ScreenFollow {
-    pub fn changed(&mut self, chunk: &[u8]) -> Option<Screen> {
-        let PtySize { cols, rows } = *self.size.borrow();
-        if self.parser.screen().size() != (nonzero(rows), nonzero(cols)) {
-            self.parser.set_size(nonzero(rows), nonzero(cols));
-        }
-        self.parser.process(chunk);
-        let text = self.parser.screen().contents();
-        if text == self.text {
-            return None;
-        }
-        self.text = text;
-        Some(screen_of(self.parser.screen()))
-    }
-}
-
-fn nonzero(n: u16) -> NonZeroU16 {
-    NonZeroU16::new(n.max(1)).expect("1 이상이다")
-}
-
-fn parser_of(PtySize { cols, rows }: PtySize) -> vt100::Parser {
-    vt100::Parser::new(nonzero(rows), nonzero(cols), 0)
-}
-
-fn screen_of(screen: &vt100::Screen) -> Screen {
-    let cols = screen.size().1.get();
-    let (row, col) = screen.cursor_position();
-    let above = screen.rows(0, cols).take(row.into());
-    let at = screen.rows(0, col).nth(row.into());
-    Screen {
-        text: screen.contents(),
-        undimmed: undimmed(screen),
-        to_cursor: above.chain(at).collect::<Vec<_>>().join("\n"),
-        cols,
-    }
-}
-
 impl Pty {
     fn screen(&self) -> Screen {
+        let PtySize { cols, rows } = *self.size.borrow();
         let bytes = self.output.lock().unwrap().backlog.to_vec();
-        let mut parser = parser_of(*self.size.borrow());
+        let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
+        let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
         parser.process(&bytes);
-        screen_of(parser.screen())
+        let screen = parser.screen();
+        let (row, col) = screen.cursor_position();
+        let above = screen.rows(0, cols).take(row.into());
+        let at = screen.rows(0, col).nth(row.into());
+        Screen {
+            text: screen.contents(),
+            undimmed: undimmed(screen),
+            to_cursor: above.chain(at).collect::<Vec<_>>().join("\n"),
+            cols,
+        }
     }
 
     fn send(&self, frame: &Frame) {

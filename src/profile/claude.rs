@@ -27,16 +27,12 @@ const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
-const INPUT_MARK: char = '❯';
+const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
 const HOOK: &str = "loom hook claude";
 const HELPER_SHELLS: [&str; 1] = [HOOK];
 const RUNNING_STATUS: &str = "esc to interrupt";
-const RESULT_MARK: char = '⎿';
-const RULE: char = '─';
-const BLOCK_MARKS: [char; 3] = [INPUT_MARK, '●', RESULT_MARK];
-const INTERRUPTED: &str = "Interrupted";
 const TRANSCRIPT_DEPTH: usize = 3;
 const CLI_WAIT: Duration = Duration::from_secs(20);
 const NO_RECORD: &str = "이어 갈 Claude 세션 기록이 없다";
@@ -124,10 +120,6 @@ impl Adapter for Claude {
             empty: input(&screen.undimmed) == Some(""),
             turn_shown: turn_shown(&screen.text),
         })
-    }
-
-    fn turn_stopped(&self, screen: &Screen) -> bool {
-        turn_stopped(&screen.text)
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -610,7 +602,7 @@ fn input(screen: &str) -> Option<&str> {
 }
 
 fn is_rule(line: &str) -> bool {
-    !line.is_empty() && line.chars().all(|c| c == RULE)
+    !line.is_empty() && line.chars().all(|c| c == '─')
 }
 
 fn context(event: &str, text: String) -> Value {
@@ -627,39 +619,23 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     Some(input)
 }
 
-fn input_box<'a>(lines: &'a [&'a str]) -> Option<(&'a [&'a str], &'a [&'a str])> {
-    let rules: Vec<usize> = (0..lines.len()).filter(|&i| is_rule(lines[i])).collect();
-    match rules[..] {
-        [.., top, bottom] => Some((&lines[..top], &lines[bottom + 1..])),
-        _ => None,
-    }
-}
-
 fn turn_shown(screen: &str) -> bool {
     let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
-    let (above, footer) = input_box(&lines).unwrap_or((&lines[..], &lines[..0]));
-    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
-}
-
-fn turn_stopped(screen: &str) -> bool {
-    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
-    let Some((above, _)) = input_box(&lines) else {
-        return false;
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|&i| !lines[i].is_empty() && lines[i].chars().all(|c| c == '─'))
+        .collect();
+    let (above, footer) = match rules[..] {
+        [.., top, bottom] => (&lines[..top], &lines[bottom + 1..]),
+        _ => (&lines[..], &lines[..0]),
     };
-    !turn_shown(screen)
-        && above
-            .iter()
-            .map(|line| line.trim_start())
-            .rfind(|line| line.starts_with(BLOCK_MARKS))
-            .and_then(|line| line.strip_prefix(RESULT_MARK))
-            .is_some_and(|rest| rest.trim_start().starts_with(INTERRUPTED))
+    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
 }
 
 fn spinner(line: &str) -> bool {
     let mut chars = line.chars();
-    let glyph = chars.next().is_some_and(|c| {
-        !c.is_alphanumeric() && !c.is_whitespace() && !BLOCK_MARKS.contains(&c) && c != RULE
-    });
+    let glyph = chars
+        .next()
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace() && !"❯●⎿─".contains(c));
     let rest = chars.as_str();
     glyph
         && rest.starts_with(' ')

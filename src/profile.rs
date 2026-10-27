@@ -478,10 +478,6 @@ pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen
     adapter(profile?).input_seen(screen)
 }
 
-pub fn turn_stopped(profile: Option<Profile>, screen: &Screen) -> bool {
-    profile.is_some_and(|p| adapter(p).turn_stopped(screen))
-}
-
 pub fn profile_of(id: &AgentId) -> Option<Profile> {
     find(id).and_then(|a| a.profile)
 }

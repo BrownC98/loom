@@ -150,7 +150,14 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>) -> Result<(), Stri
     println!("{}", crate::profile::message_text(&[delivery]));
     std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
     reconnecting(None, |_| {
-        call::<()>("ack", &AckRequest { ids: vec![id] }, None)
+        call::<()>(
+            "ack",
+            &AckRequest {
+                ids: vec![id],
+                handoff: None,
+            },
+            None,
+        )
     })
     .map_err(|e| {
         format!(

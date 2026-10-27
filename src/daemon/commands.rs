@@ -280,7 +280,7 @@ async fn agent_wake(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<TakeRequest>,
-) -> Result<Json<IdleReply>, AgentError> {
+) -> Result<Json<crate::protocol::WakeReply>, AgentError> {
     let node = app.caller(&headers)?;
     app.take_woken(node, bearer(&headers)?, req)
         .map(Json)
@@ -313,7 +313,7 @@ async fn agent_ack(
     Json(req): Json<AckRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph.ack(node, &req.ids).map_err(for_agent)?;
+    app.ack(node, req).map_err(for_agent)?;
     Ok(Json(()))
 }
 

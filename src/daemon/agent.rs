@@ -11,8 +11,8 @@ use crate::graph::{AgentEvent, AgentState, Entry, GraphEvent, Hold, IdleEnd, Nod
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
-    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest, MessageId, Refusal,
-    Report, Session, TakeRequest, Taken,
+    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
+    MessageId, Refusal, Report, Session, TakeRequest, Taken, WakeReply,
 };
 use axum::http::StatusCode;
 
@@ -148,8 +148,11 @@ impl App {
         token: &str,
         req: ListenRequest,
     ) -> Result<IdleReply, Refusal> {
+        let order = self.wakes.order();
         match req.at {
-            ListenAt::End { prompt_id } if self.wakes.ended_before(node, prompt_id.as_deref()) => {
+            ListenAt::End { prompt_id }
+                if self.wakes.ended_before(&order, node, prompt_id.as_deref()) =>
+            {
                 return Ok(IdleReply::Mail(Vec::new()));
             }
             ListenAt::End { .. } => {}
@@ -170,6 +173,7 @@ impl App {
                 false => AgentEvent::WaitOpened,
             },
         );
+        drop(order);
         self.opened(node, open);
         self.graph.wake_mail();
         Ok(IdleReply::Mail(Vec::new()))
@@ -180,26 +184,36 @@ impl App {
         node: NodeId,
         token: &str,
         req: TakeRequest,
-    ) -> Result<IdleReply, Refusal> {
+    ) -> Result<WakeReply, Refusal> {
         self.keep_session(token, req.session.as_ref())?;
         if self.first_inputs.pending(node) {
-            return Ok(IdleReply::Mail(Vec::new()));
+            return Ok(WakeReply::Mail(Vec::new()));
         }
+        let order = self.wakes.order();
         let messages =
             self.graph
                 .take_waking(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
         if !messages.is_empty() {
             self.idle.turn_started(node, req.step);
-            self.wakes.woken(node, req.prompt_id);
-            return Ok(IdleReply::Mail(messages));
+            self.wakes.woken(&order, node, req.prompt_id);
+            return Ok(WakeReply::Mail(messages));
         }
+        drop(order);
         if !self.awaits_turn_end(node) {
-            return Ok(IdleReply::Mail(messages));
+            return Ok(WakeReply::Mail(messages));
         }
-        self.wakes.finish_answered(node, self.agent_state(node));
-        Ok(IdleReply::Nudge {
-            nudge: FINISH_TURN.to_owned(),
+        Ok(WakeReply::Finish {
+            finish: FINISH_TURN.to_owned(),
+            handoff: self.wakes.finish_handed(node, self.agent_state(node)),
         })
+    }
+
+    pub(super) fn ack(&self, node: NodeId, req: AckRequest) -> Result<(), Refusal> {
+        self.graph.ack(node, &req.ids)?;
+        if let Some(handoff) = req.handoff {
+            self.wakes.finish_shown(node, handoff);
+        }
+        Ok(())
     }
 
     fn heard(&self, node: NodeId) {

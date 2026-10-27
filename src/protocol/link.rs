@@ -88,6 +88,18 @@ pub enum IdleReply {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WakeReply {
+    Mail(Vec<Delivery>),
+    Finish { finish: String, handoff: Handoff },
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Handoff(pub u64);
+
+#[derive(Serialize, Deserialize)]
 pub struct AckRequest {
     pub ids: Vec<MessageId>,
+    #[serde(default)]
+    pub handoff: Option<Handoff>,
 }

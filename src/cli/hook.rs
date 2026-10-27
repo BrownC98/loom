@@ -11,8 +11,8 @@ use crate::profile::{
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest, MessageId,
-    TakeRequest, Taken,
+    AckRequest, EndedTurn, Handoff, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
+    MessageId, TakeRequest, Taken, WakeReply,
 };
 use crate::wsl::REWAKE_EXIT;
 
@@ -61,9 +61,15 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
         let waits = waits.clone();
         std::thread::spawn(move || {
             let served = match request.served() {
-                Served::Ack(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
-                    .map_err(String::from)
-                    .and_then(|()| send(request.acked())),
+                Served::Ack(ids) => {
+                    let ack = AckRequest {
+                        ids: ids.to_vec(),
+                        handoff: None,
+                    };
+                    call::<()>("ack", &ack, None)
+                        .map_err(String::from)
+                        .and_then(|()| send(request.acked()))
+                }
                 Served::Close(of) => {
                     if let Some(close) = waits.lock().unwrap().remove(&of) {
                         close.close();
@@ -196,15 +202,20 @@ fn ended_turn() -> Option<String> {
 
 struct Unacked {
     ids: Vec<MessageId>,
+    handoff: Option<Handoff>,
     limit: Option<Duration>,
 }
 
 impl Unacked {
     fn acknowledge(self) {
-        if self.ids.is_empty() {
+        if self.ids.is_empty() && self.handoff.is_none() {
             return;
         }
-        if let Err(e) = call::<()>("ack", &AckRequest { ids: self.ids }, self.limit) {
+        let ack = AckRequest {
+            ids: self.ids,
+            handoff: self.handoff,
+        };
+        if let Err(e) = call::<()>("ack", &ack, self.limit) {
             eprintln!("loom: could not acknowledge: {e}");
         }
     }
@@ -221,6 +232,7 @@ fn run(
             eprintln!("loom: could not report to loom: {e}");
         }
     }
+    let mut handoff = None;
     let (handed, ack_limit) = match step {
         Step::Skip => {
             let handed = match signals.asks_interrupt && interrupt_pending() {
@@ -240,10 +252,16 @@ fn run(
             });
             (handed(reply), Some(CALL_LIMIT))
         }
-        Step::Woken(request) => (
-            handed(call("wake", &request, Some(CALL_LIMIT))?),
-            Some(CALL_LIMIT),
-        ),
+        Step::Woken(request) => {
+            let handed = match call("wake", &request, Some(CALL_LIMIT))? {
+                WakeReply::Mail(messages) => Handed::Mail(messages),
+                WakeReply::Finish { finish, handoff: h } => {
+                    handoff = Some(h);
+                    Handed::Nudge(finish)
+                }
+            };
+            (handed, Some(CALL_LIMIT))
+        }
         Step::Take(request) => {
             let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
             (Handed::Taken { messages, note }, Some(CALL_LIMIT))
@@ -254,6 +272,7 @@ fn run(
     write(shown)?;
     let unacked = Unacked {
         ids: handed.messages().iter().map(|d| d.id).collect(),
+        handoff,
         limit: ack_limit,
     };
     Ok((rewake, unacked))

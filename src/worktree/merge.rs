@@ -86,8 +86,15 @@ if ! git merge-base --is-ancestor "$tip" "origin/$target"; then
     exit 1
   fi
 fi
-echo published >&3
-exec bash scripts/gate/ship.sh "$5" "$6"
+"#;
+
+pub const SHIP: &str = r#"set -u
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+log=$common/loom-logs/$1
+mkdir -p "$common/loom-logs"
+exec 3>&1 >>"$log" 2>&1
+echo "log $log" >&3
+exec bash scripts/gate/ship.sh "$2" "$3"
 "#;
 
 pub const UNDO: &str = r#"set -u
@@ -208,7 +215,6 @@ pub struct Lines {
     pub conflict: Option<usize>,
     pub check: Option<u64>,
     pub tip: Option<String>,
-    pub published: bool,
 }
 
 impl Lines {
@@ -221,7 +227,6 @@ impl Lines {
                 (Some("conflict"), Some(i), _) => lines.conflict = i.parse().ok(),
                 (Some("check"), Some(secs), _) => lines.check = secs.parse().ok(),
                 (Some("tip"), Some(tip), _) => lines.tip = Some(tip.to_owned()),
-                (Some("published"), _, _) => lines.published = true,
                 _ => {}
             }
         }

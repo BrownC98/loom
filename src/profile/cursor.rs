@@ -83,7 +83,7 @@ const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과
 const GUARD: &str = "loom guard";
 const HOOK: &str = "loom hook cursor";
 const RULES: &str = "loom hook cursor-rules";
-const HELPER_SHELLS: [&str; 4] = [HOOK, RULES, "loom cursor-hook", "loom cursor-rules"];
+const HELPER_SHELLS: [&str; 2] = [HOOK, RULES];
 
 fn write_plugin(dir: &Path) -> std::io::Result<()> {
     let manifest = dir.join(".cursor-plugin").join("plugin.json");

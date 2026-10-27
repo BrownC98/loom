@@ -2,10 +2,6 @@
 set -uo pipefail
 merged=$2
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
-base=$(git symbolic-ref --quiet --short HEAD) || { echo "the main checkout is not on a branch"; exit 1; }
-published=origin/$base
-git fetch --quiet origin "$base" || { echo "git fetch failed; the merge queue already published, so tell the root to check the deploy"; exit 12; }
-git merge-base --is-ancestor "$merged" "$published" || { echo "$merged is not in $published; the merge queue publishes before ship.sh, so tell the root"; exit 12; }
 
 sleep 20
 deployed() {

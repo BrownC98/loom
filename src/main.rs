@@ -179,8 +179,8 @@ enum Cli {
     /// 관문은 loom이 고른다: 부모 워크트리가 원래 체크아웃의 브랜치가 아닌 브랜치에 있으면 부모(대상은 그 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
-    /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 관문이 `loom spawn --role <역할> --review <브랜치>`로 띄운 그 브랜치의 검토자만 부른다. 부모 브랜치에서 만든 브랜치는 검토자 없이 부모가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
-    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
+    /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 그 브랜치의 검토자만 부른다. 데몬이 `loom ready` 때 검토자 역할마다 하나씩 관문의 자식으로 띄운다. 부모 브랜치에서 만든 브랜치는 검토자 없이 부모가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push)하고, merged·rework·failed로 알린다. main이면 그 뒤 `scripts/gate/ship.sh`가 따로 배포를 확인하고 실패만 루트에 알린다.
     Verdict {
         branch: String,
         /// 판정한 커밋. loom이 검토자에게 보낸 차례 메시지의 `head`를 적는다(앞 7자 이상). 열린 차례의 커밋이 아니면 거절한다.
@@ -221,14 +221,8 @@ enum Cli {
     /// loom이 에이전트에 건 훅과 확장이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook {
         /// 훅을 건 에이전트 진입점.
-        entry: Option<HookEntry>,
+        entry: HookEntry,
     },
-    #[command(hide = true)]
-    CursorHook,
-    #[command(hide = true)]
-    CursorRules,
-    #[command(hide = true)]
-    PiHook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
@@ -300,10 +294,7 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Hook { entry } => cli::hook(entry.unwrap_or(HookEntry::Claude)),
-        Cli::CursorHook => cli::hook(HookEntry::Cursor),
-        Cli::CursorRules => cli::hook(HookEntry::CursorRules),
-        Cli::PiHook => cli::hook(HookEntry::Pi),
+        Cli::Hook { entry } => cli::hook(entry),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

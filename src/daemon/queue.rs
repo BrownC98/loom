@@ -5,7 +5,7 @@ use super::App;
 use super::gate::target_of;
 use crate::git;
 use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Outcome, Queued};
-use crate::protocol::{self, Finding, Refusal, SHIP_DEPLOY_FAILED};
+use crate::protocol::{self, Finding, Refusal};
 use crate::worktree::merge::{
     self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
     base_branch, bringing_merge, merge_commit, script,
@@ -19,6 +19,7 @@ const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
 pub(super) async fn run(app: Arc<App>) {
     let mut changes = app.graph.changes();
     tokio::spawn(super::reclaim::run(app.clone()));
+    super::deploy::recover(&app);
     loop {
         recover(&app, CHECK_LOCK).await;
         'next: loop {
@@ -443,44 +444,40 @@ impl Batch<'_> {
             self.target.clone(),
             base.to_owned(),
             tip.to_owned(),
-            last.branch.clone(),
-            merged,
         ];
         let (code, out) = script(&self.dir, PUBLISH, &args).await?;
-        let lines = Lines::read(&out);
-        let log = lines.log;
-        match (code, lines.published) {
-            (0, _) => {
-                self.merged(
-                    members,
-                    base,
-                    tip,
-                    Some("deploy: confirmed".into()),
-                    &Dest::Base,
-                )
-                .await
+        let log = Lines::read(&out).log;
+        match code {
+            0 => {
+                let owners: Vec<_> = members.iter().map(|m| m.owner).collect();
+                let deploy = self
+                    .app
+                    .graph
+                    .deploy_started(self.repo, &self.target, &merged, &last.branch, &owners)
+                    .unwrap_or_else(|e| {
+                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        None
+                    });
+                let line = match deploy {
+                    Some(_) => format!(
+                        "deploy: {} checks it apart; the root gets a message only if it fails",
+                        protocol::SHIP_SCRIPT
+                    ),
+                    None => format!(
+                        "deploy: loom did not start {} (see the daemon log); check the deploy by hand",
+                        protocol::SHIP_SCRIPT
+                    ),
+                };
+                let settled = self
+                    .merged(members, base, tip, Some(line), &Dest::Base)
+                    .await;
+                if let Some(deploy) = deploy {
+                    super::deploy::start(self.app, deploy);
+                }
+                settled
             }
-            (SHIP_DEPLOY_FAILED, _) => {
-                self.merged(
-                    members,
-                    base,
-                    tip,
-                    Some("deploy: failed (see the log)".into()),
-                    &Dest::Base,
-                )
-                .await
-            }
-            (_, true) => {
-                let deploy = format!(
-                    "deploy: unknown ({} exited {code}; see {})",
-                    protocol::SHIP_SCRIPT,
-                    log.as_deref().unwrap_or("the publish log")
-                );
-                self.merged(members, base, tip, Some(deploy), &Dest::Base)
-                    .await
-            }
-            (MOVED, false) => self.moved(members, step),
-            (_, false) => {
+            MOVED => self.moved(members, step),
+            _ => {
                 let cause =
                     format!("publishing the batch exited {code} (see the last lines of the log)");
                 for m in members {

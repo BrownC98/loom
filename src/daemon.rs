@@ -2,6 +2,7 @@ mod agent;
 mod arrival;
 mod carry;
 mod commands;
+mod deploy;
 pub mod gate;
 mod idle;
 mod lan;
@@ -75,8 +76,8 @@ use crate::profile::adapter::Chosen;
 use crate::profile::{self, Profile, Start};
 use crate::protocol::{
     AckRequest, Delivery, EndedTurn, IMAGE_EXTENSIONS, IdleReply, IdleRequest, Kind, LaunchError,
-    MessageId, MessageKind, Model, Prompt, Question, Refusal, TakeRequest, Taken, TreeLimits,
-    WaitDoc, WaitId, entered,
+    MessageId, MessageKind, Model, Prompt, Question, REVIEW_RULES, Refusal, TakeRequest, Taken,
+    TreeLimits, WaitDoc, WaitId, entered,
 };
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;

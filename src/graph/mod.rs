@@ -32,7 +32,7 @@ pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use relaunch_plans::{Attempt, NewAgent, Phase, Plan, Planned};
 pub use turns::TurnMark;
-pub use waits::{HUMAN, HumanWait, WaitSource};
+pub use waits::{HUMAN, HumanWait, ScreenWait, WaitSource};
 
 use crate::db::Database;
 use crate::protocol::{AgentId, Kind, MessageKind, Refusal};
@@ -141,7 +141,7 @@ pub struct NodeView {
     pub reply: Option<String>,
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
     /// 근거: docs/design/메시징.md 「사람 응답 대기」.
-    pub waits: Vec<HumanWait>,
+    pub waits: Vec<ScreenWait>,
     /// 노드 메뉴의 다시 띄우기. 없으면 메뉴에 보이지 않는다.
     pub relaunch: Option<RelaunchOffer>,
 }

@@ -4,14 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::endpoint::Close;
-use super::{call, interrupt_arrived, wait_until_mail};
+use super::{call, choice_made, interrupt_arrived, wait_until_mail};
 use crate::daemon::Relaunched;
 use crate::profile::{
     BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, LineEvent, Served, Shown, Signals, Take,
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, TakeRequest, Taken,
+    AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, PromptKey, TakeRequest, Taken,
 };
 use crate::wsl::REWAKE_EXIT;
 
@@ -54,7 +54,7 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
                 .map(|(_, unacked)| unacked.acknowledge());
         };
         let close = Close::default();
-        if let Served::Interrupt = request.served() {
+        if let Served::Interrupt | Served::Choice(_) = request.served() {
             waits.lock().unwrap().insert(id, close.clone());
         }
         let waits = waits.clone();
@@ -75,6 +75,20 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
                     match arrived {
                         Ok(true) => send(request.interrupted()),
                         Ok(false) => send(request.acked()),
+                        Err(_) if close.closed() => send(request.acked()),
+                        Err(e) => Err(e),
+                    }
+                }
+                Served::Choice(asked) => {
+                    let chosen = choice_made(&asked, close.clone());
+                    waits.lock().unwrap().remove(&id);
+                    match chosen {
+                        Ok(option) => match asked.prompt.options.get(option).map(|o| &o.key) {
+                            Some(PromptKey::Reply(reply)) => send(request.chosen(reply)),
+                            _ => Err(format!(
+                                "loom chose option {option}, which the prompt does not have"
+                            )),
+                        },
                         Err(_) if close.closed() => send(request.acked()),
                         Err(e) => Err(e),
                     }

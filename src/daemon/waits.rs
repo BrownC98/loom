@@ -1,4 +1,6 @@
+use super::runtime::bearer;
 use super::*;
+use crate::protocol::ChoiceRequest;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -73,8 +75,13 @@ async fn choose_wait(
     let (node, _) = app.graph.dialog(wait)?;
     let active = app.graph.active().map_err(internal)?;
     let found = active.iter().find(|n| n.id == node);
-    let chosen = match found.and_then(|n| Some((n, relaunch::profile_of(n)?))) {
-        Some((n, profile)) => {
+    let held = app.choices.choose(node, &req.prompt, req.option);
+    let chosen = match (
+        held,
+        found.and_then(|n| Some((n, relaunch::profile_of(n)?))),
+    ) {
+        (Some(chosen), _) => chosen,
+        (None, Some((n, profile))) => {
             let record = app.record_of(n);
             let adapter = profile::adapter(profile);
             adapter
@@ -82,7 +89,7 @@ async fn choose_wait(
                 .await
                 .map_err(internal)?
         }
-        None => Chosen::OnScreen,
+        (None, None) => Chosen::OnScreen,
     };
     match chosen {
         Chosen::Sent => {}
@@ -230,4 +237,96 @@ pub(super) async fn serve_file(
         .await
         .map_err(internal)?
         .into_response())
+}
+
+#[derive(Default)]
+pub(super) struct Choices(std::sync::Mutex<HashMap<NodeId, Held>>);
+
+struct Held {
+    prompt: Prompt,
+    chosen: tokio::sync::oneshot::Sender<usize>,
+}
+
+impl Choices {
+    fn hold(&self, node: NodeId, prompt: Prompt) -> tokio::sync::oneshot::Receiver<usize> {
+        let (chosen, receiver) = tokio::sync::oneshot::channel();
+        self.0.lock().unwrap().insert(node, Held { prompt, chosen });
+        receiver
+    }
+
+    fn choose(&self, node: NodeId, prompt: &Prompt, option: usize) -> Option<Chosen> {
+        let mut held = self.0.lock().unwrap();
+        let now = held.get(&node)?;
+        if now.prompt != *prompt || option >= now.prompt.options.len() {
+            return Some(Chosen::PromptChanged);
+        }
+        let now = held.remove(&node)?;
+        Some(match now.chosen.send(option) {
+            Ok(()) => Chosen::Sent,
+            Err(_) => Chosen::PromptChanged,
+        })
+    }
+
+    fn release(&self, node: NodeId) -> bool {
+        let mut held = self.0.lock().unwrap();
+        if held.get(&node).is_some_and(|h| !h.chosen.is_closed()) {
+            return false;
+        }
+        held.remove(&node);
+        true
+    }
+}
+
+struct Release {
+    app: Arc<App>,
+    node: NodeId,
+    token: String,
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        if !self.app.choices.release(self.node) {
+            return;
+        }
+        if let Err(e) = self
+            .app
+            .graph
+            .set_wait(&self.token, WaitSource::Agent, None)
+        {
+            eprintln!(
+                "loom: 노드 {}의 응답 대기를 지우지 못했다: {e}",
+                self.node.0
+            );
+        }
+    }
+}
+
+pub(super) async fn agent_choice(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<ChoiceRequest>,
+) -> Result<Json<usize>, AgentError> {
+    let node = app.caller(&headers)?;
+    let token = bearer(&headers)?.to_owned();
+    let chosen = app.choices.hold(node, req.prompt.clone());
+    let release = Release {
+        app: app.clone(),
+        node,
+        token,
+    };
+    let summary = req.prompt.summary.clone();
+    app.graph
+        .set_wait(
+            &release.token,
+            WaitSource::Agent,
+            Some((req.kind, &summary, Some(req.prompt))),
+        )
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    let option = chosen.await.map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "A newer choice of this node replaced this one.".to_owned(),
+        )
+    })?;
+    Ok(Json(option))
 }

@@ -12,8 +12,8 @@ use crate::daemon::{
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
 use crate::protocol::{
-    AckRequest, AgentId, Delivery, GateState, IdleReply, IdleRequest, Judgment, Kind, MessageId,
-    ModelChoice, NODE_CALLS, NODE_CALLS_HEADER, WaitId,
+    AckRequest, AgentId, ChoiceRequest, Delivery, GateState, IdleReply, IdleRequest, Judgment,
+    Kind, MessageId, ModelChoice, NODE_CALLS, NODE_CALLS_HEADER, WaitId,
 };
 use crate::roles::{Roles, SetRole};
 use crate::task;
@@ -176,6 +176,17 @@ fn interrupt_arrived(close: endpoint::Close) -> Result<bool, String> {
     let endpoint = Daemon::Endpoint(at.into(), Some(close));
     post_as::<()>(&endpoint, &token, "interrupt", &(), None, None)?;
     Ok(true)
+}
+
+fn choice_made(asked: &ChoiceRequest, close: endpoint::Close) -> Result<usize, String> {
+    let Some(at) = std::env::var_os(ENDPOINT_ENV) else {
+        return Err(format!(
+            "{ENDPOINT_ENV} is not set, so loom cannot hold a choice"
+        ));
+    };
+    let token = env_var("LOOM_TOKEN")?;
+    let endpoint = Daemon::Endpoint(at.into(), Some(close));
+    Ok(post_as(&endpoint, &token, "choice", asked, None, None)?)
 }
 
 fn reconnecting<T>(

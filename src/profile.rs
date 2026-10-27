@@ -19,9 +19,9 @@ use ts_rs::TS;
 
 use crate::accounts::Cli;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, MessageId, ModelChoice,
-    OpenQuestion, Prompt as ScreenPrompt, Provider, Refusal, Report, Session, StartDigests,
-    WaitKind,
+    AgentId, BRIEF_LIMIT_BYTES, ChoiceRequest, Delivery, InputField, Kind, LaunchError, MessageId,
+    ModelChoice, OpenQuestion, Prompt as ScreenPrompt, Provider, Refusal, Report, Session,
+    StartDigests, WaitKind,
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
@@ -116,6 +116,7 @@ pub enum Served<'a> {
     Hook,
     Ack(&'a [MessageId]),
     Interrupt,
+    Choice(ChoiceRequest),
     Close(u64),
 }
 
@@ -124,6 +125,7 @@ pub trait LineEvent: HookEvent + Send {
     fn served(&self) -> Served<'_>;
     fn acked(&self) -> String;
     fn interrupted(&self) -> String;
+    fn chosen(&self, reply: &str) -> String;
     fn failed(&self, error: String) -> String;
 }
 
@@ -650,6 +652,7 @@ async fn agent_command(
                     plugin: at.plugin,
                     launch: at.launch,
                     brief,
+                    choice,
                 },
             );
             adapter.launch(at, resume, bypass, &mut cmd, port).await?

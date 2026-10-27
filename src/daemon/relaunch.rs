@@ -902,8 +902,13 @@ impl App {
         self.background_shells(snapshot, node)
             .into_iter()
             .map(|shell| snapshot.command_lines(shell))
-            .filter(|lines| !lines.iter().any(|line| profile::runs_helper(line)))
-            .filter_map(|lines| lines.get(1).or(lines.first()).map(|line| shown(line)))
+            .filter(|lines| !lines.iter().take(2).any(|argv| profile::runs_helper(argv)))
+            .filter_map(|lines| {
+                lines
+                    .get(1)
+                    .or(lines.first())
+                    .map(|argv| shown(&argv.join(" ")))
+            })
             .collect()
     }
 

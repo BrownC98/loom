@@ -163,11 +163,42 @@ pub fn hook(entry: HookEntry) -> Hook {
     }
 }
 
-pub fn runs_helper(command_line: &str) -> bool {
-    let line = command_line.trim_end_matches('"');
+const SHELLS: [&str; 3] = ["sh", "bash", "dash"];
+
+pub fn runs_helper(argv: &[String]) -> bool {
     profiles()
         .flat_map(|p| adapter(p).facts().helper_shells)
-        .any(|helper| line.ends_with(helper))
+        .any(|helper| runs(argv, helper))
+}
+
+fn runs(argv: &[String], helper: &str) -> bool {
+    let words: Vec<&str> = helper.split(' ').collect();
+    let Some((_, args)) = words.split_first() else {
+        return false;
+    };
+    let loom_runs = |argv: &[String]| {
+        argv.split_first().is_some_and(|(program, rest)| {
+            file_name(program).starts_with("loom") && rest.iter().eq(args.iter())
+        })
+    };
+    match argv.split_first() {
+        Some((program, rest)) if SHELLS.contains(&file_name(program)) => {
+            match rest.iter().position(|arg| arg == "-c") {
+                Some(at) => rest
+                    .get(at + 1)
+                    .is_some_and(|script| script.trim() == helper),
+                None => loom_runs(rest),
+            }
+        }
+        _ => loom_runs(argv),
+    }
+}
+
+fn file_name(program: &str) -> &str {
+    Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(program)
 }
 
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {

@@ -1,7 +1,8 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::Distro;
-use crate::graph::{Active, Entry};
+use crate::graph::{Active, Entry, TurnGen};
+use crate::node_host::ScreenFollow;
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
@@ -411,20 +412,33 @@ impl App {
         let mut started = self.sessions.launched(id, token);
         let (app, token) = (self.clone(), token.to_owned());
         tokio::spawn(async move {
+            let mut follow = attached.follow();
             let mut output = attached.output;
             let mut changed = true;
-            let mut seen = None;
+            let mut held = None;
             let turn_gen = || {
                 app.graph.turn_gen(id).unwrap_or_else(|e| {
                     eprintln!("loom: 노드 {}의 턴 차례를 읽지 못했다: {e}", id.0);
                     None
                 })
             };
+            let next_held =
+                |follow: &mut ScreenFollow, held: Option<TurnGen>, chunk: &[u8]| match follow
+                    .changed(chunk)
+                {
+                    None => held,
+                    Some(screen) if profile::turn_stopped(profile, &screen) => {
+                        held.or_else(turn_gen)
+                    }
+                    Some(_) => None,
+                };
             loop {
+                let mut lagged = false;
                 if !changed {
                     tokio::select! {
                         received = output.recv() => match received {
-                            Ok(_) | Err(RecvError::Lagged(_)) => seen = turn_gen(),
+                            Ok(chunk) => held = next_held(&mut follow, held, &chunk),
+                            Err(RecvError::Lagged(_)) => lagged = true,
                             Err(RecvError::Closed) => return,
                         },
                         sent = started.changed() => if sent.is_err() {
@@ -433,11 +447,21 @@ impl App {
                     }
                 }
                 loop {
-                    match tokio::time::timeout(SCREEN_QUIET, output.recv()).await {
-                        Ok(Ok(_) | Err(RecvError::Lagged(_))) => seen = turn_gen(),
+                    let received = tokio::time::timeout(SCREEN_QUIET, output.recv()).await;
+                    match received {
+                        Ok(Ok(chunk)) => held = next_held(&mut follow, held, &chunk),
+                        Ok(Err(RecvError::Lagged(_))) => lagged = true,
                         Ok(Err(RecvError::Closed)) => return,
                         Err(_) => break,
                     }
+                }
+                if lagged {
+                    let Some(again) = app.host.attach(id) else {
+                        return;
+                    };
+                    follow = again.follow();
+                    output = again.output;
+                    held = None;
                 }
                 changed = false;
                 let now = app.host.screen(id);
@@ -457,9 +481,7 @@ impl App {
                 if let Err(e) = written {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                if let Some(seen) = seen
-                    .take()
-                    .filter(|_| !asked && profile::turn_stopped(profile, &now))
+                if let Some(seen) = held.filter(|_| !asked && profile::turn_stopped(profile, &now))
                 {
                     app.turn_interrupted(id, seen);
                 }

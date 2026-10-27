@@ -225,7 +225,9 @@ impl CodexServer {
                 None
             }
         };
-        let files = files.unwrap_or_default();
+        let Some(files) = files else {
+            return Vec::new();
+        };
         self.changes
             .lock()
             .unwrap()

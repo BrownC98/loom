@@ -88,19 +88,6 @@ pub struct Signals {
     pub reports: Vec<Report>,
 }
 
-pub const OLD_WAIT_ROUTE: &str = "/api/agent/hook-wait";
-
-#[derive(Deserialize)]
-pub struct OldWait {
-    wait: Option<(WaitKind, String)>,
-}
-
-impl OldWait {
-    pub fn report(self) -> Report {
-        Report::HumanWait(self.wait.map(|(kind, text)| (kind, text, None)))
-    }
-}
-
 pub trait HookEvent {
     fn signals(&self) -> Signals;
     fn show(&self, handed: &Handed) -> Shown;

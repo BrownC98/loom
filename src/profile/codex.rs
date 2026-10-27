@@ -41,6 +41,7 @@ pub const PROMPT: Grammar = Grammar {
     top: Top::Line("Would you like to"),
     options: Options::Numbered,
     guard: None,
+    writes: &[],
 };
 
 pub const PINNED_VERSION: &str = "0.159.2";
@@ -55,7 +56,7 @@ pub const DIALOGS: [Dialog; 2] = [
         text: "Sign in with ChatGPT",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
-        answer: Answer::Plain,
+        answer: Answer::Below(Options::Numbered),
     },
 ];
 
@@ -410,6 +411,7 @@ fn approval_prompt(approval: &Approval, files: &[String]) -> Prompt {
             .map(|(label, decision)| PromptOption {
                 label: (*label).to_owned(),
                 key: decision.key(),
+                writes: false,
             })
             .collect(),
         field: None,

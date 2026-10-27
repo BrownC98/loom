@@ -19,6 +19,14 @@ pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Hinted,
     guard: Some(GUARD),
+    writes: &["Skip & tell the agent"],
+};
+
+pub const QUESTION: Grammar = Grammar {
+    top: Top::Boxed("Question "),
+    options: Options::Ticked,
+    guard: None,
+    writes: &["Other"],
 };
 
 pub const DIALOGS: [Dialog; 8] = [
@@ -68,7 +76,7 @@ pub const DIALOGS: [Dialog; 8] = [
         text: "Press any key to log in",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
-        answer: Answer::Plain,
+        answer: Answer::Press("Log in"),
     },
 ];
 
@@ -241,7 +249,7 @@ impl Adapter for Cursor {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
-        Some((&[PROMPT], &DIALOGS))
+        Some((&[PROMPT, QUESTION], &DIALOGS))
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

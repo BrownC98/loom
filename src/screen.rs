@@ -17,6 +17,7 @@ pub struct Dialog {
 
 pub enum Answer {
     Plain,
+    Press(&'static str),
     Below(Options),
     InBox(Options),
     Panel(Options),
@@ -25,7 +26,7 @@ pub enum Answer {
 impl Dialog {
     fn grammar(&self) -> Option<Grammar> {
         let (top, options) = match self.answer {
-            Answer::Plain => return None,
+            Answer::Plain | Answer::Press(_) => return None,
             Answer::Below(options) => (Top::Line(self.text), options),
             Answer::InBox(options) => (Top::Boxed(self.text), options),
             Answer::Panel(options) => (Top::PanelEdge, options),
@@ -34,7 +35,34 @@ impl Dialog {
             top,
             options,
             guard: None,
+            writes: &[],
         })
+    }
+
+    fn pressed(&self, screen: &str) -> Option<(usize, Prompt)> {
+        let Answer::Press(label) = self.answer else {
+            return None;
+        };
+        let lines: Vec<&str> = screen.lines().collect();
+        let top = lines.iter().rposition(|l| !l.trim().is_empty())?;
+        if !lines[top].contains(self.text) {
+            return None;
+        }
+        let line = lines[top].trim().to_owned();
+        Some((
+            top,
+            Prompt {
+                rows: vec![lines[top].to_owned()],
+                body: vec![line.clone()],
+                summary: line,
+                options: vec![PromptOption {
+                    label: label.to_owned(),
+                    key: PromptKey::Enter,
+                    writes: false,
+                }],
+                field: None,
+            },
+        ))
     }
 }
 
@@ -97,6 +125,7 @@ pub struct Grammar {
     pub top: Top,
     pub options: Options,
     pub guard: Option<&'static str>,
+    pub writes: &'static [&'static str],
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +141,7 @@ pub enum Options {
     Hinted,
     Bracketed,
     Listed,
+    Ticked,
 }
 
 pub struct LinePrompt {
@@ -124,7 +154,7 @@ pub enum Reply {
     Field(InputField),
 }
 
-const SELECTED: [char; 4] = ['❯', '›', '→', '▶'];
+const SELECTED: [char; 5] = ['❯', '›', '→', '▶', '>'];
 const PROMPT_ENDS: [char; 4] = [':', '?', ']', ')'];
 const CHECKED: char = '✔';
 const BOX_SIDE: char = '│';
@@ -147,6 +177,7 @@ pub fn prompt(
         .copied()
         .chain(dialogs.iter().filter_map(Dialog::grammar))
         .filter_map(|g| read(&g, screen, width))
+        .chain(dialogs.iter().filter_map(|d| d.pressed(screen)))
         .rev()
         .max_by_key(|(top, _)| *top)
         .map(|(_, prompt)| prompt)
@@ -174,6 +205,7 @@ pub fn line(prompts: &[LinePrompt], to_cursor: &str) -> Option<(String, Prompt)>
                 .map(|(key, label)| PromptOption {
                     label: (*label).to_owned(),
                     key: PromptKey::Line((*key).to_owned()),
+                    writes: false,
                 })
                 .collect(),
             None,
@@ -200,13 +232,19 @@ fn read(grammar: &Grammar, screen: &str, width: usize) -> Option<(usize, Prompt)
         })
         .collect();
     let top = match grammar.top {
-        Top::PanelEdge => lines.iter().rposition(|l| is_panel_edge(l))? + 1,
+        Top::PanelEdge => {
+            let marked = lines
+                .iter()
+                .rposition(|l| l.trim_start().starts_with(SELECTED))
+                .unwrap_or(lines.len());
+            lines[..marked].iter().rposition(|l| is_panel_edge(l))? + 1
+        }
         Top::Line(text) | Top::Boxed(text) => {
             lines.iter().rposition(|l| l.trim().starts_with(text))?
         }
     };
     let run = match grammar.options {
-        Options::Listed => listed(&lines[top..])?,
+        Options::Listed | Options::Ticked => listed(&grammar.options, &lines[top..])?,
         Options::Numbered | Options::Hinted | Options::Bracketed => {
             keyed(&grammar.options, &lines[top..], width)?
         }
@@ -223,12 +261,18 @@ fn read(grammar: &Grammar, screen: &str, width: usize) -> Option<(usize, Prompt)
         body,
         options: options
             .into_iter()
-            .map(|(o, _)| match grammar.options {
-                Options::Numbered => PromptOption {
-                    label: without_hint(&o.label).to_owned(),
+            .map(|(o, _)| {
+                let label = match grammar.options {
+                    Options::Numbered => without_hint(&o.label).to_owned(),
+                    Options::Hinted | Options::Bracketed | Options::Listed | Options::Ticked => {
+                        o.label
+                    }
+                };
+                PromptOption {
+                    writes: grammar.writes.iter().any(|w| label.starts_with(w)),
+                    label,
                     ..o
-                },
-                Options::Hinted | Options::Bracketed | Options::Listed => o,
+                }
             })
             .collect(),
         field: None,
@@ -242,7 +286,11 @@ fn keyed(kind: &Options, lines: &[&str], width: usize) -> Option<Run> {
     let mut indent = 0;
     let mut previous = "";
     let mut end = first;
-    for &line in &lines[first..] {
+    for (at, &line) in lines.iter().enumerate().skip(first) {
+        if line.trim().is_empty() {
+            previous = "";
+            continue;
+        }
         if let Some((parsed, selected)) = option(kind, line) {
             if let Options::Numbered = kind
                 && parsed.key != PromptKey::Char(digit(options.len() + 1)?)
@@ -251,15 +299,16 @@ fn keyed(kind: &Options, lines: &[&str], width: usize) -> Option<Run> {
             }
             indent = line.len() - line.trim_start().len();
             options.push((parsed, selected));
-        } else if !line.trim().is_empty() && line.len() - line.trim_start().len() > indent + 1 {
+        } else if line.len() - line.trim_start().len() > indent + 1 {
             let (last, _) = options.last_mut()?;
-            let joint = wrapped(previous, line, width).unwrap_or(" ");
-            last.label = format!("{}{joint}{}", last.label, line.trim());
+            if let Some(joint) = wrapped(previous, line, width) {
+                last.label = format!("{}{joint}{}", last.label, line.trim());
+            }
         } else {
             break;
         }
         previous = line;
-        end += 1;
+        end = at + 1;
     }
     Some(Run {
         first,
@@ -268,7 +317,7 @@ fn keyed(kind: &Options, lines: &[&str], width: usize) -> Option<Run> {
     })
 }
 
-fn listed(lines: &[&str]) -> Option<Run> {
+fn listed(kind: &Options, lines: &[&str]) -> Option<Run> {
     let marked = lines
         .iter()
         .position(|l| l.trim_start().starts_with(SELECTED))?;
@@ -282,10 +331,22 @@ fn listed(lines: &[&str]) -> Option<Run> {
         .map(|(i, l)| {
             let label: String = l.chars().skip(column).collect();
             let moves = i8::try_from(i).ok()? - i8::try_from(marked - first).ok()?;
+            let (label, key) = match kind {
+                Options::Ticked => (
+                    label
+                        .strip_prefix(['['])
+                        .and_then(|l| l.split_once("] "))?
+                        .1
+                        .to_owned(),
+                    PromptKey::Tick(moves),
+                ),
+                _ => (label, PromptKey::Move(moves)),
+            };
             Some((
                 PromptOption {
                     label: label.trim_end().to_owned(),
-                    key: PromptKey::Move(moves),
+                    key,
+                    writes: false,
                 },
                 first + i == marked,
             ))
@@ -398,6 +459,7 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
             PromptOption {
                 label: label.trim_end().to_owned(),
                 key: PromptKey::Char(char::from_digit(number, 10)?),
+                writes: false,
             }
         }
         Options::Hinted => {
@@ -405,6 +467,7 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
             PromptOption {
                 label: label.to_owned(),
                 key: hint.split(" or ").find_map(hinted_key)?,
+                writes: false,
             }
         }
         Options::Bracketed => {
@@ -412,9 +475,10 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
             PromptOption {
                 label: label.trim_end().to_owned(),
                 key: single_key(hint)?,
+                writes: false,
             }
         }
-        Options::Listed => return None,
+        Options::Listed | Options::Ticked => return None,
     };
     Some((parsed, selected))
 }

@@ -17,7 +17,8 @@ pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
 };
 pub use waits::{
-    InputField, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind, entered,
+    InputField, OpenQuestion, Prompt, PromptKey, PromptOption, Strokes, WaitDoc, WaitId, WaitKind,
+    entered,
 };
 
 pub const VERSION: &str = match option_env!("LOOM_VERSION") {

@@ -108,7 +108,7 @@ impl Adapter for Claude {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
-        Some((&[PROMPT], &DIALOGS))
+        Some((&[PROMPT, PLAN], &DIALOGS))
     }
 
     fn input_seen(&self, screen: &Screen) -> Option<InputSeen> {
@@ -275,6 +275,14 @@ pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Numbered,
     guard: Some(GUARD),
+    writes: &["No, and tell Claude"],
+};
+
+pub const PLAN: Grammar = Grammar {
+    top: Top::Line("Ready to code?"),
+    options: Options::Numbered,
+    guard: None,
+    writes: &["Tell Claude what to change"],
 };
 
 pub const DIALOGS: [Dialog; 6] = [
@@ -319,6 +327,7 @@ pub const DIALOGS: [Dialog; 6] = [
 const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
 const IDLE_NOTIFICATION: &str = "idle_prompt";
 const ASK_TOOL: &str = "AskUserQuestion";
+const ASK_REDIRECT: &str = "loom blocked AskUserQuestion: the human answers only loom ask, and loom keeps no record of that box. Ask the same question with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskUserQuestion again.";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
 #[derive(Deserialize)]
@@ -463,13 +472,6 @@ impl Event {
 
     pub fn human_wait(&self) -> Option<(WaitKind, String)> {
         match self {
-            Event::PreToolUse {
-                tool_name,
-                tool_input,
-            } if tool_name == ASK_TOOL => {
-                let question = tool_input["questions"][0]["question"].as_str();
-                Some((WaitKind::Question, question.unwrap_or_default().to_owned()))
-            }
             Event::PreToolUse { tool_name, .. } if tool_name == PLAN_TOOL => {
                 Some((WaitKind::Approval, String::new()))
             }
@@ -498,7 +500,14 @@ impl Event {
     }
 
     pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, note) else {
+        let text = super::hook_text(taken, note);
+        if let Event::PreToolUse { tool_name, .. } = self
+            && tool_name == ASK_TOOL
+        {
+            let parts: Vec<String> = [ASK_REDIRECT.to_owned()].into_iter().chain(text).collect();
+            return Some(deny(parts.join("\n\n")));
+        }
+        let Some(text) = text else {
             return match self {
                 Event::PreToolUse {
                     tool_name,

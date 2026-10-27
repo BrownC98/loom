@@ -24,6 +24,7 @@ fn config(plugin: &Path, launch: Launch) -> Config {
         .flat_map(|name| [format!("*/{name}"), format!("*/{name}~*")])
         .collect();
     let text = serde_json::json!({
+        "ask": { "enabled": false },
         "skills": {
             "customDirectories": [format!("{}/skills", plugin.to_string_lossy())],
             "ignoredSkills": ignored,

@@ -9,7 +9,7 @@ use tokio::sync::broadcast::error::RecvError;
 use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
 use crate::graph::{
-    Active, AgentChange, AgentEvent, AgentState, Attempt, IdleEnd, NodeId, Phase, Plan,
+    Active, AgentChange, AgentEvent, AgentState, Attempt, DeafClaim, IdleEnd, NodeId, Plan,
     ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
@@ -269,23 +269,10 @@ impl App {
             );
             return Ok(None);
         }
-        let claimed = self.graph.plan_relaunch(id, |now| match now.pending {
-            _ if now.ended => (now.pending, None),
-            None => {
-                let kept: fn(&App, NodeId) = App::kept_running;
-                (
-                    Some((Phase::Running, Plan::Resume)),
-                    Some((Plan::Resume, kept)),
-                )
-            }
-            Some((Phase::AtTurnEnd, plan)) => {
-                let kept: fn(&App, NodeId) = App::kept_at_turn_end;
-                (Some((Phase::Running, plan.clone())), Some((plan, kept)))
-            }
-            running => (running, None),
-        })?;
-        let Some((plan, kept)) = claimed else {
-            return Ok(None);
+        let (plan, kept): (Plan, fn(&App, NodeId)) = match self.graph.claim_deaf(id)? {
+            None => return Ok(None),
+            Some(DeafClaim::Fresh) => (Plan::Resume, App::kept_running),
+            Some(DeafClaim::Queued(plan)) => (plan, App::kept_at_turn_end),
         };
         eprintln!(
             "loom: 듣지 못하는 노드 {}를 같은 세션으로 다시 띄운다",

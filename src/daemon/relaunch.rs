@@ -731,15 +731,25 @@ impl App {
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
         let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        if let Some(provider) = profile.provider() {
+        let Some(provider) = profile.provider() else {
+            return Ok((session, site));
+        };
+        let from = node.account.clone();
+        let to = settings.account(provider, site.distro()).cloned();
+        let (cwd, carried) = (cwd.to_owned(), session.clone());
+        let (site, done) = tokio::task::spawn_blocking(move || {
             let carry = Carry {
                 site: &site,
-                from: node.account.as_ref(),
-                to: settings.account(provider, site.distro()),
-                cwd,
+                from: from.as_ref(),
+                to: to.as_ref(),
+                cwd: &cwd,
             };
-            profile::adapter(profile).carry(&session, &carry)?;
-        }
+            let done = profile::adapter(profile).carry(&carried, &carry);
+            (site, done)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        done?;
         Ok((session, site))
     }
 

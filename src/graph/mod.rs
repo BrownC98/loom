@@ -148,7 +148,7 @@ pub struct NodeView {
     pub relaunch: Option<RelaunchOffer>,
 }
 
-/// 노드 메뉴가 보이는 다시 띄우기. 데몬이 읽을 때 노드 상태, 에이전트의 메시지 연동, 다시 띄우기 계획에서 정한다.
+/// 노드 메뉴가 보이는 다시 띄우기. 데몬이 읽을 때 노드 상태, 에이전트의 메시지 연동, 남은 세션, 다시 띄우기 계획에서 정한다.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -209,7 +209,8 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id),
     n.card_view, n.reply, n.process,
-    EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id)
+    EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id),
+    n.session IS NOT NULL
     FROM nodes n";
 
 struct Db<'a> {
@@ -392,8 +393,11 @@ fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<No
     let id = NodeId(row.get(0)?);
     let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
     let agent: Option<AgentId> = from_json(row, 2)?;
-    let offered =
-        agent.as_ref().is_some_and(linked) && matches!(state, NodeState::Running | NodeState::Done);
+    let resumable = match state {
+        NodeState::Running | NodeState::Done => true,
+        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => row.get(18)?,
+    };
+    let offered = agent.as_ref().is_some_and(linked) && resumable;
     let relaunch = offered.then_some(match row.get(17)? {
         true => RelaunchOffer::Queued,
         false => RelaunchOffer::Ready,

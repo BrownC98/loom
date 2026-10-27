@@ -173,8 +173,8 @@ impl App {
                 false => AgentEvent::WaitOpened,
             },
         );
-        drop(order);
         self.opened(node, open);
+        drop(order);
         self.graph.wake_mail();
         Ok(IdleReply::Mail(Vec::new()))
     }
@@ -202,10 +202,15 @@ impl App {
         if !self.awaits_turn_end(node) {
             return Ok(WakeReply::Mail(messages));
         }
-        Ok(WakeReply::Finish {
-            finish: FINISH_TURN.to_owned(),
-            handoff: self.wakes.finish_handed(node, self.agent_state(node)),
-        })
+        Ok(
+            match self.wakes.finish_handed(node, self.agent_state(node)) {
+                Some(handoff) => WakeReply::Finish {
+                    finish: FINISH_TURN.to_owned(),
+                    handoff,
+                },
+                None => WakeReply::Mail(messages),
+            },
+        )
     }
 
     pub(super) fn ack(&self, node: NodeId, req: AckRequest) -> Result<(), Refusal> {

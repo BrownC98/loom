@@ -134,19 +134,22 @@ impl Wakes {
         true
     }
 
-    pub fn finish_handed(&self, node: NodeId, state: Option<AgentState>) -> Handoff {
-        let handoff = Handoff(self.handoffs.fetch_add(1, Ordering::Relaxed));
+    pub fn finish_handed(&self, node: NodeId, state: Option<AgentState>) -> Option<Handoff> {
         let mut nodes = self.nodes.lock().unwrap();
         let finish = &mut nodes.entry(node).or_default().finish;
+        if matches!(finish, Some(Finish::Answered(shown)) if *shown == state) {
+            return None;
+        }
         let state = match finish.take() {
             Some(Finish::Touched { state, .. }) => state,
             _ => state,
         };
+        let handoff = Handoff(self.handoffs.fetch_add(1, Ordering::Relaxed));
         *finish = Some(Finish::Touched {
             state,
             handoff: Some(handoff),
         });
-        handoff
+        Some(handoff)
     }
 
     pub fn finish_shown(&self, node: NodeId, shown: Handoff) {

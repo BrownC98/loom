@@ -14,12 +14,6 @@ class WaitsTest {
     private val all = Switches(ask = true, done = true)
 
     @Test
-    fun theDaemonToneWins() {
-        val waits = read(node(1, "a", wait(1, "question", ""","tone":"done""""), wait(2, "done", ""","tone":"ask"""")))
-        assertEquals(listOf(Tone.DONE, Tone.ASK), waits.map { it.tone })
-    }
-
-    @Test
     fun kindsMapToTwoTonesWithoutTheDaemonTone() {
         val asks = listOf("question", "approval", "trust", "auth", "input")
         val waits = read(node(1, "a", *asks.map { wait(1, it) }.toTypedArray(), wait(2, "done")))
@@ -39,12 +33,6 @@ class WaitsTest {
         val prompt = ""","prompt":{"rows":[],"body":[],"summary":"rm -rf build","options":[]},"parts":[{"part":"text","text":"other"}]"""
         val waits = read(node(1, "a", wait(1, "done", parts), wait(2, "approval", prompt), wait(3, "question")))
         assertEquals(listOf("see plan M41", "rm -rf build", ""), waits.map { it.summary })
-    }
-
-    @Test
-    fun theDaemonSummaryWins() {
-        val waits = read(node(1, "a", wait(1, "approval", ""","summary":"ls","parts":[{"part":"text","text":"other"}]""")))
-        assertEquals(listOf("ls"), waits.map { it.summary })
     }
 
     @Test

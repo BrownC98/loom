@@ -25,7 +25,7 @@ pub enum Report {
 
 #[derive(Serialize, Deserialize)]
 pub struct TakeRequest {
-    #[serde(default, rename = "hook")]
+    #[serde(default, alias = "hook")]
     pub step: String,
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,

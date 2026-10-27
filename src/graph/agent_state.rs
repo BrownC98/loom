@@ -46,13 +46,10 @@ pub enum AgentEvent {
     Dialog,
     DialogCleared,
     /// 어댑터가 턴 중이라고 알렸다.
-    #[serde(alias = "serverBusy")]
     Busy,
     /// 옛 기록만: 어댑터가 쉰다고 알렸다.
-    #[serde(alias = "serverIdle")]
     Idle,
     /// 어댑터가 에이전트와 닿지 못한다고 알렸다.
-    #[serde(alias = "serverLost")]
     Lost,
     /// 옛 기록만: 데몬이 턴을 여는 입력을 넣었고, 에이전트는 아직 상태를 알리지 않았다.
     InputSent,

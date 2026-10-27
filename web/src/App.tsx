@@ -28,7 +28,7 @@ import { exit } from '@tauri-apps/plugin-process';
 import { settingsPatch, type SettingsPatch } from './settingsPatch';
 import { pickColor } from './hopLanes';
 import { Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
-import { flowId } from './camera';
+import { CameraProvider, flowId } from './camera';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors, NO_COLOR, useColorMode } from './uiColors';
@@ -470,7 +470,9 @@ export function App() {
   const providers = (children: ReactNode) => (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
-        <ReactFlowProvider>{children}</ReactFlowProvider>
+        <ReactFlowProvider>
+          <CameraProvider>{children}</CameraProvider>
+        </ReactFlowProvider>
       </XtermFont.Provider>
     </XtermTheme.Provider>
   );
@@ -578,7 +580,7 @@ export function App() {
                 </>
               }
             >
-              {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
+              {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} graphRepos={shown.map((r) => r.id)} onRepo={selectRepo} highlight={highlight} onHighlight={setHighlight} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
               {shownTab === 'docs' && <DocList />}
               {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}

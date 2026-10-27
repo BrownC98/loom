@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { createContext, useContext, useEffect, useRef, type MutableRefObject, type ReactNode } from 'react';
 import { useReactFlow, useStoreApi } from '@xyflow/react';
 import type { NodeId } from './gen/NodeId';
 import type { Spot } from './gen/Spot';
@@ -7,17 +7,25 @@ export const MOVE_MS = 300;
 
 type ChipPaths = { chips: readonly { path: string }[] };
 
+const PendingMove = createContext<MutableRefObject<(() => void) | null> | null>(null);
+
+export function CameraProvider(props: { children: ReactNode }) {
+  const pending = useRef<(() => void) | null>(null);
+  useEffect(() => () => pending.current?.(), []);
+  return <PendingMove.Provider value={pending}>{props.children}</PendingMove.Provider>;
+}
+
 function useShowWhenDrawn<T>(idOf: (target: T) => string | undefined): (targets: T[]) => void {
   const flow = useReactFlow();
   const store = useStoreApi();
-  const waiting = useRef<(() => void) | null>(null);
+  const pending = useContext(PendingMove)!;
   const drawn = (id: string | undefined) => {
     const node = id === undefined ? undefined : store.getState().nodeLookup.get(id);
     return Boolean(node?.measured.width && node.measured.height);
   };
   return (targets) => {
-    waiting.current?.();
-    waiting.current = null;
+    pending.current?.();
+    pending.current = null;
     const ready = () => {
       const ids = targets.map(idOf);
       return ids.every(drawn) ? (ids as string[]) : null;
@@ -29,10 +37,10 @@ function useShowWhenDrawn<T>(idOf: (target: T) => string | undefined): (targets:
       const ids = ready();
       if (!ids) return;
       stop();
-      waiting.current = null;
+      pending.current = null;
       fit(ids);
     });
-    waiting.current = stop;
+    pending.current = stop;
   };
 }
 
@@ -47,7 +55,12 @@ export function useShowGroups(): (paths: string[]) => void {
 
 export function useShowAll(): () => void {
   const flow = useReactFlow();
-  return () => flow.fitView({ duration: MOVE_MS, maxZoom: 1 });
+  const pending = useContext(PendingMove)!;
+  return () => {
+    pending.current?.();
+    pending.current = null;
+    void flow.fitView({ duration: MOVE_MS, maxZoom: 1 });
+  };
 }
 
 export function flowId(spot: Spot): string {

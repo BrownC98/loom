@@ -20,8 +20,8 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
-import { HOP_LANES, hopParts, siblingLanes, type HopPair } from './hopLanes';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { hopColor, hopParts, siblingLanes, type HopPair } from './hopLanes';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
 import { PlaceTag, shownPath } from './place';
@@ -428,7 +428,7 @@ export type Lit = { keys: ReadonlySet<string>; current: string | null };
 
 export type Pulse = Readonly<Record<Toward, number>>;
 
-export type Hop = Readonly<{ source: NodeId; target: NodeId; color: number; counts: Readonly<Record<'source' | 'target', number>> }>;
+export type Hop = Readonly<{ source: NodeId; target: NodeId; hue: number; counts: Readonly<Record<'source' | 'target', number>> }>;
 
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
 
@@ -914,6 +914,8 @@ export function Graph(props: {
     const sides = boxes ? edgeSides(...boxes, direction) : TREE_SIDES[direction];
     const step = boxes && props.settings.edgeStyle === 'step' ? stepAt(...boxes, direction, STEP_BEND) : null;
     const chosen = selected === view.id || selected === view.parent;
+    const ends = boxes && { parent: { box: boxes[0], side: sides.parent }, child: { box: boxes[1], side: sides.child } };
+    const heading = (toward: Toward) => (ends ? labelHeading(toward === 'child' ? ends.parent : ends.child, ends[toward], step) : 'right');
     return [
       {
         id: `edge-${view.id}`,
@@ -924,7 +926,7 @@ export function Graph(props: {
         ...(step === null ? {} : { type: 'smoothstep', pathOptions: { offset: 0, stepPosition: step } }),
         className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
         zIndex: chosen || pulse ? RAISED_EDGE_Z : undefined,
-        label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
+        label: pulse ? receivers.map(([toward, id]) => t(`graph.messageTo.${heading(toward)}`, { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
         focusable: false,
@@ -976,8 +978,7 @@ export function Graph(props: {
     const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
     const route = routes.get(key) ?? null;
     const text = hopLabel(hop, route?.turned ?? false);
-    const lane = HOP_LANES[hop.color % HOP_LANES.length];
-    const color = `var(--lane-${lane})`;
+    const color = hopColor(hop.hue);
     const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
     return [
       {
@@ -987,10 +988,10 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        data: { route, title: text },
+        data: { route, title: text, color },
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
-        className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
+        className: ['live', 'hop', flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
         label: !route ? text : route.label === null ? undefined : route.label.short ? hopShort(hop, route.turned) : text,
         labelBgBorderRadius: 10,

@@ -2,7 +2,8 @@ import type { ArrangeDirection, Box } from './layout';
 
 type Point = { x: number; y: number };
 
-export const HOP_LANES = [2, 4, 5, 1, 3] as const;
+const FULL_TURN = 360;
+const HUE_TRIES = 12;
 const END_GAP = 40;
 const LABEL_SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95];
 const LABEL_GAP = 2;
@@ -25,11 +26,13 @@ export function hopParts(counts: Readonly<Record<HopEndName, number>>, source: P
   return parts.filter((part) => counts[part.to] > 0);
 }
 
-export function pickColor(shown: Iterable<number>): number {
-  const uses = HOP_LANES.map(() => 0);
-  for (const color of shown) uses[color % HOP_LANES.length]++;
-  return uses.indexOf(Math.min(...uses));
+export function pickHue(shown: readonly number[]): number {
+  const gap = (hue: number) => Math.min(FULL_TURN, ...shown.map((s) => Math.min(Math.abs(hue - s), FULL_TURN - Math.abs(hue - s))));
+  const tries = Array.from({ length: HUE_TRIES }, () => Math.floor(Math.random() * FULL_TURN));
+  return tries.reduce((best, hue) => (gap(hue) > gap(best) ? hue : best));
 }
+
+export const hopColor = (hue: number) => `light-dark(oklch(55% 0.17 ${hue}), oklch(72% 0.15 ${hue}))`;
 
 const toDown: Record<ArrangeDirection, (p: Point) => Point> = {
   down: (p) => p,

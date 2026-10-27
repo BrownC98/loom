@@ -1,13 +1,13 @@
 use std::future::Future;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
@@ -21,11 +21,12 @@ use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
     Prompt, PromptKey, PromptOption, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
 };
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Dialog, Grammar, Options, Top};
 use crate::skills::Launch;
-use server::{Approval, Asked, CodexServer};
+use server::{Address, Approval, Asked, CodexServer};
 
 pub mod server;
+mod stdio;
 mod usage;
 
 #[allow(clippy::all, dead_code)]
@@ -39,6 +40,8 @@ use protocol::{
     TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
+const LOGIN_TEXT: &str = "Codex에 로그인하지 않았습니다. 노드 터미널에서 로그인하십시오.";
+
 pub const PROMPT: Grammar = Grammar {
     top: Top::Line("Would you like to"),
     options: Options::Numbered,
@@ -47,20 +50,6 @@ pub const PROMPT: Grammar = Grammar {
 };
 
 pub const PINNED_VERSION: &str = "0.159.2";
-pub const DIALOGS: [Dialog; 2] = [
-    Dialog {
-        text: "Trust this folder?",
-        kind: WaitKind::Trust,
-        place: Place::BeforeSession,
-        answer: Answer::Below(Options::Numbered),
-    },
-    Dialog {
-        text: "Sign in with ChatGPT",
-        kind: WaitKind::Auth,
-        place: Place::BeforeSession,
-        answer: Answer::Below(Options::Numbered),
-    },
-];
 
 pub(super) const WAITING: &str = "When waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.";
 
@@ -84,6 +73,7 @@ static CLI: Cli = Cli {
     logout: &["logout"],
     ready: |_, _| {},
 };
+const CARRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const DATE_DIRS: usize = 3;
 const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 
@@ -120,24 +110,29 @@ impl super::adapter::Adapter for Codex {
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
         Box::pin(async move {
+            let helper = |cause| LaunchError::Helper {
+                program: "codex app-server".into(),
+                cause,
+            };
+            let task = at.task.ok_or_else(|| helper("작업 폴더가 없다".into()))?;
+            let trust = trust_args(at);
             let config: Vec<String> = sandbox_args(at.version, at.node_ip)
                 .into_iter()
                 .chain(server_args(at.launch))
+                .chain(trust.iter().cloned())
                 .collect();
-            let server = CodexServer::start(at.cwd, at.inside, at.env, &config)
+            #[cfg(unix)]
+            make_home(at.env).map_err(helper)?;
+            let server = CodexServer::start(at.cwd, at.inside, at.env, &config, task)
                 .await
-                .map_err(|cause| LaunchError::Helper {
-                    program: "codex app-server".into(),
-                    cause,
-                })?;
+                .map_err(helper)?;
             let call = |method, params| server.call(method, params);
             if let Err(e) = add_skills(call, at.skills).await {
                 eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
             }
-            cmd.args(["--remote", server.url()]);
-            let record = server.process().record(State {
-                url: server.url().to_owned(),
-            });
+            server.address().tui(cmd);
+            cmd.args(trust);
+            let record = server.process().record(server.address().clone());
             let server = Arc::new(server);
             let before_start = resume.map(|thread| resume_thread(server.clone(), thread, bypass));
             tokio::spawn(drive(server, port));
@@ -155,10 +150,10 @@ impl super::adapter::Adapter for Codex {
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            let Some((served, state)) = Served::stored::<State>(rec) else {
+            let Some((served, address)) = Served::stored::<Address>(rec) else {
                 return Ok(());
             };
-            match CodexServer::reconnect(state.url, served.clone(), rec.session.as_ref()).await {
+            match CodexServer::reconnect(address, served.clone(), rec.session.as_ref()).await {
                 Ok(server) => {
                     tokio::spawn(drive(Arc::new(server), port));
                     Ok(())
@@ -178,15 +173,15 @@ impl super::adapter::Adapter for Codex {
         option: usize,
     ) -> BoxFuture<'a, Result<Chosen, String>> {
         Box::pin(async move {
-            let (Some((served, state)), Some(thread)) =
-                (Served::stored::<State>(rec), &rec.session)
+            let (Some((served, address)), Some(thread)) =
+                (Served::stored::<Address>(rec), &rec.session)
             else {
                 return Ok(Chosen::OnScreen);
             };
             let Some((_, decision)) = APPROVAL_OPTIONS.get(option) else {
                 return Ok(Chosen::PromptChanged);
             };
-            let server = CodexServer::reconnect(state.url, served, None).await?;
+            let server = CodexServer::reconnect(address, served, None).await?;
             let result = serde_json::json!({ "decision": decision });
             server
                 .answer(&thread.0, |a| approval_rows(a) == prompt.rows, result)
@@ -207,7 +202,7 @@ impl super::adapter::Adapter for Codex {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
-        Some((&[PROMPT], &DIALOGS))
+        Some((&[PROMPT], &[]))
     }
 
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
@@ -228,47 +223,69 @@ impl super::adapter::Adapter for Codex {
         if old_root == new_root {
             return Ok(());
         }
-        let rollout = rollout(&old_root, &thread.0)
-            .ok_or_else(|| format!("스레드 {}의 기록 파일이 없다", thread.0))?;
+        let rollout = rollout(to, &thread.0)?;
         Ok(super::copy_session(&rollout, ROLLOUT_DEPTH, &new_root)?)
     }
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async move {
-            let (served, state) = Served::stored::<State>(rec)?;
+            let (served, address) = Served::stored::<Address>(rec)?;
             let thread = rec.session.as_ref()?;
-            let server = CodexServer::reconnect(state.url, served, None).await.ok()?;
+            let server = CodexServer::reconnect(address, served, None).await.ok()?;
             server.rollout(&thread.0).await.ok().flatten()
         })
     }
 
     fn shell_root(&self, rec: &Record) -> Option<u32> {
-        Served::stored::<State>(rec)?.0.here()
+        Served::stored::<Address>(rec)?.0.here()
     }
 }
 
-fn rollout(root: &Path, thread: &str) -> Option<PathBuf> {
-    let name = format!("-{thread}.jsonl");
-    let mut dirs = vec![root.join("sessions")];
-    for _ in 0..DATE_DIRS {
-        dirs = dirs
-            .iter()
-            .flat_map(|dir| children(dir))
-            .filter(|path| path.is_dir())
-            .collect();
-    }
-    dirs.iter()
-        .flat_map(|dir| children(dir))
-        .find(|file| file.to_string_lossy().ends_with(&name))
+fn rollout(at: &Carry<'_>, thread: &str) -> Result<PathBuf, ResumeError> {
+    let cmd = at
+        .site
+        .command(&CLI, &["app-server"], at.from)
+        .map_err(|e| e.to_string())?;
+    let params = ThreadReadParams {
+        thread_id: thread.to_owned(),
+        include_turns: Some(false),
+    };
+    let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
+    let [read] =
+        stdio::replies(cmd, [("thread/read", params)], CARRY_TIMEOUT).map_err(|failure| {
+            match failure {
+                stdio::Failure::Run(e) => format!("`codex app-server`: {e}"),
+                stdio::Failure::NoReply => "`codex app-server`: thread/read에 답이 없다".to_owned(),
+            }
+        })?;
+    let path = serde_json::from_value::<ThreadReadResponse>(read)
+        .ok()
+        .and_then(|read| read.thread.path)
+        .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
+    Ok(at.site.local(&path))
 }
 
-fn children(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .collect()
+#[cfg(unix)]
+fn make_home(env: &[(&'static str, std::ffi::OsString)]) -> Result<(), String> {
+    let home = env
+        .iter()
+        .find(|(key, _)| *key == CLI.env)
+        .map(|(_, dir)| PathBuf::from(dir))
+        .or_else(|| Some(std::env::home_dir()?.join(CLI.home)))
+        .ok_or("홈 폴더를 찾지 못했다")?;
+    std::fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))
+}
+
+fn trust_args(at: &LaunchAt<'_>) -> Vec<String> {
+    let cwd = match at.inside {
+        Some(inside) => inside.cwd().to_owned(),
+        None => at.cwd.to_string_lossy().into_owned(),
+    };
+    let key = serde_json::to_string(&cwd).expect("문자열은 늘 직렬화된다");
+    vec![
+        "-c".into(),
+        format!(r#"projects={{{key}={{trust_level="trusted"}}}}"#),
+    ]
 }
 
 fn server_args(launch: Launch) -> Vec<String> {
@@ -426,6 +443,11 @@ async fn human_wait(
     thread: Option<server::Thread>,
     approvals: Vec<Approval>,
 ) -> Option<(WaitKind, String, Option<Prompt>)> {
+    match server.logged_out().await {
+        Ok(true) => return Some((WaitKind::Auth, LOGIN_TEXT.to_owned(), None)),
+        Ok(false) => {}
+        Err(e) => eprintln!("loom: Codex 로그인 상태를 읽지 못했다: {e}"),
+    }
     let now = thread?;
     match approvals.iter().find(|a| a.thread() == now.id) {
         Some(approval) => {
@@ -439,11 +461,6 @@ async fn human_wait(
 
 const BUSY_KINDS: &[Kind] = &[Kind::Steer, Kind::Interrupt];
 const HUMAN_STEP: &str = "human";
-
-#[derive(Serialize, Deserialize)]
-struct State {
-    url: String,
-}
 
 fn resume_thread(
     server: Arc<CodexServer>,
@@ -469,7 +486,8 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
     let mut thread = server.thread();
     let mut approvals = server.approvals();
     let mut subscribed = None;
-    let mut waits = false;
+    let mut waits = true;
+    let mut account = server.account_updates();
     let mut limited = server.limited();
     let (read, mut models) = mpsc::unbounded_channel::<(u64, Model)>();
     let (mut asked, mut answered) = (0, 0);
@@ -542,6 +560,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 }
             },
             Ok(()) = approvals.changed() => waits = true,
+            Ok(()) = account.changed() => waits = true,
             Ok(()) = limited.changed() => port.report(Report::RateLimited),
             Some((n, model)) = models.recv() => {
                 if n > answered {
@@ -666,11 +685,16 @@ async fn hand(
     mail: &[Delivery],
 ) -> bool {
     let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
-    if mail.iter().any(|d| d.kind == Kind::Interrupt) {
-        server.stop_shells();
-    }
     let call = |method, params| server.call(method, params);
-    match deliver(call, thread, now, mail).await {
+    let stopped = match mail.iter().any(|d| d.kind == Kind::Interrupt) {
+        true => stop_turn(server, thread).await,
+        false => Ok(()),
+    };
+    let delivered = match stopped {
+        Ok(()) => deliver(call, thread, now, mail).await,
+        Err(e) => Err(e),
+    };
+    match delivered {
         Ok(()) => {
             if let Err(e) = port.ack(&ids) {
                 eprintln!("loom: Codex 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
@@ -685,6 +709,19 @@ async fn hand(
             false
         }
     }
+}
+
+async fn stop_turn(server: &CodexServer, thread: &str) -> Result<(), String> {
+    let call = |method, params| server.call(method, params);
+    let interrupted = (Rpc { call, thread }).interrupt().await;
+    let cleaned = server.clean_terminals(thread).await;
+    let Err(e) = interrupted.and(cleaned) else {
+        return Ok(());
+    };
+    eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
+    server
+        .kill_shells()
+        .map_err(|killed| format!("턴을 끊지 못했다({e}). 셸도 끝내지 못했다: {killed}"))
 }
 
 async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
@@ -741,21 +778,13 @@ where
     let rpc = Rpc { call, thread };
     let input = input(super::message_text(taken));
     match status {
-        Status::Idle => rpc.start_or_steer(input).await,
-        Status::Busy if taken.iter().any(|d| d.kind == Kind::Interrupt) => {
-            if let Some(turn) = rpc.current_turn().await? {
-                let params = TurnInterruptParams {
-                    thread_id: thread.to_owned(),
-                    turn_id: turn,
-                };
-                let _ = rpc.send::<Value>("turn/interrupt", &params).await;
+        Status::Busy if !taken.iter().any(|d| d.kind == Kind::Interrupt) => {
+            match rpc.steer(input.clone()).await {
+                Ok(()) => Ok(()),
+                Err(_) => rpc.start(input).await,
             }
-            rpc.start_or_steer(input).await
         }
-        Status::Busy => match rpc.steer(input.clone()).await {
-            Ok(()) => Ok(()),
-            Err(_) => rpc.start(input).await,
-        },
+        Status::Idle | Status::Busy => rpc.start_or_steer(input).await,
     }
 }
 
@@ -777,6 +806,19 @@ where
         let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
         let result = (self.call)(method, params).await?;
         serde_json::from_value(result).map_err(|e| format!("{method}: 알 수 없는 응답이다: {e}"))
+    }
+
+    async fn interrupt(&self) -> Result<(), String> {
+        let Some(turn) = self.current_turn().await? else {
+            return Ok(());
+        };
+        let params = TurnInterruptParams {
+            thread_id: self.thread.to_owned(),
+            turn_id: turn,
+        };
+        self.send::<Value>("turn/interrupt", &params)
+            .await
+            .map(drop)
     }
 
     async fn start_or_steer(&self, input: Vec<UserInput>) -> Result<(), String> {

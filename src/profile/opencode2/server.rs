@@ -45,7 +45,8 @@ impl Server {
         .map(str::to_owned);
         let mut env = node_env.to_vec();
         env.push((super::PASSWORD_ENV, password.clone().into()));
-        let process = Served::start(&argv, cwd, inside, &env, port, REPLY_TIMEOUT).await?;
+        let at = process_tree::Listen::Port(port);
+        let process = Served::start(&argv, cwd, inside, &env, &at, REPLY_TIMEOUT).await?;
         let server = Self::connect(format!("http://127.0.0.1:{port}"), password, process);
         if let Err(e) = server.ready().await {
             server.stop();

@@ -539,6 +539,7 @@ impl App {
             plugin: &plugin,
             plugin_here: &plugin_here,
             skills: &skills,
+            task,
             launch,
             version: profile
                 .and_then(|p| self.versions.get(&p))

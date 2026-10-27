@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::adapter::Record;
 use crate::distro::Distro;
-use crate::process_tree::{self, Snapshot};
+use crate::process_tree::{self, Listen, Snapshot};
 use crate::protocol::AdapterRecord;
 use crate::wsl::{self, Inside};
 
@@ -31,7 +31,7 @@ impl Served {
         cwd: &Path,
         inside: Option<&Inside>,
         env: &[(&'static str, OsString)],
-        port: u16,
+        at: &Listen,
         limit: Duration,
     ) -> Result<Served, String> {
         let (served, listening) = match inside {
@@ -46,7 +46,7 @@ impl Served {
                 let exited = async move {
                     let _ = tokio::task::spawn_blocking(move || watching.exited()).await;
                 };
-                let listening = listen(exited, port, limit).await;
+                let listening = listen(exited, at, limit).await;
                 serving.hang_up();
                 let served = Served {
                     pid: Some(serving.pid),
@@ -71,7 +71,7 @@ impl Served {
                     async {
                         let _ = child.wait().await;
                     },
-                    port,
+                    at,
                     limit,
                 )
                 .await;
@@ -142,10 +142,10 @@ impl Served {
 
 async fn listen(
     exited: impl Future<Output = ()>,
-    port: u16,
+    at: &Listen,
     limit: Duration,
 ) -> Result<(), String> {
-    tokio::time::timeout(limit, process_tree::until_listening(exited, port))
+    tokio::time::timeout(limit, process_tree::until_listening(exited, at))
         .await
         .unwrap_or_else(|_| Err("did not listen".into()))
 }

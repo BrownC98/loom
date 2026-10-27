@@ -364,7 +364,14 @@ impl HookEvent for Hook {
                 text: text.clone(),
                 turn: turn.clone(),
             }),
-            Event::Stop { .. } => match self.used_question_box() {
+            Event::Stop {
+                status: StopStatus::Aborted | StopStatus::Error,
+                ..
+            } => Some(Report::TurnStopped { turn: turn.clone() }),
+            Event::Stop {
+                status: StopStatus::Completed,
+                ..
+            } => match self.used_question_box() {
                 Ok(true) => Some(Report::QuestionBox),
                 Ok(false) => None,
                 Err(e) => {
@@ -380,7 +387,14 @@ impl HookEvent for Hook {
             session: text("transcript_path").map(Session),
             human_input: matches!(self.event, Event::BeforeSubmitPrompt { .. }),
             turn,
-            turn_end: matches!(self.event, Event::Stop { .. }).then_some(None),
+            turn_end: matches!(
+                self.event,
+                Event::Stop {
+                    status: StopStatus::Completed,
+                    ..
+                }
+            )
+            .then_some(None),
             reports: self
                 .event
                 .model()
@@ -427,14 +441,28 @@ pub enum Event {
     PostToolUseFailure {
         #[serde(flatten)]
         call: ToolCall,
+        #[serde(default)]
+        is_interrupt: bool,
     },
     Stop {
         model: Option<String>,
+        #[serde(default)]
+        status: StopStatus,
     },
     AfterAgentResponse {
         #[serde(default)]
         text: String,
     },
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StopStatus {
+    Completed,
+    Aborted,
+    #[default]
+    #[serde(other)]
+    Error,
 }
 
 #[derive(Deserialize)]
@@ -474,7 +502,11 @@ impl Event {
     pub fn take(&self) -> Option<Take> {
         Some(match self {
             Event::SessionStart { .. } | Event::AfterAgentResponse { .. } => return None,
-            Event::Stop { .. } => Take::WhenIdle,
+            Event::Stop {
+                status: StopStatus::Completed,
+                ..
+            } => Take::WhenIdle,
+            Event::Stop { .. } => return None,
             Event::BeforeSubmitPrompt { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse { call, duration } => {
                 if !call.reaches_model() || call.sent_to_background(*duration) {
@@ -482,7 +514,10 @@ impl Event {
                 }
                 Take::Now(Kind::ALL)
             }
-            Event::PreToolUse { call } | Event::PostToolUseFailure { call } => {
+            Event::PostToolUseFailure {
+                is_interrupt: true, ..
+            } => return None,
+            Event::PreToolUse { call } | Event::PostToolUseFailure { call, .. } => {
                 if !call.reaches_model() {
                     return None;
                 }
@@ -495,7 +530,7 @@ impl Event {
         match self {
             Event::SessionStart { model }
             | Event::BeforeSubmitPrompt { model, .. }
-            | Event::Stop { model } => Some(Model {
+            | Event::Stop { model, .. } => Some(Model {
                 model: model.clone(),
                 effort: None,
             }),

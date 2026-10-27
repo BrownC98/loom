@@ -163,6 +163,7 @@ impl Graph {
                             &tx,
                             id,
                             Some(&Stored {
+                                reads_screen: Some(now.reads_screen()),
                                 wait: HumanWait { prompt, ..now.wait },
                                 ..now
                             }),
@@ -212,6 +213,7 @@ impl Graph {
             &tx,
             id,
             Some(&Stored {
+                reads_screen: Some(true),
                 wait: HumanWait { prompt, ..now.wait },
                 ..now
             }),

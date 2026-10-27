@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::App;
 use crate::graph::{Kept, NodeId};
-use crate::worktree::merge::{delete_merged, still_merged};
+use crate::worktree::merge::{delete_local_merged, still_merged};
 use crate::worktree::{self, RepoProblem, Worktree};
 
 #[derive(Default)]
@@ -96,15 +96,11 @@ impl App {
                     ));
                     return Ok(true);
                 }
-                tokio::spawn(async move {
-                    match delete_merged(&dir, &branch, &target).await {
-                        Ok(None) => {}
-                        Ok(Some(cause)) => {
-                            eprintln!("loom: kept origin/{branch} of a removed node: {cause}")
-                        }
-                        Err(e) => eprintln!("loom: did not delete the branch {branch}: {e}"),
-                    }
-                });
+                if let Err(e) = delete_local_merged(&dir, &branch, &target).await {
+                    swept.kept.push(format!(
+                        "{name}: git did not delete the branch {branch}: {e}. loom kept it."
+                    ));
+                }
             }
         }
         Ok(true)

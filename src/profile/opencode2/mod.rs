@@ -50,11 +50,16 @@ impl super::adapter::Adapter for OpenCode2 {
             pinned: Some(CMD),
             usage_part: "usage/opencode2",
             waiting: WAITING,
+            helper_shells: &[],
         }
     }
 
     fn leading_args(&self, _: Option<&Session>, bypass: &[String]) -> Vec<String> {
         bypass.to_vec()
+    }
+
+    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+        Ok(())
     }
 
     fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}

@@ -82,6 +82,7 @@ impl super::adapter::Adapter for Codex {
             pinned: Some(CMD),
             usage_part: "usage/codex",
             waiting: WAITING,
+            helper_shells: &[],
         }
     }
 
@@ -90,6 +91,10 @@ impl super::adapter::Adapter for Codex {
             Some(thread) => vec!["resume".into(), thread.0.clone()],
             None => bypass.to_vec(),
         }
+    }
+
+    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+        Ok(())
     }
 
     fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}

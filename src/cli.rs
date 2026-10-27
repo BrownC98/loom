@@ -11,7 +11,6 @@ use crate::daemon::{
     Relaunched, RemoveRequest, Reported, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
-use crate::profile::cursor;
 use crate::protocol::{
     AgentId, Delivery, GateState, Judgment, Kind, MessageId, ModelChoice, NODE_CALLS,
     NODE_CALLS_HEADER, WaitId,
@@ -23,7 +22,7 @@ use crate::tunnel::ENDPOINT_ENV;
 mod endpoint;
 mod hook;
 
-pub use hook::{claude_hook as hook, cursor_hook, pi_hook};
+pub use hook::hook;
 
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
@@ -159,16 +158,6 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>) -> Result<(), Stri
             id.0
         )
     })
-}
-
-pub fn cursor_rules() -> Result<(), String> {
-    let env = |key| std::env::var(key).ok();
-    let launch = crate::skills::Launch {
-        position: cursor::position_from(env(cursor::POSITION_ENV).as_deref()),
-        skills: cursor::skills_from(env(cursor::SKILLS_ENV).as_deref()),
-    };
-    println!("{}", cursor::rules(launch));
-    Ok(())
 }
 
 fn wait_until_mail(request: IdleRequest) -> Result<IdleReply, String> {

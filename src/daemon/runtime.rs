@@ -491,7 +491,7 @@ impl App {
         task: Option<&task::TaskDir>,
     ) -> Result<Prepared, Problem> {
         let profile = start.profile();
-        let provider = profile.and_then(Profile::provider);
+        let provider = profile.and_then(|p| p.provider());
         let settings = self.settings.get().map_err(internal)?;
         let launch = Launch {
             position,
@@ -499,26 +499,17 @@ impl App {
         };
         let token = new_token().map_err(internal)?;
         let mut env = self.node_env(&token)?.to_vec();
-        let plugin = self.plugin.dir(launch.skills);
+        let plugin_here = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
             Some(at) => {
                 let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
                 let commands = profile::commands(start);
-                let paths = [plugin.as_path()];
+                let paths = [plugin_here.as_path()];
                 let inside = wsl::inside(&at, distro, &commands, &self.shim, &paths);
                 Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
             }
             None => self.pc_site(),
         };
-        if profile == Some(Profile::Cursor)
-            && let Some(hooks) = user_cursor_hooks(&site)
-            && let Err(e) = cursor::open_gate(&hooks)
-        {
-            eprintln!(
-                "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
-                hooks.display()
-            );
-        }
         let endpoint = self.endpoint(&token, site.inside());
         if let Some(at) = &endpoint {
             env.push((ENDPOINT_ENV, at.into()));
@@ -536,19 +527,14 @@ impl App {
                 PathBuf::from(inside),
                 PathBuf::from(format!("{inside}/skills")),
             ),
-            None => (plugin.clone(), self.plugin.skills(launch.skills)),
+            None => (plugin_here.clone(), self.plugin.skills(launch.skills)),
         };
-        if profile == Some(Profile::Omp) {
-            omp::write_config(
-                &self.plugin.dir(launch.skills),
-                &omp::config(&plugin, launch),
-            )
-            .map_err(internal)?;
-        }
         let serve = Serve {
             cwd,
             inside,
             env: &env,
+            plugin: &plugin,
+            plugin_here: &plugin_here,
             skills: &skills,
             launch,
             version: profile
@@ -556,8 +542,10 @@ impl App {
                 .map(String::as_str),
             node_ip: self.node_ip,
         };
-        let (mut cmd, server) =
-            profile::command(start, &serve, &plugin, &settings.bypass_off).await?;
+        if let Some(p) = profile {
+            profile::adapter(p).prepare(&serve).map_err(internal)?;
+        }
+        let (mut cmd, server) = profile::command(start, &serve, &settings.bypass_off).await?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
@@ -742,14 +730,6 @@ impl Prepared {
             Some(server) => server.resume().await,
             None => Ok(()),
         }
-    }
-}
-
-fn user_cursor_hooks(site: &Site) -> Option<PathBuf> {
-    match site.inside() {
-        Some(inside) => Some(inside.local(&format!("{}/{}", inside.home(), cursor::USER_HOOKS))),
-        None if cfg!(windows) => None,
-        None => std::env::home_dir().map(|home| home.join(cursor::USER_HOOKS)),
     }
 }
 

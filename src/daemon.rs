@@ -73,8 +73,6 @@ use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::profile::adapter::{Chosen, Serve, Server};
-use crate::profile::cursor;
-use crate::profile::omp;
 use crate::profile::{self, Profile, Start};
 use crate::protocol::{
     Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,

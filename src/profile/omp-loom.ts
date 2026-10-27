@@ -24,6 +24,7 @@ export default function (pi: Api) {
     }),
     ours: (_event, ctx) => main(ctx),
     background: "async",
+    entry: "omp",
   });
 
   pi.on("session_start", (_event, ctx) => main(ctx) && loom.start(ctx, false));

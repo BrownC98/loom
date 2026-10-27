@@ -16,6 +16,7 @@ use crate::protocol::{
 };
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
+use crate::wsl::Inside;
 
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
@@ -74,13 +75,16 @@ pub const DIALOGS: [Dialog; 8] = [
     },
 ];
 
-pub const POSITION_ENV: &str = "LOOM_POSITION";
-pub const SKILLS_ENV: &str = "LOOM_SKILLS";
+const POSITION_ENV: &str = "LOOM_POSITION";
+const SKILLS_ENV: &str = "LOOM_SKILLS";
 const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
+const HOOK: &str = "loom hook cursor";
+const RULES: &str = "loom hook cursor-rules";
+const HELPER_SHELLS: [&str; 4] = [HOOK, RULES, "loom cursor-hook", "loom cursor-rules"];
 
 fn write_plugin(dir: &Path) -> std::io::Result<()> {
     let manifest = dir.join(".cursor-plugin").join("plugin.json");
@@ -89,7 +93,7 @@ fn write_plugin(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join(HOOKS_FILE), hooks().to_string())
 }
 
-pub const USER_HOOKS: &str = ".cursor/hooks.json";
+const USER_HOOKS: &str = ".cursor/hooks.json";
 
 const GATE: [(&str, &str); 3] = [
     ("stop", r"printf '{}\n'"),
@@ -99,7 +103,15 @@ const GATE: [(&str, &str); 3] = [
 
 static GATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-pub fn open_gate(path: &Path) -> std::io::Result<()> {
+fn user_hooks(inside: Option<&Inside>) -> Option<PathBuf> {
+    match inside {
+        Some(inside) => Some(inside.local(&format!("{}/{USER_HOOKS}", inside.home()))),
+        None if cfg!(windows) => None,
+        None => std::env::home_dir().map(|home| home.join(USER_HOOKS)),
+    }
+}
+
+fn open_gate(path: &Path) -> std::io::Result<()> {
     let _held = GATE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -159,20 +171,20 @@ fn with_gate(text: Option<&str>) -> Result<Option<String>, String> {
 }
 
 fn hooks() -> Value {
-    let hook = json!([{ "command": "loom cursor-hook", "timeout": HOOK_TIMEOUT_SECS }]);
+    let hook = json!([{ "command": HOOK, "timeout": HOOK_TIMEOUT_SECS }]);
     json!({
         "version": 1,
         "hooks": {
             "sessionStart": [
-                { "command": "loom cursor-hook", "timeout": HOOK_TIMEOUT_SECS },
-                { "command": "loom cursor-rules", "timeout": HOOK_TIMEOUT_SECS },
+                { "command": HOOK, "timeout": HOOK_TIMEOUT_SECS },
+                { "command": RULES, "timeout": HOOK_TIMEOUT_SECS },
             ],
             "beforeSubmitPrompt": hook,
             "preToolUse": hook,
             "postToolUse": hook,
             "postToolUseFailure": hook,
             "afterAgentResponse": hook,
-            "stop": [{ "command": "loom cursor-hook", "timeout": IDLE_HOOK_TIMEOUT_SECS, "loop_limit": null }],
+            "stop": [{ "command": HOOK, "timeout": IDLE_HOOK_TIMEOUT_SECS, "loop_limit": null }],
         },
     })
 }
@@ -188,6 +200,7 @@ impl Adapter for Cursor {
             pinned: None,
             usage_part: "usage/cursor",
             waiting: WAITING,
+            helper_shells: &HELPER_SHELLS,
         }
     }
 
@@ -197,6 +210,18 @@ impl Adapter for Cursor {
             .flat_map(|session| ["--resume".into(), super::session_id(session)])
             .chain(bypass.iter().cloned())
             .collect()
+    }
+
+    fn prepare(&self, at: &Serve<'_>) -> std::io::Result<()> {
+        if let Some(hooks) = user_hooks(at.inside)
+            && let Err(e) = open_gate(&hooks)
+        {
+            eprintln!(
+                "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
+                hooks.display()
+            );
+        }
+        Ok(())
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
@@ -277,7 +302,7 @@ fn position_value(position: Position) -> &'static str {
     }
 }
 
-pub fn position_from(value: Option<&str>) -> Position {
+fn position_from(value: Option<&str>) -> Position {
     match value {
         Some("root") => Position::Root,
         _ => Position::Child,
@@ -288,7 +313,7 @@ pub fn skills_value(skills: AlwaysOn) -> String {
     serde_json::to_string(&skills).expect("스위치는 늘 직렬화된다")
 }
 
-pub fn skills_from(value: Option<&str>) -> AlwaysOn {
+fn skills_from(value: Option<&str>) -> AlwaysOn {
     value
         .and_then(|v| serde_json::from_str(v).ok())
         .unwrap_or_default()
@@ -326,8 +351,30 @@ pub fn usage() -> String {
     format!("{}\n{WAITING}", super::COMMUNICATION_USAGE)
 }
 
-pub fn rules(launch: Launch) -> Value {
-    json!({ "additional_context": crate::skills::always_on(launch) })
+pub struct Rules(Launch);
+
+impl Rules {
+    pub fn from_env() -> Self {
+        let env = |key| std::env::var(key).ok();
+        Rules(Launch {
+            position: position_from(env(POSITION_ENV).as_deref()),
+            skills: skills_from(env(SKILLS_ENV).as_deref()),
+        })
+    }
+}
+
+impl HookEvent for Rules {
+    fn signals(&self) -> Signals {
+        Signals::default()
+    }
+
+    fn show(&self, _: &Handed) -> Shown {
+        let rules = json!({ "additional_context": crate::skills::always_on(self.0) });
+        Shown {
+            out: Some(rules.to_string()),
+            ..Shown::default()
+        }
+    }
 }
 
 pub struct Hook {

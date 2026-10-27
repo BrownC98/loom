@@ -14,8 +14,16 @@ pub enum Phase {
 }
 
 impl Phase {
+    pub const STARTED: [Phase; 3] = [Phase::Running, Phase::Stopping, Phase::Stopped];
+    pub const ALL: [Phase; 4] = [
+        Phase::AtTurnEnd,
+        Phase::Running,
+        Phase::Stopping,
+        Phase::Stopped,
+    ];
+
     pub fn started(self) -> bool {
-        self != Phase::AtTurnEnd
+        Self::STARTED.contains(&self)
     }
 }
 

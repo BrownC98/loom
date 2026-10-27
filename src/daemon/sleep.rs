@@ -379,7 +379,7 @@ impl App {
     }
 
     fn resting(&self, node: &Active) -> bool {
-        if self.holds_mail(node.id) || !self.listening(node.id) {
+        if self.relaunch_planned(node.id) || !self.listening(node.id) {
             return false;
         }
         profile_of(node).is_some_and(Profile::sleeps) && node.session.is_some()

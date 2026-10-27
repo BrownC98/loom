@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -58,6 +58,8 @@ import { PlaceTag } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
+
+type Live = Readonly<{ pulses: ReadonlyMap<NodeId, Pulse>; hops: ReadonlyMap<string, Hop> }>;
 
 const PULSE_MS = 3000;
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
@@ -135,10 +137,8 @@ export function App() {
   const putRepo = (next: RepoView) => setRepos((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [...prev, next]));
   const askedWorktrees = useRef(new Set<string>());
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
-  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, Pulse>>(new Map());
-  const pulseTimers = useRef(new Map<NodeId, number>());
-  const [hops, setHops] = useState<ReadonlyMap<string, Hop>>(new Map());
-  const hopTimers = useRef(new Map<string, number>());
+  const [live, setLive] = useState<Live>({ pulses: new Map(), hops: new Map() });
+  const liveTimers = useRef(new Map<string, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -343,31 +343,40 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const flash = <K, V>(set: Dispatch<SetStateAction<ReadonlyMap<K, V>>>, timers: Map<K, number>, key: K, bump: (prev: V | undefined, shown: ReadonlyMap<K, V>) => V) => {
-      set((prev) => new Map(prev).set(key, bump(prev.get(key), prev)));
-      clearTimeout(timers.get(key));
-      const timer = window.setTimeout(() => {
-        set((prev) => {
-          const next = new Map(prev);
-          next.delete(key);
-          return next;
-        });
-      }, PULSE_MS);
-      timers.set(key, timer);
+    const flash = (timer: string, bump: (now: Live) => Live, drop: (now: Live) => Live) => {
+      setLive(bump);
+      clearTimeout(liveTimers.current.get(timer));
+      liveTimers.current.set(timer, window.setTimeout(() => setLive(drop), PULSE_MS));
     };
+    const without = <K, V>(map: ReadonlyMap<K, V>, key: K) => {
+      const next = new Map(map);
+      next.delete(key);
+      return next;
+    };
+    const hueOf = (now: Live, prev: { hue: number } | undefined) => prev?.hue ?? pickHue([...now.pulses.values(), ...now.hops.values()].map((edge) => edge.hue));
     const pulse = (child: NodeId, toward: Toward) =>
-      flash(setPulses, pulseTimers.current, child, (prev) => {
-        const counts = prev ?? { parent: 0, child: 0 };
-        return { ...counts, [toward]: counts[toward] + 1 };
-      });
+      flash(
+        `pulse-${child}`,
+        (now) => {
+          const prev = now.pulses.get(child);
+          const counts = prev?.counts ?? { parent: 0, child: 0 };
+          return { ...now, pulses: new Map(now.pulses).set(child, { hue: hueOf(now, prev), last: toward, counts: { ...counts, [toward]: counts[toward] + 1 } }) };
+        },
+        (now) => ({ ...now, pulses: without(now.pulses, child) }),
+      );
     const hop = (from: NodeId, to: NodeId) => {
       const [source, target] = from < to ? [from, to] : [to, from];
       const toward = to === target ? 'target' : 'source';
-      flash(setHops, hopTimers.current, `${source}-${target}`, (prev, shown) => {
-        const counts = prev?.counts ?? { source: 0, target: 0 };
-        const hue = prev?.hue ?? pickHue([...shown.values()].map((hop) => hop.hue));
-        return { source, target, hue, counts: { ...counts, [toward]: counts[toward] + 1 } };
-      });
+      const key = `${source}-${target}`;
+      flash(
+        `hop-${key}`,
+        (now) => {
+          const prev = now.hops.get(key);
+          const counts = prev?.counts ?? { source: 0, target: 0 };
+          return { ...now, hops: new Map(now.hops).set(key, { source, target, hue: hueOf(now, prev), last: toward, counts: { ...counts, [toward]: counts[toward] + 1 } }) };
+        },
+        (now) => ({ ...now, hops: without(now.hops, key) }),
+      );
     };
     let reading = false;
     let again = false;
@@ -548,8 +557,8 @@ export function App() {
               onMinimapFold={(minimapFolded) => editSettings((s) => ({ ...s, minimapFolded }))}
               onRepo={putRepo}
               views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
-              pulses={pulses}
-              hops={hops}
+              pulses={live.pulses}
+              hops={live.hops}
               agents={agents}
               onRescanAgents={rescan}
               settings={settings}

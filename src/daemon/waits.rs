@@ -40,6 +40,10 @@ pub struct ChooseOption {
 pub struct TypeText {
     pub prompt: Prompt,
     pub text: String,
+    /// 글로 답하는 선택지(`PromptOption::writes`)의 차례. 없으면 창의 입력칸(`Prompt::field`)이다.
+    #[serde(default)]
+    #[ts(optional, type = "number")]
+    pub option: Option<usize>,
 }
 
 async fn dismiss_wait(
@@ -83,20 +87,14 @@ async fn choose_wait(
     match chosen {
         Chosen::Sent => {}
         Chosen::PromptChanged => return Err(Refusal::PromptChanged(wait).into()),
-        Chosen::OnScreen => choose(&app.graph, &app.host, wait, &req)?,
+        Chosen::OnScreen => {
+            answer_dialog(&app.graph, &app.host, wait, &req.prompt, |now| {
+                now.options.get(req.option)?.key.picked()
+            })
+            .await?
+        }
     }
     Ok(Json(()))
-}
-
-fn choose(
-    graph: &Graph,
-    host: &NodeHost<NodeId>,
-    wait: WaitId,
-    req: &ChooseOption,
-) -> Result<(), Refusal> {
-    answer_dialog(graph, host, wait, &req.prompt, |now| {
-        now.options.get(req.option)?.key.bytes()
-    })
 }
 
 async fn type_wait(
@@ -104,39 +102,53 @@ async fn type_wait(
     Path(wait): Path<u32>,
     Json(req): Json<TypeText>,
 ) -> Result<Json<()>, Problem> {
-    type_text(&app.graph, &app.host, WaitId(wait), &req)?;
+    answer_dialog(
+        &app.graph,
+        &app.host,
+        WaitId(wait),
+        &req.prompt,
+        |now| match req.option {
+            Some(option) => now
+                .options
+                .get(option)
+                .filter(|o| o.writes)?
+                .key
+                .written(&req.text),
+            None => now.field.map(|_| entered(&req.text)),
+        },
+    )
+    .await?;
     Ok(Json(()))
 }
 
-fn type_text(
-    graph: &Graph,
-    host: &NodeHost<NodeId>,
-    wait: WaitId,
-    req: &TypeText,
-) -> Result<(), Refusal> {
-    answer_dialog(graph, host, wait, &req.prompt, |now| {
-        now.field.map(|_| entered(&req.text))
-    })
-}
+const KEY_GAP: Duration = Duration::from_millis(150);
 
-fn answer_dialog(
+async fn answer_dialog(
     graph: &Graph,
     host: &NodeHost<NodeId>,
     wait: WaitId,
     shown: &Prompt,
-    keys: impl FnOnce(&Prompt) -> Option<Vec<u8>>,
+    strokes: impl FnOnce(&Prompt) -> Option<Strokes>,
 ) -> Result<(), Refusal> {
     let (node, agent) = graph.dialog(wait)?;
     let profile = agent.as_ref().and_then(profile::profile_of);
+    let mut rest = Vec::new();
     host.write_if(node, |screen| {
         let now = screen.screen();
-        let keys = profile::prompt(profile, &now)
+        let mut strokes = profile::prompt(profile, &now)
             .filter(|now| now == shown)
-            .and_then(|now| keys(&now))
+            .and_then(|now| strokes(&now))
+            .filter(|s| !s.is_empty())
             .ok_or(Refusal::PromptChanged(wait))?;
         graph.dismiss(wait)?;
-        Ok(keys)
-    })
+        rest = strokes.split_off(1);
+        Ok::<_, Refusal>(strokes.remove(0))
+    })?;
+    for stroke in rest {
+        tokio::time::sleep(KEY_GAP).await;
+        host.write_if(node, |_| Ok::<_, Refusal>(stroke))?;
+    }
+    Ok(())
 }
 
 async fn list_docs() -> Result<Json<Vec<user_doc::DocRow>>, Problem> {

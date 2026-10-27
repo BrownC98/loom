@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
 
-export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (option: number) => void; onType: (text: string) => void }) {
+export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => void }) {
   const { prompt } = props;
   return (
     <>
@@ -19,7 +19,8 @@ export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (opti
           ))}
         </div>
       )}
-      {prompt.field && <FieldForm secret={prompt.field === 'secret'} busy={props.busy} onType={props.onType} />}
+      {prompt.options.map((o, index) => o.writes && <FieldForm key={index} secret={false} label={o.label} busy={props.busy} onType={(text) => props.onType(text, index)} />)}
+      {prompt.field && <FieldForm secret={prompt.field === 'secret'} busy={props.busy} onType={(text) => props.onType(text)} />}
     </>
   );
 }
@@ -35,15 +36,18 @@ export function keyLabel(key: PromptKey, index: number): string {
     case 'backTab':
       return '⇧tab';
     case 'move':
+    case 'tick':
     case 'permission':
       return String(index + 1);
+    case 'enter':
+      return '⏎';
   }
 }
 
-function FieldForm(props: { secret: boolean; busy: boolean; onType: (text: string) => void }) {
+function FieldForm(props: { secret: boolean; label?: string; busy: boolean; onType: (text: string) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
-  const label = t(props.secret ? 'inbox.secretLabel' : 'inbox.textLabel');
+  const label = props.label ?? t(props.secret ? 'inbox.secretLabel' : 'inbox.textLabel');
   return (
     <form
       className="answer"

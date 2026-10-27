@@ -90,8 +90,8 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
   call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);
 export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
   call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
-export const typeText = (wait: WaitId, prompt: Prompt, text: string) =>
-  call<null>('POST', `/api/waits/${wait}/type`, { prompt, text } satisfies TypeText);
+export const typeText = (wait: WaitId, prompt: Prompt, text: string, option?: number) =>
+  call<null>('POST', `/api/waits/${wait}/type`, { prompt, text, option } satisfies TypeText);
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;

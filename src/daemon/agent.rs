@@ -5,11 +5,11 @@ use futures_util::future::BoxFuture;
 use tokio::sync::watch;
 
 use super::idle::Wait;
-use super::relaunch::provider_of;
+use super::relaunch::profile_of;
 use super::{AgentError, App, for_agent};
 use crate::graph::{AgentEvent, IdleEnd, NodeId, WaitSource};
 use crate::profile::adapter::Port;
-use crate::profile::{self, BATCH_LIMIT_BYTES};
+use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
     TakeRequest, Taken,
@@ -216,12 +216,23 @@ impl App {
                 self.sessions.started(node, token);
                 self.graph.set_session(token, &session)
             }
-            Report::HumanWait(wait) => self.graph.set_wait(
-                token,
-                WaitSource::Agent,
-                wait.as_ref()
-                    .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
-            ),
+            Report::HumanWait(wait) => {
+                let on_screen = wait.as_ref().is_some_and(|(_, _, prompt)| prompt.is_none());
+                self.graph
+                    .set_wait(
+                        token,
+                        WaitSource::Agent,
+                        wait.as_ref()
+                            .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
+                    )
+                    .and_then(|()| match on_screen.then(|| self.profile(node)).flatten() {
+                        Some(profile) => {
+                            let prompt = profile::prompt(Some(profile), &self.host.screen(node));
+                            self.graph.screen_prompt(token, prompt)
+                        }
+                        None => Ok(()),
+                    })
+            }
             Report::Said { text, turn } => {
                 self.turn_ends.said(node, &text, turn.as_deref());
                 Ok(())
@@ -284,16 +295,16 @@ impl App {
     }
 
     fn provider(&self, node: NodeId) -> Option<crate::protocol::Provider> {
+        self.profile(node).and_then(Profile::provider)
+    }
+
+    fn profile(&self, node: NodeId) -> Option<Profile> {
         let nodes = self
             .graph
             .active()
-            .inspect_err(|e| eprintln!("loom: 노드 {}의 공급자를 읽지 못했다: {e}", node.0))
+            .inspect_err(|e| eprintln!("loom: 노드 {}의 프로필을 읽지 못했다: {e}", node.0))
             .ok()?;
-        nodes
-            .into_iter()
-            .find(|n| n.id == node)
-            .as_ref()
-            .and_then(provider_of)
+        nodes.iter().find(|n| n.id == node).and_then(profile_of)
     }
 }
 

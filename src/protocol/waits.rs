@@ -43,7 +43,7 @@ pub struct WaitDoc {
     pub title: String,
 }
 
-/// 터미널 창(승인, 폴더 신뢰, 로그인, 셸 입력)의 본문과 답하는 수단(`profile::prompt`). 화면은 선택지마다 버튼을, `field`가 있으면 입력칸을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::dialog`). 2026-10-24 목업 M20 v2 승인(Q889).
+/// 터미널 창(승인, 질문 상자, 폴더 신뢰, 로그인, 셸 입력)의 본문과 답하는 수단(`profile::prompt`). 화면은 선택지마다 버튼을, `field`가 있으면 입력칸을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::dialog`). 2026-10-24 목업 M20 v2 승인(Q889).
 /// 데몬은 보내기 직전 화면을 다시 읽어 같은 값일 때만 키를 친다. 그래서 다른 창에 키가 들어가지 않는다(2026-10-23 목업 M11 승인).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -76,6 +76,9 @@ pub enum InputField {
 pub struct PromptOption {
     pub label: String,
     pub key: PromptKey,
+    /// 글로 답하는 선택지(「Tell Claude what to change」, 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
+    #[serde(default)]
+    pub writes: bool,
 }
 
 /// 선택지를 고르는 키. `Char`·`Tab`·`BackTab`은 누르면 바로 정한다(실측: 숫자 키 하나, Enter 없음).
@@ -91,39 +94,53 @@ pub enum PromptKey {
     Reply(String),
     /// 번호 없는 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Enter. 아래가 양수다(숫자 키를 받지 않는 창이 있다).
     Move(i8),
+    /// 체크 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Space로 고르고 Enter(Cursor 2026.10.22 질문 상자 실측: Enter만으로는 보내지 않는다).
+    Tick(i8),
     /// 셸 물음: 이 글과 Enter.
     Line(String),
+    /// 선택지 없이 아무 키나 기다리는 창(「Press any key to log in」): Enter.
+    Enter,
 }
+
+pub type Strokes = Vec<Vec<u8>>;
+
+const ENTER: &[u8] = b"\r";
 
 impl PromptKey {
-    pub fn bytes(&self) -> Option<Vec<u8>> {
+    pub fn picked(&self) -> Option<Strokes> {
+        let tail: &[&[u8]] = match self {
+            PromptKey::Move(_) | PromptKey::Line(_) => &[ENTER],
+            PromptKey::Tick(_) => &[b" ", ENTER],
+            _ => &[],
+        };
+        Some([self.reached()?, tail.iter().map(|k| k.to_vec()).collect()].concat())
+    }
+
+    pub fn written(&self, text: &str) -> Option<Strokes> {
         match self {
-            PromptKey::Char(c) => Some(c.to_string().into_bytes()),
-            PromptKey::Tab => Some(b"\t".to_vec()),
-            PromptKey::BackTab => Some(b"\x1b[Z".to_vec()),
-            PromptKey::Reply(_) => None,
-            PromptKey::Move(rows) => {
+            PromptKey::Line(_) | PromptKey::Enter => None,
+            _ => Some([self.reached()?, entered(text)].concat()),
+        }
+    }
+
+    fn reached(&self) -> Option<Strokes> {
+        Some(match self {
+            PromptKey::Char(c) => vec![c.to_string().into_bytes()],
+            PromptKey::Tab => vec![b"\t".to_vec()],
+            PromptKey::BackTab => vec![b"\x1b[Z".to_vec()],
+            PromptKey::Reply(_) => return None,
+            PromptKey::Move(rows) | PromptKey::Tick(rows) => {
                 let arrow: &[u8] = if *rows < 0 { b"\x1b[A" } else { b"\x1b[B" };
-                let mut keys = arrow.repeat(rows.unsigned_abs().into());
-                keys.push(b'\r');
-                Some(keys)
+                vec![arrow.to_vec(); rows.unsigned_abs().into()]
             }
-            PromptKey::Line(text) => Some(entered(text)),
-        }
+            PromptKey::Line(text) => vec![text.clone().into_bytes()],
+            PromptKey::Enter => vec![ENTER.to_vec()],
+        })
     }
 }
 
-pub fn entered(text: &str) -> Vec<u8> {
-    format!("{text}\r").into_bytes()
-}
-
-impl WaitKind {
-    pub fn has_dialog(self) -> bool {
-        match self {
-            WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => true,
-            WaitKind::Question | WaitKind::Done => false,
-        }
-    }
+pub fn entered(text: &str) -> Strokes {
+    vec![text.as_bytes().to_vec(), ENTER.to_vec()]
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]

@@ -435,10 +435,18 @@ impl App {
                 changed = false;
                 let now = app.host.screen(id);
                 let found = profile::wait(profile, &now, *started.borrow_and_update());
-                let wait = found
-                    .as_ref()
-                    .map(|(kind, text)| (*kind, text.as_str(), profile::prompt(profile, &now)));
-                if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
+                let prompt = profile::prompt(profile, &now);
+                let written = match &found {
+                    Some((kind, text)) => {
+                        app.graph
+                            .set_wait(&token, WaitSource::Screen, Some((*kind, text, prompt)))
+                    }
+                    None => app
+                        .graph
+                        .set_wait(&token, WaitSource::Screen, None)
+                        .and_then(|()| app.graph.screen_prompt(&token, prompt)),
+                };
+                if let Err(e) = written {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {

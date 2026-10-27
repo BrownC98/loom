@@ -4,4 +4,8 @@ import type { Prompt } from "./Prompt";
 /**
  * 사람이 알림의 입력칸에 쓴 글. 데몬은 `prompt`가 지금 화면과 같을 때만 그 글과 Enter를 치고, 글을 저장하거나 로그에 쓰지 않는다.
  */
-export type TypeText = { prompt: Prompt, text: string, };
+export type TypeText = { prompt: Prompt, text: string, 
+/**
+ * 글로 답하는 선택지(`PromptOption::writes`)의 차례. 없으면 창의 입력칸(`Prompt::field`)이다.
+ */
+option?: number, };

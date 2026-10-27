@@ -43,7 +43,7 @@ pub struct HumanWait {
     /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
-    /// 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
+    /// 신호(훅·서버·화면)의 대기만: 지금 터미널 화면에서 읽은 창이나 서버가 준 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
@@ -122,6 +122,8 @@ pub(super) struct Stored {
     #[serde(flatten)]
     pub wait: HumanWait,
     pub source: WaitSource,
+    #[serde(default)]
+    pub reads_screen: bool,
 }
 
 const TEXT_LIMIT_CHARS: usize = 200;
@@ -146,7 +148,6 @@ impl Graph {
         let next = match wait {
             Some((kind, text, prompt)) => {
                 let text = one_line(text);
-                let prompt = prompt.filter(|_| kind.has_dialog());
                 match now {
                     Some(now) if now.wait.kind == kind && now.wait.text == text => {
                         if now.wait.prompt == prompt || (prompt.is_none() && source != now.source) {
@@ -157,7 +158,7 @@ impl Graph {
                             id,
                             Some(&Stored {
                                 wait: HumanWait { prompt, ..now.wait },
-                                source: now.source,
+                                ..now
                             }),
                         )?;
                         tx.commit()?;
@@ -167,6 +168,7 @@ impl Graph {
                     Some(_) | None => {}
                 }
                 Some(Stored {
+                    reads_screen: source == WaitSource::Screen || prompt.is_none(),
                     wait: HumanWait {
                         prompt,
                         ..new_wait(&tx, kind, text, false, None)?
@@ -183,6 +185,31 @@ impl Graph {
             None => AgentEvent::DialogCleared,
         };
         agent_state::apply(&tx, id, event)?;
+        tx.commit()?;
+        self.publish_nodes();
+        Ok(())
+    }
+
+    pub fn screen_prompt(&self, token: &str, prompt: Option<Prompt>) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let Some(id) = super::nodes::caller_in(&tx, token)? else {
+            return Ok(());
+        };
+        let Some(Some(now)) = stored(&tx, id)? else {
+            return Ok(());
+        };
+        if now.source == WaitSource::Screen || !now.reads_screen || now.wait.prompt == prompt {
+            return Ok(());
+        }
+        put(
+            &tx,
+            id,
+            Some(&Stored {
+                wait: HumanWait { prompt, ..now.wait },
+                ..now
+            }),
+        )?;
         tx.commit()?;
         self.publish_nodes();
         Ok(())
@@ -451,9 +478,7 @@ impl Graph {
             )
             .optional()?;
         match found {
-            Some((node, agent, stored)) if stored.wait.kind.has_dialog() => {
-                Ok((NodeId(node), agent))
-            }
+            Some((node, agent, _)) => Ok((NodeId(node), agent)),
             _ => Err(Refusal::NoWait(wait)),
         }
     }

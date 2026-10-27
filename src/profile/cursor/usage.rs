@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::Stdio;
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
@@ -9,13 +8,15 @@ use super::Cursor;
 use crate::accounts::{AccountId, Site};
 use crate::profile::adapter::Meter;
 use crate::usage::{
-    Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent, run_failed,
+    Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent,
 };
 
 const ORIGIN: &str = "https://cursor.com";
 const USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const AUTH_FILE: &str = ".config/cursor/auth.json";
 const COMMAND: &str = "cursor-agent";
+const STATUS_ARGS: &[&str] = &["status", "--format", "json"];
+const STATUS: &str = "cursor-agent status";
 const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -31,19 +32,15 @@ impl Meter for Cursor {
     }
 
     fn read(&self, site: &Site, _: Option<&AccountId>) -> Usage {
-        let Some(mut status) = site.installed_command(COMMAND, &["status", "--format", "json"])
-        else {
+        let Some(status) = site.installed_command(COMMAND, STATUS_ARGS) else {
             return Usage::failed(UsageProblem::NotInstalled(COMMAND.into()));
         };
-        let email = match status.stdin(Stdio::null()).stderr(Stdio::null()).output() {
-            Ok(out) if !out.status.success() => None,
-            Ok(out) => match serde_json::from_slice::<Status>(&out.stdout) {
-                Ok(status) => status.user_info.and_then(|u| u.email),
-                Err(_) => {
-                    return Usage::failed(UsageProblem::CliFormat("cursor-agent status".into()));
-                }
-            },
-            Err(e) => return Usage::failed(run_failed(COMMAND, &e)),
+        let Some(out) = crate::timed::output(status, PROBE_TIMEOUT) else {
+            return Usage::failed(UsageProblem::NoReply(STATUS.into()));
+        };
+        let email = match serde_json::from_slice::<Status>(&out) {
+            Ok(status) => status.user_info.and_then(|u| u.email),
+            Err(_) => return Usage::failed(UsageProblem::CliFormat(STATUS.into())),
         };
         let token = site
             .home_file(AUTH_FILE)

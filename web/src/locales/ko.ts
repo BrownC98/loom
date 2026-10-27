@@ -629,7 +629,6 @@ const ko: typeof en = {
       noRepo: '저장소가 목록에 없습니다. 저장소를 다시 추가하십시오.',
       emptyQuestion: '질문을 한 줄로 적으십시오.',
       noAsked: '부모가 없는 노드는 사람의 지시를 --asked로 함께 적어 완료를 알립니다.',
-      spentChildren: '{{children}}: 일을 끝내고 프로세스가 끝난 자식입니다. 결과를 저장하고 `loom rm`으로 지우거나, `loom done --keep <이름>=<이유>`로 남기십시오. 지운 자식의 자식은 이 노드의 자식이 됩니다.',
       notAsk: '메시지 #{{value}}는 이 노드가 받은 질문이 아닙니다. loom answer는 질문에만 답합니다.',
       docHasParent: '부모가 있는 노드입니다. 부모는 경로를 읽습니다. 파일 경로를 부모에게 보내십시오. 문서는 사람이 띄운 노드만 붙입니다.',
       badRoleSetting: '역할 설정 값이 맞지 않습니다: {{value}}',

@@ -79,11 +79,6 @@ pub enum Refusal {
     EmptyQuestion,
     /// 사람이 띄운 노드가 `--asked`(사람의 지시) 없이 `loom done`을 불렀다. 받은편지함 완료 줄에 지시가 보여야 한다.
     NoAsked,
-    /// `loom done`을 부른 노드에게 일을 끝내고 프로세스가 끝난 자식이 있다. 관문 차례가 열린 브랜치의 담당·검토자, 사람이 띄운 노드(역할 없음), `--keep`으로 남긴 자식은 빠진다. `inherited`는 그 자식을 지우면 부르는 노드가 데려오는 손자다.
-    SpentChildren {
-        children: Vec<String>,
-        inherited: Vec<String>,
-    },
     /// `loom answer`의 메시지가 나에게 온 `loom ask`가 아니다. 값은 메시지 번호다.
     NotAsk(u32),
     /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
@@ -277,27 +272,6 @@ impl fmt::Display for Refusal {
                 f,
                 "You have no parent, so the human reads this report in the inbox. Tell what the human asked: `loom done \"<what you did>\" --asked \"<the human's instruction>\" [--image <path>]...`."
             ),
-            Refusal::SpentChildren {
-                children,
-                inherited,
-            } => {
-                write!(
-                    f,
-                    "These children finished and their processes ended: {}. Save the results that you need from each. Then remove it with `loom rm <name>`, and remove its unmerged worktree with `git worktree remove <path>`.",
-                    children.join(", ")
-                )?;
-                if !inherited.is_empty() {
-                    write!(
-                        f,
-                        " `loom rm` makes their children your children: {}. Clean them up too.",
-                        inherited.join(", ")
-                    )?;
-                }
-                write!(
-                    f,
-                    " To keep a child on purpose, add `--keep <name>=<reason>` to `loom done`. Your report shows the reason."
-                )
-            }
             Refusal::NotAsk(id) => write!(
                 f,
                 "Message #{id} is not a loom ask that you received. `loom answer` answers only those. Use `loom note <target> <body>` for other messages."

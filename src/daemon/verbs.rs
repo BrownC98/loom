@@ -339,9 +339,17 @@ pub(super) async fn agent_done(
             Some(&via),
         )
     });
-    let done = done.map(|()| Reported {
-        warning: warning.clone(),
-    });
+    let done = match done {
+        Ok(()) => {
+            let swept = app.sweep(node, &req.keep).await;
+            Ok(Reported {
+                warning: warning.clone(),
+                removed: swept.removed,
+                kept: swept.kept,
+            })
+        }
+        Err(refused) => Err(refused),
+    };
     let what = MessageKind::Done {
         file: req.file.clone(),
         warning,

@@ -24,7 +24,9 @@ use crate::usage::{self, Usage};
 use crate::worktree::{self, RepoProblem};
 use crate::wsl::{self, Inside};
 
-const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
+const PROVIDERS: [Provider; 2] = match Provider::Claude {
+    Provider::Claude | Provider::Codex => [Provider::Claude, Provider::Codex],
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]

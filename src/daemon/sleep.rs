@@ -211,7 +211,7 @@ impl App {
 
     pub(super) fn turn_stopped(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<()> {
         self.graph.attempted(id, Attempt::Deaf)?;
-        if self.graph.unread_mail(id)? {
+        if self.graph.waking_mail(id)? {
             self.recover(id);
         }
         Ok(())

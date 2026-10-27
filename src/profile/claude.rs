@@ -83,7 +83,6 @@ impl Adapter for Claude {
             logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
-            listens_after_stop: true,
             turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,

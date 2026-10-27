@@ -95,7 +95,6 @@ impl super::adapter::Adapter for Codex {
             logins: Logins::Many(&CLI, &Codex),
             sleeps: true,
             listens_at_start: true,
-            listens_after_stop: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: Some(CMD),

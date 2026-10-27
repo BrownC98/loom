@@ -4,4 +4,4 @@ import type { IdleEnd } from "./IdleEnd";
 /**
  * 에이전트 경로가 보내는 공통 사건.
  */
-export type AgentEvent = { "kind": "turnStarted" } | { "kind": "turnEnded" } | { "kind": "turnEndedWaitOpened" } | { "kind": "waitOpened" } | { "kind": "waitClosed", by: IdleEnd, } | { "kind": "dialog" } | { "kind": "dialogCleared" } | { "kind": "busy" } | { "kind": "idle" } | { "kind": "lost" } | { "kind": "inputSent" } | { "kind": "relaunchStarted" } | { "kind": "relaunched" } | { "kind": "slept" } | { "kind": "exited" } | { "kind": "versionMismatch" };
+export type AgentEvent = { "kind": "turnStarted" } | { "kind": "turnEnded" } | { "kind": "turnInterrupted" } | { "kind": "turnEndedWaitOpened" } | { "kind": "waitOpened" } | { "kind": "waitClosed", by: IdleEnd, } | { "kind": "dialog" } | { "kind": "dialogCleared" } | { "kind": "busy" } | { "kind": "idle" } | { "kind": "lost" } | { "kind": "inputSent" } | { "kind": "relaunchStarted" } | { "kind": "relaunched" } | { "kind": "slept" } | { "kind": "exited" } | { "kind": "versionMismatch" };

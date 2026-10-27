@@ -55,7 +55,6 @@ impl Adapter for Omp {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
-            listens_after_stop: true,
             turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,

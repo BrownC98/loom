@@ -21,6 +21,8 @@ pub enum AgentState {
     Listening,
     /// 턴이 끝났는데 메시지를 받을 길이 없다.
     Deaf,
+    /// 사람이 턴을 끊었다. 에이전트가 다음 알림이나 사람 입력 때 스스로 메시지를 받을 길을 연다. 데몬은 살리지 않는다.
+    Interrupted,
     Turn,
     /// 노드 쪽 연결의 판이 데몬과 맞지 않는다.
     Mismatch,
@@ -35,6 +37,8 @@ pub enum AgentEvent {
     TurnStarted,
     /// 옛 판의 훅이 턴 끝을 따로 알렸다. 쉬는 대기는 따로 `WaitOpened`로 온다. 훅이 닿지 않은 턴 끝의 증거(기록 파일과 화면)도 이 사건이다.
     TurnEnded,
+    /// 사람이 끊은 턴이 화면에 보였고, 그 화면 뒤로 턴 사건이 오지 않았다.
+    TurnInterrupted,
     /// 훅이 한 요청으로 턴 끝을 알리고 쉬는 대기를 열었다.
     TurnEndedWaitOpened,
     WaitOpened,
@@ -63,12 +67,15 @@ pub enum AgentEvent {
 
 impl AgentState {
     pub fn busy(&self) -> bool {
-        !matches!(self, Self::Listening | Self::Deaf | Self::Blocked { .. })
+        !matches!(
+            self,
+            Self::Listening | Self::Deaf | Self::Interrupted | Self::Blocked { .. }
+        )
     }
 
     pub fn cut(&self) -> bool {
         match self {
-            Self::Listening => false,
+            Self::Listening | Self::Interrupted => false,
             Self::Blocked { before } => before.cut(),
             Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
         }
@@ -104,10 +111,28 @@ impl AgentState {
             (S::Listening, E::WaitClosed { .. }) => S::Deaf,
             (state, E::WaitClosed { .. }) => state,
             (S::Starting | S::Turn, E::TurnEnded) => S::Deaf,
-            (state, E::TurnEnded) => state,
+            (S::Turn, E::TurnInterrupted) => S::Interrupted,
+            (state, E::TurnEnded | E::TurnInterrupted) => state,
         })
     }
 }
+
+impl AgentEvent {
+    fn shows_turn(&self) -> bool {
+        matches!(
+            self,
+            Self::TurnStarted
+                | Self::Busy
+                | Self::InputSent
+                | Self::WaitClosed {
+                    by: IdleEnd::Mail | IdleEnd::Turn { .. }
+                }
+        )
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TurnGen(i64);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentChange {
@@ -164,6 +189,12 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
             [node.0],
         )?;
     }
+    if replaced || event.shows_turn() {
+        db.execute(
+            "UPDATE nodes SET turn_gen = turn_gen + 1 WHERE id = ?1",
+            [node.0],
+        )?;
+    }
     if to == now {
         return Ok(moved);
     }
@@ -185,7 +216,7 @@ fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Res
     use AgentEvent as E;
     match event {
         E::TurnStarted | E::Busy | E::Idle => mailbox::read(db, node),
-        E::TurnEnded | E::TurnEndedWaitOpened => {
+        E::TurnEnded | E::TurnInterrupted | E::TurnEndedWaitOpened => {
             Ok(mailbox::read(db, node)? + mailbox::requeue_unprinted(db, node)?)
         }
         E::WaitOpened
@@ -222,4 +253,32 @@ impl Graph {
     pub fn agent_state(&self, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
         state_of(&self.lock(), node)
     }
+
+    pub fn turn_gen(&self, node: NodeId) -> rusqlite::Result<Option<TurnGen>> {
+        turn_gen(&self.lock(), node)
+    }
+
+    pub fn turn_interrupted(&self, node: NodeId, seen: TurnGen) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        if turn_gen(&tx, node)? != Some(seen) || state_of(&tx, node)? != Some(AgentState::Turn) {
+            return Ok(false);
+        }
+        let moved = apply(&tx, node, AgentEvent::TurnInterrupted)?;
+        tx.commit()?;
+        if moved > 0 {
+            self.publish_nodes();
+            self.mail.notify_waiters();
+        }
+        Ok(true)
+    }
+}
+
+fn turn_gen(db: &Connection, node: NodeId) -> rusqlite::Result<Option<TurnGen>> {
+    db.query_row(
+        "SELECT turn_gen FROM nodes WHERE id = ?1",
+        [node.0],
+        |row| row.get(0).map(TurnGen),
+    )
+    .optional()
 }

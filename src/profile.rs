@@ -230,10 +230,6 @@ impl Profile {
     pub fn listens_at_start(self) -> bool {
         adapter(self).facts().listens_at_start
     }
-
-    pub fn listens_after_stop(self) -> bool {
-        adapter(self).facts().listens_after_stop
-    }
 }
 
 #[derive(Deserialize)]

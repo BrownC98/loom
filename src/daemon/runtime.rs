@@ -1,10 +1,10 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::Distro;
-use crate::graph::{Active, AgentState, Entry};
+use crate::graph::{Active, Entry};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
-use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER, Report};
+use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
@@ -413,11 +413,18 @@ impl App {
         tokio::spawn(async move {
             let mut output = attached.output;
             let mut changed = true;
+            let mut seen = None;
+            let turn_gen = || {
+                app.graph.turn_gen(id).unwrap_or_else(|e| {
+                    eprintln!("loom: 노드 {}의 턴 차례를 읽지 못했다: {e}", id.0);
+                    None
+                })
+            };
             loop {
                 if !changed {
                     tokio::select! {
                         received = output.recv() => match received {
-                            Ok(_) | Err(RecvError::Lagged(_)) => {}
+                            Ok(_) | Err(RecvError::Lagged(_)) => seen = turn_gen(),
                             Err(RecvError::Closed) => return,
                         },
                         sent = started.changed() => if sent.is_err() {
@@ -427,7 +434,7 @@ impl App {
                 }
                 loop {
                     match tokio::time::timeout(SCREEN_QUIET, output.recv()).await {
-                        Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
+                        Ok(Ok(_) | Err(RecvError::Lagged(_))) => seen = turn_gen(),
                         Ok(Err(RecvError::Closed)) => return,
                         Err(_) => break,
                     }
@@ -450,11 +457,11 @@ impl App {
                 if let Err(e) = written {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                if !asked
-                    && profile::turn_stopped(profile, &now)
-                    && app.agent_state(id) == Some(AgentState::Turn)
+                if let Some(seen) = seen
+                    .take()
+                    .filter(|_| !asked && profile::turn_stopped(profile, &now))
                 {
-                    app.report(id, &token, Report::TurnStopped { turn: None });
+                    app.turn_interrupted(id, seen);
                 }
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);

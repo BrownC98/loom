@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use super::idle::Wait;
 use super::relaunch::profile_of;
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, WaitSource};
+use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, TurnGen, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
@@ -253,10 +253,7 @@ impl App {
                 self.feed(node, AgentEvent::TurnEnded);
                 self.run_at_turn_end(node, None);
                 self.turn_ends.stopped(node, turn.as_deref());
-                match self.profile(node).is_some_and(Profile::listens_after_stop) {
-                    true => Ok(()),
-                    false => self.turn_stopped(node),
-                }
+                self.turn_stopped(node)
             }
             Report::Busy => {
                 self.feed(node, AgentEvent::Busy);
@@ -277,6 +274,16 @@ impl App {
         };
         if let Err(e) = written {
             eprintln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);
+        }
+    }
+
+    pub(super) fn turn_interrupted(self: &Arc<Self>, node: NodeId, seen: TurnGen) {
+        match self.graph.turn_interrupted(node, seen) {
+            Ok(true) => {
+                self.run_unless_busy(node);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("loom: 노드 {}의 끊긴 턴을 쓰지 못했다: {e}", node.0),
         }
     }
 

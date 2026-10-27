@@ -202,7 +202,6 @@ impl Adapter for Cursor {
             logins: Logins::One(&Cursor),
             sleeps: true,
             listens_at_start: false,
-            listens_after_stop: false,
             turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::EffortNeedsModel,
             pinned: None,

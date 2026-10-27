@@ -520,7 +520,7 @@ pub(super) fn oldest_at(db: &Connection) -> rusqlite::Result<Option<i64>> {
 
 pub(super) fn sent_since(db: &Connection, since: i64) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!(
-        "{RECORD_COLUMNS} WHERE e.at >= ?1 AND e.entry ->> 'kind' = 'message' AND e.entry ->> 'step' = 'sent' ORDER BY e.id"
+        "{RECORD_COLUMNS} WHERE e.at >= ?1 AND CASE WHEN json_valid(e.entry) THEN e.entry ->> 'kind' = 'message' AND e.entry ->> 'step' = 'sent' END ORDER BY e.id"
     ))?
     .query_map([since], record_from_row)?
     .collect()
@@ -536,7 +536,7 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
 pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     let records = db
         .prepare(&format!(
-            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
+            "{RECORD_COLUMNS} WHERE CASE WHEN json_valid(e.entry) THEN e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') END ORDER BY e.id DESC LIMIT ?1"
         ))?
         .query_map([RECENT], record_from_row)?
         .collect::<rusqlite::Result<_>>()?;
@@ -547,9 +547,11 @@ pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
 }
 
 pub(super) fn after(db: &Connection, after: u32) -> rusqlite::Result<Vec<EventRecord>> {
-    db.prepare(&format!("{RECORD_COLUMNS} WHERE e.id > ?1 ORDER BY e.id"))?
-        .query_map([after], record_from_row)?
-        .collect()
+    db.prepare(&format!(
+        "{RECORD_COLUMNS} WHERE e.id > ?1 AND json_valid(e.entry) ORDER BY e.id"
+    ))?
+    .query_map([after], record_from_row)?
+    .collect()
 }
 
 pub(super) fn last_id(db: &Connection) -> rusqlite::Result<u32> {

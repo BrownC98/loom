@@ -92,10 +92,48 @@ fn ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-fn names_module(line: &str, id: &str) -> bool {
-    let path = format!("profile::{id}");
-    line.match_indices(&path)
-        .any(|(at, _)| !line[at + path.len()..].starts_with(ident) && !line[..at].ends_with(ident))
+fn leading_ident(text: &str) -> &str {
+    &text[..text.find(|c| !ident(c)).unwrap_or(text.len())]
+}
+
+fn profile_children(source: &str) -> Vec<(usize, &str)> {
+    let mut found = Vec::new();
+    for (at, path) in source.match_indices("profile::") {
+        if source[..at].ends_with(ident) {
+            continue;
+        }
+        let start = at + path.len();
+        let rest = &source[start..];
+        if !rest.starts_with('{') {
+            found.push((start, leading_ident(rest)));
+            continue;
+        }
+        let mut depth = 0;
+        let mut item = false;
+        for (i, c) in rest.char_indices() {
+            match c {
+                '{' => {
+                    depth += 1;
+                    item = depth == 1;
+                }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                ',' => item = depth == 1,
+                c if c.is_whitespace() => {}
+                c => {
+                    if item && ident(c) {
+                        found.push((start + i, leading_ident(&rest[i..])));
+                    }
+                    item = false;
+                }
+            }
+        }
+    }
+    found
 }
 
 fn hits(line: &str, agents: &[Agent]) -> Vec<String> {
@@ -111,9 +149,6 @@ fn hits(line: &str, agents: &[Agent]) -> Vec<String> {
         }
         if line.contains(&format!("\"{}\"", agent.id)) {
             found.push(format!("the agent id \"{}\"", agent.id));
-        }
-        if names_module(line, &agent.id) {
-            found.push(format!("the module `profile::{}`", agent.id));
         }
     }
     found
@@ -152,6 +187,16 @@ pub fn problems(repo: &Path) -> Vec<String> {
             }
             for hit in hits(text, &agents) {
                 problems.push(format!("{name}:{}: `{text}` has {hit}", row + 1));
+            }
+        }
+        for (at, child) in profile_children(&source) {
+            if agents.iter().any(|a| a.id == child) {
+                let row = source[..at].matches('\n').count();
+                let text = source.lines().nth(row).unwrap_or_default().trim();
+                problems.push(format!(
+                    "{name}:{}: `{text}` has the module `profile::{child}`",
+                    row + 1
+                ));
             }
         }
     }

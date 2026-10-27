@@ -4,7 +4,7 @@ use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::ModelRule;
-use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record};
+use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record, TurnTake};
 use crate::protocol::{ModelChoice, Session};
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
@@ -55,6 +55,7 @@ impl Adapter for Omp {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/omp",

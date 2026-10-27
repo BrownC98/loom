@@ -22,11 +22,18 @@ pub struct Facts {
     pub logins: Logins,
     pub sleeps: bool,
     pub listens_at_start: bool,
+    pub turn_take: TurnTake,
     pub model_rule: ModelRule,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
     pub waiting: &'static str,
     pub helper_shells: &'static [&'static str],
+}
+
+#[derive(Clone, Copy)]
+pub enum TurnTake {
+    StaysInTurn,
+    CanOpenTurn,
 }
 
 pub enum Logins {

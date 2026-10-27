@@ -7,8 +7,8 @@ use tokio::sync::watch;
 use super::idle::Wait;
 use super::relaunch::profile_of;
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, IdleEnd, NodeId, Phase, WaitSource};
-use crate::profile::adapter::Port;
+use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, WaitSource};
+use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
@@ -26,7 +26,9 @@ impl App {
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
-        let messages = self.graph.take(node, &req.kinds, req.limit_bytes)?;
+        let messages =
+            self.graph
+                .take(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
         let note = match req.human_input {
             true => self.human_input(node, req.prompt.as_deref())?,
             false => None,
@@ -34,18 +36,36 @@ impl App {
         Ok(Taken { messages, note })
     }
 
-    pub(super) async fn next_mail(
+    pub(super) async fn take_in_turn(
         &self,
         node: NodeId,
         kinds: &[Kind],
-        held_by: &[Phase],
+    ) -> Result<Vec<Delivery>, Refusal> {
+        self.next_mail(node, kinds, self.hold_in_turn(node)).await
+    }
+
+    fn hold_in_turn(&self, node: NodeId) -> Hold {
+        match self
+            .profile(node)
+            .map(|p| profile::adapter(p).facts().turn_take)
+        {
+            Some(TurnTake::CanOpenTurn) => Hold::StartedOrAtTurnEnd,
+            Some(TurnTake::StaysInTurn) | None => Hold::Started,
+        }
+    }
+
+    async fn next_mail(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
         loop {
             let mut changed = pin!(self.graph.mail_changed());
             changed.as_mut().enable();
             let taken = self
                 .graph
-                .take_waking(node, kinds, BATCH_LIMIT_BYTES, held_by)?;
+                .take_waking(node, kinds, BATCH_LIMIT_BYTES, hold)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -173,7 +193,7 @@ impl App {
             }
         }
         tokio::select! {
-            taken = self.next_mail(node, Kind::ALL, &Phase::STARTED) => match taken {
+            taken = self.next_mail(node, Kind::ALL, Hold::Started) => match taken {
                 Ok(taken) => {
                     wait.hand_mail();
                     Ok(IdleReply::Mail(taken))
@@ -387,7 +407,7 @@ impl Port for AgentPort {
         Box::pin(async move {
             let node = self.bound().await;
             tokio::select! {
-                taken = self.app.next_mail(node, kinds, &Phase::ALL) => taken,
+                taken = self.app.take_in_turn(node, kinds) => taken,
                 () = self.until_ended() => std::future::pending().await,
             }
         })

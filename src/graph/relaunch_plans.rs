@@ -14,16 +14,30 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub const STARTED: [Phase; 3] = [Phase::Running, Phase::Stopping, Phase::Stopped];
-    pub const ALL: [Phase; 4] = [
-        Phase::AtTurnEnd,
-        Phase::Running,
-        Phase::Stopping,
-        Phase::Stopped,
-    ];
+    const STARTED: [Phase; 3] = [Phase::Running, Phase::Stopping, Phase::Stopped];
 
     pub fn started(self) -> bool {
         Self::STARTED.contains(&self)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Hold {
+    Started,
+    StartedOrAtTurnEnd,
+}
+
+impl Hold {
+    pub(super) fn phases(self) -> &'static [Phase] {
+        match self {
+            Hold::Started => &Phase::STARTED,
+            Hold::StartedOrAtTurnEnd => &[
+                Phase::AtTurnEnd,
+                Phase::Running,
+                Phase::Stopping,
+                Phase::Stopped,
+            ],
+        }
     }
 }
 

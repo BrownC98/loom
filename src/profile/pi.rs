@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, Logins, Record};
+use super::adapter::{Adapter, Command, Facts, Logins, Record, TurnTake};
 use super::{Handed, HookEvent, ModelRule, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, MessageId, Model, ModelChoice, Report, Session};
 use crate::screen::{Dialog, Grammar};
@@ -37,6 +37,7 @@ impl Adapter for Pi {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/pi",

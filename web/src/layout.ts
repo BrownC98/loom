@@ -319,7 +319,20 @@ function aheadGap(parent: Box, child: Box, direction: ArrangeDirection): number 
 export function stepAt(parent: Box, child: Box, direction: ArrangeDirection, bend: number): number | null {
   const gap = aheadGap(parent, child, direction);
   if (gap < 0) return null;
-  return gap >= 2 * bend ? bend / gap : 0.5;
+  return Math.min(bend, gap / 2);
+}
+
+export function bendCenter(parent: Box, bend: number, direction: ArrangeDirection): { x?: number; y?: number } {
+  switch (direction) {
+    case 'down':
+      return { y: parent.at.y + parent.size.height + bend };
+    case 'up':
+      return { y: parent.at.y - bend };
+    case 'right':
+      return { x: parent.at.x + parent.size.width + bend };
+    case 'left':
+      return { x: parent.at.x - bend };
+  }
 }
 
 export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {

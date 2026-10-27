@@ -19,9 +19,10 @@ import type { WslPlace } from './gen/WslPlace';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
+import { BendEdge } from './BendEdge';
 import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
 import { hopColor, hopParts, siblingLanes, type HopEndName, type HopPair } from './hopLanes';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { arrangeNested, bendCenter, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
 import { PlaceTag, shownPath } from './place';
@@ -41,14 +42,14 @@ const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .rea
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 const REPO_Z = -1;
 const RAISED_EDGE_Z = 1;
-const EDGE_TYPES = { hop: HopEdge };
-const arrowHead = (color: string): EdgeMarker => ({ type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' });
+const EDGE_TYPES = { hop: HopEdge, bend: BendEdge };
+const ARROW = 12;
+const arrowHead = (color: string): EdgeMarker => ({ type: MarkerType.ArrowClosed, color, width: ARROW, height: ARROW, markerUnits: 'userSpaceOnUse' });
 const DRAGGING_Z = 2000;
 const EMPTY_GROUP: Size = { width: 320, height: 100 };
 const CARD_X = 20;
 const CARD_TOP = 60;
-const STEP_BEND = CARD_X + GROUP_GAP / 2;
-const CURVE_BEND = 0.5;
+const STEP_BEND = ARROW;
 const CARD_SIZE: Record<CardView, Size> = {
   standard: { width: 600, height: 466 },
   simple: { width: 260, height: 134 },
@@ -928,7 +929,7 @@ export function Graph(props: {
         target: String(view.id),
         sourceHandle: sides.parent,
         targetHandle: sides.child,
-        ...(step === null ? {} : { type: 'smoothstep', pathOptions: { offset: 0, stepPosition: step } }),
+        ...(step === null || !boxes ? {} : { type: 'bend', data: { center: bendCenter(boxes[0], step, direction) } }),
         markerStart: arrow('parent'),
         markerEnd: arrow('child'),
         style: paint,
@@ -975,7 +976,7 @@ export function Graph(props: {
     const target = boxOf(hop.target);
     const up = parent === null ? null : boxOf(parent);
     if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target || !up) continue;
-    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box), bend: stepOf(up, box) ?? CURVE_BEND });
+    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box), bend: stepOf(up, box) });
     siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop, turnedLabels)), short: hopLabelSize(hopShort(hop, turnedLabels)) } }]);
   }
   const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {

@@ -78,7 +78,9 @@ pub fn interop_path(linux: &Path) -> std::io::Result<String> {
             String::from_utf8_lossy(&out.stderr).into_owned(),
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_owned())
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .trim_end_matches('\n')
+        .to_owned())
 }
 
 fn daemon_path(distro: &str, linux: &str) -> String {

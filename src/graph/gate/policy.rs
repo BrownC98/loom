@@ -132,10 +132,10 @@ pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
         let names = held.reviewers.join(", ");
         lines.push(match to {
             Receiver::Owner => format!(
-                "Next: do not commit to this branch. loom holds it until {names} judge it, or the gate removes them with `loom rm`."
+                "Next: do not commit to this branch. loom holds it until {names} judge it. If a reviewer stopped, the gate relaunches it with `loom relaunch <name>`, or removes it with `loom rm <name>` and you call `loom ready {branch}` again to spawn a new one."
             ),
             Receiver::Gate | Receiver::Root => format!(
-                "Next: loom holds the branch until {names} judge it, or you remove them with `loom rm <name>`."
+                "Next: loom holds the branch until {names} judge it. If a reviewer stopped, relaunch it with `loom relaunch <name>`, or remove it with `loom rm <name>` and have the owner call `loom ready {branch}` again to spawn a new one."
             ),
         });
     }

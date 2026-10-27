@@ -458,10 +458,16 @@ impl Batch<'_> {
                         eprintln!("loom: merge queue deploy {merged}: {e}");
                         None
                     });
-                let line = format!(
-                    "deploy: {} checks it apart; the root gets a message only if it fails",
-                    protocol::SHIP_SCRIPT
-                );
+                let line = match deploy {
+                    Some(_) => format!(
+                        "deploy: {} checks it apart; the root gets a message only if it fails",
+                        protocol::SHIP_SCRIPT
+                    ),
+                    None => format!(
+                        "deploy: loom did not start {} (see the daemon log); check the deploy by hand",
+                        protocol::SHIP_SCRIPT
+                    ),
+                };
                 let settled = self
                     .merged(members, base, tip, Some(line), &Dest::Base)
                     .await;

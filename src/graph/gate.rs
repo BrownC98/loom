@@ -8,9 +8,10 @@ use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, t
 use crate::protocol::{
     self, AgentId, Finding, GateState, GateVerb, Judgment, Kind, MessageKind, Refusal,
 };
+use crate::roles::REVIEWER_ROLES;
 use crate::task;
 use crate::worktree::RepoId;
-use policy::{GateCall, MergeEnd, Peer, Receiver, Sender, Target};
+use policy::{GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
 
@@ -898,7 +899,7 @@ impl Graph {
         if let Some(what) = step.message(branch, &row, reviewer) {
             let held = match call {
                 GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, repo, branch)?,
-                _ => Vec::new(),
+                _ => Held::default(),
             };
             let target = row.target_kind();
             for receiver in policy::receivers(call, target) {
@@ -917,7 +918,7 @@ impl Graph {
                 let mut body = lines.clone();
                 body.push(match held.is_empty() {
                     true => policy::next_step(call, *receiver, target, branch, &row.head),
-                    false => policy::held_step(*receiver, &held),
+                    false => policy::held_step(*receiver, branch, &held),
                 });
                 post(
                     &tx,
@@ -1181,23 +1182,51 @@ fn pending(
     row: &Row,
     repo: RepoId,
     branch: &str,
-) -> rusqlite::Result<Vec<String>> {
-    tx.prepare(&format!(
-        "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4 ORDER BY n.id",
-        in_round("?1", "?2", "?3"),
-        voted("?5", "?3")
-    ))?
-    .query_map(
-        params![
-            row.gate.0,
-            row.owner.0,
-            branch,
-            caller.node().map_or(0, |n| n.0),
-            repo.0
-        ],
-        |r| r.get(0),
-    )?
-    .collect()
+) -> rusqlite::Result<Held> {
+    let base = row.target_kind() == Target::Base;
+    let reviewers = tx
+        .prepare(&format!(
+            "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
+             AND ({REACHABLE} OR (?6 AND n.role IN ({}))) ORDER BY n.id",
+            of_round("?1", "?2", "?3"),
+            voted("?5", "?3"),
+            required_roles()
+        ))?
+        .query_map(
+            params![
+                row.gate.0,
+                row.owner.0,
+                branch,
+                caller.node().map_or(0, |n| n.0),
+                repo.0,
+                base
+            ],
+            |r| r.get(0),
+        )?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut seats = Vec::new();
+    for role in REVIEWER_ROLES {
+        if base && seated(tx, row.gate, branch, role)?.is_none() {
+            seats.push(role);
+        }
+    }
+    Ok(Held { reviewers, seats })
+}
+
+fn required_roles() -> String {
+    REVIEWER_ROLES.map(|role| format!("'{role}'")).join(", ")
+}
+
+fn seats_voted(gate: &str, owner: &str, repo: &str, branch: &str) -> String {
+    REVIEWER_ROLES
+        .map(|role| {
+            format!(
+                "EXISTS (SELECT 1 FROM nodes n WHERE {} AND n.role = '{role}' AND {})",
+                of_round(gate, owner, branch),
+                voted(repo, branch)
+            )
+        })
+        .join(" AND ")
 }
 
 fn in_round(gate: &str, owner: &str, branch: &str) -> String {
@@ -1434,10 +1463,13 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
 }
 
 fn settled() -> String {
+    let gate = gate_of("gates.owner");
     format!(
-        "state = '\"passed\"' AND batch IS NULL AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
-        in_round(&gate_of("gates.owner"), "gates.owner", "gates.branch"),
-        voted("gates.repo", "gates.branch")
+        "state = '\"passed\"' AND batch IS NULL AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})
+         AND ({gate} != gates.owner OR ({}))",
+        in_round(&gate, "gates.owner", "gates.branch"),
+        voted("gates.repo", "gates.branch"),
+        seats_voted(&gate, "gates.owner", "gates.repo", "gates.branch")
     )
 }
 

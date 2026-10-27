@@ -126,15 +126,37 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
 pub(super) const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
 
-pub(super) fn held_step(to: Receiver, reviewers: &[String]) -> String {
-    let names = reviewers.join(", ");
-    match to {
-        Receiver::Owner => format!(
-            "Next: do not commit to this branch. loom holds it until {names} judge it, or the gate removes them with `loom rm`."
-        ),
-        Receiver::Gate | Receiver::Root => format!(
-            "Next: loom holds the branch until {names} judge it, or you remove them with `loom rm <name>`."
-        ),
+pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
+    let mut lines = Vec::new();
+    if !held.reviewers.is_empty() {
+        let names = held.reviewers.join(", ");
+        lines.push(match to {
+            Receiver::Owner => format!(
+                "Next: do not commit to this branch. loom holds it until {names} judge it, or the gate removes them with `loom rm`."
+            ),
+            Receiver::Gate | Receiver::Root => format!(
+                "Next: loom holds the branch until {names} judge it, or you remove them with `loom rm <name>`."
+            ),
+        });
+    }
+    if !held.seats.is_empty() {
+        lines.push(format!(
+            "Next: loom holds the branch until a reviewer in each empty seat ({}) passes this head. Call `loom ready {branch}` again to spawn the missing reviewers.",
+            held.seats.join(", ")
+        ));
+    }
+    lines.join("\n")
+}
+
+#[derive(Default)]
+pub(super) struct Held {
+    pub(super) reviewers: Vec<String>,
+    pub(super) seats: Vec<&'static str>,
+}
+
+impl Held {
+    pub(super) fn is_empty(&self) -> bool {
+        self.reviewers.is_empty() && self.seats.is_empty()
     }
 }
 

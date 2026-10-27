@@ -1,21 +1,14 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
-    Started,
-};
-use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
-use crate::accounts::Site;
-use crate::protocol::{
-    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, Prompt, Report, Session,
-};
-use crate::screen::{Dialog, Grammar, Screen};
+use super::adapter::{Adapter, Command, Facts, Logins, Record};
+use super::{Handed, HookEvent, ModelRule, Shown, Signals, Take};
+use crate::protocol::{Delivery, Kind, MessageId, Model, ModelChoice, Report, Session};
+use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
@@ -44,6 +37,7 @@ impl Adapter for Pi {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/pi",
             waiting: WAITING,
@@ -59,36 +53,8 @@ impl Adapter for Pi {
             .collect()
     }
 
-    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-    }
-
-    fn launch<'a>(
-        &'a self,
-        _: &'a LaunchAt<'_>,
-        _: Option<&'a Session>,
-        _: &'a [String],
-        _: &'a mut CommandBuilder,
-        _: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
-        Box::pin(async { Ok(Started::default()) })
-    }
-
-    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn answer<'a>(
-        &'a self,
-        _: &'a Record,
-        _: &'a Prompt,
-        _: usize,
-    ) -> BoxFuture<'a, Result<Chosen, String>> {
-        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -99,34 +65,14 @@ impl Adapter for Pi {
         Some((&[], &[]))
     }
 
-    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
-        None
-    }
-
     fn install(&self, dir: &Path) -> std::io::Result<()> {
         EXTENSIONS
             .iter()
             .try_for_each(|(file, text)| std::fs::write(dir.join(file), text))
     }
 
-    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
-        None
-    }
-
-    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
-        Ok(())
-    }
-
-    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
-    }
-
-    fn shell_root(&self, _: &Record) -> Option<u32> {
-        None
     }
 }
 

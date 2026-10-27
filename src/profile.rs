@@ -275,18 +275,7 @@ pub enum ModelRule {
 }
 
 pub fn model_rule(profile: Option<Profile>) -> ModelRule {
-    let takes = |model: Option<&str>, effort: Option<&str>| {
-        let choice = ModelChoice {
-            model: model.map(str::to_owned),
-            effort: effort.map(str::to_owned),
-        };
-        profile.is_some_and(|p| adapter(p).choice_args(&choice).is_some())
-    };
-    match (takes(Some("model"), None), takes(None, Some("effort"))) {
-        (false, _) => ModelRule::Fixed,
-        (true, true) => ModelRule::Free,
-        (true, false) => ModelRule::EffortNeedsModel,
-    }
+    profile.map_or(ModelRule::Fixed, |p| adapter(p).facts().model_rule)
 }
 
 /// 한 위치(이 PC 또는 WSL 배포판)에서 에이전트를 찾은 결과.

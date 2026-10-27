@@ -11,17 +11,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::VersionMismatch;
-use super::adapter::{
-    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError, Started,
-};
+use super::adapter::{Chosen, Facts, LaunchAt, Logins, Port, Record, Started};
 use super::process::Served;
-use crate::accounts::Site;
+use super::{ModelRule, VersionMismatch};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
     Prompt, PromptKey, PromptOption, Refusal, Report, Session, TakeRequest, WaitKind,
 };
-use crate::screen::{Dialog, Grammar, Screen};
+use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 use server::Server;
 
@@ -50,6 +47,7 @@ impl super::adapter::Adapter for OpenCode2 {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
+            model_rule: ModelRule::Fixed,
             pinned: Some(CMD),
             usage_part: "usage/opencode2",
             waiting: WAITING,
@@ -60,12 +58,6 @@ impl super::adapter::Adapter for OpenCode2 {
     fn leading_args(&self, _: Option<&Session>, bypass: &[String]) -> Vec<String> {
         bypass.to_vec()
     }
-
-    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
 
     fn launch<'a>(
         &'a self,
@@ -150,14 +142,6 @@ impl super::adapter::Adapter for OpenCode2 {
         None
     }
 
-    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
-        None
-    }
-
-    fn install(&self, _: &Path) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
         let last = version_output.split_whitespace().last()?;
         let installed = last.strip_prefix('v').unwrap_or(last);
@@ -165,14 +149,6 @@ impl super::adapter::Adapter for OpenCode2 {
             installed: installed.to_owned(),
             pinned: PINNED_VERSION.to_owned(),
         })
-    }
-
-    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
-        Ok(())
-    }
-
-    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
     }
 
     fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {

@@ -85,7 +85,10 @@ impl App {
                 id: Some(node.id),
                 name: node.name.clone(),
             };
-            let revived = self.revive(node, NOTICE).await.map_err(|e| e.to_string());
+            let revived = self
+                .revive_detached_ended(node, NOTICE)
+                .await
+                .map_err(|e| e.to_string());
             let _ = self.graph.record(&Entry::Relaunched {
                 node: who.clone(),
                 switched: None,

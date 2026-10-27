@@ -1,7 +1,6 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -10,13 +9,10 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
-    Started,
-};
-use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError};
+use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
-use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Session, WaitKind};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 
@@ -80,6 +76,7 @@ impl Adapter for Claude {
             logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
+            model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/claude",
             waiting: WAITING,
@@ -95,36 +92,8 @@ impl Adapter for Claude {
             .collect()
     }
 
-    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-    }
-
-    fn launch<'a>(
-        &'a self,
-        _: &'a LaunchAt<'_>,
-        _: Option<&'a Session>,
-        _: &'a [String],
-        _: &'a mut CommandBuilder,
-        _: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
-        Box::pin(async { Ok(Started::default()) })
-    }
-
-    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn answer<'a>(
-        &'a self,
-        _: &'a Record,
-        _: &'a Prompt,
-        _: usize,
-    ) -> BoxFuture<'a, Result<Chosen, String>> {
-        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -147,14 +116,6 @@ impl Adapter for Claude {
             empty: input(&screen.undimmed) == Some(""),
             turn_shown: turn_shown(&screen.text),
         })
-    }
-
-    fn install(&self, _: &Path) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
-        None
     }
 
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
@@ -217,10 +178,6 @@ impl Adapter for Claude {
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
-    }
-
-    fn shell_root(&self, _: &Record) -> Option<u32> {
-        None
     }
 }
 

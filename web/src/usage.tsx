@@ -11,8 +11,8 @@ import { usageProblemText } from './problem';
 
 const HIGH_USED = 75;
 
-export const PROVIDERS: Provider[] = ['claude', 'codex'];
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', codex: 'Codex' };
+export const PROVIDERS = Object.keys(PROVIDER_LABEL) as Provider[];
 export const SYSTEM_DIR: Record<Provider, string> = { claude: '~/.claude', codex: '~/.codex' };
 
 export function placesOf(accounts: AccountView[]): (string | null)[] {

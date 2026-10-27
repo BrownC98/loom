@@ -123,7 +123,13 @@ pub(super) struct Stored {
     pub wait: HumanWait,
     pub source: WaitSource,
     #[serde(default)]
-    pub reads_screen: bool,
+    reads_screen: Option<bool>,
+}
+
+impl Stored {
+    fn reads_screen(&self) -> bool {
+        self.reads_screen.unwrap_or(self.wait.prompt.is_none())
+    }
 }
 
 const TEXT_LIMIT_CHARS: usize = 200;
@@ -168,7 +174,7 @@ impl Graph {
                     Some(_) | None => {}
                 }
                 Some(Stored {
-                    reads_screen: source == WaitSource::Screen || prompt.is_none(),
+                    reads_screen: Some(source == WaitSource::Screen || prompt.is_none()),
                     wait: HumanWait {
                         prompt,
                         ..new_wait(&tx, kind, text, false, None)?
@@ -199,7 +205,7 @@ impl Graph {
         let Some(Some(now)) = stored(&tx, id)? else {
             return Ok(());
         };
-        if now.source == WaitSource::Screen || !now.reads_screen || now.wait.prompt == prompt {
+        if now.source == WaitSource::Screen || !now.reads_screen() || now.wait.prompt == prompt {
             return Ok(());
         }
         put(

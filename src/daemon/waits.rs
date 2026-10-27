@@ -88,8 +88,9 @@ async fn choose_wait(
         Chosen::Sent => {}
         Chosen::PromptChanged => return Err(Refusal::PromptChanged(wait).into()),
         Chosen::OnScreen => {
-            answer_dialog(&app.graph, &app.host, wait, &req.prompt, |now| {
-                now.options.get(req.option)?.key.picked()
+            let option = req.option;
+            answer_dialog(&app, wait, req.prompt, move |now| {
+                now.options.get(option).filter(|o| !o.writes)?.key.picked()
             })
             .await?
         }
@@ -102,21 +103,20 @@ async fn type_wait(
     Path(wait): Path<u32>,
     Json(req): Json<TypeText>,
 ) -> Result<Json<()>, Problem> {
-    answer_dialog(
-        &app.graph,
-        &app.host,
-        WaitId(wait),
-        &req.prompt,
-        |now| match req.option {
-            Some(option) => now
-                .options
-                .get(option)
-                .filter(|o| o.writes)?
-                .key
-                .written(&req.text),
-            None => now.field.map(|_| entered(&req.text)),
-        },
-    )
+    let TypeText {
+        prompt,
+        text,
+        option,
+    } = req;
+    answer_dialog(&app, WaitId(wait), prompt, move |now| match option {
+        Some(option) => now
+            .options
+            .get(option)
+            .filter(|o| o.writes)?
+            .key
+            .written(&text),
+        None => now.field.map(|_| entered(&text)),
+    })
     .await?;
     Ok(Json(()))
 }
@@ -124,30 +124,28 @@ async fn type_wait(
 const KEY_GAP: Duration = Duration::from_millis(150);
 
 async fn answer_dialog(
-    graph: &Graph,
-    host: &NodeHost<NodeId>,
+    app: &Arc<App>,
     wait: WaitId,
-    shown: &Prompt,
-    strokes: impl FnOnce(&Prompt) -> Option<Strokes>,
-) -> Result<(), Refusal> {
-    let (node, agent) = graph.dialog(wait)?;
+    shown: Prompt,
+    strokes: impl FnOnce(&Prompt) -> Option<Strokes> + Send + 'static,
+) -> Result<(), Problem> {
+    let (node, agent) = app.graph.dialog(wait)?;
     let profile = agent.as_ref().and_then(profile::profile_of);
-    let mut rest = Vec::new();
-    host.write_if(node, |screen| {
-        let now = screen.screen();
-        let mut strokes = profile::prompt(profile, &now)
-            .filter(|now| now == shown)
-            .and_then(|now| strokes(&now))
-            .filter(|s| !s.is_empty())
-            .ok_or(Refusal::PromptChanged(wait))?;
-        graph.dismiss(wait)?;
-        rest = strokes.split_off(1);
-        Ok::<_, Refusal>(strokes.remove(0))
-    })?;
-    for stroke in rest {
-        tokio::time::sleep(KEY_GAP).await;
-        host.write_if(node, |_| Ok::<_, Refusal>(stroke))?;
-    }
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        app.host.strokes_if(node, KEY_GAP, |screen| {
+            let now = screen.screen();
+            let strokes = profile::prompt(profile, &now)
+                .filter(|now| *now == shown)
+                .and_then(|now| strokes(&now))
+                .filter(|s| !s.is_empty())
+                .ok_or(Refusal::PromptChanged(wait))?;
+            app.graph.dismiss(wait)?;
+            Ok::<_, Refusal>(strokes)
+        })
+    })
+    .await
+    .map_err(internal)??;
     Ok(())
 }
 

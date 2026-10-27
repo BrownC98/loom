@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M30 끝난 노드 다시 띄우기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --shadow: light-dark(oklch(0% 0 0 / 0.12), oklch(0% 0 0 / 0.5));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+code { font: 12px var(--mono); }
+.flow { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.flow b { color: var(--ink); padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-weight: 500; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.page { position: relative; width: 1360px; height: 720px; display: flex; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.side { width: 200px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 12px); border-radius: 6px; }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+.tree-row .name { font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.dot.done { background: var(--ok); }
+.dot.exited { background: var(--err); }
+.graph { position: relative; flex: 1; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 20px 20px; }
+.gtitle { position: absolute; top: 10px; left: 14px; font-weight: 600; font-size: 13px; }
+.edge { position: absolute; border-left: 2px solid var(--line-strong); }
+.edge.h { border-left: 0; border-top: 2px solid var(--line-strong); }
+.card { position: absolute; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.card-head .model { font: 12px var(--mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font: 12px var(--mono); color: var(--err); white-space: nowrap; }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ft { flex: 1; margin: 0; padding: 6px 10px; font: 11px/15px var(--mono); color: var(--ink-2); white-space: pre; overflow: hidden; }
+.card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); display: grid; gap: 2px; overflow: visible; }
+.srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.srow .name { font-weight: 600; }
+.sline { font-size: 12px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.smeta { font: 11px var(--mono); color: var(--ink-3); }
+.lg { font: 12px var(--mono); color: #d97757; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ib { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 5px; color: var(--ink-2); }
+.ib.open { background: var(--surface-hover); color: var(--ink); }
+.menu { position: absolute; z-index: 7; width: 200px; display: grid; padding: 6px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); border: 1px solid var(--line); }
+.menu .mi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.menu .mi.hover { background: var(--surface-hover); }
+.menu .mi.danger { color: var(--err); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.refusal { position: absolute; top: 60px; right: 16px; z-index: 6; max-width: 480px; padding: 6px 10px; border-radius: 6px; background: var(--surface); color: var(--err); font-size: 13px; }
+.dock { width: 380px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); }
+.tabs { display: flex; gap: 2px; padding: 12px 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.tabs > span { padding: 6px 10px; color: var(--ink-3); border-bottom: 2px solid transparent; }
+.tabs > span.on { color: var(--ink); font-weight: 600; border-color: var(--accent); }
+.dock-node { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.dock .ft { background: var(--term); color: var(--ink); white-space: pre-wrap; padding: 12px 14px; }
+
+.phone-wrap { flex: 1; display: flex; justify-content: flex-start; padding: 24px 0 0 120px; }
+.phone { position: relative; width: 390px; height: 590px; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--bg); overflow: hidden; }
+.phone-top { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 4px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.phone-icon { width: 44px; height: 44px; display: grid; place-items: center; color: var(--ink-2); flex: none; }
+.phone-icon svg.i { width: 20px; height: 20px; }
+.phone-title { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.phone-name { display: flex; align-items: center; gap: 8px; }
+.phone-name b { font-size: 20px; }
+.phone-name .state { margin-left: auto; }
+.node-line { display: flex; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.phone .ft { background: var(--term); color: var(--ink); white-space: pre-wrap; }
+.phone-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px var(--shadow); padding-bottom: 16px; }
+.phone-dim { position: absolute; inset: 0; background: oklch(0% 0 0 / 0.3); }
+.sheet-head { position: relative; display: flex; align-items: center; min-height: 52px; padding: 14px 4px 0 16px; }
+.sheet-head .grip { position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-strong); }
+.sheet-head h3 { flex: 1; font-size: 16px; }
+.sheet-body { display: grid; gap: 8px; padding: 0 16px; }
+.sbtn { display: flex; align-items: center; height: 44px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 15px; }
+.sbtn.danger { color: var(--err); }
+.sbtn.ghost { border-color: transparent; justify-content: center; color: var(--ink-2); }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #D14343; color: #fff; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow, table.dec { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font: 700 12px/22px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="bm" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></symbol>
+  <symbol id="max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="re" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="termi" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M30</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>워커 · 워커 끝난노드다시띄우기</b></span><span>v1 · 2026-10-27</span></div>
+  <h1>끝난 노드도 「⋯」 메뉴에서 다시 띄우기</h1>
+  <p class="lead">사람 결정(Q1308 답 A): 목업을 먼저 본다. 지금은 종료된 노드(종료·설정 실패)를 같은 대화로 되살리는 길이 <code>loom relaunch</code> 명령뿐이다. 메뉴의 「다시 띄우기」는 실행 중·완료 노드에만 보인다. 바꾼 뒤에는 끝난 노드의 메뉴에도 같은 항목이 보이고, 누르면 같은 번호·이름·부모·자식으로 다시 뜬다. 점선 상자가 새로 보이는 곳이다.</p>
+  <div class="flow"><b>노드가 종료(1)로 끝남</b><span>→</span><b>「⋯」 › 다시 띄우기</b><span>→</span><b>같은 노드가 실행 중으로 돌아옴</b><span>→</span><b>에이전트가 첫 입력으로 알림을 받음</b></div>
+
+  <div class="fig">
+    <h2>① 데스크톱: 끝난 노드의 메뉴 <span class="tag">워커-2가 종료 코드 1로 끝남</span></h2>
+    <div class="page">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">워커-1</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot exited"></span><span class="name">워커-2</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot exited"></span><span class="name">셸</span></div>
+      </aside>
+      <div class="graph">
+        <span class="gtitle">loom</span>
+        <div class="edge" style="left:230px; top:230px; height:40px"></div>
+        <div class="edge h" style="left:120px; top:270px; width:560px"></div>
+        <div class="edge" style="left:120px; top:270px; height:50px"></div>
+        <div class="edge" style="left:400px; top:270px; height:50px"></div>
+        <div class="edge" style="left:680px; top:270px; height:50px"></div>
+        <div class="card" style="left:20px; top:44px; width:420px; height:186px">
+          <div class="card-head"><span class="name">loom 총괄</span><span class="lg">✳</span><span class="model">opus · high</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+<pre class="ft">● 워커-2에게서 exited(1)을 받았다.
+  워커-2를 다시 띄울지 사람에게 묻는다.
+
+&gt; </pre>
+        </div>
+        <div class="card simple" style="left:10px; top:320px; width:230px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커-1</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <span class="sline">검사를 돌리는 중입니다.</span>
+        </div>
+        <div class="card simple" data-selected style="left:270px; top:320px; width:260px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커-2</span><span class="spacer"></span><span class="state">종료(1)</span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib open"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <span class="sline">관문을 돌리고 결과를 기다립니다.</span>
+        </div>
+        <div class="menu" style="left:340px; top:396px">
+          <div class="mi"><svg class="i"><use href="#termi"/></svg>터미널 카드로 보기</div>
+          <div class="mi hover"><span class="mk new" data-n="1" style="display:inline-flex; align-items:center; gap:8px"><svg class="i"><use href="#re"/></svg>다시 띄우기</span></div>
+          <hr>
+          <div class="mi danger"><svg class="i"><use href="#trash"/></svg>노드 지우기</div>
+        </div>
+        <div class="card simple" style="left:560px; top:320px; width:220px">
+          <div class="srow"><span class="lg" style="color:var(--ink-2)">$</span><span class="name">셸</span><span class="spacer"></span><span class="state">종료(0)</span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib open"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">bash</span>
+        </div>
+        <div class="menu" style="left:600px; top:384px">
+          <span class="mk" data-n="2" style="display:grid">
+            <div class="mi"><svg class="i"><use href="#termi"/></svg>터미널 카드로 보기</div>
+            <div class="mi danger"><svg class="i"><use href="#trash"/></svg>노드 지우기</div>
+          </span>
+        </div>
+      </div>
+      <aside class="dock">
+        <div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span>질문</span><span class="on">터미널</span></div>
+        <div class="dock-node"><div class="srow"><span class="lg">✳</span><span class="name">워커-2</span><span class="smeta">sonnet · medium</span><span class="spacer"></span><span class="state">종료(1)</span></div></div>
+<pre class="ft">● Bash(bash scripts/gate/check.sh)
+  ⎿ Running…
+
+Error: process exited with code 1</pre>
+      </aside>
+    </div>
+    <div class="calls"><div><b>1</b><span>끝난 노드(종료 · 설정 실패)에도 보인다. 실행 중 노드와 같은 자리 · 같은 이름이다.</span></div><div><b>2</b><span>셸 · 명령 노드와 첫 입력 전에 끝난 노드에는 보이지 않는다. 이을 대화가 없어 눌러도 실패한다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>② 데스크톱: 누른 뒤 <span class="tag">같은 노드 · 같은 대화</span></h2>
+    <div class="page">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">워커-1</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot"></span><span class="name">워커-2</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot exited"></span><span class="name">셸</span></div>
+      </aside>
+      <div class="graph">
+        <span class="gtitle">loom</span>
+        <div class="edge" style="left:230px; top:230px; height:40px"></div>
+        <div class="edge h" style="left:120px; top:270px; width:560px"></div>
+        <div class="edge" style="left:120px; top:270px; height:50px"></div>
+        <div class="edge" style="left:400px; top:270px; height:50px"></div>
+        <div class="edge" style="left:680px; top:270px; height:50px"></div>
+        <div class="card" style="left:20px; top:44px; width:420px; height:186px">
+          <div class="card-head"><span class="name">loom 총괄</span><span class="lg">✳</span><span class="model">opus · high</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+<pre class="ft">● 워커-2에게서 exited(1)을 받았다.
+  워커-2를 다시 띄울지 사람에게 묻는다.
+
+&gt; </pre>
+        </div>
+        <div class="card simple" style="left:10px; top:320px; width:230px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커-1</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <span class="sline">검사를 돌리는 중입니다.</span>
+        </div>
+        <div class="card simple" data-selected style="left:270px; top:320px; width:260px">
+          <div class="srow"><span class="lg">✳</span><span class="mk" data-n="1" style="display:inline-flex"><span class="name">워커-2</span></span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <span class="sline">관문을 돌리고 결과를 기다립니다.</span>
+        </div>
+        <div class="card simple" style="left:560px; top:320px; width:220px">
+          <div class="srow"><span class="lg" style="color:var(--ink-2)">$</span><span class="name">셸</span><span class="spacer"></span><span class="state">종료(0)</span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">bash</span>
+        </div>
+      </div>
+      <aside class="dock">
+        <div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span>질문</span><span class="on">터미널</span></div>
+        <div class="dock-node"><div class="srow"><span class="lg">✳</span><span class="name">워커-2</span><span class="smeta">sonnet · medium</span><span class="spacer"></span></div></div>
+<pre class="ft"><span class="mk" data-n="2" style="display:block">&gt; Your process ended, and loom started it again in the same session. Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.</span>
+● Bash(loom status)
+  ⎿ parent: loom 총괄 · children: 0
+● 관문을 다시 돌린다.</pre>
+      </aside>
+    </div>
+    <div class="calls"><div><b>1</b><span>같은 번호 · 이름 · 부모 · 자식으로 실행 중으로 돌아온다. 「종료(1)」 표시가 사라지고 사이드바 점이 파랑이 된다. 새 노드를 만들지 않는다.</span></div><div><b>2</b><span>에이전트는 같은 대화를 잇고, 첫 입력으로 이 알림을 받는다. 끝난 동안 온 메시지는 오지 않았다고 알린다(지금 <code>loom relaunch</code>와 같은 문구). 실패하면 그래프 오른쪽 위 거절 줄에 이유가 보인다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 휴대폰: 노드 화면 › 노드 동작 <span class="tag">워커-2가 종료 코드 1로 끝남</span></h2>
+    <div class="page" style="height:640px">
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="phone-top">
+            <span class="phone-icon"><svg class="i"><use href="#back"/></svg></span>
+            <span class="phone-title"><span class="phone-name"><b>워커-2</b><span class="state">종료(1)</span></span><span class="node-line"><span class="lg">✳</span><span>sonnet · medium</span></span></span>
+            <span class="phone-icon"><svg class="i"><use href="#more"/></svg></span>
+          </div>
+<pre class="ft">● Bash(bash scripts/gate/check.sh)
+  ⎿ Running…
+
+Error: process exited with code 1</pre>
+          <div class="phone-dim"></div>
+          <div class="phone-sheet">
+            <div class="sheet-head"><span class="grip"></span><h3>워커-2</h3></div>
+            <div class="sheet-body">
+              <span class="sbtn">Ctrl-C 보내기</span>
+              <span class="sbtn mk new" data-n="1">다시 띄우기</span>
+              <span class="sbtn">북마크에 더하기</span>
+              <span class="sbtn danger">노드 지우기</span>
+              <span class="sbtn ghost">취소</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>휴대폰 「노드 동작」에도 같은 규칙으로 보인다. 누르면 시트가 닫히고 노드 화면이 실행 중으로 바뀐다. 실패하면 시트 아래에 이유가 보이고 시트는 열린 채 남는다.</span></div></div>
+  </div>
+</main>
+<button class="theme-toggle" type="button" onclick="const h=document.documentElement;const d=h.style.colorScheme==='dark';h.style.colorScheme=d?'light':'dark';this.textContent=d?'다크로 보기':'라이트로 보기'">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    for (let x = 80; place(fig, src) && x <= 1200; x += 80) fig.style.paddingBottom = base + x + 'px';
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 11], [(o.l + o.r) / 2, o.b + 11], [o.l - 11, o.t + 11], [o.r + 11, o.t + 11]].map(([x, y]) => ({ l: x - 11, t: y - 11, r: x + 11, b: y + 11 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 12, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+</script>
+</body>
+</html>

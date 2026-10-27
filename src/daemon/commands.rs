@@ -25,7 +25,6 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/question", post(agent_question))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))
-        .route(crate::profile::OLD_WAIT_ROUTE, post(agent_old_wait))
         .route("/api/agent/answered", post(agent_answered))
         .route("/api/agent/said", post(agent_said))
         .route("/api/agent/question-box", post(agent_question_box))
@@ -386,14 +385,4 @@ pub(super) async fn agent_turn_end(
         .turn_ended(node, EndedTurn::default())
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(nudge))
-}
-
-async fn agent_old_wait(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<crate::profile::OldWait>,
-) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.report(node, bearer(&headers)?, req.report());
-    Ok(Json(()))
 }

@@ -685,20 +685,38 @@ impl App {
         node: Active,
         notice: &str,
     ) -> Result<(), ResumeError> {
-        let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
+        let (prepared, profile, site) = self.prepare_revive(&node, notice).await?;
+        let _ = profile::adapter(profile)
+            .end_detached(&self.record_of(&node), &site)
+            .await;
+        Ok(self.run_resumed(node.id, prepared).await?)
+    }
+
+    pub(super) async fn revive_detached_ended(
+        self: &Arc<Self>,
+        node: Active,
+        notice: &str,
+    ) -> Result<(), ResumeError> {
+        let (prepared, ..) = self.prepare_revive(&node, notice).await?;
+        Ok(self.run_resumed(node.id, prepared).await?)
+    }
+
+    async fn prepare_revive(
+        self: &Arc<Self>,
+        node: &Active,
+        notice: &str,
+    ) -> Result<(super::Prepared, Profile, Site), ResumeError> {
+        let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(node)) else {
             return Err(ResumeError::NoSession(
                 "프로필이 있는 에이전트가 아니다".into(),
             ));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
-        let (resume, site) = self.resumable(&node, profile, &settings).await?;
+        let (resume, site) = self.resumable(node, profile, &settings).await?;
         let prepared = self
-            .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
+            .prepare_resumed(node, &agent, profile, &resume, notice.to_owned())
             .await?;
-        let _ = profile::adapter(profile)
-            .end_detached(&self.record_of(&node), &site)
-            .await;
-        Ok(self.run_resumed(node.id, prepared).await?)
+        Ok((prepared, profile, site))
     }
 
     async fn resumable(

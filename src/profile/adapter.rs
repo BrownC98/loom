@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::VersionMismatch;
+use super::{ModelRule, VersionMismatch};
 use crate::accounts::{AccountId, Cli, Site};
 use crate::distro::Distro;
 use crate::protocol::{
@@ -22,6 +22,7 @@ pub struct Facts {
     pub logins: Logins,
     pub sleeps: bool,
     pub listens_at_start: bool,
+    pub model_rule: ModelRule,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
     pub waiting: &'static str,
@@ -121,38 +122,50 @@ pub trait Port: Send + Sync {
 pub trait Adapter: Sync {
     fn facts(&self) -> Facts;
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String>;
-    fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()>;
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>);
+    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
     fn launch<'a>(
         &'a self,
-        at: &'a LaunchAt<'_>,
-        resume: Option<&'a Session>,
-        bypass: &'a [String],
-        cmd: &'a mut CommandBuilder,
-        port: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<Started, LaunchError>>;
-    fn attach<'a>(
-        &'a self,
-        rec: &'a Record,
-        port: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<(), String>>;
+        _: &'a LaunchAt<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+        _: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async { Ok(Started::default()) })
+    }
+    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
     fn answer<'a>(
         &'a self,
-        rec: &'a Record,
-        prompt: &'a Prompt,
-        option: usize,
-    ) -> BoxFuture<'a, Result<Chosen, String>>;
+        _: &'a Record,
+        _: &'a Prompt,
+        _: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async { Ok(Chosen::OnScreen) })
+    }
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>>;
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])>;
-    fn input_seen(&self, screen: &Screen) -> Option<InputSeen>;
-    fn install(&self, dir: &Path) -> std::io::Result<()>;
-    fn version_warning(&self, version_output: &str) -> Option<VersionMismatch>;
-    fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError>;
-    fn end_detached<'a>(
-        &'a self,
-        rec: &'a Record,
-        site: &'a Site,
-    ) -> BoxFuture<'a, Result<(), String>>;
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
+    }
+    fn install(&self, _: &Path) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
+    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
+        Ok(())
+    }
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>>;
-    fn shell_root(&self, rec: &Record) -> Option<u32>;
+    fn shell_root(&self, _: &Record) -> Option<u32> {
+        None
+    }
 }

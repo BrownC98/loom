@@ -1,17 +1,12 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::VersionMismatch;
-use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
-    Started,
-};
-use crate::accounts::Site;
-use crate::protocol::{LaunchError, ModelChoice, Prompt, Session};
-use crate::screen::{Dialog, Grammar, Screen};
+use super::ModelRule;
+use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record};
+use crate::protocol::{ModelChoice, Session};
+use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("omp-loom.ts");
@@ -60,6 +55,7 @@ impl Adapter for Omp {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/omp",
             waiting: WAITING,
@@ -94,30 +90,6 @@ impl Adapter for Omp {
         }
     }
 
-    fn launch<'a>(
-        &'a self,
-        _: &'a LaunchAt<'_>,
-        _: Option<&'a Session>,
-        _: &'a [String],
-        _: &'a mut CommandBuilder,
-        _: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
-        Box::pin(async { Ok(Started::default()) })
-    }
-
-    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn answer<'a>(
-        &'a self,
-        _: &'a Record,
-        _: &'a Prompt,
-        _: usize,
-    ) -> BoxFuture<'a, Result<Chosen, String>> {
-        Box::pin(async { Ok(Chosen::OnScreen) })
-    }
-
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
         Some(super::pi::choice_args(choice))
     }
@@ -126,31 +98,11 @@ impl Adapter for Omp {
         Some((&[], &[]))
     }
 
-    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
-        None
-    }
-
     fn install(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
     }
 
-    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
-        None
-    }
-
-    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
-        Ok(())
-    }
-
-    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
-    }
-
-    fn shell_root(&self, _: &Record) -> Option<u32> {
-        None
     }
 }

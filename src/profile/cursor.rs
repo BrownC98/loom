@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -7,14 +6,10 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
-    Started,
-};
-use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
-use crate::accounts::Site;
-use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Session, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
+use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record};
+use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
+use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 use crate::wsl::Inside;
 
@@ -207,6 +202,7 @@ impl Adapter for Cursor {
             logins: Logins::One(&Cursor),
             sleeps: true,
             listens_at_start: false,
+            model_rule: ModelRule::EffortNeedsModel,
             pinned: None,
             usage_part: "usage/cursor",
             waiting: WAITING,
@@ -243,30 +239,6 @@ impl Adapter for Cursor {
         cmd.env(SKILLS_ENV, skills_value(at.launch.skills));
     }
 
-    fn launch<'a>(
-        &'a self,
-        _: &'a LaunchAt<'_>,
-        _: Option<&'a Session>,
-        _: &'a [String],
-        _: &'a mut CommandBuilder,
-        _: Arc<dyn Port>,
-    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
-        Box::pin(async { Ok(Started::default()) })
-    }
-
-    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn answer<'a>(
-        &'a self,
-        _: &'a Record,
-        _: &'a Prompt,
-        _: usize,
-    ) -> BoxFuture<'a, Result<Chosen, String>> {
-        Box::pin(async { Ok(Chosen::OnScreen) })
-    }
-
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
         let model = match (&choice.model, &choice.effort) {
             (Some(model), Some(effort)) => format!("{model}-{effort}"),
@@ -280,32 +252,12 @@ impl Adapter for Cursor {
         Some((&[PROMPT, QUESTION], &DIALOGS))
     }
 
-    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
-        None
-    }
-
     fn install(&self, dir: &Path) -> std::io::Result<()> {
         write_plugin(dir)
     }
 
-    fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
-        None
-    }
-
-    fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {
-        Ok(())
-    }
-
-    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
-    }
-
-    fn shell_root(&self, _: &Record) -> Option<u32> {
-        None
     }
 }
 

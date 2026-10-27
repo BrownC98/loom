@@ -11,17 +11,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::VersionMismatch;
-use super::adapter::{
-    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError, Started,
-};
+use super::adapter::{Carry, Chosen, Facts, LaunchAt, Logins, Port, Record, ResumeError, Started};
 use super::process::Served;
-use crate::accounts::{Cli, Site};
+use super::{ModelRule, VersionMismatch};
+use crate::accounts::Cli;
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
     Prompt, PromptKey, PromptOption, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
 };
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 use server::{Approval, Asked, CodexServer};
 
@@ -95,6 +93,7 @@ impl super::adapter::Adapter for Codex {
             logins: Logins::Many(&CLI, &Codex),
             sleeps: true,
             listens_at_start: true,
+            model_rule: ModelRule::Free,
             pinned: Some(CMD),
             usage_part: "usage/codex",
             waiting: WAITING,
@@ -108,12 +107,6 @@ impl super::adapter::Adapter for Codex {
             None => bypass.to_vec(),
         }
     }
-
-    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
 
     fn launch<'a>(
         &'a self,
@@ -214,14 +207,6 @@ impl super::adapter::Adapter for Codex {
         Some((&[PROMPT], &DIALOGS))
     }
 
-    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
-        None
-    }
-
-    fn install(&self, _: &Path) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
         let installed = version_output.split_whitespace().last()?;
         (installed != PINNED_VERSION).then(|| VersionMismatch {
@@ -243,10 +228,6 @@ impl super::adapter::Adapter for Codex {
         let rollout = rollout(&old_root, &thread.0)
             .ok_or_else(|| format!("스레드 {}의 기록 파일이 없다", thread.0))?;
         Ok(super::copy_session(&rollout, ROLLOUT_DEPTH, &new_root)?)
-    }
-
-    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
     }
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {

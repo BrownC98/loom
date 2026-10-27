@@ -278,10 +278,7 @@ pub enum IdleEnd {
     /// 같은 노드의 새 쉬는 대기가 열렸다.
     NewWait,
     /// 턴 안에서 에이전트가 메일함을 읽었다. `step`은 어댑터가 준 단계 이름이다.
-    Turn {
-        #[serde(alias = "hook")]
-        step: String,
-    },
+    Turn { step: String },
     /// 노드를 다시 띄웠거나, 다시 띄우기가 실패해 대기를 풀었다.
     Relaunch,
     /// 노드 프로세스가 끝났다.

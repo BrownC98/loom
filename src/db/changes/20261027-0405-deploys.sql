@@ -1,0 +1,8 @@
+CREATE TABLE deploys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo INTEGER NOT NULL,
+    target TEXT NOT NULL,
+    sha TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    root INTEGER NOT NULL
+);

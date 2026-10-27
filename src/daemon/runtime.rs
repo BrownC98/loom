@@ -365,6 +365,7 @@ impl App {
                 eprintln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
                 false
             }) {
+                port.end();
                 app.relaunch_exits.notify_waiters();
                 return;
             }
@@ -373,6 +374,7 @@ impl App {
                 && (app.graph.is_setup(id).unwrap_or(false) || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
+                port.end();
                 app.host.kill(id);
                 return;
             }

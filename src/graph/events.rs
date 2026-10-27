@@ -273,19 +273,22 @@ pub enum BatchResult {
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum IdleEnd {
-    /// 대기가 메시지를 꺼내 훅에 넘겼다.
+    /// 대기가 메시지를 꺼내 에이전트에 넘겼다.
     Mail,
     /// 같은 노드의 새 쉬는 대기가 열렸다.
     NewWait,
-    /// 턴 안의 훅이 메일함을 읽었다. `hook`은 런타임이 준 훅 이름이다.
-    Turn { hook: String },
+    /// 턴 안에서 에이전트가 메일함을 읽었다. `step`은 어댑터가 준 단계 이름이다.
+    Turn {
+        #[serde(alias = "hook")]
+        step: String,
+    },
     /// 노드를 다시 띄웠거나, 다시 띄우기가 실패해 대기를 풀었다.
     Relaunch,
     /// 노드 프로세스가 끝났다.
     Exit,
     /// 완료 노드를 재웠다.
     Sleep,
-    /// 끝나기 전에 요청이 사라졌다. 훅 프로세스가 끝났거나 연결이 끊겼다.
+    /// 끝나기 전에 요청이 사라졌다. 요청한 프로세스가 끝났거나 연결이 끊겼다.
     Gone,
     /// 메일함을 읽지 못했다.
     Error,
@@ -300,7 +303,7 @@ pub enum TurnCheck {
     Unreported,
     /// 종류 낱말로 시작하는 줄을 쓰고 loom 동사를 부르지 않았다.
     KindLine,
-    /// 런타임의 자체 질문 창(Cursor AskQuestion)으로 물었다. 사람은 `loom ask`로만 답한다.
+    /// 런타임의 자체 질문 창으로 물었다. 사람은 `loom ask`로만 답한다.
     QuestionBox,
 }
 

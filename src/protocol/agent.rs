@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// 카탈로그의 `id`. 예: `claude`, `gemini`.
+/// 카탈로그의 `id`.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentId(pub String);
@@ -53,8 +53,8 @@ pub enum LaunchError {
         #[ts(type = "number")]
         limit: usize,
     },
-    /// 노드가 붙을 서버(`codex app-server`, `opencode serve`)를 띄우지 못했다. `cause`는 OS·서버 오류 글이다.
-    Server {
+    /// 에이전트 어댑터가 노드 옆에 띄우는 프로세스를 띄우지 못했다. `cause`는 그 오류 글이다.
+    Helper {
         program: String,
         cause: String,
     },
@@ -92,7 +92,7 @@ impl std::fmt::Display for LaunchError {
                 f,
                 "The brief is {len} bytes. Make it {limit} bytes or less, and put long material in a file and send its path."
             ),
-            LaunchError::Server { program, cause } => {
+            LaunchError::Helper { program, cause } => {
                 write!(f, "Could not start `{program}`: {cause}")
             }
             LaunchError::NoModelChoice(agent) => write!(

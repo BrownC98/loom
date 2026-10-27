@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -23,7 +22,7 @@ use crate::protocol::{
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-use adapter::{Adapter, InputSeen, Serve, Server};
+use adapter::{Adapter, InputSeen, LaunchAt, Port, Started};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -76,7 +75,7 @@ pub struct Shown {
 
 #[derive(Default)]
 pub struct Signals {
-    pub hook: String,
+    pub step: String,
     pub take: Option<Take>,
     pub session: Option<Session>,
     pub prompt: Option<String>,
@@ -88,56 +87,22 @@ pub struct Signals {
     pub reports: Vec<Report>,
 }
 
-pub trait HookEvent {
-    fn signals(&self) -> Signals;
-    fn show(&self, handed: &Handed) -> Shown;
+pub const OLD_WAIT_ROUTE: &str = "/api/agent/hook-wait";
+
+#[derive(Deserialize)]
+pub struct OldWait {
+    wait: Option<(WaitKind, String)>,
 }
 
-pub enum Signal {
-    TurnEnded(Option<String>),
-    Stopped,
-    HumanInput,
-    Report(Report),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Status {
-    Idle,
-    Busy,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Change {
-    pub before: Status,
-    pub now: Status,
-}
-
-pub enum NotTaken {
-    EventFollows(String),
-    ServerStopped(String),
-}
-
-impl std::fmt::Display for NotTaken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NotTaken::EventFollows(e) | NotTaken::ServerStopped(e) => f.write_str(e),
-        }
+impl OldWait {
+    pub fn report(self) -> Report {
+        Report::HumanWait(self.wait.map(|(kind, text)| (kind, text, None)))
     }
 }
 
-pub trait ServerAdapter: Send {
-    fn takes(&self, now: Status) -> &'static [&'static [Kind]];
-    fn status(&mut self) -> Option<Status>;
-    fn signals(&mut self, change: Option<Change>) -> BoxFuture<'_, Vec<Signal>>;
-    fn changed(&mut self) -> BoxFuture<'_, bool>;
-    fn inject<'a>(
-        &'a mut self,
-        taken: &'a [Delivery],
-        now: Status,
-    ) -> BoxFuture<'a, Result<(), NotTaken>>;
-    fn stop_shells(&self) -> BoxFuture<'_, ()>;
-    fn start_turn<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
-    fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
+pub trait HookEvent {
+    fn signals(&self) -> Signals;
+    fn show(&self, handed: &Handed) -> Shown;
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -529,28 +494,29 @@ pub struct VersionMismatch {
 
 pub async fn command(
     start: &Start,
-    at: &Serve<'_>,
+    at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
-) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
-    let (mut cmd, server) = match start {
+    port: Arc<dyn Port>,
+) -> Result<(CommandBuilder, Started), LaunchError> {
+    let (mut cmd, started) = match start {
         Start::Agent {
             agent,
             brief,
             choice,
             resume,
-        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off).await?,
+        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off, port).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
                 None if line.trim().is_empty() => CommandBuilder::new_default_prog(),
                 None => shell(line),
             },
-            None,
+            Started::default(),
         ),
     };
     cmd.cwd(at.cwd);
     crate::process_tree::color_terminal(&mut cmd);
-    Ok((cmd, server))
+    Ok((cmd, started))
 }
 
 pub fn is_launcher_env(key: &str) -> bool {
@@ -573,9 +539,10 @@ async fn agent_command(
     brief: &str,
     choice: &ModelChoice,
     resume: Option<&Session>,
-    at: &Serve<'_>,
+    at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
-) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
+    port: Arc<dyn Port>,
+) -> Result<(CommandBuilder, Started), LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
     let not_installed = || LaunchError::NotInstalled {
@@ -611,7 +578,7 @@ async fn agent_command(
     } else {
         &agent.bypass
     };
-    let server = match agent.profile.map(adapter) {
+    let started = match agent.profile.map(adapter) {
         Some(adapter) => {
             cmd.args(adapter.leading_args(resume, bypass));
             adapter.command(
@@ -622,20 +589,17 @@ async fn agent_command(
                     brief,
                 },
             );
-            match adapter.serve(at, resume, bypass, &mut cmd) {
-                Some(serving) => Some(serving.await?),
-                None => None,
-            }
+            adapter.launch(at, resume, bypass, &mut cmd, port).await?
         }
         None => {
             cmd.args(bypass);
             cmd.args(&agent.args);
-            None
+            Started::default()
         }
     };
     cmd.args(choice_args);
     cmd.args(prompt);
-    Ok((cmd, server))
+    Ok((cmd, started))
 }
 
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.

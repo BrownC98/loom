@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
-use super::process::Served as Process;
+use super::adapter::{
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+};
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
-use crate::accounts::{AccountId, Site};
+use crate::accounts::Site;
 use crate::protocol::{
-    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Report,
-    ServerState, Session,
+    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, Prompt, Report, Session,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
@@ -23,6 +23,7 @@ const HOOK: &str = include_str!("loom-hook.ts");
 const EXTENSIONS: [(&str, &str); 2] = [("loom-hook.ts", HOOK), (EXTENSION_FILE, EXTENSION)];
 pub(super) const IDLE_FLAG: &str = "--loom-idle";
 const UNNUMBERED: u32 = 2;
+const PROTOCOL: u32 = 4;
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -57,7 +58,7 @@ impl Adapter for Pi {
             .collect()
     }
 
-    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())
     }
 
@@ -65,23 +66,28 @@ impl Adapter for Pi {
         cmd.args(args(at.plugin, at.launch, at.brief));
     }
 
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        _: &'a Serve<'_>,
+        _: &'a LaunchAt<'_>,
         _: Option<&'a Session>,
         _: &'a [String],
         _: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
-        None
+        _: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async { Ok(Started::default()) })
     }
 
-    fn reconnect<'a>(
+    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn answer<'a>(
         &'a self,
-        _: &'a ServerState,
-        _: Process,
-        _: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
-        None
+        _: &'a Record,
+        _: &'a Prompt,
+        _: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -110,17 +116,16 @@ impl Adapter for Pi {
         Ok(())
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        _: &'a Session,
-        _: &'a Site,
-        _: Option<&'a AccountId>,
-    ) -> BoxFuture<'a, Result<(), String>> {
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 
-    fn record(&self, session: &Session) -> Option<PathBuf> {
-        Some(PathBuf::from(&session.0))
+    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+    }
+
+    fn shell_root(&self, _: &Record) -> Option<u32> {
+        None
     }
 }
 
@@ -370,7 +375,7 @@ impl HookEvent for Request {
     fn signals(&self) -> Signals {
         let event = &self.event;
         Signals {
-            hook: event.name().to_owned(),
+            step: event.name().to_owned(),
             take: event.take(),
             session: event.transcript().map(Session),
             prompt: event.prompt().map(str::to_owned),

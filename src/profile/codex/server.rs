@@ -141,8 +141,8 @@ impl CodexServer {
         serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))
     }
 
-    pub fn pid(&self) -> Option<u32> {
-        self.process.pid
+    pub fn process(&self) -> &Served {
+        &self.process
     }
 
     async fn connect(url: String, process: Served) -> Result<Self, String> {

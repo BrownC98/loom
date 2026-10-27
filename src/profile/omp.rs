@@ -1,14 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
-use super::process::Served;
-use crate::accounts::{AccountId, Site};
-use crate::protocol::{LaunchError, ModelChoice, ServerState, Session};
+use super::adapter::{
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+};
+use crate::accounts::Site;
+use crate::protocol::{LaunchError, ModelChoice, Prompt, Session};
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
@@ -72,7 +73,7 @@ impl Adapter for Omp {
             .collect()
     }
 
-    fn prepare(&self, at: &Serve<'_>) -> std::io::Result<()> {
+    fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()> {
         write_config(at.plugin_here, &config(at.plugin, at.launch))
     }
 
@@ -91,23 +92,28 @@ impl Adapter for Omp {
         }
     }
 
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        _: &'a Serve<'_>,
+        _: &'a LaunchAt<'_>,
         _: Option<&'a Session>,
         _: &'a [String],
         _: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
-        None
+        _: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async { Ok(Started::default()) })
     }
 
-    fn reconnect<'a>(
+    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn answer<'a>(
         &'a self,
-        _: &'a ServerState,
-        _: Served,
-        _: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
-        None
+        _: &'a Record,
+        _: &'a Prompt,
+        _: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -134,16 +140,15 @@ impl Adapter for Omp {
         Ok(())
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        _: &'a Session,
-        _: &'a Site,
-        _: Option<&'a AccountId>,
-    ) -> BoxFuture<'a, Result<(), String>> {
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 
-    fn record(&self, session: &Session) -> Option<PathBuf> {
-        Some(PathBuf::from(&session.0))
+    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+    }
+
+    fn shell_root(&self, _: &Record) -> Option<u32> {
+        None
     }
 }

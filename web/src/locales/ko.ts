@@ -670,7 +670,7 @@ const ko: typeof en = {
       notInstalled: '{{agent}}: `{{command}}` 명령을 찾지 못했습니다. 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
       notInstalled_wsl: '{{agent}}: `{{command}}` 명령을 WSL · {{distro}}에서 찾지 못했습니다. 그 배포판에 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
       briefTooLong: '첫 지시문이 {{len}}바이트입니다. {{limit}}바이트 이하로 줄이고, 긴 자료는 파일 경로로 전달하십시오.',
-      server: '`{{program}}`을(를) 시작하지 못했습니다: {{cause}}',
+      helper: '`{{program}}`을(를) 시작하지 못했습니다: {{cause}}',
       noBrief: '{{value}}: 첫 지시문을 받지 않습니다. 지시문을 비워 노드를 만든 뒤 터미널에 입력하십시오.',
       noModelChoice: '{{value}}: 모델과 추론 강도를 받지 않습니다. Claude와 Codex만 받습니다.',
     },

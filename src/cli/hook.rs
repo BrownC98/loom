@@ -5,13 +5,13 @@ use std::time::Duration;
 
 use super::endpoint::Close;
 use super::{call, interrupt_arrived, wait_until_mail};
-use crate::daemon::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, Relaunched, TakeRequest, Taken,
-};
+use crate::daemon::Relaunched;
 use crate::profile::{
     BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, Shown, Signals, Take, pi,
 };
-use crate::protocol::MessageId;
+use crate::protocol::{
+    AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, TakeRequest, Taken,
+};
 use crate::wsl::REWAKE_EXIT;
 
 const CALL_LIMIT: Duration = Duration::from_secs(5);
@@ -142,7 +142,7 @@ fn step(signals: &Signals) -> Step {
             }),
         }),
         Some(Take::Now(kinds)) => Step::Take(TakeRequest {
-            hook: signals.hook.clone(),
+            step: signals.step.clone(),
             kinds: kinds.to_vec(),
             limit_bytes: BATCH_LIMIT_BYTES,
             session: signals.session.clone(),

@@ -67,16 +67,23 @@ async fn choose_wait(
 ) -> Result<Json<()>, Problem> {
     let wait = WaitId(wait);
     let (node, _) = app.graph.dialog(wait)?;
-    let server = app.servers.lock().unwrap().get(&node).cloned();
-    match server
-        .as_deref()
-        .and_then(|s| s.choose(&req.prompt, req.option))
-    {
-        Some(chosen) => match chosen.await.map_err(internal)? {
-            Chosen::Sent => {}
-            Chosen::PromptChanged => return Err(Refusal::PromptChanged(wait).into()),
-        },
-        None => choose(&app.graph, &app.host, wait, &req)?,
+    let active = app.graph.active().map_err(internal)?;
+    let found = active.iter().find(|n| n.id == node);
+    let chosen = match found.and_then(|n| Some((n, relaunch::profile_of(n)?))) {
+        Some((n, profile)) => {
+            let record = app.record_of(n);
+            let adapter = profile::adapter(profile);
+            adapter
+                .answer(&record, &req.prompt, req.option)
+                .await
+                .map_err(internal)?
+        }
+        None => Chosen::OnScreen,
+    };
+    match chosen {
+        Chosen::Sent => {}
+        Chosen::PromptChanged => return Err(Refusal::PromptChanged(wait).into()),
+        Chosen::OnScreen => choose(&app.graph, &app.host, wait, &req)?,
     }
     Ok(Json(()))
 }

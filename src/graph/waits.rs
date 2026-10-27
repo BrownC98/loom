@@ -19,9 +19,8 @@ use super::{Graph, NodeId, NodeState, from_json, parent_of, state_of, to_json};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WaitSource {
-    Hook,
+    Agent,
     Screen,
-    Server,
 }
 
 /// DB에 두는 대기 한 건.

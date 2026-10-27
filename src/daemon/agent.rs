@@ -1,11 +1,18 @@
 use std::pin::pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use futures_util::future::BoxFuture;
+use tokio::sync::watch;
 
 use super::relaunch::provider_of;
-use super::{AgentError, App, EndedTurn, IdleReply, IdleRequest, TakeRequest, Taken, for_agent};
-use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId, WaitSource};
-use crate::profile::{self, BATCH_LIMIT_BYTES, Change, NotTaken, ServerAdapter, Signal, Status};
-use crate::protocol::{Delivery, Kind, MessageId, Refusal, Report, Session};
+use super::{AgentError, App, for_agent};
+use crate::graph::{AgentEvent, IdleEnd, NodeId, WaitSource};
+use crate::profile::adapter::Port;
+use crate::profile::{self, BATCH_LIMIT_BYTES};
+use crate::protocol::{
+    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
+    TakeRequest, Taken,
+};
 use axum::http::StatusCode;
 
 impl App {
@@ -15,7 +22,7 @@ impl App {
         token: &str,
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
-        self.idle.turn_started(node, req.hook);
+        self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
         let messages = self.unheld(node, || self.graph.take(node, &req.kinds, req.limit_bytes))?;
@@ -177,87 +184,7 @@ impl App {
         }
     }
 
-    pub(super) async fn deliver_loop(
-        self: Arc<Self>,
-        node: NodeId,
-        token: String,
-        mut server: Box<dyn ServerAdapter>,
-        current: impl Fn(&App) -> bool,
-    ) {
-        let mut seen = server.status();
-        loop {
-            if !current(&self) {
-                return;
-            }
-            let mut mail = pin!(self.graph.mail_changed());
-            mail.as_mut().enable();
-            let change = match seen.take() {
-                Some(now) => self.server_status(node, now),
-                None => None,
-            };
-            for signal in server.signals(change).await {
-                self.signaled(node, &token, &mut *server, signal).await;
-            }
-            if self.deliver_batch(node, &mut *server).await {
-                continue;
-            }
-            tokio::select! {
-                () = mail => {}
-                alive = server.changed() => match alive {
-                    true => seen = server.status(),
-                    false => {
-                        self.report(node, &token, WaitSource::Server, Report::HumanWait(None));
-                        if current(&self) {
-                            self.feed(node, AgentEvent::ServerLost);
-                        }
-                        return;
-                    }
-                },
-            }
-        }
-    }
-
-    async fn signaled(
-        self: &Arc<Self>,
-        node: NodeId,
-        token: &str,
-        server: &mut dyn ServerAdapter,
-        signal: Signal,
-    ) {
-        match signal {
-            Signal::TurnEnded(reply) => {
-                match self.turn_ended(node, EndedTurn { reply, turn: None }) {
-                    Ok(Some(nudge)) => match server.start_turn(&nudge).await {
-                        Ok(()) => self.feed(node, AgentEvent::InputSent),
-                        Err(e) => {
-                            eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0)
-                        }
-                    },
-                    Ok(None) => {}
-                    Err(e) => eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0),
-                }
-            }
-            Signal::Stopped => self.run_at_turn_end(node, None),
-            Signal::HumanInput => match self.human_input(node, None) {
-                Ok(Some(text)) => {
-                    if let Err(e) = server.steer(&text).await {
-                        eprintln!("loom: 노드 {}에 열린 질문을 알리지 못했다: {e}", node.0);
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
-            },
-            Signal::Report(report) => self.report(node, token, WaitSource::Server, report),
-        }
-    }
-
-    pub(super) fn report(
-        self: &Arc<Self>,
-        node: NodeId,
-        token: &str,
-        source: WaitSource,
-        report: Report,
-    ) {
+    pub(super) fn report(self: &Arc<Self>, node: NodeId, token: &str, report: Report) {
         let written = match report {
             Report::Model(model) => self.graph.set_model(node, &model),
             Report::Session(session) => {
@@ -266,7 +193,7 @@ impl App {
             }
             Report::HumanWait(wait) => self.graph.set_wait(
                 token,
-                source,
+                WaitSource::Agent,
                 wait.as_ref()
                     .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
             ),
@@ -290,80 +217,31 @@ impl App {
                 self.turn_ends.stopped(node, turn.as_deref());
                 self.turn_stopped(node)
             }
+            Report::Busy => {
+                self.feed(node, AgentEvent::Busy);
+                Ok(())
+            }
+            Report::Lost => {
+                self.feed(node, AgentEvent::Lost);
+                self.graph.set_wait(token, WaitSource::Agent, None)
+            }
+            Report::Refused { ids, cause } => {
+                match self.graph.release_refused(node, &ids) {
+                    Ok(true) => self.end_refused(node, &cause),
+                    Ok(false) => {}
+                    Err(e) => eprintln!("loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}", node.0),
+                }
+                Ok(())
+            }
         };
         if let Err(e) = written {
             eprintln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);
         }
     }
 
-    fn server_status(&self, node: NodeId, now: Status) -> Option<Change> {
-        let event = match now {
-            Status::Busy => AgentEvent::ServerBusy,
-            Status::Idle => AgentEvent::ServerIdle,
-        };
-        match self.graph.agent_event(node, event) {
-            Ok(before) => Some(Change {
-                before: status_of(before.as_ref()),
-                now,
-            }),
-            Err(e) => {
-                eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
-                None
-            }
-        }
-    }
-
-    async fn deliver_batch(&self, node: NodeId, server: &mut dyn ServerAdapter) -> bool {
-        let now = status_of(self.agent_state(node).as_ref());
-        let mut taken = Vec::new();
-        for kinds in server.takes(now) {
-            match self.take_mail(node, kinds, BATCH_LIMIT_BYTES) {
-                Ok(found) if !found.is_empty() => {
-                    taken = found;
-                    break;
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.0);
-                    return false;
-                }
-            }
-        }
-        if taken.is_empty() {
-            return false;
-        }
-        if taken.iter().any(|d| d.kind == Kind::Interrupt) {
-            server.stop_shells().await;
-        }
-        let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-        match server.inject(&taken, now).await {
-            Ok(()) => {
-                if let Err(e) = self.graph.ack(node, &ids) {
-                    eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
-                }
-                self.feed(node, AgentEvent::InputSent);
-                true
-            }
-            Err(e) => {
-                eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0);
-                let released = match &e {
-                    NotTaken::EventFollows(_) => self.graph.release(node, &ids).map(|()| false),
-                    NotTaken::ServerStopped(_) => self.graph.release_refused(node, &ids),
-                };
-                match released {
-                    Ok(false) => {}
-                    Ok(true) => self.end_refused(node, &e),
-                    Err(e) => eprintln!("loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}", node.0),
-                }
-                false
-            }
-        }
-    }
-
-    fn end_refused(&self, node: NodeId, cause: &NotTaken) {
-        let notice = format!(
-            "The agent server refused the same mail again after loom started it again: {cause}"
-        );
+    fn end_refused(&self, node: NodeId, cause: &str) {
+        let notice =
+            format!("The agent refused the same mail again after loom started it again: {cause}");
         if let Err(e) = self.graph.lost_because(node, notice) {
             eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", node.0);
         }
@@ -394,10 +272,112 @@ impl App {
     }
 }
 
-fn status_of(state: Option<&AgentState>) -> Status {
-    match state {
-        Some(AgentState::Turn) => Status::Busy,
-        Some(AgentState::Blocked { before }) => status_of(Some(before)),
-        _ => Status::Idle,
+pub(super) struct AgentPort {
+    app: Arc<App>,
+    token: String,
+    node: watch::Sender<Option<NodeId>>,
+    early: Mutex<Vec<Report>>,
+    ended: watch::Sender<bool>,
+}
+
+impl AgentPort {
+    pub(super) fn new(app: Arc<App>, token: String) -> Arc<Self> {
+        Arc::new(Self {
+            app,
+            token,
+            node: watch::channel(None).0,
+            early: Mutex::default(),
+            ended: watch::channel(false).0,
+        })
+    }
+
+    pub(super) fn bind(&self, node: NodeId) {
+        let early = {
+            let mut early = self.early.lock().unwrap();
+            self.node.send_replace(Some(node));
+            std::mem::take(&mut *early)
+        };
+        for report in early {
+            self.apply(node, report);
+        }
+    }
+
+    pub(super) fn end(&self) {
+        self.ended.send_replace(true);
+    }
+
+    fn current(&self, node: NodeId) -> bool {
+        !*self.ended.borrow() && self.app.graph.caller(&self.token).ok().flatten() == Some(node)
+    }
+
+    fn apply(&self, node: NodeId, report: Report) {
+        if self.current(node) {
+            self.app.report(node, &self.token, report);
+        }
+    }
+
+    async fn bound(&self) -> NodeId {
+        let mut node = self.node.subscribe();
+        let bound = async { node.wait_for(Option::is_some).await.ok().and_then(|n| *n) };
+        tokio::select! {
+            Some(node) = bound => node,
+            () = self.until_ended() => std::future::pending().await,
+        }
+    }
+
+    async fn until_ended(&self) {
+        let _ = self.ended.subscribe().wait_for(|e| *e).await;
+    }
+}
+
+impl Port for AgentPort {
+    fn take(&self, req: TakeRequest) -> Result<Taken, Refusal> {
+        match *self.node.borrow() {
+            Some(node) => self.app.take_now(node, &self.token, req),
+            None => Ok(Taken::default()),
+        }
+    }
+
+    fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>> {
+        Box::pin(async move {
+            let node = self.bound().await;
+            let waited = self
+                .app
+                .wait_idle(node, &self.token, req, None, || self.current(node))
+                .await;
+            waited.map_err(|(_, e)| e)
+        })
+    }
+
+    fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>> {
+        Box::pin(async move {
+            let node = self.bound().await;
+            tokio::select! {
+                taken = self.app.next_mail(node, kinds, BATCH_LIMIT_BYTES) => taken,
+                () = self.until_ended() => std::future::pending().await,
+            }
+        })
+    }
+
+    fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal> {
+        match *self.node.borrow() {
+            Some(node) => self.app.graph.ack(node, ids),
+            None => Ok(()),
+        }
+    }
+
+    fn report(&self, report: Report) {
+        let node = {
+            let mut early = self.early.lock().unwrap();
+            match *self.node.borrow() {
+                Some(node) => node,
+                None => return early.push(report),
+            }
+        };
+        self.apply(node, report);
+    }
+
+    fn ended(&self) -> BoxFuture<'_, ()> {
+        Box::pin(self.until_ended())
     }
 }

@@ -1,8 +1,9 @@
+use super::agent::AgentPort;
 use super::*;
 use crate::distro::Distro;
 use crate::graph::{Active, Entry};
 use crate::process_tree::Identity;
-use crate::profile::process::Served;
+use crate::profile::adapter::{LaunchAt, Record, Started};
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
 
@@ -114,7 +115,8 @@ impl App {
             setup,
             token,
             profile,
-            server,
+            port,
+            started: _,
             first_input,
             account: _,
             inside,
@@ -127,7 +129,7 @@ impl App {
         }
         self.turn_ends.launched(id);
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
-        let on_exit = self.on_exit(id, distro, &token, server.clone());
+        let on_exit = self.on_exit(id, distro, &token, port.clone());
         let at = match (&inside, &self.linux_loom) {
             (Some(inside), Some(loom)) => {
                 let name = loom.file_name().unwrap_or_default().to_string_lossy();
@@ -144,7 +146,7 @@ impl App {
         match self.host.resume(id, &at, on_exit) {
             Ok(()) => {
                 self.follow_screen(id, profile, &token);
-                self.follow_server(id, server, &token);
+                port.bind(id);
                 self.ptys_changed.notify_waiters();
             }
             Err(node_host::Unattached::Unreached(cause)) => {
@@ -184,29 +186,11 @@ impl App {
         }
         let place_distro = self.place_distro(node.id);
         let profile = node.agent.as_ref().and_then(profile::profile_of);
-        let server = match node.server.as_ref().zip(profile) {
-            Some((record, profile)) => {
-                let served = self.served(record.pid, place_distro.clone());
-                match profile::adapter(profile).reconnect(
-                    &record.state,
-                    served,
-                    node.session.as_ref(),
-                ) {
-                    Some(connect) => connect
-                        .await
-                        .inspect_err(|e| {
-                            eprintln!("loom: 노드 {}의 서버에 다시 붙지 못했다: {e}", node.id.0)
-                        })
-                        .ok(),
-                    None => None,
-                }
-            }
-            None => None,
-        };
         let distro = place_distro
             .as_deref()
             .and_then(|name| self.distro(name).ok());
-        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, server.clone());
+        let port = AgentPort::new(self.clone(), node.token.clone());
+        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, port.clone());
         let app = self.clone();
         let id = node.id;
         let address = self.graph.host_of(id)?;
@@ -225,9 +209,8 @@ impl App {
             if let node_host::Unattached::Unreached(cause) = &unattached {
                 return self.host_unreached(node.id, cause);
             }
-            if let Some(server) = &node.server {
-                self.stop_server(node.id, server);
-            }
+            port.end();
+            self.attach(&node, profile, port).await;
             let gone = unattached == node_host::Unattached::Gone;
             match self.graph.slept(node.id)? || self.graph.stop_lost(node.id)? {
                 true => {}
@@ -247,18 +230,44 @@ impl App {
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
             self.sleeps.exited(node.id);
             self.host.kill(node.id);
-            if let Some(server) = &node.server {
-                self.stop_server(node.id, server);
-            }
+            port.end();
+            self.attach(&node, profile, port).await;
             return Ok(());
         }
         self.follow_screen(node.id, profile, &node.token);
-        self.follow_server(node.id, server, &node.token);
+        port.bind(node.id);
+        self.attach(&node, profile, port).await;
         self.ptys_changed.notify_waiters();
         if self.graph.sleeping(node.id)? {
             self.sleep_again_after_start(node);
         }
         Ok(())
+    }
+
+    async fn attach(&self, node: &Active, profile: Option<Profile>, port: Arc<AgentPort>) {
+        let Some(profile) = profile else { return };
+        let record = self.record_of(node);
+        if let Err(e) = profile::adapter(profile).attach(&record, port).await {
+            eprintln!(
+                "loom: 노드 {}의 어댑터를 다시 붙이지 못했다: {e}",
+                node.id.0
+            );
+        }
+    }
+
+    pub(super) fn record_of(&self, node: &Active) -> Record {
+        let distro = self.place_distro(node.id).map(|name| self.distro(&name));
+        let (state, distro) = match distro {
+            None => (node.adapter.clone(), None),
+            Some(Ok(distro)) => (node.adapter.clone(), Some(distro)),
+            Some(Err(_)) => (None, None),
+        };
+        Record {
+            state,
+            session: node.session.clone(),
+            account: node.account.clone(),
+            distro,
+        }
     }
 
     fn host_unreached(&self, node: NodeId, cause: &str) -> rusqlite::Result<()> {
@@ -344,16 +353,12 @@ impl App {
         id: NodeId,
         distro: Option<Distro>,
         token: &str,
-        server: Option<Arc<dyn Server>>,
+        port: Arc<AgentPort>,
     ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
-            app.servers.lock().unwrap().remove(&id);
-            if let Some(server) = &server {
-                server.stop();
-            }
             if exit != Exit::Lost
                 && let Some(distro) = distro
             {
@@ -363,6 +368,7 @@ impl App {
                 eprintln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
                 false
             }) {
+                port.end();
                 app.relaunch_exits.notify_waiters();
                 return;
             }
@@ -371,6 +377,7 @@ impl App {
                 && (app.graph.is_setup(id).unwrap_or(false) || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
+                port.end();
                 app.host.kill(id);
                 return;
             }
@@ -390,6 +397,7 @@ impl App {
             app.sleeps.exited(id);
             app.graph.wake_mail();
             app.idle.end(id, IdleEnd::Exit);
+            port.end();
         }
     }
 
@@ -440,23 +448,6 @@ impl App {
         });
     }
 
-    fn follow_server(self: &Arc<Self>, id: NodeId, server: Option<Arc<dyn Server>>, token: &str) {
-        let Some(server) = server else {
-            return;
-        };
-        self.servers.lock().unwrap().insert(id, server.clone());
-        let current = Arc::downgrade(&server);
-        tokio::spawn(self.clone().deliver_loop(
-            id,
-            token.to_owned(),
-            server.link(),
-            move |app: &App| {
-                let now = app.servers.lock().unwrap().get(&id).map(Arc::downgrade);
-                now.is_some_and(|now| now.ptr_eq(&current))
-            },
-        ));
-    }
-
     pub(super) fn caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
         let token = bearer(headers)?;
         let node = self
@@ -487,7 +478,7 @@ impl App {
     }
 
     pub(super) async fn prepare(
-        &self,
+        self: &Arc<Self>,
         start: &Start,
         cwd: &std::path::Path,
         position: Position,
@@ -532,7 +523,7 @@ impl App {
             ),
             None => (plugin_here.clone(), self.plugin.skills(launch.skills)),
         };
-        let serve = Serve {
+        let at = LaunchAt {
             cwd,
             inside,
             env: &env,
@@ -546,9 +537,11 @@ impl App {
             node_ip: self.node_ip,
         };
         if let Some(p) = profile {
-            profile::adapter(p).prepare(&serve).map_err(internal)?;
+            profile::adapter(p).prepare(&at).map_err(internal)?;
         }
-        let (mut cmd, server) = profile::command(start, &serve, &settings.bypass_off).await?;
+        let port = AgentPort::new(self.clone(), token.clone());
+        let launched = profile::command(start, &at, &settings.bypass_off, port.clone()).await;
+        let (mut cmd, started) = launched.inspect_err(|_| port.end())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
@@ -563,7 +556,8 @@ impl App {
             account: account.cloned(),
             rules: profile.map(|p| profile::start_digests(p, launch)),
             profile,
-            server,
+            port,
+            started,
             position,
             first_input: match start {
                 Start::Agent { brief, .. } => !brief.trim().is_empty(),
@@ -626,36 +620,6 @@ impl App {
             })
     }
 
-    fn served(&self, pid: Option<u32>, distro: Option<String>) -> Served {
-        match distro.map(|name| self.distro(&name)) {
-            None => Served { pid, distro: None },
-            Some(Ok(distro)) => Served {
-                pid,
-                distro: Some(distro),
-            },
-            Some(Err(_)) => Served {
-                pid: None,
-                distro: None,
-            },
-        }
-    }
-
-    fn stop_server(&self, node: NodeId, server: &ServerRecord) {
-        self.served_by(node, server).stop();
-    }
-
-    pub(super) async fn end_server(
-        &self,
-        node: NodeId,
-        server: &ServerRecord,
-    ) -> Result<(), String> {
-        self.served_by(node, server).end().await
-    }
-
-    pub(super) fn served_by(&self, node: NodeId, server: &ServerRecord) -> Served {
-        self.served(server.pid, self.place_distro(node))
-    }
-
     fn place_distro(&self, node: NodeId) -> Option<String> {
         self.node_wsl(Some(node)).ok().flatten().map(|at| at.distro)
     }
@@ -696,7 +660,8 @@ pub(super) struct Prepared {
     pub(super) account: Option<AccountId>,
     pub(super) rules: Option<crate::protocol::StartDigests>,
     pub(super) profile: Option<Profile>,
-    pub(super) server: Option<Arc<dyn Server>>,
+    pub(super) port: Arc<AgentPort>,
+    pub(super) started: Started,
     pub(super) position: Position,
     pub(super) first_input: bool,
 }
@@ -705,8 +670,8 @@ impl Prepared {
     pub(super) fn launched(&self) -> Launched {
         Launched {
             token: self.token.clone(),
-            server: self.server.as_ref().map(|s| s.record()),
-            session: self.server.as_ref().and_then(|s| s.session()),
+            adapter: self.started.record.clone(),
+            session: self.started.session.clone(),
             account: self.account.clone(),
             rules: self.rules.clone(),
         }
@@ -720,17 +685,13 @@ impl Prepared {
     }
 
     pub(super) fn discarder(&self) -> impl Fn() + use<> {
-        let server = self.server.clone();
-        move || {
-            if let Some(server) = &server {
-                server.stop();
-            }
-        }
+        let port = self.port.clone();
+        move || port.end()
     }
 
-    pub(super) async fn resume_server(&self) -> Result<(), String> {
-        match &self.server {
-            Some(server) => server.resume().await,
+    pub(super) async fn before_start(&mut self) -> Result<(), String> {
+        match self.started.before_start.take() {
+            Some(before) => before.await,
             None => Ok(()),
         }
     }

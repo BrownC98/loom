@@ -137,7 +137,7 @@ impl App {
             AgentEvent::WaitClosed {
                 by: IdleEnd::Gone | IdleEnd::Error,
             } => change.from == Some(AgentState::Listening),
-            AgentEvent::ServerLost | AgentEvent::DialogCleared => true,
+            AgentEvent::Lost | AgentEvent::DialogCleared => true,
             AgentEvent::TurnEnded => false,
             _ => self.held(change.node),
         };

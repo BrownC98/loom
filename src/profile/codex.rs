@@ -284,7 +284,7 @@ fn trust_args(at: &LaunchAt<'_>) -> Vec<String> {
     let key = serde_json::to_string(&cwd).expect("문자열은 늘 직렬화된다");
     vec![
         "-c".into(),
-        format!(r#"projects.{key}.trust_level="trusted""#),
+        format!(r#"projects={{{key}={{trust_level="trusted"}}}}"#),
     ]
 }
 
@@ -687,10 +687,14 @@ async fn hand(
     let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
     let call = |method, params| server.call(method, params);
     if mail.iter().any(|d| d.kind == Kind::Interrupt) {
-        if let Err(e) = (Rpc { call, thread }).interrupt().await {
-            eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못했다: {e}");
+        let stopped = match (Rpc { call, thread }).interrupt().await {
+            Ok(()) => server.clean_terminals(thread).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = stopped {
+            eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
+            server.kill_shells();
         }
-        server.stop_shells(thread).await;
     }
     match deliver(call, thread, now, mail).await {
         Ok(()) => {

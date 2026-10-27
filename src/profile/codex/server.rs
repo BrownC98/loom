@@ -556,20 +556,17 @@ impl CodexServer {
         ));
     }
 
-    pub async fn stop_shells(&self, thread: &str) {
+    pub async fn clean_terminals(&self, thread: &str) -> Result<(), String> {
         let params = ThreadBackgroundTerminalsCleanParams {
             thread_id: thread.to_owned(),
         };
         let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
-        if let Err(e) = self.call("thread/backgroundTerminals/clean", params).await {
-            eprintln!(
-                "loom: Codex 스레드 {thread}의 백그라운드 터미널을 끄지 못해 셸을 끝낸다: {e}"
-            );
-            self.kill_shells();
-        }
+        self.call("thread/backgroundTerminals/clean", params)
+            .await
+            .map(drop)
     }
 
-    fn kill_shells(&self) {
+    pub fn kill_shells(&self) {
         let Some(root) = self.process.here() else {
             return;
         };

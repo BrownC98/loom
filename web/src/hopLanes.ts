@@ -70,17 +70,19 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
   const mid = (id: number) => (rects.get(id)!.l + rects.get(id)!.r) / 2;
   const room = Math.max(...pairs.map((p) => p.label.full.height)) + LABEL_GAP;
   const bus = (end: HopEnd) => up.b + end.bend * (rects.get(end.id)!.t - up.b);
-  const floor = (p: HopPair) => Math.max(bus(p.source), bus(p.target)) + room / 2 + LABEL_GAP;
-  const ceil = (p: HopPair) => Math.min(rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t) - room / 2;
-  const below = pairs.filter((p) => ceil(p) >= floor(p));
+  const busLine = (p: HopPair) => Math.max(bus(p.source), bus(p.target)) + LABEL_GAP;
+  const roomTop = (p: HopPair) => Math.min(rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t) - LABEL_GAP;
+  const labelled = (p: HopPair) => roomTop(p) - busLine(p) >= room;
+  const band = (p: HopPair) => (labelled(p) ? { lo: busLine(p) + room / 2, hi: roomTop(p) - room / 2 } : { lo: busLine(p), hi: roomTop(p) });
+  const below = pairs.filter((p) => roomTop(p) >= busLine(p));
   if (below.length === 0) return routes;
   const span = (p: HopPair) => Math.abs(mid(p.source.id) - mid(p.target.id));
   const left = (p: HopPair) => Math.min(mid(p.source.id), mid(p.target.id));
   const order = [...below].sort((a, b) => span(a) - span(b) || left(a) - left(b) || (a.key < b.key ? -1 : 1));
-  const lo = Math.max(...order.map(floor));
-  const hi = Math.min(...order.map(ceil));
+  const lo = Math.max(...order.map((p) => band(p).lo));
+  const hi = Math.min(...order.map((p) => band(p).hi));
   const step = order.length > 1 ? Math.max(0, Math.min(room, (hi - lo) / (order.length - 1))) : 0;
-  const lane = (i: number) => Math.min(ceil(order[i]), Math.max(floor(order[i]), lo + (order.length - 1 - i) * step));
+  const lane = (i: number) => Math.min(band(order[i]).hi, Math.max(band(order[i]).lo, lo + (order.length - 1 - i) * step));
 
   type End = { pair: number; id: number; toward: number };
   const ends = new Map<number, End[]>();
@@ -118,7 +120,7 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
         const x = xa + (xb - xa) * t;
         return { l: x - size.width / 2, t: y - size.height / 2, r: x + size.width / 2, b: y + size.height / 2 };
       };
-      const t = LABEL_SPOTS.find((t) => clear(box(t)));
+      const t = labelled(p) ? LABEL_SPOTS.find((t) => clear(box(t))) : undefined;
       return t === undefined ? null : box(t);
     };
     const full = fit(p.label.full);

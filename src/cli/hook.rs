@@ -154,6 +154,7 @@ fn idle_request(signals: &Signals) -> IdleRequest {
             reply,
             turn: signals.turn.clone().or_else(ended_turn),
         }),
+        prompt_id: signals.prompt_id.clone(),
     }
 }
 
@@ -166,6 +167,7 @@ fn take_request(signals: &Signals, kinds: &[Kind]) -> TakeRequest {
         human_input: signals.human_input,
         prompt: signals.prompt.clone(),
         turn: signals.turn.clone(),
+        prompt_id: signals.prompt_id.clone(),
     }
 }
 

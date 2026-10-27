@@ -12,7 +12,7 @@ use portable_pty::CommandBuilder;
 
 use super::adapter::{
     Adapter, Carry, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
-    Started, TurnTake, Wake,
+    Started, TurnTake,
 };
 use super::process::Served;
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
@@ -150,8 +150,9 @@ impl Adapter for Claude {
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            if let Some((_, state)) = Served::stored::<State>(rec) {
-                tokio::spawn(wake_on_mail(state.wake, port));
+            match Served::stored::<State>(rec) {
+                Some((_, state)) => drop(tokio::spawn(wake_on_mail(state.wake, port))),
+                None => port.relaunch_at_turn_end(),
             }
             Ok(())
         })
@@ -261,17 +262,17 @@ fn touch(file: &Path, times: u64) -> Result<(), String> {
     written.map_err(|e| format!("{}: {e}", file.display()))
 }
 
+fn is_wake_file(path: &Path) -> bool {
+    std::env::var_os(WAKE_ENV).is_some_and(|wake| Path::new(&wake).file_name() == path.file_name())
+}
+
 async fn wake_on_mail(file: PathBuf, port: Arc<dyn Port>) {
     let mut times = 0;
-    let mut asked = false;
-    let mut on = |wake: Option<Wake>| {
-        if wake == Some(Wake::Mail) || (wake == Some(Wake::TurnEnd) && !asked) {
-            times += 1;
-            if let Err(e) = touch(&file, times) {
-                eprintln!("loom: Claude를 깨우지 못했다: {e}");
-            }
+    let mut on = || {
+        times += 1;
+        if let Err(e) = touch(&file, times) {
+            eprintln!("loom: Claude를 깨우지 못했다: {e}");
         }
-        asked = wake == Some(Wake::TurnEnd);
     };
     tokio::select! {
         refused = port.wakes(&mut on) => eprintln!("loom: Claude 깨움을 멈췄다: {refused}"),
@@ -337,6 +338,7 @@ fn args(plugin: &Path, launch: Launch) -> Vec<String> {
         "rewakeMessage": REWAKE_MESSAGE,
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
+    let human = HUMAN_NOTIFICATIONS.map(|(name, _)| name).join("|");
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
@@ -348,7 +350,7 @@ fn args(plugin: &Path, launch: Launch) -> Vec<String> {
             "Stop": rewake,
             "StopFailure": hook,
             "FileChanged": rewake,
-            "Notification": [{ "matcher": HUMAN_NOTIFICATIONS, "hooks": hook[0]["hooks"] }],
+            "Notification": [{ "matcher": human, "hooks": hook[0]["hooks"] }],
         },
     });
     vec![
@@ -414,7 +416,10 @@ pub const DIALOGS: [Dialog; 6] = [
     },
 ];
 
-const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
+const HUMAN_NOTIFICATIONS: [(&str, WaitKind); 2] = [
+    ("permission_prompt", WaitKind::Approval),
+    ("elicitation_dialog", WaitKind::Question),
+];
 const ASK_TOOL: &str = "AskUserQuestion";
 const ASK_REDIRECT: &str = "loom blocked AskUserQuestion: the human answers only loom ask, and loom keeps no record of that box. Ask the same question with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskUserQuestion again.";
 const PLAN_TOOL: &str = "ExitPlanMode";
@@ -426,18 +431,20 @@ pub struct Hook {
     agent_id: Option<String>,
     transcript_path: Option<String>,
     last_assistant_message: Option<String>,
+    prompt_id: Option<String>,
 }
 
 impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let main = self.agent_id.is_none();
         let wait = self.event.human_wait();
-        let wait = ((main && !matches!(self.event, Event::FileChanged)) || wait.is_some())
+        let wait = ((main && self.event.clears_wait()) || wait.is_some())
             .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
             step: self.event.name().to_owned(),
             take: self.event.take().filter(|_| main),
             session: self.transcript_path.clone().map(Session),
+            prompt_id: self.prompt_id.clone(),
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
             turn_end: matches!(self.event, Event::Stop)
@@ -538,7 +545,9 @@ pub enum Event {
         #[serde(default)]
         message: String,
     },
-    FileChanged,
+    FileChanged {
+        file_path: PathBuf,
+    },
 }
 
 const NOTIFICATION_TAG: &str = "<task-notification>";
@@ -556,8 +565,12 @@ impl Event {
             Event::Stop => "Stop",
             Event::StopFailure { .. } => "StopFailure",
             Event::Notification { .. } => "Notification",
-            Event::FileChanged => "FileChanged",
+            Event::FileChanged { .. } => "FileChanged",
         }
+    }
+
+    fn clears_wait(&self) -> bool {
+        !matches!(self, Event::FileChanged { .. } | Event::Notification { .. })
     }
 
     pub fn take(&self) -> Option<Take> {
@@ -566,8 +579,8 @@ impl Event {
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
-            Event::FileChanged => Take::Woken,
-            Event::Notification { .. } => return None,
+            Event::FileChanged { file_path } if is_wake_file(file_path) => Take::Woken,
+            Event::FileChanged { .. } | Event::Notification { .. } => return None,
         })
     }
 
@@ -588,13 +601,10 @@ impl Event {
             Event::Notification {
                 notification_type,
                 message,
-            } => {
-                let kind = match notification_type.as_str() {
-                    "elicitation_dialog" => WaitKind::Question,
-                    _ => WaitKind::Approval,
-                };
-                Some((kind, message.clone()))
-            }
+            } => HUMAN_NOTIFICATIONS
+                .iter()
+                .find(|(name, _)| name == notification_type)
+                .map(|(_, kind)| (*kind, message.clone())),
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
@@ -631,7 +641,7 @@ impl Event {
             | Event::Stop
             | Event::StopFailure { .. }
             | Event::Notification { .. }
-            | Event::FileChanged => None,
+            | Event::FileChanged { .. } => None,
             Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),

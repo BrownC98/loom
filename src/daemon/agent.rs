@@ -2,13 +2,13 @@ use std::pin::pin;
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::BoxFuture;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use super::idle::Wait;
 use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, WaitSource};
-use crate::profile::adapter::{Port, TurnTake, Wake};
+use crate::graph::{AgentEvent, AgentState, Entry, GraphEvent, Hold, IdleEnd, NodeId, WaitSource};
+use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
@@ -111,34 +111,62 @@ impl App {
         Ok(nudge.map(str::to_owned))
     }
 
+    fn opening(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: IdleRequest,
+    ) -> Result<Opening, Refusal> {
+        self.keep_session(token, req.session.as_ref())?;
+        let after_turn = req.turn_end.is_some();
+        if let Some(ended) = req.turn_end
+            && let Some(nudge) = self.turn_ended(node, ended)?
+        {
+            return Ok(Opening::Nudge(nudge));
+        }
+        Ok(Opening::Open(Open {
+            after_turn,
+            rate_limited: req.rate_limited,
+        }))
+    }
+
+    fn opened(self: &Arc<Self>, node: NodeId, open: Open) {
+        if open.rate_limited
+            && let Some(provider) = self.provider(node)
+        {
+            self.rate_limited(node, provider);
+        }
+        if !open.after_turn {
+            self.run_at_turn_end(node, None);
+        }
+    }
+
     pub(super) fn listen_open(
         self: &Arc<Self>,
         node: NodeId,
         token: &str,
         req: IdleRequest,
     ) -> Result<IdleReply, Refusal> {
-        self.keep_session(token, req.session.as_ref())?;
-        let after_turn = req.turn_end.is_some();
-        if let Some(ended) = req.turn_end
-            && let Some(nudge) = self.turn_ended(node, ended)?
+        if req.turn_end.is_some()
+            && self
+                .woken_prompts
+                .ended_before(node, req.prompt_id.as_deref())
         {
-            return Ok(IdleReply::Nudge { nudge });
+            return Ok(IdleReply::Mail(Vec::new()));
         }
+        let open = match self.opening(node, token, req)? {
+            Opening::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
+            Opening::Open(open) => open,
+        };
         self.feed(
             node,
-            match after_turn {
+            match open.after_turn {
                 true => AgentEvent::TurnEndedWaitOpened,
                 false => AgentEvent::WaitOpened,
             },
         );
-        if req.rate_limited
-            && let Some(provider) = self.provider(node)
-        {
-            self.rate_limited(node, provider);
-        }
-        if !after_turn {
-            self.run_at_turn_end(node, None);
-        }
+        self.opened(node, open);
+        self.graph.wake_mail();
         Ok(IdleReply::Mail(Vec::new()))
     }
 
@@ -149,47 +177,59 @@ impl App {
         req: TakeRequest,
     ) -> Result<IdleReply, Refusal> {
         self.keep_session(token, req.session.as_ref())?;
-        match self.wake(node)? {
-            None => Ok(IdleReply::Mail(Vec::new())),
-            Some(Wake::TurnEnd) => Ok(IdleReply::Nudge {
-                nudge: FINISH_TURN.to_owned(),
-            }),
-            Some(Wake::Mail) => {
-                let hold = self.hold_in_turn(node);
-                let messages = self
-                    .graph
-                    .take_waking(node, &req.kinds, req.limit_bytes, hold)?;
-                if !messages.is_empty() {
-                    self.idle.turn_started(node, req.step);
-                }
-                Ok(IdleReply::Mail(messages))
-            }
+        if self.first_inputs.pending(node) {
+            return Ok(IdleReply::Mail(Vec::new()));
         }
+        let messages =
+            self.graph
+                .take_waking(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
+        if !messages.is_empty() {
+            self.idle.turn_started(node, req.step);
+            self.woken_prompts.woken(node, req.prompt_id);
+            return Ok(IdleReply::Mail(messages));
+        }
+        Ok(match self.awaits_turn_end(node) {
+            true => IdleReply::Nudge {
+                nudge: FINISH_TURN.to_owned(),
+            },
+            false => IdleReply::Mail(messages),
+        })
     }
 
-    async fn wakes(&self, node: NodeId, on: &mut (dyn FnMut(Option<Wake>) + Send)) -> Refusal {
+    async fn wakes(&self, node: NodeId, on: &mut (dyn FnMut() + Send)) -> Refusal {
+        let hold = self.hold_in_turn(node);
+        let mut states = self.graph.changes();
+        let mut asked = None;
         loop {
-            let mut changed = pin!(self.graph.mail_changed());
-            changed.as_mut().enable();
-            match self.wake(node) {
-                Ok(wake) => on(wake),
+            let mut mail = pin!(self.graph.mail_changed());
+            mail.as_mut().enable();
+            match self.wake(node, hold) {
+                Ok(Some(Wake::Mail)) => on(),
+                Ok(Some(Wake::TurnEnd(state))) if asked.as_ref() != Some(&state) => {
+                    on();
+                    asked = Some(state);
+                }
+                Ok(Some(Wake::TurnEnd(_))) => {}
+                Ok(None) => asked = None,
                 Err(e) => return e.into(),
             }
-            changed.await;
+            tokio::select! {
+                () = mail => {}
+                () = state_changed(&mut states, node) => {}
+            }
         }
     }
 
-    fn wake(&self, node: NodeId) -> rusqlite::Result<Option<Wake>> {
+    fn wake(&self, node: NodeId, hold: Hold) -> rusqlite::Result<Option<Wake>> {
         if self.first_inputs.pending(node) {
             return Ok(None);
         }
-        if self
-            .graph
-            .has_waking(node, Kind::ALL, self.hold_in_turn(node))?
-        {
+        if self.graph.has_waking(node, Kind::ALL, hold)? {
             return Ok(Some(Wake::Mail));
         }
-        Ok(self.awaits_turn_end(node).then_some(Wake::TurnEnd))
+        Ok(self
+            .awaits_turn_end(node)
+            .then(|| Wake::TurnEnd(self.agent_state(node))))
     }
 
     pub(super) async fn wait_idle(
@@ -211,17 +251,11 @@ impl App {
         req: IdleRequest,
         arrival: Option<super::arrival::Arrival>,
     ) -> Result<Opened<'_>, AgentError> {
-        self.keep_session(token, req.session.as_ref())
-            .map_err(for_agent)?;
-        let after_turn = req.turn_end.is_some();
-        if let Some(ended) = req.turn_end
-            && let Some(nudge) = self
-                .turn_ended(node, ended)
-                .map_err(|e| for_agent(Refusal::from(e)))?
-        {
-            return Ok(Opened::Nudge(nudge));
-        }
-        let wait = match after_turn {
+        let open = match self.opening(node, token, req).map_err(for_agent)? {
+            Opening::Nudge(nudge) => return Ok(Opened::Nudge(nudge)),
+            Opening::Open(open) => open,
+        };
+        let wait = match open.after_turn {
             true => self.idle.open_after_turn(node),
             false => self.idle.open(node),
         }
@@ -245,14 +279,7 @@ impl App {
             );
             return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
         }
-        if req.rate_limited
-            && let Some(provider) = self.provider(node)
-        {
-            self.rate_limited(node, provider);
-        }
-        if !after_turn {
-            self.run_at_turn_end(node, None);
-        }
+        self.opened(node, open);
         Ok(Opened::Wait(wait))
     }
 
@@ -391,9 +418,41 @@ impl App {
     }
 }
 
+async fn state_changed(changes: &mut broadcast::Receiver<GraphEvent>, node: NodeId) {
+    loop {
+        match changes.recv().await {
+            Ok(GraphEvent::Recorded { record }) => {
+                if let Entry::AgentStateChanged { node: who, .. } = &record.entry
+                    && who.id == Some(node)
+                {
+                    return;
+                }
+            }
+            Ok(_) => {}
+            Err(broadcast::error::RecvError::Lagged(_)) => return,
+            Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+        }
+    }
+}
+
 enum Opened<'a> {
     Nudge(String),
     Wait(Wait<'a>),
+}
+
+enum Opening {
+    Nudge(String),
+    Open(Open),
+}
+
+struct Open {
+    after_turn: bool,
+    rate_limited: bool,
+}
+
+enum Wake {
+    Mail,
+    TurnEnd(Option<AgentState>),
 }
 
 pub(super) struct AgentPort {
@@ -494,7 +553,7 @@ impl Port for AgentPort {
         })
     }
 
-    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut(Option<Wake>) + Send)) -> BoxFuture<'a, Refusal> {
+    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut() + Send)) -> BoxFuture<'a, Refusal> {
         Box::pin(async move {
             let node = self.bound().await;
             tokio::select! {
@@ -502,6 +561,26 @@ impl Port for AgentPort {
                 () = self.until_ended() => std::future::pending().await,
             }
         })
+    }
+
+    fn relaunch_at_turn_end(&self) {
+        let bound = *self.node.borrow();
+        let Some(node) = bound.filter(|_| !*self.ended.borrow()) else {
+            return;
+        };
+        match self.app.graph.plan_resume(node) {
+            Ok(_) => {
+                eprintln!(
+                    "loom: 노드 {}의 어댑터가 턴 끝 다시 띄우기를 청했다",
+                    node.0
+                );
+                self.app.run_unless_busy(node);
+            }
+            Err(e) => eprintln!(
+                "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
+                node.0
+            ),
+        }
     }
 
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal> {

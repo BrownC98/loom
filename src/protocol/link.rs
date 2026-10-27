@@ -37,6 +37,8 @@ pub struct TakeRequest {
     pub prompt: Option<String>,
     #[serde(default)]
     pub turn: Option<String>,
+    #[serde(default)]
+    pub prompt_id: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ pub struct IdleRequest {
     pub session: Option<Session>,
     pub rate_limited: bool,
     pub turn_end: Option<EndedTurn>,
+    pub prompt_id: Option<String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

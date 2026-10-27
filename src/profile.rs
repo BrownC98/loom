@@ -88,6 +88,7 @@ pub struct Signals {
     pub prompt: Option<String>,
     pub human_input: bool,
     pub turn: Option<String>,
+    pub prompt_id: Option<String>,
     pub turn_end: Option<Option<String>>,
     pub rate_limited: bool,
     pub asks_interrupt: bool,

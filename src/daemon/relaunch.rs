@@ -33,8 +33,7 @@ const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in t
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
      Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
-pub(super) const FINISH_TURN: &str =
-    "loom relaunches you after this turn. Finish now: end this turn.";
+pub(super) const FINISH_TURN: &str = "loom relaunches you when this turn ends. If you have no work in progress, end this turn now; otherwise continue.";
 const STOPPED_LINE_CHARS: usize = 200;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;

@@ -36,12 +36,6 @@ pub enum TurnTake {
     CanOpenTurn,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Wake {
-    Mail,
-    TurnEnd,
-}
-
 pub enum Logins {
     None,
     One(&'static dyn Meter),
@@ -127,7 +121,8 @@ pub trait Port: Send + Sync {
     fn take(&self, req: TakeRequest) -> Result<Taken, Refusal>;
     fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>>;
     fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>>;
-    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut(Option<Wake>) + Send)) -> BoxFuture<'a, Refusal>;
+    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut() + Send)) -> BoxFuture<'a, Refusal>;
+    fn relaunch_at_turn_end(&self);
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal>;
     fn release(&self, ids: &[MessageId]) -> Result<(), Refusal>;
     fn report(&self, report: Report);

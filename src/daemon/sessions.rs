@@ -60,3 +60,25 @@ impl FirstInputs {
         self.0.lock().unwrap().contains(&node)
     }
 }
+
+#[derive(Default)]
+pub struct WokenPrompts(Mutex<HashMap<NodeId, String>>);
+
+impl WokenPrompts {
+    pub fn woken(&self, node: NodeId, prompt: Option<String>) {
+        let mut woken = self.0.lock().unwrap();
+        match prompt {
+            Some(prompt) => woken.insert(node, prompt),
+            None => woken.remove(&node),
+        };
+    }
+
+    pub fn ended_before(&self, node: NodeId, prompt: Option<&str>) -> bool {
+        let mut woken = self.0.lock().unwrap();
+        let before = prompt.is_some() && woken.get(&node).map(String::as_str) == prompt;
+        if before {
+            woken.remove(&node);
+        }
+        before
+    }
+}

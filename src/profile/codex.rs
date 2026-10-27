@@ -621,6 +621,7 @@ async fn human_input(
         human_input: true,
         prompt: None,
         turn: None,
+        prompt_id: None,
     };
     let note = match port.take(req) {
         Ok(taken) => taken.note,

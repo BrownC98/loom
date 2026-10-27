@@ -268,7 +268,7 @@ pub(super) async fn agent_idle(
 async fn agent_listen(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<IdleRequest>,
+    Json(req): Json<crate::protocol::ListenRequest>,
 ) -> Result<Json<IdleReply>, AgentError> {
     let node = app.caller(&headers)?;
     app.listen_open(node, bearer(&headers)?, req)

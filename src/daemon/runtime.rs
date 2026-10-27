@@ -359,6 +359,7 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
+            app.wakes.forget(id);
             if exit != Exit::Lost
                 && let Some(distro) = distro
             {

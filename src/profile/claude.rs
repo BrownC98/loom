@@ -113,7 +113,7 @@ impl Adapter for Claude {
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
         Box::pin(async move {
             let failed = |cause: String| LaunchError::Helper {
-                program: WAKE_FILE.into(),
+                program: WAKE_ENV.into(),
                 cause,
             };
             let name = getrandom::u64().map_err(|e| failed(e.to_string()))?;
@@ -150,9 +150,8 @@ impl Adapter for Claude {
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            match Served::stored::<State>(rec) {
-                Some((_, state)) => drop(tokio::spawn(wake_on_mail(state.wake, port))),
-                None => port.relaunch_at_turn_end(),
+            if let Some((_, state)) = Served::stored::<State>(rec) {
+                tokio::spawn(wake_on_mail(state.wake, port));
             }
             Ok(())
         })
@@ -420,6 +419,7 @@ const HUMAN_NOTIFICATIONS: [(&str, WaitKind); 2] = [
     ("permission_prompt", WaitKind::Approval),
     ("elicitation_dialog", WaitKind::Question),
 ];
+const IDLE_NOTIFICATION: &str = "idle_prompt";
 const ASK_TOOL: &str = "AskUserQuestion";
 const ASK_REDIRECT: &str = "loom blocked AskUserQuestion: the human answers only loom ask, and loom keeps no record of that box. Ask the same question with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskUserQuestion again.";
 const PLAN_TOOL: &str = "ExitPlanMode";
@@ -442,7 +442,11 @@ impl HookEvent for Hook {
             .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
             step: self.event.name().to_owned(),
-            take: self.event.take().filter(|_| main),
+            take: match std::env::var_os(WAKE_ENV) {
+                Some(_) => self.event.take(),
+                None => self.event.take_without_wake(),
+            }
+            .filter(|_| main),
             session: self.transcript_path.clone().map(Session),
             prompt_id: self.prompt_id.clone(),
             prompt: self.event.prompt().map(str::to_owned),
@@ -575,13 +579,26 @@ impl Event {
 
     pub fn take(&self) -> Option<Take> {
         Some(match self {
-            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::Listen,
+            Event::SessionStart { .. } => Take::ListenStart,
+            Event::Stop | Event::StopFailure { .. } => Take::ListenEnd,
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::FileChanged { file_path } if is_wake_file(file_path) => Take::Woken,
             Event::FileChanged { .. } | Event::Notification { .. } => return None,
         })
+    }
+
+    fn take_without_wake(&self) -> Option<Take> {
+        match self {
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => {
+                Some(Take::WhenIdle)
+            }
+            Event::Notification {
+                notification_type, ..
+            } if notification_type == IDLE_NOTIFICATION => Some(Take::WhenIdle),
+            event => event.take(),
+        }
     }
 
     pub fn prompt(&self) -> Option<&str> {

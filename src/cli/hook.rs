@@ -11,7 +11,8 @@ use crate::profile::{
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, TakeRequest, Taken,
+    AckRequest, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest, MessageId,
+    TakeRequest, Taken,
 };
 use crate::wsl::REWAKE_EXIT;
 
@@ -132,15 +133,19 @@ enum Step {
     Skip,
     Take(TakeRequest),
     Idle(IdleRequest),
-    Listen(IdleRequest),
+    Listen(ListenRequest),
     Woken(TakeRequest),
 }
 
-fn step(signals: &Signals) -> Step {
+fn step(signals: &mut Signals) -> Step {
     match signals.take {
         None => Step::Skip,
         Some(Take::WhenIdle) => Step::Idle(idle_request(signals)),
-        Some(Take::Listen) => Step::Listen(idle_request(signals)),
+        Some(Take::ListenStart) => Step::Listen(listen_request(signals, ListenAt::Start)),
+        Some(Take::ListenEnd) => {
+            let prompt_id = signals.prompt_id.clone();
+            Step::Listen(listen_request(signals, ListenAt::End { prompt_id }))
+        }
         Some(Take::Now(kinds)) => Step::Take(take_request(signals, kinds)),
         Some(Take::Woken) => Step::Woken(take_request(signals, Kind::ALL)),
     }
@@ -154,7 +159,14 @@ fn idle_request(signals: &Signals) -> IdleRequest {
             reply,
             turn: signals.turn.clone().or_else(ended_turn),
         }),
-        prompt_id: signals.prompt_id.clone(),
+    }
+}
+
+fn listen_request(signals: &mut Signals, at: ListenAt) -> ListenRequest {
+    ListenRequest {
+        idle: idle_request(signals),
+        at,
+        reports: std::mem::take(&mut signals.reports),
     }
 }
 
@@ -203,12 +215,13 @@ fn run(
     write: impl FnOnce(Shown) -> Result<(), String>,
 ) -> Result<(bool, Unacked), String> {
     let mut signals = event.signals();
+    let step = step(&mut signals);
     for report in std::mem::take(&mut signals.reports) {
         if let Err(e) = call::<()>("report", &report, Some(CALL_LIMIT)) {
             eprintln!("loom: could not report to loom: {e}");
         }
     }
-    let (handed, ack_limit) = match step(&signals) {
+    let (handed, ack_limit) = match step {
         Step::Skip => {
             let handed = match signals.asks_interrupt && interrupt_pending() {
                 true => Handed::Interrupted,

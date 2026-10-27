@@ -50,7 +50,8 @@ pub enum Profile {
 pub enum Take {
     Now(&'static [Kind]),
     WhenIdle,
-    Listen,
+    ListenStart,
+    ListenEnd,
     Woken,
 }
 

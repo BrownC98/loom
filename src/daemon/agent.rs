@@ -11,8 +11,8 @@ use crate::graph::{AgentEvent, AgentState, Entry, GraphEvent, Hold, IdleEnd, Nod
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
-    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
-    TakeRequest, Taken,
+    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest, MessageId, Refusal,
+    Report, Session, TakeRequest, Taken,
 };
 use axum::http::StatusCode;
 
@@ -23,6 +23,7 @@ impl App {
         token: &str,
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
+        self.heard(node);
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
@@ -145,16 +146,20 @@ impl App {
         self: &Arc<Self>,
         node: NodeId,
         token: &str,
-        req: IdleRequest,
+        req: ListenRequest,
     ) -> Result<IdleReply, Refusal> {
-        if req.turn_end.is_some()
-            && self
-                .woken_prompts
-                .ended_before(node, req.prompt_id.as_deref())
-        {
-            return Ok(IdleReply::Mail(Vec::new()));
+        match req.at {
+            ListenAt::End { prompt_id } if self.wakes.ended_before(node, prompt_id.as_deref()) => {
+                return Ok(IdleReply::Mail(Vec::new()));
+            }
+            ListenAt::End { .. } => {}
+            ListenAt::Start => self.wakes.forget(node),
         }
-        let open = match self.opening(node, token, req)? {
+        self.heard(node);
+        for report in req.reports {
+            self.report(node, token, report);
+        }
+        let open = match self.opening(node, token, req.idle)? {
             Opening::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
             Opening::Open(open) => open,
         };
@@ -185,32 +190,38 @@ impl App {
                 .take_waking(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
         if !messages.is_empty() {
             self.idle.turn_started(node, req.step);
-            self.woken_prompts.woken(node, req.prompt_id);
+            self.wakes.woken(node, req.prompt_id);
             return Ok(IdleReply::Mail(messages));
         }
-        Ok(match self.awaits_turn_end(node) {
-            true => IdleReply::Nudge {
-                nudge: FINISH_TURN.to_owned(),
-            },
-            false => IdleReply::Mail(messages),
+        if !self.awaits_turn_end(node) {
+            return Ok(IdleReply::Mail(messages));
+        }
+        self.wakes.finish_answered(node, self.agent_state(node));
+        Ok(IdleReply::Nudge {
+            nudge: FINISH_TURN.to_owned(),
         })
+    }
+
+    fn heard(&self, node: NodeId) {
+        if self.wakes.heard(node) {
+            self.graph.wake_mail();
+        }
     }
 
     async fn wakes(&self, node: NodeId, on: &mut (dyn FnMut() + Send)) -> Refusal {
         let hold = self.hold_in_turn(node);
         let mut states = self.graph.changes();
-        let mut asked = None;
         loop {
             let mut mail = pin!(self.graph.mail_changed());
             mail.as_mut().enable();
             match self.wake(node, hold) {
                 Ok(Some(Wake::Mail)) => on(),
-                Ok(Some(Wake::TurnEnd(state))) if asked.as_ref() != Some(&state) => {
-                    on();
-                    asked = Some(state);
+                Ok(Some(Wake::TurnEnd(state))) => {
+                    if self.wakes.ask_finish(node, state) {
+                        on();
+                    }
                 }
-                Ok(Some(Wake::TurnEnd(_))) => {}
-                Ok(None) => asked = None,
+                Ok(None) => self.wakes.finish_done(node),
                 Err(e) => return e.into(),
             }
             tokio::select! {
@@ -561,26 +572,6 @@ impl Port for AgentPort {
                 () = self.until_ended() => std::future::pending().await,
             }
         })
-    }
-
-    fn relaunch_at_turn_end(&self) {
-        let bound = *self.node.borrow();
-        let Some(node) = bound.filter(|_| !*self.ended.borrow()) else {
-            return;
-        };
-        match self.app.graph.plan_resume(node) {
-            Ok(_) => {
-                eprintln!(
-                    "loom: 노드 {}의 어댑터가 턴 끝 다시 띄우기를 청했다",
-                    node.0
-                );
-                self.app.run_unless_busy(node);
-            }
-            Err(e) => eprintln!(
-                "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
-                node.0
-            ),
-        }
     }
 
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal> {

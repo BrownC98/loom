@@ -55,7 +55,21 @@ pub struct IdleRequest {
     pub session: Option<Session>,
     pub rate_limited: bool,
     pub turn_end: Option<EndedTurn>,
-    pub prompt_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ListenRequest {
+    #[serde(flatten)]
+    pub idle: IdleRequest,
+    pub at: ListenAt,
+    pub reports: Vec<Report>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ListenAt {
+    Start,
+    End { prompt_id: Option<String> },
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

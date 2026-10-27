@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use tokio::sync::watch;
 
-use crate::graph::NodeId;
+use crate::graph::{AgentState, NodeId};
 use crate::screen::SessionStart;
 
 #[derive(Default)]
@@ -62,23 +62,75 @@ impl FirstInputs {
 }
 
 #[derive(Default)]
-pub struct WokenPrompts(Mutex<HashMap<NodeId, String>>);
+pub struct Wakes(Mutex<HashMap<NodeId, NodeWakes>>);
 
-impl WokenPrompts {
+#[derive(Default)]
+struct NodeWakes {
+    prompts: HashSet<String>,
+    finish: Option<Finish>,
+}
+
+enum Finish {
+    Touched(Option<AgentState>),
+    Answered(Option<AgentState>),
+}
+
+impl Wakes {
     pub fn woken(&self, node: NodeId, prompt: Option<String>) {
-        let mut woken = self.0.lock().unwrap();
-        match prompt {
-            Some(prompt) => woken.insert(node, prompt),
-            None => woken.remove(&node),
-        };
+        if let Some(prompt) = prompt {
+            self.0
+                .lock()
+                .unwrap()
+                .entry(node)
+                .or_default()
+                .prompts
+                .insert(prompt);
+        }
     }
 
     pub fn ended_before(&self, node: NodeId, prompt: Option<&str>) -> bool {
-        let mut woken = self.0.lock().unwrap();
-        let before = prompt.is_some() && woken.get(&node).map(String::as_str) == prompt;
-        if before {
-            woken.remove(&node);
+        let mut wakes = self.0.lock().unwrap();
+        match (wakes.get_mut(&node), prompt) {
+            (Some(wakes), Some(prompt)) => wakes.prompts.remove(prompt),
+            _ => false,
         }
-        before
+    }
+
+    pub fn forget(&self, node: NodeId) {
+        self.0.lock().unwrap().remove(&node);
+    }
+
+    pub fn ask_finish(&self, node: NodeId, state: Option<AgentState>) -> bool {
+        let mut wakes = self.0.lock().unwrap();
+        let finish = &mut wakes.entry(node).or_default().finish;
+        if let Some(Finish::Touched(asked) | Finish::Answered(asked)) = finish
+            && *asked == state
+        {
+            return false;
+        }
+        *finish = Some(Finish::Touched(state));
+        true
+    }
+
+    pub fn finish_answered(&self, node: NodeId, state: Option<AgentState>) {
+        self.0.lock().unwrap().entry(node).or_default().finish = Some(Finish::Answered(state));
+    }
+
+    pub fn finish_done(&self, node: NodeId) {
+        if let Some(wakes) = self.0.lock().unwrap().get_mut(&node) {
+            wakes.finish = None;
+        }
+    }
+
+    pub fn heard(&self, node: NodeId) -> bool {
+        let mut wakes = self.0.lock().unwrap();
+        let Some(wakes) = wakes.get_mut(&node) else {
+            return false;
+        };
+        let unanswered = matches!(wakes.finish, Some(Finish::Touched(_)));
+        if unanswered {
+            wakes.finish = None;
+        }
+        unanswered
     }
 }

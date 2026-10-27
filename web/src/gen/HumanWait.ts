@@ -5,6 +5,7 @@ import type { TextPart } from "./TextPart";
 import type { WaitDoc } from "./WaitDoc";
 import type { WaitId } from "./WaitId";
 import type { WaitKind } from "./WaitKind";
+import type { WaitTone } from "./WaitTone";
 
 /**
  * 화면에 보내는 대기 한 건.
@@ -41,4 +42,12 @@ parts?: Array<TextPart>,
 /**
  * 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
  */
-choices?: Array<Choice>, };
+choices?: Array<Choice>, 
+/**
+ * 화면에 보낼 때만 채운다(`for_screen`).
+ */
+tone: WaitTone, 
+/**
+ * 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글. 화면에 보낼 때만 채운다(`for_screen`).
+ */
+summary: string, };

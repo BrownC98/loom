@@ -15,7 +15,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './camera';
 import { stateClass } from './NodeCard';
-import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId, summaryOf, toneOf } from './notice';
+import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId } from './notice';
 import { PinchImage } from './PinchImage';
 import { PromptBody } from './PromptBody';
 import { Modal } from './Modal';
@@ -58,7 +58,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     <div className="inbox" ref={paneRef}>
       {first && shown && (
         <div className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
+          <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
             <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
             {!line && (
               <div className="pill-row">
@@ -206,7 +206,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
   return (
     <ul className="wait-list">
       {props.waiting.map((v) => (
-        <li key={v.id} className="wait-node" data-tone={toneOf(oldestWait(v).kind)}>
+        <li key={v.id} className="wait-node" data-tone={oldestWait(v).tone}>
           <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
             <span className={`dot ${stateClass(v)}`} aria-hidden="true" />
             <b>{v.name}</b>
@@ -241,16 +241,15 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
 function WaitEntry(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const tone = toneOf(wait.kind);
-  const Icon = ICON[tone];
+  const Icon = ICON[wait.tone];
   return (
-    <div className="entry" data-tone={tone}>
+    <div className="entry" data-tone={wait.tone}>
       <div className="top">
         <Icon className="kind-mark" aria-hidden="true" />
         <span className="kind">{t(`wait.${wait.kind}`)}</span>
         {showsId(wait.kind) && <span className="qid">Q{wait.id}</span>}
         <Published wait={wait} />
-        {tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
+        {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
       </div>
       {wait.instruction && <Instruction text={wait.instruction} />}
       <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
@@ -309,7 +308,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const { prompt } = wait;
-  const done = toneOf(wait.kind) === 'done';
+  const done = wait.tone === 'done';
   const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
@@ -348,7 +347,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       }
     : {};
   return (
-    <div className="wait-body" data-tone={toneOf(wait.kind)} data-dragging={dragging || undefined} {...drop}>
+    <div className="wait-body" data-tone={wait.tone} data-dragging={dragging || undefined} {...drop}>
       {wait.images.length > 0 && (
         <ul className="answer-images">
           {wait.images.map((path, index) => (
@@ -567,7 +566,7 @@ function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeI
     if (fresh.length === 0) return;
     windowHidden().then((hidden) => {
       if (!hidden) return;
-      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, summaryOf(w), `loom-wait-${w.id}`, () => select.current(v.id));
+      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, w.summary, `loom-wait-${w.id}`, () => select.current(v.id));
     });
   }, [waiting, enabled]);
 }

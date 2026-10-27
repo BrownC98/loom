@@ -55,12 +55,48 @@ pub struct HumanWait {
     /// 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<Choice>,
+    /// 화면에 보낼 때만 채운다(`for_screen`).
+    #[serde(default)]
+    pub tone: WaitTone,
+    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글. 화면에 보낼 때만 채운다(`for_screen`).
+    #[serde(default)]
+    pub summary: String,
+}
+
+/// 대기의 색과 아이콘, 알림 채널.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum WaitTone {
+    #[default]
+    Ask,
+    Done,
 }
 
 impl HumanWait {
     pub(super) fn for_screen(self) -> HumanWait {
+        let parts = parts(&self.text);
+        let summary = match &self.prompt {
+            Some(prompt) => prompt.summary.clone(),
+            None => parts
+                .iter()
+                .map(|part| match part {
+                    TextPart::Text { text } => text.as_str(),
+                    TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
+                })
+                .collect(),
+        };
         HumanWait {
-            parts: parts(&self.text),
+            tone: match self.kind {
+                WaitKind::Question
+                | WaitKind::Approval
+                | WaitKind::Trust
+                | WaitKind::Auth
+                | WaitKind::Input => WaitTone::Ask,
+                WaitKind::Done => WaitTone::Done,
+            },
+            summary,
+            parts,
             choices: match self.kind {
                 WaitKind::Question => choices(&self.text),
                 WaitKind::Approval
@@ -511,6 +547,8 @@ fn new_wait(
         prompt: None,
         parts: Vec::new(),
         choices: Vec::new(),
+        tone: WaitTone::default(),
+        summary: String::new(),
     })
 }
 

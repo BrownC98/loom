@@ -1,5 +1,5 @@
 [
-  {"id": "claude", "label": "Claude", "cmd": "claude", "prompt": "argv", "profile": "claude", "bypass": ["--dangerously-skip-permissions"], "homepage": "https://code.claude.com/docs"},
+  {"id": "claude", "label": "Claude Code", "cmd": "claude", "prompt": "argv", "profile": "claude", "bypass": ["--dangerously-skip-permissions"], "homepage": "https://code.claude.com/docs"},
   {"id": "openclaude", "label": "OpenClaude", "cmd": "openclaude", "prompt": "argv", "homepage": "https://openclaude.gitlawb.com/"},
   {"id": "codex", "label": "Codex", "cmd": "codex", "prompt": "argv", "profile": "codex", "bypass": ["--dangerously-bypass-approvals-and-sandbox"], "homepage": "https://github.com/openai/codex"},
   {"id": "grok", "label": "Grok", "cmd": "grok", "prompt": {"argvAfter": "--"}, "homepage": "https://x.ai/cli"},

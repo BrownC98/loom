@@ -123,7 +123,7 @@ pub enum Refusal {
     PromptChanged(WaitId),
     /// 관문 상태에서 할 수 없는 관문 호출.
     Gate(IllegalStep),
-    /// 판정을 부를 수 없는 노드가 불렀다. 판정은 관문이 띄운 검토자만 부른다.
+    /// 판정을 부를 수 없는 노드가 불렀다. 판정은 그 브랜치의 검토자만 부른다. 부모 브랜치에서 만든 브랜치는 관문인 부모만 부른다.
     NotGate {
         branch: String,
         gate: String,

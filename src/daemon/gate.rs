@@ -12,6 +12,7 @@ use crate::graph::{GateChoice, NodeId, Round, Via};
 use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, Refusal, SHIP_SCRIPT};
 use crate::roles::REVIEWER_ROLES;
 use crate::worktree;
+use crate::worktree::RepoId;
 use crate::worktree::merge::{base_branch, contains};
 
 pub const TOOL_HEADER: &str = "loom-tool";
@@ -144,20 +145,37 @@ impl App {
         };
         let gated = gate_worktree.is_none() && self.gated_repo(owner)?;
         for (repo, branch) in rounds {
-            let dir = self
-                .repos
-                .path(repo)
-                .map_err(|e| Refusal::Git(e.to_string()))?;
-            let target = target_of(&dir, gate_worktree.as_deref()).await?;
-            self.graph.tell_gate(repo, &branch, &target)?;
             if gated {
-                let roles = self.unseated_roles(owner, &branch)?;
-                for problem in self.seat_reviewers(owner, &branch, roles).await {
+                let problems = match self.unseated_roles(owner, &branch) {
+                    Ok(roles) => self.seat_reviewers(owner, &branch, roles).await,
+                    Err(e) => vec![e.to_string()],
+                };
+                for problem in problems {
                     eprintln!("loom: reviewer of {branch}: {problem}");
                 }
             }
+            if let Err(e) = self
+                .tell_round(repo, &branch, gate_worktree.as_deref())
+                .await
+            {
+                eprintln!("loom: gate of {branch}: {e}");
+            }
         }
         Ok(())
+    }
+
+    async fn tell_round(
+        &self,
+        repo: RepoId,
+        branch: &str,
+        gate_worktree: Option<&str>,
+    ) -> Result<(), Refusal> {
+        let dir = self
+            .repos
+            .path(repo)
+            .map_err(|e| Refusal::Git(e.to_string()))?;
+        let target = target_of(&dir, gate_worktree).await?;
+        Ok(self.graph.tell_gate(repo, branch, &target)?)
     }
 
     fn unseated_roles(&self, gate: NodeId, branch: &str) -> Result<Vec<&'static str>, Refusal> {

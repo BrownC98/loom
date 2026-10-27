@@ -536,20 +536,27 @@ impl Graph {
             Some(row.state),
             Vec::new(),
         )?;
-        let body = policy::next_step(
+        let mut body = vec![policy::next_step(
             GateCall::Ready,
             Receiver::Gate,
             row.target_kind(),
             branch,
             &row.head,
-        );
+        )];
+        let held = Held {
+            reviewers: Vec::new(),
+            seats: empty_seats(&tx, &row, branch)?,
+        };
+        if !held.is_empty() {
+            body.push(policy::held_step(Receiver::Gate, branch, &held));
+        }
         post(
             &tx,
             Caller::Loom,
             row.gate,
             Kind::Queue,
             &what,
-            &body,
+            &body.join("\n"),
             None,
             &trace,
         )?;
@@ -1204,13 +1211,23 @@ fn pending(
             |r| r.get(0),
         )?
         .collect::<rusqlite::Result<_>>()?;
+    Ok(Held {
+        reviewers,
+        seats: empty_seats(tx, row, branch)?,
+    })
+}
+
+fn empty_seats(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Vec<&'static str>> {
     let mut seats = Vec::new();
+    if row.target_kind() != Target::Base {
+        return Ok(seats);
+    }
     for role in REVIEWER_ROLES {
-        if base && seated(tx, row.gate, branch, role)?.is_none() {
+        if seated(db, row.gate, branch, role)?.is_none() {
             seats.push(role);
         }
     }
-    Ok(Held { reviewers, seats })
+    Ok(seats)
 }
 
 fn required_roles() -> String {

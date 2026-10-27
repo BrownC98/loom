@@ -416,21 +416,14 @@ button.unread:hover { filter: brightness(1.1); }
 
 .react-flow__edge-path { stroke: var(--edge); stroke-width: 1.5; }
 .react-flow__edge.sel .react-flow__edge-path { stroke: var(--ink-2); stroke-width: 2.25; }
-.react-flow__edge.live .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
+.react-flow__edge.live .react-flow__edge-path { stroke: var(--hop); stroke-width: 2; stroke-dasharray: 6 5; }
 .react-flow__edge.to-child .react-flow__edge-path { animation: edge-flow 0.6s linear infinite; }
 .react-flow__edge.to-parent .react-flow__edge-path { animation: edge-flow 0.6s linear infinite reverse; }
 @keyframes edge-flow { to { stroke-dashoffset: -11; } }
 @media (prefers-reduced-motion: reduce) { .react-flow__edge.to-child .react-flow__edge-path, .react-flow__edge.to-parent .react-flow__edge-path { animation: none; } }
-.react-flow__edge-textbg { fill: var(--accent); }
+.react-flow__edge-textbg { fill: var(--hop); }
 .react-flow__edge-text { fill: var(--accent-ink); font-size: 12px; font-weight: 600; }
-.react-flow__edge.hop-c1 { --hop: var(--lane-1); }
-.react-flow__edge.hop-c2 { --hop: var(--lane-2); }
-.react-flow__edge.hop-c3 { --hop: var(--lane-3); }
-.react-flow__edge.hop-c4 { --hop: var(--lane-4); }
-.react-flow__edge.hop-c5 { --hop: var(--lane-5); }
-.react-flow__edge.live[class*="hop-c"] .react-flow__edge-path { stroke: var(--hop); }
-.react-flow__edge[class*="hop-c"] .react-flow__edge-textbg { fill: var(--hop); }
-.react-flow__edge[class*="hop-c"] .react-flow__edge-interaction { pointer-events: visibleStroke; }
+.react-flow__edge.hop .react-flow__edge-interaction { pointer-events: visibleStroke; }
 .react-flow__handle { opacity: 0; pointer-events: none; }
 .react-flow__handle.port { width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); cursor: crosshair; }
 .react-flow__node:hover > .port, .react-flow__node:has(> .card[data-selected]) > .port { opacity: 1; pointer-events: all; }

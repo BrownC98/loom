@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { BaseEdge, type Edge, type EdgeProps } from '@xyflow/react';
 import type { HopRoute } from './hopLanes';
 
@@ -16,7 +17,7 @@ export function hopLabelSize(text: string): { width: number; height: number } {
   return { width: width + 2 * LABEL_PAD.x, height: LABEL_LINE + 2 * LABEL_PAD.y };
 }
 
-export type HopEdgeType = Edge<{ route: HopRoute | null; title: string }, 'hop'>;
+export type HopEdgeType = Edge<{ route: HopRoute | null; title: string; color: string }, 'hop'>;
 
 function lanePath(points: HopRoute['points']): string {
   const toward = (from: number, to: number) => Math.sign(to - from) * Math.min(CORNER, Math.abs(to - from) / 2);
@@ -41,7 +42,7 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
   const path = route ? lanePath(route.points) : `M ${sourceX} ${sourceY} C ${sourceX} ${top}, ${targetX} ${top}, ${targetX} ${targetY}`;
   const turned = route?.turned && route.label && typeof props.label === 'string' ? { at: route.label.at, text: props.label, size: hopLabelSize(props.label) } : null;
   return (
-    <>
+    <g style={{ '--hop': props.data?.color } as CSSProperties}>
       <title>{props.data?.title}</title>
       <BaseEdge
         id={props.id}
@@ -63,6 +64,6 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
           </text>
         </g>
       )}
-    </>
+    </g>
   );
 }

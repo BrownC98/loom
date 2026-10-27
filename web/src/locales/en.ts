@@ -51,7 +51,7 @@ const en = {
     minimapUnfold: 'Unfold minimap',
     hop: '{{from}} → {{to}} · {{n}}',
     hopBack: '{{to}} ← {{from}} · {{n}}',
-    messageTo: '{{n}} msg → {{name}}',
+    messageTo: { right: '{{n}} msg → {{name}}', left: '{{name}} ← {{n}} msg', down: '{{n}} msg ↓ {{name}}', up: '{{n}} msg ↑ {{name}}' },
   },
   find: {
     open: 'Find nodes and worktrees',

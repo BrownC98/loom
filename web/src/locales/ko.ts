@@ -53,7 +53,7 @@ const ko: typeof en = {
     minimapUnfold: '미니맵 펴기',
     hop: '{{from}} → {{to}} · {{n}}',
     hopBack: '{{to}} ← {{from}} · {{n}}',
-    messageTo: '{{n}} 메시지 → {{name}}',
+    messageTo: { right: '{{n}} 메시지 → {{name}}', left: '{{name}} ← {{n}} 메시지', down: '{{n}} 메시지 ↓ {{name}}', up: '{{n}} 메시지 ↑ {{name}}' },
   },
   find: {
     open: '노드·워크트리 찾기',

@@ -1,7 +1,7 @@
 import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
-import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
+import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MarkerType, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MarkerType, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type EdgeMarker, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -20,8 +20,8 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
-import { HOP_LANES, hopParts, siblingLanes, type HopPair } from './hopLanes';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { hopColor, hopParts, siblingLanes, type HopEndName, type HopPair } from './hopLanes';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
 import { PlaceTag, shownPath } from './place';
@@ -42,6 +42,7 @@ const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 const REPO_Z = -1;
 const RAISED_EDGE_Z = 1;
 const EDGE_TYPES = { hop: HopEdge };
+const arrowHead = (color: string): EdgeMarker => ({ type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' });
 const DRAGGING_Z = 2000;
 const EMPTY_GROUP: Size = { width: 320, height: 100 };
 const CARD_X = 20;
@@ -426,9 +427,9 @@ type Draft = { spots?: ReadonlyMap<string, XYPosition>; size?: { id: NodeId; siz
 
 export type Lit = { keys: ReadonlySet<string>; current: string | null };
 
-export type Pulse = Readonly<Record<Toward, number>>;
+export type Pulse = Readonly<{ hue: number; last: Toward; counts: Readonly<Record<Toward, number>> }>;
 
-export type Hop = Readonly<{ source: NodeId; target: NodeId; color: number; counts: Readonly<Record<'source' | 'target', number>> }>;
+export type Hop = Readonly<{ source: NodeId; target: NodeId; hue: number; last: HopEndName; counts: Readonly<Record<HopEndName, number>> }>;
 
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
 
@@ -906,14 +907,18 @@ export function Graph(props: {
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
     const pulse = props.pulses.get(view.id);
-    const receivers = pulse ? ([['parent', view.parent], ['child', view.id]] as const).filter(([toward]) => pulse[toward] > 0) : [];
-    const flow = receivers.length === 1 ? `to-${receivers[0][0]}` : undefined;
+    const receivers = pulse ? ([['parent', view.parent], ['child', view.id]] as const).filter(([toward]) => pulse.counts[toward] > 0) : [];
+    const color = pulse ? hopColor(pulse.hue) : undefined;
+    const paint = color ? ({ '--hop': color } as CSSProperties) : undefined;
+    const arrow = (toward: Toward) => (color && pulse?.counts[toward] ? arrowHead(color) : undefined);
     const from = positions.get(view.parent);
     const to = positions.get(view.id);
     const boxes = from && to ? ([{ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }] as const) : null;
     const sides = boxes ? edgeSides(...boxes, direction) : TREE_SIDES[direction];
     const step = boxes && props.settings.edgeStyle === 'step' ? stepAt(...boxes, direction, STEP_BEND) : null;
     const chosen = selected === view.id || selected === view.parent;
+    const ends = boxes && { parent: { box: boxes[0], side: sides.parent }, child: { box: boxes[1], side: sides.child } };
+    const heading = (toward: Toward) => (ends ? labelHeading(toward === 'child' ? ends.parent : ends.child, ends[toward], step) : 'right');
     return [
       {
         id: `edge-${view.id}`,
@@ -922,9 +927,13 @@ export function Graph(props: {
         sourceHandle: sides.parent,
         targetHandle: sides.child,
         ...(step === null ? {} : { type: 'smoothstep', pathOptions: { offset: 0, stepPosition: step } }),
-        className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
+        markerStart: arrow('parent'),
+        markerEnd: arrow('child'),
+        style: paint,
+        labelBgStyle: paint,
+        className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, pulse && `to-${pulse.last}`, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
         zIndex: chosen || pulse ? RAISED_EDGE_Z : undefined,
-        label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
+        label: pulse ? receivers.map(([toward, id]) => t(`graph.messageTo.${heading(toward)}`, { name: props.views.get(id)?.name ?? `#${id}`, n: pulse.counts[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
         focusable: false,
@@ -972,13 +981,10 @@ export function Graph(props: {
   }));
   const hopEdges: HopEdgeType[] = [...props.hops].flatMap(([key, hop]) => {
     if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
-    const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
-    const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
     const route = routes.get(key) ?? null;
     const text = hopLabel(hop, route?.turned ?? false);
-    const lane = HOP_LANES[hop.color % HOP_LANES.length];
-    const color = `var(--lane-${lane})`;
-    const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
+    const color = hopColor(hop.hue);
+    const arrow = (end: HopEndName) => (hop.counts[end] > 0 ? arrowHead(color) : undefined);
     return [
       {
         id: `hop-${key}`,
@@ -987,10 +993,10 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        data: { route, title: text },
+        data: { route, title: text, color },
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
-        className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
+        className: ['live', 'hop', hop.last === 'target' ? 'to-child' : 'to-parent', lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
         label: !route ? text : route.label === null ? undefined : route.label.short ? hopShort(hop, route.turned) : text,
         labelBgBorderRadius: 10,

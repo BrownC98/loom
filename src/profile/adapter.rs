@@ -15,6 +15,7 @@ use crate::protocol::{
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
+use crate::task::TaskDir;
 use crate::usage::Usage;
 use crate::wsl::Inside;
 
@@ -60,6 +61,7 @@ pub struct LaunchAt<'a> {
     pub plugin: &'a Path,
     pub plugin_here: &'a Path,
     pub skills: &'a Path,
+    pub task: Option<&'a TaskDir>,
     pub launch: Launch,
     pub version: Option<&'a str>,
     pub node_ip: Option<IpAddr>,

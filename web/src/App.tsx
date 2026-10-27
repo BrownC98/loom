@@ -26,7 +26,7 @@ import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
 import { settingsPatch, type SettingsPatch } from './settingsPatch';
-import { pickColor } from './hopLanes';
+import { pickHue } from './hopLanes';
 import { Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { flowId } from './camera';
 import { chosenRepo } from './repos';
@@ -365,8 +365,8 @@ export function App() {
       const toward = to === target ? 'target' : 'source';
       flash(setHops, hopTimers.current, `${source}-${target}`, (prev, shown) => {
         const counts = prev?.counts ?? { source: 0, target: 0 };
-        const color = prev?.color ?? pickColor([...shown.values()].map((hop) => hop.color));
-        return { source, target, color, counts: { ...counts, [toward]: counts[toward] + 1 } };
+        const hue = prev?.hue ?? pickHue([...shown.values()].map((hop) => hop.hue));
+        return { source, target, hue, counts: { ...counts, [toward]: counts[toward] + 1 } };
       });
     };
     let reading = false;

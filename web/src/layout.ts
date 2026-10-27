@@ -333,6 +333,26 @@ export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection):
   return TREE_SIDES[toward];
 }
 
+export type EdgeEnd = { box: Box; side: Side };
+
+function sidePoint({ box, side }: EdgeEnd): Point {
+  const x = { left: box.at.x, right: box.at.x + box.size.width, top: box.at.x + box.size.width / 2, bottom: box.at.x + box.size.width / 2 }[side];
+  const y = { top: box.at.y, bottom: box.at.y + box.size.height, left: box.at.y + box.size.height / 2, right: box.at.y + box.size.height / 2 }[side];
+  return { x, y };
+}
+
+export function labelHeading(from: EdgeEnd, to: EdgeEnd, step: number | null): ArrangeDirection {
+  const a = sidePoint(from);
+  const b = sidePoint(to);
+  const dx = Math.round(b.x - a.x);
+  const dy = Math.round(b.y - a.y);
+  const vertical = from.side === 'top' || from.side === 'bottom';
+  const lean = step !== null ? (vertical ? { x: dx, y: 0 } : { x: 0, y: dy }) : vertical ? { x: 2 * dx, y: dy } : { x: dx, y: 2 * dy };
+  const m = lean.x === 0 && lean.y === 0 ? { x: dx, y: dy } : lean;
+  if (Math.abs(m.x) > Math.abs(m.y)) return m.x > 0 ? 'right' : 'left';
+  return m.y > 0 ? 'down' : 'up';
+}
+
 export type Camera = { x: number; y: number; zoom: number };
 
 export function followCard(old: Point, now: Point, camera: Camera): Camera {

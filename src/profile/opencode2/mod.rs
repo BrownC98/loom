@@ -71,7 +71,7 @@ impl super::adapter::Adapter for OpenCode2 {
         &'a self,
         at: &'a LaunchAt<'_>,
         resume: Option<&'a Session>,
-        _: &'a [String],
+        bypass: &'a [String],
         cmd: &'a mut CommandBuilder,
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
@@ -80,7 +80,8 @@ impl super::adapter::Adapter for OpenCode2 {
                 program: format!("{CMD} serve"),
                 cause,
             };
-            let (node, turns) = Node::start(at, resume).await.map_err(failed)?;
+            let rules = permission_rules(bypass);
+            let (node, turns) = Node::start(at, resume, &rules).await.map_err(failed)?;
             cmd.args(["--server", node.server.url(), "--session", &node.session]);
             cmd.env(PASSWORD_ENV, node.server.password());
             let record = node.server.process().record(State {
@@ -327,6 +328,7 @@ impl Node {
     async fn start(
         at: &LaunchAt<'_>,
         resume: Option<&Session>,
+        rules: &[Value],
     ) -> Result<(Self, mpsc::UnboundedReceiver<Seen>), String> {
         let config = serde_json::json!({ "skills": [at.skills] }).to_string();
         let mut env: Vec<(&'static str, OsString)> = at.env.to_vec();
@@ -344,10 +346,13 @@ impl Node {
                 return Err(e);
             }
         };
-        if let Err(e) = server
-            .put_instructions(&session, "loom", &usage(at.launch))
-            .await
-        {
+        let set = async {
+            server.set_permissions(&session, rules).await?;
+            server
+                .put_instructions(&session, "loom", &usage(at.launch))
+                .await
+        };
+        if let Err(e) = set.await {
             server.stop();
             return Err(e);
         }
@@ -414,6 +419,13 @@ impl Node {
         self.server
             .prompt(&self.session, &id, text, inbox.as_str())
             .await
+    }
+}
+
+fn permission_rules(bypass: &[String]) -> Vec<Value> {
+    match bypass.is_empty() {
+        true => Vec::new(),
+        false => vec![serde_json::json!({ "action": "*", "resource": "*", "effect": "allow" })],
     }
 }
 

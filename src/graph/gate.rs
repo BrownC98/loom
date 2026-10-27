@@ -779,6 +779,15 @@ impl Graph {
         Ok(())
     }
 
+    pub fn reviewer_seated(
+        &self,
+        gate: NodeId,
+        branch: &str,
+        role: &str,
+    ) -> rusqlite::Result<bool> {
+        Ok(seated(&self.lock(), gate, branch, role)?.is_some())
+    }
+
     pub fn introduce_reviewer(&self, node: NodeId) -> rusqlite::Result<()> {
         let db = self.lock();
         let Some((gate, branch)) = db

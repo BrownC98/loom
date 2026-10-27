@@ -12,10 +12,10 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::Status;
 use super::protocol::{
-    CommandExecutionRequestApprovalParams, FileChangeRequestApprovalParams, RequestId,
-    ServerRequestResolvedNotification, ThreadActiveFlag, ThreadItem, ThreadReadParams,
-    ThreadReadResponse, ThreadStartedNotification, ThreadStatus, ThreadStatusChangedNotification,
-    Turn,
+    CodexErrorInfo, CommandExecutionRequestApprovalParams, ErrorNotification,
+    FileChangeRequestApprovalParams, RequestId, ServerRequestResolvedNotification,
+    ThreadActiveFlag, ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification,
+    ThreadStatus, ThreadStatusChangedNotification, Turn,
 };
 use crate::process_tree::{self, Snapshot};
 use crate::profile::adapter::Chosen;
@@ -493,6 +493,11 @@ fn receive(
 
 fn is_usage_limit(msg: &Value) -> bool {
     msg["method"] == "error"
-        && msg["params"]["willRetry"] != true
-        && msg["params"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
+        && serde_json::from_value::<ErrorNotification>(msg["params"].clone()).is_ok_and(|e| {
+            !e.will_retry
+                && matches!(
+                    e.error.codex_error_info,
+                    Some(CodexErrorInfo::UsageLimitExceeded)
+                )
+        })
 }

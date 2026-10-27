@@ -124,15 +124,19 @@ impl Server {
     }
 
     pub async fn create_session(&self, cwd: &Path) -> Result<String, String> {
-        let body = json!({
-            "location": { "directory": cwd },
-            "permissions": [{ "action": "*", "resource": "*", "effect": "allow" }],
-        });
+        let body = json!({ "location": { "directory": cwd } });
         let reply = self.call("POST", "/api/session", Some(body)).await?;
         reply["data"]["id"]
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| format!("session create: unknown reply: {reply}"))
+    }
+
+    pub async fn set_permissions(&self, session: &str, rules: &[Value]) -> Result<(), String> {
+        let path = format!("/api/session/{session}");
+        self.call("PATCH", &path, Some(json!({ "permissions": rules })))
+            .await
+            .map(drop)
     }
 
     pub async fn put_instructions(

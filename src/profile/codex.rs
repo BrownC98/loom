@@ -19,11 +19,11 @@ use super::process::Served;
 use crate::accounts::Site;
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
-    Prompt, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
+    Prompt, PromptKey, PromptOption, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
 };
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
-use server::CodexServer;
+use server::{Approval, Asked, CodexServer};
 
 pub mod server;
 
@@ -164,11 +164,25 @@ impl super::adapter::Adapter for Codex {
 
     fn answer<'a>(
         &'a self,
-        _: &'a Record,
-        _: &'a Prompt,
-        _: usize,
+        rec: &'a Record,
+        prompt: &'a Prompt,
+        option: usize,
     ) -> BoxFuture<'a, Result<Chosen, String>> {
-        Box::pin(async { Ok(Chosen::OnScreen) })
+        Box::pin(async move {
+            let (Some((served, state)), Some(thread)) =
+                (Served::stored::<State>(rec), &rec.session)
+            else {
+                return Ok(Chosen::OnScreen);
+            };
+            let Some((_, decision)) = APPROVAL_OPTIONS.get(option) else {
+                return Ok(Chosen::PromptChanged);
+            };
+            let server = CodexServer::reconnect(state.url, served, None).await?;
+            let result = serde_json::json!({ "decision": decision });
+            server
+                .answer(&thread.0, |a| approval_rows(a) == prompt.rows, result)
+                .await
+        })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -334,6 +348,95 @@ pub enum Status {
     Busy,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum Decision {
+    Accept,
+    AcceptForSession,
+    Decline,
+}
+
+impl Decision {
+    fn key(self) -> PromptKey {
+        let text = serde_json::to_value(self).expect("enum은 늘 직렬화된다");
+        PromptKey::Reply(text.as_str().unwrap_or_default().to_owned())
+    }
+}
+
+const APPROVAL_OPTIONS: [(&str, Decision); 3] = [
+    ("Yes, proceed", Decision::Accept),
+    (
+        "Yes, and don't ask again this session",
+        Decision::AcceptForSession,
+    ),
+    ("No, continue without it", Decision::Decline),
+];
+
+fn approval_rows(approval: &Approval) -> Vec<String> {
+    vec![approval.id.to_string(), approval.item().to_owned()]
+}
+
+fn approval_prompt(approval: &Approval) -> Prompt {
+    let (summary, body): (String, Vec<String>) = match &approval.asked {
+        Asked::Command(asked) => {
+            let command = asked
+                .command
+                .clone()
+                .unwrap_or_else(|| asked.kind.to_string());
+            let body = std::iter::once(command.clone())
+                .chain(asked.cwd.as_ref().map(|cwd| format!("cwd: {}", cwd.0)))
+                .chain(asked.reason.clone())
+                .collect();
+            (command, body)
+        }
+        Asked::FileChange { asked, files } => {
+            let summary = match files.is_empty() {
+                true => "file change".to_owned(),
+                false => format!("file change: {}", files.join(", ")),
+            };
+            let body = files
+                .iter()
+                .cloned()
+                .chain(
+                    asked
+                        .grant_root
+                        .as_ref()
+                        .map(|root| format!("grant root: {root}")),
+                )
+                .chain(asked.reason.clone())
+                .collect();
+            (summary, body)
+        }
+    };
+    Prompt {
+        rows: approval_rows(approval),
+        body,
+        summary,
+        options: APPROVAL_OPTIONS
+            .iter()
+            .map(|(label, decision)| PromptOption {
+                label: (*label).to_owned(),
+                key: decision.key(),
+            })
+            .collect(),
+        field: None,
+    }
+}
+
+fn human_wait(
+    thread: Option<&server::Thread>,
+    approvals: &[Approval],
+) -> Option<(WaitKind, String, Option<Prompt>)> {
+    let now = thread?;
+    match approvals.iter().find(|a| a.thread() == now.id) {
+        Some(approval) => {
+            let prompt = approval_prompt(approval);
+            Some((WaitKind::Approval, prompt.summary.clone(), Some(prompt)))
+        }
+        None => now.waiting.map(|kind| (kind, String::new(), None)),
+    }
+}
+
 const BUSY_KINDS: &[Kind] = &[Kind::Steer, Kind::Interrupt];
 const HUMAN_STEP: &str = "human";
 
@@ -364,6 +467,9 @@ async fn pending<T>(future: &mut Option<BoxFuture<'_, T>>) -> T {
 
 async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
     let mut thread = server.thread();
+    let mut approvals = server.approvals();
+    let mut subscribed = None;
+    let mut waits = false;
     let mut limited = server.limited();
     let (read, mut models) = mpsc::unbounded_channel::<(u64, Model)>();
     let (mut asked, mut answered) = (0, 0);
@@ -379,8 +485,13 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
             false => None,
         };
         if let Some(now) = seen {
-            let wait = now.waiting.map(|kind| (kind, String::new(), None));
-            port.report(Report::HumanWait(wait));
+            waits = true;
+            if now.status == Status::Busy && subscribed.as_ref() != Some(&now.id) {
+                match server.subscribe(&now.id).await {
+                    Ok(()) => subscribed = Some(now.id.clone()),
+                    Err(e) => eprintln!("loom: Codex 스레드 {}를 구독하지 못했다: {e}", now.id),
+                }
+            }
             port.report(Report::Session(Session(now.id.clone())));
             asked += 1;
             read_model(server.clone(), now.id.clone(), asked, read.clone());
@@ -413,6 +524,10 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 }
             }
         }
+        if std::mem::take(&mut waits) {
+            let wait = human_wait(thread.borrow().as_ref(), &approvals.borrow_and_update());
+            port.report(Report::HumanWait(wait));
+        }
         tokio::select! {
             biased;
             () = &mut ended => break,
@@ -425,6 +540,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                     break;
                 }
             },
+            Ok(()) = approvals.changed() => waits = true,
             Ok(()) = limited.changed() => port.report(Report::RateLimited),
             Some((n, model)) = models.recv() => {
                 if n > answered {

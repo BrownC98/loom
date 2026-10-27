@@ -126,15 +126,37 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
 pub(super) const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
 
-pub(super) fn held_step(to: Receiver, reviewers: &[String]) -> String {
-    let names = reviewers.join(", ");
-    match to {
-        Receiver::Owner => format!(
-            "Next: do not commit to this branch. loom holds it until {names} judge it, or the gate removes them with `loom rm`."
-        ),
-        Receiver::Gate | Receiver::Root => format!(
-            "Next: loom holds the branch until {names} judge it, or you remove them with `loom rm <name>`."
-        ),
+pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
+    let mut lines = Vec::new();
+    if !held.reviewers.is_empty() {
+        let names = held.reviewers.join(", ");
+        lines.push(match to {
+            Receiver::Owner => format!(
+                "Next: do not commit to this branch. loom holds it until {names} judge it. If a reviewer stopped, the gate relaunches it with `loom relaunch <name>`, or removes it with `loom rm <name>` and you call `loom ready {branch}` again to spawn a new one."
+            ),
+            Receiver::Gate | Receiver::Root => format!(
+                "Next: loom holds the branch until {names} judge it. If a reviewer stopped, relaunch it with `loom relaunch <name>`, or remove it with `loom rm <name>` and have the owner call `loom ready {branch}` again to spawn a new one."
+            ),
+        });
+    }
+    if !held.seats.is_empty() {
+        lines.push(format!(
+            "Next: loom holds the branch until a reviewer in each empty seat ({}) passes this head. Call `loom ready {branch}` again to spawn the missing reviewers.",
+            held.seats.join(", ")
+        ));
+    }
+    lines.join("\n")
+}
+
+#[derive(Default)]
+pub(super) struct Held {
+    pub(super) reviewers: Vec<String>,
+    pub(super) seats: Vec<&'static str>,
+}
+
+impl Held {
+    pub(super) fn is_empty(&self) -> bool {
+        self.reviewers.is_empty() && self.seats.is_empty()
     }
 }
 
@@ -150,7 +172,7 @@ pub(super) fn next_step(
             "Next: accept or return the branch yourself, with no reviewer. Check the result against the done-when of its brief (acceptance, not a code review), then call `loom verdict {branch} {head} pass`, or `loom verdict {branch} {head} block --findings <file>` with what in done-when is missing. Give this head: loom refuses a verdict for another head."
         ),
         (GateCall::Ready, _) => format!(
-            "Next: if the branch has no reviewer yet, spawn one as your child with `loom spawn --role <role> --review {branch}`. loom sends it this round's head. It reviews the branch and calls `loom verdict {branch} <head> pass|block --findings <file>`. loom sends each next round to the reviewers that the branch has."
+            "Next: nothing for reviewers. loom spawns one reviewer of {branch} per reviewer role as your children and sends them each round. They call `loom verdict {branch} <head> pass|block --findings <file>`."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
             "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()

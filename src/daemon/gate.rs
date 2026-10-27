@@ -6,10 +6,13 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 
-use super::{AgentError, App, for_agent};
+use super::verbs::{role_refusal, spawn};
+use super::{AgentError, App, Problem, SpawnRequest, SpawnRun, for_agent};
 use crate::graph::{GateChoice, NodeId, Round, Via};
 use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, Refusal, SHIP_SCRIPT};
+use crate::roles::REVIEWER_ROLES;
 use crate::worktree;
+use crate::worktree::RepoId;
 use crate::worktree::merge::{base_branch, contains};
 
 pub const TOOL_HEADER: &str = "loom-tool";
@@ -25,6 +28,8 @@ pub struct ReadyRequest {
 pub struct Readied {
     pub gate: String,
     pub target: String,
+    #[serde(default)]
+    pub unseated: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -129,7 +134,7 @@ impl App {
         });
     }
 
-    async fn tell_new_gate(&self, owner: NodeId) -> Result<(), Refusal> {
+    async fn tell_new_gate(self: &Arc<Self>, owner: NodeId) -> Result<(), Refusal> {
         let rounds = self.graph.waiting_rounds(owner)?;
         if rounds.is_empty() {
             return Ok(());
@@ -138,15 +143,76 @@ impl App {
             GateChoice::Parent { worktree, .. } => Some(worktree),
             GateChoice::Owner => None,
         };
+        let gated = gate_worktree.is_none() && self.gated_repo(owner)?;
         for (repo, branch) in rounds {
-            let dir = self
-                .repos
-                .path(repo)
-                .map_err(|e| Refusal::Git(e.to_string()))?;
-            let target = target_of(&dir, gate_worktree.as_deref()).await?;
-            self.graph.tell_gate(repo, &branch, &target)?;
+            if gated {
+                let problems = match self.unseated_roles(owner, &branch) {
+                    Ok(roles) => self.seat_reviewers(owner, &branch, roles).await,
+                    Err(e) => vec![e.to_string()],
+                };
+                for problem in problems {
+                    eprintln!("loom: reviewer of {branch}: {problem}");
+                }
+            }
+            if let Err(e) = self
+                .tell_round(repo, &branch, gate_worktree.as_deref())
+                .await
+            {
+                eprintln!("loom: gate of {branch}: {e}");
+            }
         }
         Ok(())
+    }
+
+    async fn tell_round(
+        &self,
+        repo: RepoId,
+        branch: &str,
+        gate_worktree: Option<&str>,
+    ) -> Result<(), Refusal> {
+        let dir = self
+            .repos
+            .path(repo)
+            .map_err(|e| Refusal::Git(e.to_string()))?;
+        let target = target_of(&dir, gate_worktree).await?;
+        Ok(self.graph.tell_gate(repo, branch, &target)?)
+    }
+
+    fn unseated_roles(&self, gate: NodeId, branch: &str) -> Result<Vec<&'static str>, Refusal> {
+        let roles = self.settings.get()?.roles;
+        let mut unseated = Vec::new();
+        for role in REVIEWER_ROLES {
+            if self.graph.reviewer_seated(gate, branch, role)? {
+                continue;
+            }
+            roles.assign(role, "").map_err(role_refusal)?;
+            unseated.push(role);
+        }
+        Ok(unseated)
+    }
+
+    async fn seat_reviewers(
+        self: &Arc<Self>,
+        gate: NodeId,
+        branch: &str,
+        roles: Vec<&str>,
+    ) -> Vec<String> {
+        let mut problems = Vec::new();
+        for role in roles {
+            let request = SpawnRequest {
+                run: SpawnRun::Review {
+                    role: role.to_owned(),
+                    branch: branch.to_owned(),
+                },
+                brief: String::new(),
+                worktree: None,
+            };
+            match spawn(self, gate, request).await {
+                Ok(_) | Err(Problem::Refused(Refusal::ReviewerSeated { .. })) => {}
+                Err(e) => problems.push(format!("{role}: {}", for_agent(e).1)),
+            }
+        }
+        problems
     }
 
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {
@@ -157,7 +223,7 @@ impl App {
     }
 
     async fn ready(
-        &self,
+        self: &Arc<Self>,
         node: NodeId,
         branch: &str,
         cwd: &str,
@@ -189,11 +255,28 @@ impl App {
             worktree: &worktree,
             head: &mine.head,
         };
-        let gate = match self.gated_repo(node)? {
-            true => self.graph.ready(node, &round, Some(via))?,
-            false => self.graph.announce_ready(node, &round, gate, Some(via))?,
+        if !self.gated_repo(node)? {
+            let gate = self.graph.announce_ready(node, &round, gate, Some(via))?;
+            return Ok(Readied {
+                gate,
+                target,
+                unseated: Vec::new(),
+            });
+        }
+        let roles = match gate == node {
+            true => self.unseated_roles(gate, branch)?,
+            false => Vec::new(),
         };
-        Ok(Readied { gate, target })
+        let gate_name = match self.graph.ready(node, &round, Some(via)) {
+            Err(Refusal::SameHead(_)) if !roles.is_empty() => self.graph.name(gate)?,
+            opened => opened?,
+        };
+        let unseated = self.seat_reviewers(gate, branch, roles).await;
+        Ok(Readied {
+            gate: gate_name,
+            target,
+            unseated,
+        })
     }
 }
 

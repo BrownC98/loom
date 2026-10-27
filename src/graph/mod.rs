@@ -1,4 +1,5 @@
 mod agent_state;
+mod deploys;
 mod events;
 mod gate;
 mod hosts;
@@ -22,6 +23,7 @@ use tokio::sync::{Notify, broadcast, mpsc};
 use ts_rs::TS;
 
 pub use agent_state::{AgentChange, AgentEvent, AgentState};
+pub use deploys::Deploy;
 pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
     TurnCheck, Via, Who,

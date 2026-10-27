@@ -1,30 +1,42 @@
 use std::ffi::OsString;
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
-use crate::accounts::{AccountId, Site};
+use crate::accounts::{AccountId, Cli, Site};
 use crate::distro::Distro;
 use crate::protocol::{
     AdapterRecord, Delivery, IdleReply, IdleRequest, Kind, LaunchError, MessageId, ModelChoice,
-    Prompt, Provider, Refusal, Report, Session, TakeRequest, Taken,
+    Prompt, Refusal, Report, Session, TakeRequest, Taken,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
+use crate::usage::Usage;
 use crate::wsl::Inside;
 
 pub struct Facts {
-    pub provider: Option<Provider>,
+    pub logins: Logins,
     pub sleeps: bool,
     pub listens_at_start: bool,
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
     pub waiting: &'static str,
     pub helper_shells: &'static [&'static str],
+}
+
+pub enum Logins {
+    None,
+    One(&'static dyn Meter),
+    Many(&'static Cli, &'static dyn Meter),
+}
+
+pub trait Meter: Sync {
+    fn credentials(&self, site: &Site, id: Option<&AccountId>) -> Option<PathBuf>;
+    fn read(&self, site: &Site, id: Option<&AccountId>) -> Usage;
 }
 
 pub struct Command<'a> {

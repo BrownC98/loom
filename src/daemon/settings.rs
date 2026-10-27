@@ -13,20 +13,15 @@ use ts_rs::TS;
 
 use super::nodes::serve_pty;
 use super::origin::ViaRemote;
-use super::usage_cache::Key;
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
-use crate::profile::{self, AgentView, Profile, VersionMismatch};
+use crate::profile::{self, Accounted, AgentView, Profile, VersionMismatch};
 use crate::protocol::{LaunchError, Provider};
 use crate::settings::{PatchProblem, SettingsView};
-use crate::usage::{self, Usage};
+use crate::usage::Usage;
 use crate::worktree::{self, RepoProblem};
 use crate::wsl::{self, Inside};
-
-const PROVIDERS: [Provider; 2] = match Provider::Claude {
-    Provider::Claude | Provider::Codex => [Provider::Claude, Provider::Codex],
-};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -70,16 +65,16 @@ pub struct AccountView {
     pub provider: Provider,
     /// 계정이 있는 WSL 배포판. 이 PC면 없다. 계정은 한 위치에만 속한다.
     pub distro: Option<String>,
-    /// 없으면 그 위치의 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
+    /// 없으면 그 위치의 시스템 기본(그 CLI가 `HOME` 아래에서 고르는 로그인 폴더)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
     pub id: Option<AccountId>,
     pub usage: Usage,
 }
 
-/// 한 위치의 Cursor CLI 로그인과 사용량. loom은 Cursor 계정을 여럿 두지 않고 바꾸지 않는다(M18 v2, Q666 A).
+/// 한 위치의 CLI 로그인 하나와 그 사용량. loom은 이 로그인을 여럿 두지 않고 바꾸지 않는다(M18 v2, Q666 A).
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
-pub struct CursorView {
+pub struct PlaceUsage {
     /// WSL 배포판. 이 PC면 없다.
     pub distro: Option<String>,
     pub usage: Usage,
@@ -94,7 +89,7 @@ pub enum LoginTarget {
     New,
     /// 그 loom 계정에 다시 로그인한다.
     Account(AccountId),
-    /// 시스템 기본(`~/.claude`·`~/.codex`)에 로그인한다.
+    /// 시스템 기본(그 CLI가 `HOME` 아래에서 고르는 로그인 폴더)에 로그인한다.
     System,
 }
 
@@ -105,7 +100,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/settings/default", get(default_settings))
         .route("/api/accounts", get(accounts))
-        .route("/api/usage/cursor", get(cursor_usage))
+        .route("/api/usage/{profile}", get(place_usage))
         .route("/api/accounts/{provider}", post(login))
         .route("/api/accounts/{provider}/logout", post(logout))
         .route("/api/accounts/{provider}/{id}", delete(remove_account))
@@ -216,29 +211,24 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     let sites: Vec<_> = app.sites().await.into_iter().map(Arc::new).collect();
     let mut rows = Vec::new();
     for site in &sites {
-        for provider in PROVIDERS {
-            let ids = site.accounts().list(provider).map_err(internal)?;
+        for accounted in profile::with_accounts() {
+            let ids = site.accounts().list(accounted.cli).map_err(internal)?;
             rows.extend(
                 std::iter::once(None)
                     .chain(ids.into_iter().map(Some))
-                    .map(|id| (site.clone(), provider, id)),
+                    .map(|id| (site.clone(), accounted, id)),
             );
         }
     }
-    let probes = rows.iter().map(|(site, provider, id)| {
-        let (site, provider, id) = (site.clone(), *provider, id.clone());
-        let key = Key::provider(&site, provider, id.as_ref());
-        let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
-        app.usage.get(key, fingerprint, move || {
-            usage::probe(provider, &site, id.as_ref())
-        })
-    });
+    let probes = rows
+        .iter()
+        .map(|(site, a, id)| app.usage.read(site, a.profile, a.meter, id.clone()));
     let usages = join_all(probes).await;
     let views = rows
         .into_iter()
         .zip(usages)
-        .map(|((site, provider, id), usage)| AccountView {
-            provider,
+        .map(|((site, a, id), usage)| AccountView {
+            provider: a.cli.provider,
             distro: site.distro().map(str::to_owned),
             id,
             usage,
@@ -247,22 +237,25 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     Ok(Json(views))
 }
 
-async fn cursor_usage(State(app): State<Arc<App>>) -> Json<Vec<CursorView>> {
-    let sites = app.sites().await;
-    let probes = sites.into_iter().map(|site| {
-        let app = app.clone();
-        async move {
-            let distro = site.distro().map(str::to_owned);
-            let key = Key::cursor(&site);
-            let fingerprint = usage::cursor_credentials_fingerprint(&site);
-            let usage = app
-                .usage
-                .get(key, fingerprint, move || usage::probe_cursor(&site))
-                .await;
-            CursorView { distro, usage }
+async fn place_usage(
+    State(app): State<Arc<App>>,
+    Path(profile): Path<Profile>,
+) -> Json<Vec<PlaceUsage>> {
+    let Some(meter) = profile.meter() else {
+        return Json(Vec::new());
+    };
+    let sites: Vec<_> = app.sites().await.into_iter().map(Arc::new).collect();
+    let probes = sites.iter().map(|site| async {
+        PlaceUsage {
+            distro: site.distro().map(str::to_owned),
+            usage: app.usage.read(site, profile, meter, None).await,
         }
     });
     Json(join_all(probes).await)
+}
+
+fn accounted(provider: Provider) -> Result<Accounted, Problem> {
+    profile::of_provider(provider).ok_or_else(|| internal("no agent adapter has these accounts"))
 }
 
 #[derive(Deserialize)]
@@ -275,8 +268,9 @@ async fn remove_account(
     Path((provider, id)): Path<(Provider, AccountId)>,
     Query(at): Query<At>,
 ) -> Result<Json<()>, Problem> {
+    let cli = accounted(provider)?.cli;
     let site = app.site_of(at.distro.as_deref()).await?;
-    site.accounts().remove(provider, &id).map_err(internal)?;
+    site.accounts().remove(cli, &id).map_err(internal)?;
     Ok(Json(()))
 }
 
@@ -286,27 +280,25 @@ async fn login(
     Query(at): Query<At>,
     Json(target): Json<LoginTarget>,
 ) -> Result<Json<LoginId>, Problem> {
+    let cli = accounted(provider)?.cli;
     let site = Arc::new(app.site_of(at.distro.as_deref()).await?);
-    site.login(provider, None)?;
+    site.login(cli, None)?;
     let (id, created) = match target {
         LoginTarget::System => (None, false),
         LoginTarget::Account(id) => (Some(id), false),
-        LoginTarget::New => (
-            Some(site.accounts().create(provider).map_err(internal)?),
-            true,
-        ),
+        LoginTarget::New => (Some(site.accounts().create(cli).map_err(internal)?), true),
     };
     if let Some(id) = &id
-        && site.accounts().config_dir(provider, Some(id)).is_none()
+        && site.accounts().config_dir(cli, Some(id)).is_none()
     {
         return Err(internal("the account folder is gone"));
     }
-    let cmd = site.login(provider, id.as_ref())?;
+    let cmd = site.login(cli, id.as_ref())?;
     let discard = {
         let site = site.clone();
         move || {
             if created && let Some(id) = &id {
-                let _ = site.accounts().remove(provider, id);
+                let _ = site.accounts().remove(cli, id);
             }
         }
     };
@@ -348,7 +340,8 @@ async fn logout(
     Path(provider): Path<Provider>,
     Query(at): Query<At>,
 ) -> Result<Json<()>, Problem> {
-    let mut cmd = app.site_of(at.distro.as_deref()).await?.logout(provider)?;
+    let cli = accounted(provider)?.cli;
+    let mut cmd = app.site_of(at.distro.as_deref()).await?.logout(cli)?;
     let out = tokio::task::spawn_blocking(move || cmd.stdin(std::process::Stdio::null()).output())
         .await
         .map_err(internal)?
@@ -408,7 +401,8 @@ impl App {
         Ok(match wsl::of(cwd) {
             Some(at) => {
                 let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
-                let inside = wsl::inside(&at, distro, &["claude", "codex"], &self.shim, &[]);
+                let commands: Vec<_> = profile::with_accounts().map(|a| a.cli.command).collect();
+                let inside = wsl::inside(&at, distro, &commands, &self.shim, &[]);
                 Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
             }
             None => self.pc_site(),

@@ -15,6 +15,7 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::accounts::Cli;
 use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
     Prompt as ScreenPrompt, Provider, Report, Session, StartDigests, WaitKind,
@@ -22,7 +23,7 @@ use crate::protocol::{
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-use adapter::{Adapter, InputSeen, LaunchAt, Port, Started};
+use adapter::{Adapter, InputSeen, LaunchAt, Logins, Meter, Port, Started};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -177,9 +178,34 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Accounted {
+    pub profile: Profile,
+    pub cli: &'static Cli,
+    pub meter: &'static dyn Meter,
+}
+
 impl Profile {
     pub fn provider(self) -> Option<Provider> {
-        adapter(self).facts().provider
+        self.accounts().map(|a| a.cli.provider)
+    }
+
+    pub fn accounts(self) -> Option<Accounted> {
+        match adapter(self).facts().logins {
+            Logins::Many(cli, meter) => Some(Accounted {
+                profile: self,
+                cli,
+                meter,
+            }),
+            Logins::One(_) | Logins::None => None,
+        }
+    }
+
+    pub fn meter(self) -> Option<&'static dyn Meter> {
+        match adapter(self).facts().logins {
+            Logins::One(meter) | Logins::Many(_, meter) => Some(meter),
+            Logins::None => None,
+        }
     }
 
     pub fn sleeps(self) -> bool {
@@ -348,6 +374,14 @@ pub(crate) fn check_choice(id: &AgentId, choice: &ModelChoice) -> Result<(), Lau
 
 fn profiles() -> impl Iterator<Item = Profile> {
     CATALOG.iter().filter_map(|a| a.profile)
+}
+
+pub fn with_accounts() -> impl Iterator<Item = Accounted> {
+    profiles().filter_map(Profile::accounts)
+}
+
+pub fn of_provider(provider: Provider) -> Option<Accounted> {
+    with_accounts().find(|a| a.cli.provider == provider)
 }
 
 pub fn pinned() -> Vec<(Profile, &'static str)> {

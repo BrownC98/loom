@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::VersionMismatch;
 use super::adapter::{
-    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError, Started,
 };
 use super::process::Served;
 use crate::accounts::Site;
@@ -47,7 +47,7 @@ pub struct OpenCode2;
 impl super::adapter::Adapter for OpenCode2 {
     fn facts(&self) -> Facts {
         Facts {
-            provider: None,
+            logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
             pinned: Some(CMD),

@@ -6,7 +6,8 @@ use portable_pty::CommandBuilder;
 
 use super::VersionMismatch;
 use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
+    Started,
 };
 use crate::accounts::Site;
 use crate::protocol::{LaunchError, ModelChoice, Prompt, Session};
@@ -55,7 +56,7 @@ pub struct Omp;
 impl Adapter for Omp {
     fn facts(&self) -> Facts {
         Facts {
-            provider: None,
+            logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
             pinned: None,

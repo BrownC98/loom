@@ -3,40 +3,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::accounts::{AccountId, Site};
-use crate::protocol::Provider;
-use crate::usage::{Limits, Usage, UsageProblem};
+use crate::profile::Profile;
+use crate::profile::adapter::Meter;
+use crate::usage::{self, Limits, Usage, UsageProblem};
 
 const MIN_AGE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-enum Source {
-    Provider(Provider),
-    Cursor,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Key {
+struct Key {
     distro: Option<String>,
-    source: Source,
+    profile: Profile,
     id: Option<AccountId>,
-}
-
-impl Key {
-    pub fn provider(site: &Site, provider: Provider, id: Option<&AccountId>) -> Self {
-        Key {
-            distro: site.distro().map(str::to_owned),
-            source: Source::Provider(provider),
-            id: id.cloned(),
-        }
-    }
-
-    pub fn cursor(site: &Site) -> Self {
-        Key {
-            distro: site.distro().map(str::to_owned),
-            source: Source::Cursor,
-            id: None,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -85,7 +62,27 @@ impl UsageCache {
         }
     }
 
-    pub async fn get(
+    pub async fn read(
+        &self,
+        site: &Arc<Site>,
+        profile: Profile,
+        meter: &'static dyn Meter,
+        id: Option<AccountId>,
+    ) -> Usage {
+        let key = Key {
+            distro: site.distro().map(str::to_owned),
+            profile,
+            id: id.clone(),
+        };
+        let fingerprint = meter
+            .credentials(site, id.as_ref())
+            .and_then(|file| usage::fingerprint(&file));
+        let site = site.clone();
+        self.get(key, fingerprint, move || meter.read(&site, id.as_ref()))
+            .await
+    }
+
+    async fn get(
         &self,
         key: Key,
         fingerprint: Option<u64>,

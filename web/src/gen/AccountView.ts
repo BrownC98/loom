@@ -9,6 +9,6 @@ export type AccountView = { provider: Provider,
  */
 distro: string | null, 
 /**
- * 없으면 그 위치의 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
+ * 없으면 그 위치의 시스템 기본(그 CLI가 `HOME` 아래에서 고르는 로그인 폴더)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
  */
 id: AccountId | null, usage: Usage, };

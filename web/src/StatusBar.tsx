@@ -3,7 +3,7 @@ import { Fragment, useRef, useState, type ReactNode, type RefObject } from 'reac
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
-import type { CursorView } from './gen/CursorView';
+import type { PlaceUsage } from './gen/PlaceUsage';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
@@ -18,7 +18,7 @@ import { VERSION } from './version';
 
 export type Usage = {
   accounts: AccountView[] | null;
-  cursor: CursorView[] | null;
+  cursor: PlaceUsage[] | null;
   loading: boolean;
   refresh: () => void;
 };
@@ -155,7 +155,7 @@ function UsagePopover(props: { anchor: RefObject<HTMLButtonElement | null>; onCl
 function UsageBody(props: {
   accounts: AccountView[];
   active: (provider: Provider) => AccountView | undefined;
-  cursor: CursorView | undefined;
+  cursor: PlaceUsage | undefined;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   onManage?: () => void;
@@ -235,7 +235,7 @@ function ProviderSection(props: {
   );
 }
 
-function CursorSection(props: { usage: CursorView['usage'] }) {
+function CursorSection(props: { usage: PlaceUsage['usage'] }) {
   const { t } = useTranslation();
   const { limits } = props.usage;
   const problem = limitsProblem(limits);

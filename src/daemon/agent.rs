@@ -48,7 +48,7 @@ impl App {
         node: NodeId,
         take: impl FnOnce() -> Result<Vec<Delivery>, Refusal>,
     ) -> Result<Vec<Delivery>, Refusal> {
-        if self.holds_mail(node) {
+        if self.relaunching(node) {
             return Ok(Vec::new());
         }
         take()
@@ -183,7 +183,7 @@ impl App {
             Opened::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
             Opened::Wait(wait) => wait,
         };
-        while self.holds_mail(node) {
+        while self.relaunching(node) {
             let by = wait.ended().await;
             if !current() || !self.idle.reopen(&mut wait) {
                 wait.finish(by);

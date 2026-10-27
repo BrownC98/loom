@@ -104,7 +104,7 @@ async fn relaunch(
 }
 
 impl App {
-    pub(super) fn holds_mail(&self, node: NodeId) -> bool {
+    pub(super) fn relaunch_planned(&self, node: NodeId) -> bool {
         self.pending(node).is_some()
     }
 

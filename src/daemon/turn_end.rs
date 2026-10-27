@@ -84,7 +84,7 @@ impl App {
             false
         });
         let nudge = self.graph.end_turn(node, gated_repo)?;
-        let Some(check) = nudge.filter(|_| !self.holds_mail(node)) else {
+        let Some(check) = nudge.filter(|_| !self.relaunch_planned(node)) else {
             return Ok(None);
         };
         if let Err(e) = self

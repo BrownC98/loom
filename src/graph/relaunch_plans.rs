@@ -40,10 +40,44 @@ pub struct NewAgent {
     pub choice: ModelChoice,
 }
 
-pub struct Planned {
-    pub ended: bool,
-    pub busy: bool,
-    pub pending: Option<(Phase, Plan)>,
+pub enum Next {
+    Start(Plan),
+    Wait,
+    Keep,
+    Refuse,
+    ReviveEnded,
+}
+
+pub enum DeafClaim {
+    Fresh,
+    Queued(Plan),
+}
+
+struct Now {
+    ended: bool,
+    busy: bool,
+    pending: Option<(Phase, Plan)>,
+}
+
+type Decided<R> = (Option<(Phase, Plan)>, R);
+
+fn started(pending: (Phase, Plan), asked: &Plan) -> Decided<Next> {
+    let next = match asked {
+        Plan::Resume => Next::Keep,
+        Plan::Switch(_) => Next::Refuse,
+    };
+    (Some(pending), next)
+}
+
+fn running(plan: Plan) -> Decided<Next> {
+    (Some((Phase::Running, plan.clone())), Next::Start(plan))
+}
+
+fn claimed_turn_end(pending: Option<(Phase, Plan)>) -> Decided<Option<Plan>> {
+    match pending {
+        Some((Phase::AtTurnEnd, plan)) => (Some((Phase::Running, plan.clone())), Some(plan)),
+        kept => (kept, None),
+    }
 }
 
 fn pending(db: &Connection, node: NodeId) -> rusqlite::Result<Option<(Phase, Plan)>> {
@@ -60,11 +94,86 @@ impl Graph {
         pending(&self.lock(), node)
     }
 
-    pub fn plan_relaunch<R>(
-        &self,
-        node: NodeId,
-        decide: impl FnOnce(Planned) -> (Option<(Phase, Plan)>, R),
-    ) -> rusqlite::Result<R> {
+    pub fn request_relaunch(&self, node: NodeId, asked: &Plan) -> rusqlite::Result<Next> {
+        self.decide(node, |now| match now.pending {
+            _ if now.ended => (now.pending, Next::ReviveEnded),
+            Some((Phase::AtTurnEnd, kept)) => {
+                let plan = match asked {
+                    Plan::Resume => kept,
+                    Plan::Switch(_) => asked.clone(),
+                };
+                (Some((Phase::AtTurnEnd, plan)), Next::Wait)
+            }
+            Some(pending) => started(pending, asked),
+            None if now.busy => (Some((Phase::AtTurnEnd, asked.clone())), Next::Wait),
+            None => running(asked.clone()),
+        })
+    }
+
+    pub fn claim_revive(&self, node: NodeId, asked: &Plan) -> rusqlite::Result<Next> {
+        self.decide(node, |now| match now.pending {
+            Some(pending) if pending.0.started() => started(pending, asked),
+            _ => running(asked.clone()),
+        })
+    }
+
+    pub fn claim_unserved(&self, node: NodeId) -> rusqlite::Result<Next> {
+        self.decide(node, |now| match now.pending {
+            _ if now.ended => (now.pending, Next::ReviveEnded),
+            Some((Phase::AtTurnEnd, kept)) => running(kept),
+            None => running(Plan::Resume),
+            kept => (kept, Next::Keep),
+        })
+    }
+
+    pub fn claim_turn_end(&self, node: NodeId) -> rusqlite::Result<Option<Plan>> {
+        self.decide(node, |now| claimed_turn_end(now.pending))
+    }
+
+    pub fn claim_idle_turn_end(&self, node: NodeId) -> rusqlite::Result<Option<Plan>> {
+        self.decide(node, |now| match now.busy {
+            true => (now.pending, None),
+            false => claimed_turn_end(now.pending),
+        })
+    }
+
+    pub fn claim_deaf(&self, node: NodeId) -> rusqlite::Result<Option<DeafClaim>> {
+        self.decide(node, |now| match now.pending {
+            _ if now.ended => (now.pending, None),
+            None => (Some((Phase::Running, Plan::Resume)), Some(DeafClaim::Fresh)),
+            Some((Phase::AtTurnEnd, plan)) => (
+                Some((Phase::Running, plan.clone())),
+                Some(DeafClaim::Queued(plan)),
+            ),
+            kept => (kept, None),
+        })
+    }
+
+    pub fn defer_relaunch(&self, node: NodeId) -> rusqlite::Result<()> {
+        self.decide(node, |now| {
+            (now.pending.map(|(_, plan)| (Phase::AtTurnEnd, plan)), ())
+        })
+    }
+
+    pub fn drop_relaunch(&self, node: NodeId) -> rusqlite::Result<()> {
+        self.decide(node, |_| (None, ()))
+    }
+
+    pub fn finish_relaunch(&self, node: NodeId) -> rusqlite::Result<()> {
+        self.decide(node, |now| match now.pending {
+            Some((phase, _)) if phase.started() => (None, ()),
+            kept => (kept, ()),
+        })
+    }
+
+    pub fn drop_turn_end(&self, node: NodeId) -> rusqlite::Result<bool> {
+        self.decide(node, |now| match now.pending {
+            Some((Phase::AtTurnEnd, _)) => (None, true),
+            kept => (kept, false),
+        })
+    }
+
+    fn decide<R>(&self, node: NodeId, rule: impl FnOnce(Now) -> Decided<R>) -> rusqlite::Result<R> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let ended: bool = tx
@@ -78,7 +187,7 @@ impl Graph {
         let busy = agent_state::state_of(&tx, node)?.is_some_and(|s| s.busy());
         let before = pending(&tx, node)?;
         let had = before.is_some();
-        let (next, result) = decide(Planned {
+        let (next, result) = rule(Now {
             ended,
             busy,
             pending: before,

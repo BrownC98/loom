@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::Cursor;
@@ -14,6 +15,8 @@ const ORIGIN: &str = "https://cursor.com";
 const USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const AUTH_FILE: &str = ".config/cursor/auth.json";
 const COMMAND: &str = "cursor-agent";
+const STATUS_ARGS: &[&str] = &["status", "--format", "json"];
+const STATUS: &str = "cursor-agent status";
 const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -29,17 +32,21 @@ impl Meter for Cursor {
     }
 
     fn read(&self, site: &Site, _: Option<&AccountId>) -> Usage {
-        if !site.installed(COMMAND) {
+        let Some(status) = site.installed_command(COMMAND, STATUS_ARGS) else {
             return Usage::failed(UsageProblem::NotInstalled(COMMAND.into()));
-        }
-        let read = |rel: &str| {
-            site.home_file(rel)
-                .and_then(|path| std::fs::read(path).ok())
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         };
-        let email = read(".cursor/cli-config.json")
-            .and_then(|v| v["authInfo"]["email"].as_str().map(str::to_owned));
-        let token = read(AUTH_FILE).and_then(|v| v["accessToken"].as_str().and_then(Token::parse));
+        let Some(out) = crate::timed::output(status, PROBE_TIMEOUT) else {
+            return Usage::failed(UsageProblem::NoReply(STATUS.into()));
+        };
+        let email = match serde_json::from_slice::<Status>(&out) {
+            Ok(status) => status.user_info.and_then(|u| u.email),
+            Err(_) => return Usage::failed(UsageProblem::CliFormat(STATUS.into())),
+        };
+        let token = site
+            .home_file(AUTH_FILE)
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|v| v["accessToken"].as_str().and_then(Token::parse));
         let limits = match token {
             Some(token) => limits(&token),
             None if email.is_some() => failed(UsageProblem::NoToken("Cursor".into())),
@@ -47,6 +54,17 @@ impl Meter for Cursor {
         };
         Usage::new(email, None, limits)
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Status {
+    user_info: Option<UserInfo>,
+}
+
+#[derive(Deserialize)]
+struct UserInfo {
+    email: Option<String>,
 }
 
 struct Token {

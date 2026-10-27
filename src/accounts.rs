@@ -195,12 +195,25 @@ impl Site {
     ) -> Result<std::process::Command, LaunchError> {
         let program = self.program(cli)?;
         let env: Vec<_> = self.accounts.env(cli, id).into_iter().collect();
-        Ok(match &self.wsl {
+        Ok(self.run(program, args, &env))
+    }
+
+    pub fn installed_command(&self, command: &str, args: &[&str]) -> Option<std::process::Command> {
+        Some(self.run(self.find(command)?, args, &[]))
+    }
+
+    fn run(
+        &self,
+        program: OsString,
+        args: &[&str],
+        env: &[(&'static str, OsString)],
+    ) -> std::process::Command {
+        match &self.wsl {
             Some(inside) => {
                 let argv: Vec<OsString> = std::iter::once(program)
                     .chain(args.iter().map(OsString::from))
                     .collect();
-                inside.wsl_command(&argv, &env)
+                inside.wsl_command(&argv, env)
             }
             None => {
                 let mut cmd = process_tree::command_at(Path::new(&program));
@@ -208,7 +221,7 @@ impl Site {
                 cmd.envs(env.iter().map(|(k, v)| (k, v)));
                 cmd
             }
-        })
+        }
     }
 
     pub fn login(&self, cli: &Cli, id: Option<&AccountId>) -> Result<CommandBuilder, LaunchError> {
@@ -237,10 +250,6 @@ impl Site {
                 command: cli.command.into(),
                 distro: self.distro().map(str::to_owned),
             })
-    }
-
-    pub fn installed(&self, command: &str) -> bool {
-        self.find(command).is_some()
     }
 
     fn find(&self, command: &str) -> Option<OsString> {

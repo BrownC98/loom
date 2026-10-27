@@ -43,12 +43,12 @@ impl Sessions {
 pub struct FirstInputs(Mutex<HashSet<NodeId>>);
 
 impl FirstInputs {
-    pub fn launched(&self, node: NodeId, first_input: bool) {
-        let mut nodes = self.0.lock().unwrap();
-        match first_input {
-            true => nodes.insert(node),
-            false => nodes.remove(&node),
-        };
+    pub fn mark(&self, node: NodeId) {
+        self.0.lock().unwrap().insert(node);
+    }
+
+    pub fn clear(&self, node: NodeId) {
+        self.0.lock().unwrap().remove(&node);
     }
 
     pub fn injected(&self, node: NodeId) -> bool {

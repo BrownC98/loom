@@ -73,7 +73,7 @@ impl App {
             Some(folder) => tasks.dir(&folder),
             None => {
                 let repo = self.repos.path(place.repo)?;
-                let name = self.graph.relations(node).map_err(internal)?.me.name;
+                let name = self.graph.name(node).map_err(internal)?;
                 let (new, fresh) = tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?;
                 let kept = self.graph.keep_task(node, &new.folder).map_err(internal)?;
                 if kept == new.folder {
@@ -122,7 +122,10 @@ impl App {
             rules: _,
             position,
         } = prepared;
-        self.first_inputs.launched(id, first_input);
+        match first_input {
+            true => self.first_inputs.mark(id),
+            false => self.first_inputs.clear(id),
+        }
         self.turn_ends.launched(id);
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
@@ -163,9 +166,9 @@ impl App {
     }
 
     pub(super) fn position_of(&self, id: NodeId) -> Result<Position, Refusal> {
-        Ok(match self.graph.relations(id)?.parent {
-            Some(_) => Position::Child,
-            None => Position::Root,
+        Ok(match self.graph.has_parent(id)? {
+            true => Position::Child,
+            false => Position::Root,
         })
     }
 

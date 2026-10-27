@@ -516,6 +516,10 @@ impl Graph {
         Ok(())
     }
 
+    pub fn name(&self, node: NodeId) -> rusqlite::Result<String> {
+        name_of(&self.lock(), node)
+    }
+
     pub fn has_parent(&self, node: NodeId) -> Result<bool, Refusal> {
         Ok(parent_of(&self.lock(), node)?.is_some())
     }

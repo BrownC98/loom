@@ -60,6 +60,11 @@ pub enum LaunchError {
     },
     /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoBrief(String),
+    /// 에이전트 CLI가 로그인하지 않았다고 답했다. `command`는 그 CLI, `distro`는 WSL 노드의 배포판이다.
+    NotLoggedIn {
+        command: String,
+        distro: Option<String>,
+    },
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. `agent`는 그 이름, `free`는 둘을 다 받는 에이전트, `effortNeedsModel`은 모델이 있을 때만 추론 강도를 받는 에이전트다.
     #[serde(rename_all = "camelCase")]
     NoModelChoice {
@@ -114,6 +119,20 @@ impl std::fmt::Display for LaunchError {
             LaunchError::NoBrief(agent) => write!(
                 f,
                 "{agent}: does not take a brief. Start it without a brief and type into its terminal."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: None,
+            } => write!(
+                f,
+                "`{command}` is not logged in. Run `{command} login` in a terminal, then start the node again."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "`{command}` is not logged in in WSL · {distro}. Run `{command} login` in that distro, then start the node again."
             ),
         }
     }

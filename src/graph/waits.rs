@@ -267,14 +267,6 @@ impl Graph {
         Ok(closing)
     }
 
-    pub fn unreported_root(&self, id: NodeId) -> Result<bool, Refusal> {
-        let db = self.lock();
-        if parent_of(&db, id)?.is_some() || state_of(&db, id)? != NodeState::Running {
-            return Ok(false);
-        }
-        Ok(stored(&db, id)?.is_some_and(|wait| wait.is_none()) && questions(&db, id)?.is_empty())
-    }
-
     pub fn answered_in_inbox(&self, wait: WaitId) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS (SELECT 1 FROM answers WHERE id = ?1)",
@@ -478,6 +470,13 @@ fn unanswered(
         by,
     };
     events::write(db, &entry, None)
+}
+
+pub(super) fn unreported_root(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<bool> {
+    if parent_of(db, id)?.is_some() || state_of(db, id)? != NodeState::Running {
+        return Ok(false);
+    }
+    Ok(stored(db, id)?.is_some_and(|wait| wait.is_none()) && questions(db, id)?.is_empty())
 }
 
 fn stored(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Option<Option<Stored>>> {

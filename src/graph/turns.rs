@@ -1,6 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::{Graph, NodeId};
+use super::waits::unreported_root;
+use super::{Graph, NodeId, TurnCheck};
+use crate::protocol::kind_line;
 
 #[derive(Clone, Copy)]
 enum Bit {
@@ -18,11 +20,15 @@ impl Bit {
     }
 }
 
+const _: () = match Bit::Replied {
+    Bit::Human | Bit::Called | Bit::KindNudged | Bit::Asked | Bit::QuestionBox => {}
+    last @ Bit::Replied => assert!((last as u32) < u8::BITS),
+};
+
 #[derive(Clone, Copy)]
 pub enum TurnMark {
     Human,
     Called,
-    KindNudged,
     Asked,
     QuestionBox,
 }
@@ -32,7 +38,6 @@ impl TurnMark {
         match self {
             TurnMark::Human => Bit::Human,
             TurnMark::Called => Bit::Called,
-            TurnMark::KindNudged => Bit::KindNudged,
             TurnMark::Asked => Bit::Asked,
             TurnMark::QuestionBox => Bit::QuestionBox,
         }
@@ -41,17 +46,6 @@ impl TurnMark {
 }
 
 const REPLIED: u8 = Bit::Replied.mask();
-
-pub struct TurnTaken {
-    flags: u8,
-    pub reply: Option<String>,
-}
-
-impl TurnTaken {
-    pub fn has(&self, mark: TurnMark) -> bool {
-        self.flags & mark.mask() != 0
-    }
-}
 
 fn set_flags(db: &Connection, node: NodeId, set: u8, clear: u8) -> rusqlite::Result<()> {
     db.execute(
@@ -129,7 +123,7 @@ impl Graph {
         )
     }
 
-    pub fn take_turn(&self, node: NodeId) -> rusqlite::Result<TurnTaken> {
+    pub fn end_turn(&self, node: NodeId, gated_repo: bool) -> rusqlite::Result<Option<TurnCheck>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let (flags, reply): (u8, Option<String>) = tx
@@ -140,20 +134,38 @@ impl Graph {
             )
             .optional()?
             .unwrap_or_default();
+        let has = |bit: Bit| flags & bit.mask() != 0;
+        let reply = reply.filter(|_| has(Bit::Replied));
+        let check = if has(Bit::QuestionBox) && !has(Bit::Asked) {
+            Some(TurnCheck::QuestionBox)
+        } else if !has(Bit::Called)
+            && !has(Bit::KindNudged)
+            && reply.as_deref().is_some_and(|text| {
+                kind_line(text, |found| !found.gated_only || gated_repo).is_some()
+            })
+        {
+            Some(TurnCheck::KindLine)
+        } else if has(Bit::Human) && reply.is_some() && unreported_root(&tx, node)? {
+            Some(TurnCheck::Unreported)
+        } else {
+            None
+        };
         tx.execute(
             "INSERT OR IGNORE INTO ended_turns (node, turn)
              SELECT id, turn FROM nodes WHERE id = ?1 AND turn IS NOT NULL",
             [node.0],
         )?;
+        let kept = if check == Some(TurnCheck::KindLine) {
+            Bit::KindNudged.mask()
+        } else {
+            0
+        };
         tx.execute(
-            "UPDATE nodes SET turn_flags = 0, turn = NULL WHERE id = ?1",
-            [node.0],
+            "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
+            params![node.0, kept],
         )?;
         tx.commit()?;
-        Ok(TurnTaken {
-            flags,
-            reply: reply.filter(|_| flags & REPLIED != 0),
-        })
+        Ok(check)
     }
 
     pub fn turn_launched(&self, node: NodeId) -> rusqlite::Result<()> {

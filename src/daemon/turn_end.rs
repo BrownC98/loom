@@ -67,44 +67,6 @@ impl TurnEnds {
             eprintln!("loom: 노드 {}의 턴 표시를 지우지 못했다: {e}", node.0);
         }
     }
-
-    pub fn ended(
-        &self,
-        node: NodeId,
-        gated_repo: impl FnOnce() -> bool,
-        unreported_root: impl FnOnce() -> bool,
-    ) -> rusqlite::Result<Option<TurnCheck>> {
-        let taken = self.graph.take_turn(node)?;
-        let (human, called, nudged, asked, question_box) = (
-            taken.has(TurnMark::Human),
-            taken.has(TurnMark::Called),
-            taken.has(TurnMark::KindNudged),
-            taken.has(TurnMark::Asked),
-            taken.has(TurnMark::QuestionBox),
-        );
-        let reply = taken.reply;
-        if question_box && !asked {
-            return Ok(Some(TurnCheck::QuestionBox));
-        }
-        let mut gated = None;
-        let mut gated_repo = Some(gated_repo);
-        let kind_line = !called
-            && !nudged
-            && reply.as_deref().is_some_and(|text| {
-                crate::protocol::kind_line(text, |found| {
-                    !found.gated_only
-                        || *gated.get_or_insert_with(|| gated_repo.take().is_some_and(|f| f()))
-                })
-                .is_some()
-            });
-        let nudge = if kind_line {
-            self.mark(node, TurnMark::KindNudged);
-            Some(TurnCheck::KindLine)
-        } else {
-            (human && reply.is_some() && unreported_root()).then_some(TurnCheck::Unreported)
-        };
-        Ok(nudge)
-    }
 }
 
 fn nudge_text(check: TurnCheck) -> &'static str {
@@ -117,18 +79,11 @@ fn nudge_text(check: TurnCheck) -> &'static str {
 
 impl App {
     pub(super) fn turn_end(&self, node: NodeId) -> rusqlite::Result<Option<&'static str>> {
-        let gated_repo = || {
-            self.gated_repo(node).unwrap_or_else(|e| {
-                eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
-                false
-            })
-        };
-        let nudge = self.turn_ends.ended(node, gated_repo, || {
-            self.graph.unreported_root(node).unwrap_or_else(|e| {
-                eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
-                false
-            })
-        })?;
+        let gated_repo = self.gated_repo(node).unwrap_or_else(|e| {
+            eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
+            false
+        });
+        let nudge = self.graph.end_turn(node, gated_repo)?;
         let Some(check) = nudge.filter(|_| !self.holds_mail(node)) else {
             return Ok(None);
         };

@@ -45,6 +45,7 @@ impl Adapter for Pi {
             pinned: None,
             usage_part: "usage/pi",
             waiting: WAITING,
+            helper_shells: &[],
         }
     }
 
@@ -54,6 +55,10 @@ impl Adapter for Pi {
             .flat_map(|session| ["--session".into(), session.0.clone()])
             .chain(bypass.iter().cloned())
             .collect()
+    }
+
+    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+        Ok(())
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {

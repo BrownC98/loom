@@ -87,6 +87,7 @@ export default function (pi: ExtensionAPI) {
     ours: (event) => !event.parentToolCallId && (event.messageType ?? "user") === "user",
     busy: () => pi.sendUserMessage(`/${IDLE_COMMAND}`, { expandPromptTemplates: true }),
     background: "run_in_background",
+    entry: "pi",
   });
 
   pi.registerCommand(IDLE_COMMAND, {

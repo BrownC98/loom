@@ -6,6 +6,7 @@ export type Harness<Context> = {
   ours(event: Event, ctx: Context): boolean;
   busy?(): void;
   background: string;
+  entry: "pi" | "omp";
 };
 type Reply = { id?: number; text?: string; ids?: number[]; error?: string; interrupted?: boolean };
 type Part = { type: string; text?: string };
@@ -36,8 +37,8 @@ function parse(line: string): Reply | undefined {
   }
 }
 
-function open(ctx: Context, signal: AbortSignal): Hook {
-  const child = spawn("loom", ["pi-hook"], { stdio: ["pipe", "pipe", "pipe"], signal, windowsHide: true });
+function open(ctx: Context, signal: AbortSignal, entry: Harness<Context>["entry"]): Hook {
+  const child = spawn("loom", ["hook", entry], { stdio: ["pipe", "pipe", "pipe"], signal, windowsHide: true });
   const hook: Hook = { child, pending: new Map(), open: true };
   let out = "";
   let err = "";
@@ -57,14 +58,14 @@ function open(ctx: Context, signal: AbortSignal): Hook {
       const reply = parse(out.slice(0, at));
       out = out.slice(at + 1);
       if (reply?.id === undefined) continue;
-      if (reply.error) notify(`loom pi-hook: ${reply.error}`);
+      if (reply.error) notify(`loom hook ${entry}: ${reply.error}`);
       hook.pending.get(reply.id)?.(reply.error ? undefined : reply);
       hook.pending.delete(reply.id);
     }
   });
   child.stderr?.on("data", (chunk: string) => (err += chunk));
   child.on("error", (e) => {
-    notify(`loom pi-hook: ${e.message}`);
+    notify(`loom hook ${entry}: ${e.message}`);
     end();
   });
   child.on("close", (code) => {
@@ -103,7 +104,7 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     const id = ++next;
     if (shutdown.signal.aborted) return { id, reply: Promise.resolve(undefined) };
     if (!hook?.open) {
-      hook = open(ctx, shutdown.signal);
+      hook = open(ctx, shutdown.signal, harness.entry);
     }
     const { child, pending } = hook;
     const reply = new Promise<Reply | undefined>((resolve) => {

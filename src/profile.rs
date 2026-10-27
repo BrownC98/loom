@@ -140,6 +140,36 @@ pub trait ServerAdapter: Send {
     fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
 }
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum HookEntry {
+    Claude,
+    Cursor,
+    CursorRules,
+    Pi,
+    Omp,
+}
+
+pub enum Hook {
+    Once(fn(serde_json::Value) -> Result<Box<dyn HookEvent>, serde_json::Error>),
+    Lines,
+}
+
+pub fn hook(entry: HookEntry) -> Hook {
+    match entry {
+        HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
+        HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
+        HookEntry::Pi | HookEntry::Omp => Hook::Lines,
+    }
+}
+
+pub fn runs_helper(command_line: &str) -> bool {
+    let line = command_line.trim_end_matches('"');
+    profiles()
+        .flat_map(|p| adapter(p).facts().helper_shells)
+        .any(|helper| line.ends_with(helper))
+}
+
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
@@ -469,7 +499,6 @@ pub struct VersionMismatch {
 pub async fn command(
     start: &Start,
     at: &Serve<'_>,
-    plugin: &Path,
     bypass_off: &[AgentId],
 ) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
     let (mut cmd, server) = match start {
@@ -478,18 +507,7 @@ pub async fn command(
             brief,
             choice,
             resume,
-        } => {
-            agent_command(
-                agent,
-                brief,
-                choice,
-                resume.as_ref(),
-                at,
-                bypass_off,
-                plugin,
-            )
-            .await?
-        }
+        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
@@ -526,7 +544,6 @@ async fn agent_command(
     resume: Option<&Session>,
     at: &Serve<'_>,
     bypass_off: &[AgentId],
-    plugin: &Path,
 ) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
@@ -569,7 +586,7 @@ async fn agent_command(
             adapter.command(
                 &mut cmd,
                 adapter::Command {
-                    plugin,
+                    plugin: at.plugin,
                     launch: at.launch,
                     brief,
                 },

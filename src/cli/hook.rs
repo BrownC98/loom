@@ -3,24 +3,33 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::Deserialize;
-
 use super::endpoint::Close;
 use super::{call, interrupt_arrived, wait_until_mail};
 use crate::daemon::{
     AckRequest, EndedTurn, IdleReply, IdleRequest, Relaunched, TakeRequest, Taken,
 };
 use crate::profile::{
-    BATCH_LIMIT_BYTES, Handed, HookEvent, Shown, Signals, Take, claude, cursor, pi,
+    BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, Shown, Signals, Take, pi,
 };
 use crate::protocol::MessageId;
 use crate::wsl::REWAKE_EXIT;
 
 const CALL_LIMIT: Duration = Duration::from_secs(5);
 
-pub fn claude_hook() -> Result<(), String> {
-    let hook = claude::Hook::deserialize(read_input()?).map_err(|e| format!("hook input: {e}"))?;
-    let (rewake, unacked) = run(&hook, print)?;
+pub fn hook(entry: HookEntry) -> Result<(), String> {
+    match crate::profile::hook(entry) {
+        Hook::Once(parse) => {
+            let event = serde_json::from_reader(std::io::stdin())
+                .and_then(parse)
+                .map_err(|e| format!("hook input: {e}"))?;
+            once(&*event)
+        }
+        Hook::Lines => lines(),
+    }
+}
+
+fn once(event: &dyn HookEvent) -> Result<(), String> {
+    let (rewake, unacked) = run(event, print)?;
     unacked.acknowledge();
     if rewake {
         std::process::exit(REWAKE_EXIT)
@@ -28,19 +37,14 @@ pub fn claude_hook() -> Result<(), String> {
     Ok(())
 }
 
-pub fn cursor_hook() -> Result<(), String> {
-    let hook = cursor::Hook::parse(read_input()?).map_err(|e| format!("hook input: {e}"))?;
-    run(&hook, print).map(|(_, unacked)| unacked.acknowledge())
-}
-
-pub fn pi_hook() -> Result<(), String> {
+fn lines() -> Result<(), String> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
     let waits: Arc<Mutex<HashMap<u64, Close>>> = Arc::default();
     for line in std::io::stdin().lines() {
         let line = line.map_err(|e| format!("hook input: {e}"))?;
         let request = match pi::request(&line) {
             Ok(request) => request,
-            Err(unserved) => return pi_unserved(unserved, &out),
+            Err(refused) => return unserved(refused, &out),
         };
         let out = out.clone();
         let send = move |line: String| send_line(&out, line);
@@ -86,11 +90,7 @@ pub fn pi_hook() -> Result<(), String> {
     Ok(())
 }
 
-fn read_input() -> Result<serde_json::Value, String> {
-    serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))
-}
-
-fn pi_unserved(unserved: pi::Unserved, out: &Mutex<std::io::Stdout>) -> Result<(), String> {
+fn unserved(unserved: pi::Unserved, out: &Mutex<std::io::Stdout>) -> Result<(), String> {
     if unserved.id.is_some() {
         send_line(out, pi::failed(unserved.id, unserved.error.clone()).line())?;
     }
@@ -174,7 +174,7 @@ impl Unacked {
 }
 
 fn run(
-    event: &impl HookEvent,
+    event: &dyn HookEvent,
     write: impl FnOnce(Shown) -> Result<(), String>,
 ) -> Result<(bool, Unacked), String> {
     let mut signals = event.signals();

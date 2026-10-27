@@ -1111,6 +1111,7 @@ fn spent_in(
              AND (c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
                  WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))
              AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
+             AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
              AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
                  AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
              AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'

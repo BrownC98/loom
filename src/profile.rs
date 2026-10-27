@@ -584,11 +584,14 @@ pub async fn command(
     Ok((cmd, started))
 }
 
+pub const SHELL_TOKEN_ENVS: [&str; 1] = [dsh::TOKEN_ENV];
+
 pub fn is_launcher_env(key: &str) -> bool {
-    (["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
-        .iter()
-        .any(|prefix| key.starts_with(prefix))
-        && key != crate::open::OPENER_ENV)
+    SHELL_TOKEN_ENVS.contains(&key)
+        || (["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+            && key != crate::open::OPENER_ENV)
         || matches!(
             key,
             "CLAUDECODE"

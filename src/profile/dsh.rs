@@ -17,6 +17,7 @@ const IDLE_ENV: &str = "LOOM_DSH_IDLE";
 const MODEL_ENV: &str = "LOOM_DSH_MODEL";
 const EFFORT_ENV: &str = "LOOM_DSH_EFFORT";
 const PERMISSION_ENV: &str = "DSH_PERMISSION_MODE";
+pub(super) const TOKEN_ENV: &str = "DSH_LOOM_TOKEN";
 const WORKSPACE: &str = ".";
 const PLUGIN_NAME: &str = "dsh plugin";
 const URL_ESCAPED: &AsciiSet = &CONTROLS.add(b' ').add(b'#').add(b'%').add(b'?');

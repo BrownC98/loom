@@ -47,7 +47,7 @@ fn launch(host: Host, target: OsString) -> io::Result<()> {
     Ok(())
 }
 
-const NODE_TOKEN_ENV: &str = "LOOM_TOKEN";
+pub const NODE_TOKEN_ENV: &str = "LOOM_TOKEN";
 
 fn opener(
     host: Host,

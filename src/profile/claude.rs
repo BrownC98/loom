@@ -29,6 +29,8 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
+const HOOK: &str = "loom hook claude";
+const HELPER_SHELLS: [&str; 2] = [HOOK, "loom hook"];
 const RUNNING_STATUS: &str = "esc to interrupt";
 const TRANSCRIPT_DEPTH: usize = 3;
 const CLI_WAIT: Duration = Duration::from_secs(20);
@@ -78,6 +80,7 @@ impl Adapter for Claude {
             pinned: None,
             usage_part: "usage/claude",
             waiting: WAITING,
+            helper_shells: &HELPER_SHELLS,
         }
     }
 
@@ -87,6 +90,10 @@ impl Adapter for Claude {
             .flat_map(|session| ["--resume".into(), super::session_id(session)])
             .chain(bypass.iter().cloned())
             .collect()
+    }
+
+    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+        Ok(())
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
@@ -247,12 +254,12 @@ fn background_job(json: &[u8], session: &str) -> Option<String> {
 pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
-        "command": "loom hook",
+        "command": HOOK,
         "timeout": HOOK_TIMEOUT_SECS,
     }] }]);
     let idle = json!([{ "hooks": [{
         "type": "command",
-        "command": "loom hook",
+        "command": HOOK,
         "asyncRewake": true,
         "timeout": IDLE_HOOK_TIMEOUT_SECS,
         "rewakeMessage": REWAKE_MESSAGE,
@@ -276,7 +283,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
             "Notification": [
                 { "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
                     "type": "command",
-                    "command": "loom hook",
+                    "command": HOOK,
                     "timeout": HOOK_TIMEOUT_SECS,
                 }] },
                 { "matcher": IDLE_NOTIFICATION, "hooks": idle[0]["hooks"] },

@@ -104,7 +104,7 @@ impl Snapshot {
             .collect()
     }
 
-    pub fn command_lines(&self, root: u32) -> Vec<String> {
+    pub fn command_lines(&self, root: u32) -> Vec<Vec<String>> {
         let pids: Vec<Pid> = subtree(&self.parents, root)
             .into_iter()
             .map(Pid::from_u32)
@@ -120,9 +120,8 @@ impl Snapshot {
             .map(|p| {
                 p.cmd()
                     .iter()
-                    .map(|arg| arg.to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect()
             })
             .collect()
     }

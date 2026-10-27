@@ -17,12 +17,12 @@ const EXTENSION_FILE: &str = "omp-loom.ts";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `async: true, timeout: 0`; it returns at once with a job ID. A bash call without a timeout stops after 5 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
-pub struct Config {
-    pub file: String,
+struct Config {
+    file: String,
     text: String,
 }
 
-pub fn config(plugin: &Path, launch: Launch) -> Config {
+fn config(plugin: &Path, launch: Launch) -> Config {
     let ignored: Vec<String> = crate::skills::names(launch.skills)
         .flat_map(|name| [format!("*/{name}"), format!("*/{name}~*")])
         .collect();
@@ -37,7 +37,7 @@ pub fn config(plugin: &Path, launch: Launch) -> Config {
     Config { file, text }
 }
 
-pub fn write_config(dir: &Path, config: &Config) -> std::io::Result<()> {
+fn write_config(dir: &Path, config: &Config) -> std::io::Result<()> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join(&config.file);
     if path.is_file() {
@@ -60,6 +60,7 @@ impl Adapter for Omp {
             pinned: None,
             usage_part: "usage/omp",
             waiting: WAITING,
+            helper_shells: &[],
         }
     }
 
@@ -69,6 +70,10 @@ impl Adapter for Omp {
             .flat_map(|session| ["--resume".into(), session.0.clone()])
             .chain(bypass.iter().cloned())
             .collect()
+    }
+
+    fn prepare(&self, at: &Serve<'_>) -> std::io::Result<()> {
+        write_config(at.plugin_here, &config(at.plugin, at.launch))
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {

@@ -41,6 +41,7 @@ use clap::Parser;
 
 use crate::daemon::SpawnRun;
 use crate::graph::Kept;
+use crate::profile::HookEntry;
 use crate::protocol::{Kind, ModelChoice};
 
 #[derive(clap::Subcommand)]
@@ -217,13 +218,16 @@ enum Cli {
         #[arg(long, hide = true)]
         checked: bool,
     },
-    /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
-    Hook,
-    /// Cursor 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
+    /// loom이 에이전트에 건 훅과 확장이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
+    Hook {
+        /// 훅을 건 에이전트 진입점.
+        entry: Option<HookEntry>,
+    },
+    #[command(hide = true)]
     CursorHook,
-    /// Cursor 세션 시작 훅이 부른다. 상시 지시를 출력한다.
+    #[command(hide = true)]
     CursorRules,
-    /// loom이 싣는 Pi 확장이 부른다. stdin의 이벤트를 받아 넘길 메시지를 출력한다.
+    #[command(hide = true)]
     PiHook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
@@ -296,10 +300,10 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Hook => cli::hook(),
-        Cli::CursorHook => cli::cursor_hook(),
-        Cli::CursorRules => cli::cursor_rules(),
-        Cli::PiHook => cli::pi_hook(),
+        Cli::Hook { entry } => cli::hook(entry.unwrap_or(HookEntry::Claude)),
+        Cli::CursorHook => cli::hook(HookEntry::Cursor),
+        Cli::CursorRules => cli::hook(HookEntry::CursorRules),
+        Cli::PiHook => cli::hook(HookEntry::Pi),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

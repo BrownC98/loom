@@ -140,6 +140,67 @@ pub trait ServerAdapter: Send {
     fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>>;
 }
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum HookEntry {
+    Claude,
+    Cursor,
+    CursorRules,
+    Pi,
+    Omp,
+}
+
+pub enum Hook {
+    Once(fn(serde_json::Value) -> Result<Box<dyn HookEvent>, serde_json::Error>),
+    Lines,
+}
+
+pub fn hook(entry: HookEntry) -> Hook {
+    match entry {
+        HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
+        HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
+        HookEntry::Pi | HookEntry::Omp => Hook::Lines,
+    }
+}
+
+const SHELLS: [&str; 3] = ["sh", "bash", "dash"];
+
+pub fn runs_helper(argv: &[String]) -> bool {
+    profiles()
+        .flat_map(|p| adapter(p).facts().helper_shells)
+        .any(|helper| runs(argv, helper))
+}
+
+fn runs(argv: &[String], helper: &str) -> bool {
+    let words: Vec<&str> = helper.split(' ').collect();
+    let Some((_, args)) = words.split_first() else {
+        return false;
+    };
+    let loom_runs = |argv: &[String]| {
+        argv.split_first().is_some_and(|(program, rest)| {
+            file_name(program).starts_with("loom") && rest.iter().eq(args.iter())
+        })
+    };
+    match argv.split_first() {
+        Some((program, rest)) if SHELLS.contains(&file_name(program)) => {
+            match rest.iter().position(|arg| arg == "-c") {
+                Some(at) => rest
+                    .get(at + 1)
+                    .is_some_and(|script| script.trim() == helper),
+                None => loom_runs(rest),
+            }
+        }
+        _ => loom_runs(argv),
+    }
+}
+
+fn file_name(program: &str) -> &str {
+    Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(program)
+}
+
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
@@ -469,7 +530,6 @@ pub struct VersionMismatch {
 pub async fn command(
     start: &Start,
     at: &Serve<'_>,
-    plugin: &Path,
     bypass_off: &[AgentId],
 ) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
     let (mut cmd, server) = match start {
@@ -478,18 +538,7 @@ pub async fn command(
             brief,
             choice,
             resume,
-        } => {
-            agent_command(
-                agent,
-                brief,
-                choice,
-                resume.as_ref(),
-                at,
-                bypass_off,
-                plugin,
-            )
-            .await?
-        }
+        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
@@ -526,7 +575,6 @@ async fn agent_command(
     resume: Option<&Session>,
     at: &Serve<'_>,
     bypass_off: &[AgentId],
-    plugin: &Path,
 ) -> Result<(CommandBuilder, Option<Arc<dyn Server>>), LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
@@ -569,7 +617,7 @@ async fn agent_command(
             adapter.command(
                 &mut cmd,
                 adapter::Command {
-                    plugin,
+                    plugin: at.plugin,
                     launch: at.launch,
                     brief,
                 },

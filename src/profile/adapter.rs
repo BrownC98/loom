@@ -23,6 +23,7 @@ pub struct Facts {
     pub pinned: Option<&'static str>,
     pub usage_part: &'static str,
     pub waiting: &'static str,
+    pub helper_shells: &'static [&'static str],
 }
 
 pub struct Command<'a> {
@@ -35,6 +36,8 @@ pub struct Serve<'a> {
     pub cwd: &'a Path,
     pub inside: Option<&'a Inside>,
     pub env: &'a [(&'static str, OsString)],
+    pub plugin: &'a Path,
+    pub plugin_here: &'a Path,
     pub skills: &'a Path,
     pub launch: Launch,
     pub version: Option<&'a str>,
@@ -80,6 +83,7 @@ pub enum Chosen {
 pub trait Adapter: Sync {
     fn facts(&self) -> Facts;
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String>;
+    fn prepare(&self, at: &Serve<'_>) -> std::io::Result<()>;
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>);
     fn serve<'a>(
         &'a self,

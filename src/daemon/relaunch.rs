@@ -32,7 +32,6 @@ const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in t
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
      Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
-const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -903,8 +902,13 @@ impl App {
         self.background_shells(snapshot, node)
             .into_iter()
             .map(|shell| snapshot.command_lines(shell))
-            .filter(|lines| !lines.first().is_some_and(|shell| runs_hook(shell)))
-            .filter_map(|lines| lines.get(1).or(lines.first()).map(|line| shown(line)))
+            .filter(|lines| !lines.iter().take(2).any(|argv| profile::runs_helper(argv)))
+            .filter_map(|lines| {
+                lines
+                    .get(1)
+                    .or(lines.first())
+                    .map(|argv| shown(&argv.join(" ")))
+            })
             .collect()
     }
 
@@ -966,11 +970,6 @@ fn stopped_notice(commands: &[String]) -> String {
     format!(
         "loom relaunched your process and stopped these background commands that you started before:{list}\nStart them again if you still need them."
     )
-}
-
-fn runs_hook(shell: &str) -> bool {
-    let line = shell.trim_end_matches('"');
-    HOOK_COMMANDS.iter().any(|hook| line.ends_with(hook))
 }
 
 fn shown(line: &str) -> String {

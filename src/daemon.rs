@@ -2,6 +2,7 @@ mod agent;
 mod arrival;
 mod carry;
 mod commands;
+mod deploy;
 pub mod gate;
 mod idle;
 mod lan;

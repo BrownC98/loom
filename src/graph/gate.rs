@@ -1471,7 +1471,7 @@ fn post(
     Ok(())
 }
 
-fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+pub(super) fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
         [node.0],
@@ -1572,7 +1572,7 @@ fn trace(
     })
 }
 
-fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
+pub(super) fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
     let mut at = node;
     while let Some(parent) = parent_of(db, at)? {
         at = parent;

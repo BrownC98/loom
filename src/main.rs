@@ -180,7 +180,7 @@ enum Cli {
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
     /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 그 브랜치의 검토자만 부른다. 데몬이 `loom ready` 때 검토자 역할마다 하나씩 관문의 자식으로 띄운다. 부모 브랜치에서 만든 브랜치는 검토자 없이 부모가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
-    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
+    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push)하고, merged·rework·failed로 알린다. main이면 그 뒤 `scripts/gate/ship.sh`가 따로 배포를 확인하고 실패만 루트에 알린다.
     Verdict {
         branch: String,
         /// 판정한 커밋. loom이 검토자에게 보낸 차례 메시지의 `head`를 적는다(앞 7자 이상). 열린 차례의 커밋이 아니면 거절한다.

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::endpoint::Close;
-use super::{call, choice_made, interrupt_arrived, wait_until_mail};
+use super::{call, choice_made, choice_withdrawn, interrupt_arrived, wait_until_mail};
 use crate::daemon::Relaunched;
 use crate::profile::{
     BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, LineEvent, Served, Shown, Signals, Take,
@@ -89,7 +89,9 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
                                 "loom chose option {option}, which the prompt does not have"
                             )),
                         },
-                        Err(_) if close.closed() => send(request.acked()),
+                        Err(_) if close.closed() => {
+                            choice_withdrawn().and_then(|()| send(request.acked()))
+                        }
                         Err(e) => Err(e),
                     }
                 }

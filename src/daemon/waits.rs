@@ -240,22 +240,45 @@ pub(super) async fn serve_file(
 }
 
 #[derive(Default)]
-pub(super) struct Choices(std::sync::Mutex<HashMap<NodeId, Held>>);
+pub(super) struct Choices(std::sync::Mutex<Holds>);
+
+#[derive(Default)]
+struct Holds {
+    next: u64,
+    held: HashMap<NodeId, Held>,
+}
 
 struct Held {
+    serial: u64,
     prompt: Prompt,
     chosen: tokio::sync::oneshot::Sender<usize>,
 }
 
 impl Choices {
-    fn hold(&self, node: NodeId, prompt: Prompt) -> tokio::sync::oneshot::Receiver<usize> {
+    fn hold<E>(
+        &self,
+        node: NodeId,
+        prompt: Prompt,
+        show: impl FnOnce(Prompt) -> Result<(), E>,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<usize>), E> {
+        let mut holds = self.0.lock().unwrap();
+        show(prompt.clone())?;
+        holds.next += 1;
+        let serial = holds.next;
         let (chosen, receiver) = tokio::sync::oneshot::channel();
-        self.0.lock().unwrap().insert(node, Held { prompt, chosen });
-        receiver
+        holds.held.insert(
+            node,
+            Held {
+                serial,
+                prompt,
+                chosen,
+            },
+        );
+        Ok((serial, receiver))
     }
 
     fn choose(&self, node: NodeId, prompt: &Prompt, option: usize) -> Option<Chosen> {
-        let mut held = self.0.lock().unwrap();
+        let held = &mut self.0.lock().unwrap().held;
         let now = held.get(&node)?;
         if now.prompt != *prompt || option >= now.prompt.options.len() {
             return Some(Chosen::PromptChanged);
@@ -267,37 +290,37 @@ impl Choices {
         })
     }
 
-    fn release(&self, node: NodeId) -> bool {
-        let mut held = self.0.lock().unwrap();
-        if held.get(&node).is_some_and(|h| !h.chosen.is_closed()) {
-            return false;
+    fn release(&self, node: NodeId, serial: u64, clear: impl FnOnce()) {
+        let held = &mut self.0.lock().unwrap().held;
+        if held.get(&node).is_some_and(|h| h.serial != serial) {
+            return;
         }
         held.remove(&node);
-        true
+        clear();
     }
 }
 
 struct Release {
     app: Arc<App>,
     node: NodeId,
+    serial: u64,
     token: String,
 }
 
 impl Drop for Release {
     fn drop(&mut self) {
-        if !self.app.choices.release(self.node) {
-            return;
-        }
-        if let Err(e) = self
-            .app
-            .graph
-            .set_wait(&self.token, WaitSource::Agent, None)
-        {
-            eprintln!(
-                "loom: 노드 {}의 응답 대기를 지우지 못했다: {e}",
-                self.node.0
-            );
-        }
+        self.app.choices.release(self.node, self.serial, || {
+            if let Err(e) = self
+                .app
+                .graph
+                .set_wait(&self.token, WaitSource::Agent, None)
+            {
+                eprintln!(
+                    "loom: 노드 {}의 응답 대기를 지우지 못했다: {e}",
+                    self.node.0
+                );
+            }
+        });
     }
 }
 
@@ -308,20 +331,23 @@ pub(super) async fn agent_choice(
 ) -> Result<Json<usize>, AgentError> {
     let node = app.caller(&headers)?;
     let token = bearer(&headers)?.to_owned();
-    let chosen = app.choices.hold(node, req.prompt.clone());
-    let release = Release {
+    let summary = req.prompt.summary.clone();
+    let (serial, chosen) = app
+        .choices
+        .hold(node, req.prompt, |prompt| {
+            app.graph.set_wait(
+                &token,
+                WaitSource::Agent,
+                Some((req.kind, &summary, Some(prompt))),
+            )
+        })
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    let _release = Release {
         app: app.clone(),
         node,
+        serial,
         token,
     };
-    let summary = req.prompt.summary.clone();
-    app.graph
-        .set_wait(
-            &release.token,
-            WaitSource::Agent,
-            Some((req.kind, &summary, Some(req.prompt))),
-        )
-        .map_err(|e| for_agent(Refusal::from(e)))?;
     let option = chosen.await.map_err(|_| {
         (
             StatusCode::CONFLICT,

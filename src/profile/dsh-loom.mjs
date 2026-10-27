@@ -186,7 +186,7 @@ export function apply(ctx, config) {
       async (_payload, next) => {
         const resolved = await next();
         first ??= routeKey(resolved);
-        steering = first === routeKey(resolved);
+        steering &&= first === routeKey(resolved);
         return steering ? { ...resolved, ...chosen } : resolved;
       },
       { prepend: true },
@@ -209,8 +209,10 @@ export function apply(ctx, config) {
     return { quiet, end };
   };
 
+  const callKey = (session, callId) => `${session}/${callId}`;
+
   const approval = (req) => {
-    const command = req.callId === undefined ? undefined : commands.get(String(req.callId));
+    const command = req.callId === undefined ? undefined : commands.get(callKey(req.agent?.session?.id, req.callId));
     return {
       event: "approval",
       summary: command ?? req.toolName,
@@ -222,7 +224,7 @@ export function apply(ctx, config) {
   ctx.on(
     "approval/request",
     async function (req, next) {
-      if (relayed.has(req) || req.agent !== main) return next();
+      if (relayed.has(req)) return next();
       const local = new AbortController();
       const copy = { ...req, signal: local.signal };
       relayed.add(copy);
@@ -278,6 +280,9 @@ export function apply(ctx, config) {
   });
 
   ctx.on("session/event", (session, event) => {
+    if (event.type === "tool/call") commands.set(callKey(session.id, event.data.callId), commandOf(event.data.arguments));
+    if (event.type === "tool/ptc-dispatch-start")
+      commands.set(callKey(session.id, event.data.subCallId), commandOf(event.data.arguments));
     if (String(session.id) !== state.transcript) return;
     switch (event.type) {
       case "request/header": {
@@ -291,12 +296,6 @@ export function apply(ctx, config) {
       case "turn/start":
         reply = undefined;
         commands.clear();
-        break;
-      case "tool/call":
-        commands.set(String(event.data.callId), commandOf(event.data.arguments));
-        break;
-      case "tool/ptc-dispatch-start":
-        commands.set(String(event.data.subCallId), commandOf(event.data.arguments));
         break;
       case "assistant/message": {
         const text = event.data.interrupted ? "" : textOf(event.data.message);

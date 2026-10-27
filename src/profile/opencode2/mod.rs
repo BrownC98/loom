@@ -590,9 +590,6 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
                 busy = Some(port.next_mail(BUSY_KINDS));
                 match mail {
                     Ok(mail) => {
-                        if mail.iter().any(|d| d.kind == Kind::Interrupt) {
-                            node.server.stop_shells(&node.session).await;
-                        }
                         if let Err((ids, e)) = hand(&node, &*port, &mail).await {
                             refused(&node, &*port, ids, e);
                             (&mut ended).await;
@@ -632,6 +629,9 @@ async fn hand(
     mail: &[Delivery],
 ) -> Result<(), (Vec<MessageId>, String)> {
     let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
+    if mail.iter().any(|d| d.kind == Kind::Interrupt) {
+        node.server.stop_shells(&node.session).await;
+    }
     if let Err(e) = deliver(node, mail).await {
         return Err((ids, e));
     }

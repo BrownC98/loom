@@ -457,9 +457,6 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 match mail {
                     Ok(mail) => {
                         let interrupt = mail.iter().any(|d| d.kind == Kind::Interrupt);
-                        if interrupt {
-                            server.stop_shells();
-                        }
                         let handed = hand(&server, &*port, &id, Status::Busy, &mail).await;
                         ours |= handed && interrupt;
                         if handed && status == Some(Status::Busy) {
@@ -552,6 +549,9 @@ async fn hand(
     mail: &[Delivery],
 ) -> bool {
     let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
+    if mail.iter().any(|d| d.kind == Kind::Interrupt) {
+        server.stop_shells();
+    }
     let call = |method, params| server.call(method, params);
     match deliver(call, thread, now, mail).await {
         Ok(()) => {

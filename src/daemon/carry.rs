@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{App, Problem, internal};
 use crate::db;
 use crate::graph::{Entry, Who};
+use crate::profile::process::Served;
 use crate::settings::Settings;
 use crate::wsl::{self, WslPath};
 
@@ -61,6 +62,9 @@ impl App {
         for node in &active {
             if let Err(e) = self.end_detached(node).await {
                 eprintln!("loom: 노드 {}의 옛 세션을 끝내지 못했다: {e}", node.id.0);
+            }
+            if let Err(e) = Served::end_stored(&self.record_of(node)).await {
+                eprintln!("loom: 노드 {}의 옛 도우미를 끝내지 못했다: {e}", node.id.0);
             }
         }
         let mut carried = Carried {

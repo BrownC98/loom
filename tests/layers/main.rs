@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use tree_sitter::{Node, Parser};
 
+mod neutral;
+
 const LAYERS: [&str; 4] = ["기반", "기능", "조합", "상호작용"];
 
 const FEATURE: &str = "기능";
@@ -818,6 +820,16 @@ fn modules_follow_the_layer_table() {
     assert!(
         problems.is_empty(),
         "The Rust modules break the layer rule of {DOC}. Move the code to the right layer or correct the table:\n{}",
+        problems.join("\n")
+    );
+}
+
+#[test]
+fn core_names_no_agent() {
+    let problems = neutral::problems(repo());
+    assert!(
+        problems.is_empty(),
+        "Code outside src/profile.rs and src/profile/ names an agent. Move the fact into that agent's adapter and read it through the adapter:\n{}",
         problems.join("\n")
     );
 }

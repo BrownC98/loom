@@ -186,7 +186,7 @@ impl App {
             return Ok(plan);
         };
         if profile::profile_of(&agent).is_none() {
-            return Err(Refusal::NoLink(agent.0).into());
+            return Err(profile::no_link(agent).into());
         }
         let choice = match &node.role {
             Some(role) => self

@@ -237,7 +237,7 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
         let (to, agent) = app.graph.agent_at(from, &req.to)?;
         let target = format!("#{}", to.0);
         if !agent.as_ref().is_some_and(profile::linked) {
-            return Err(Refusal::NotSteerable(req.to.clone()));
+            return Err(profile::not_steerable(req.to.clone()));
         }
         if req.mode == Kind::Interrupt {
             let inside = app.wsl_at(to)?;

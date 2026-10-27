@@ -59,12 +59,18 @@ pub enum Refusal {
         name: String,
         candidates: String,
     },
-    /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
-    NotSteerable(String),
+    /// 조정·중단을 받지 못하는 노드다. `name`은 보낸 쪽이 적은 이름, `linked`는 받을 수 있는 에이전트 이름이다.
+    NotSteerable {
+        name: String,
+        linked: Vec<String>,
+    },
     /// 세션을 이어 다시 띄우지 못하는 노드다(셸·명령). 값은 노드 이름이다.
     NoResume(String),
-    /// `loom relaunch --agent`의 에이전트에 메시지 연동(프로필)이 없다. 값은 에이전트 id다.
-    NoLink(String),
+    /// `loom relaunch --agent`의 에이전트에 메시지 연동(프로필)이 없다. `agent`는 그 id, `linked`는 연동이 있는 에이전트 id다.
+    NoLink {
+        agent: String,
+        linked: Vec<String>,
+    },
     /// 노드가 지금 다시 뜨는 중이라 에이전트 바꾸기를 받지 못한다. 값은 노드 이름이다.
     Relaunching(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
@@ -240,17 +246,19 @@ impl fmt::Display for Refusal {
                 f,
                 "{name}: no node has this name. Use `parent`, or a name or ID from `loom status --all`."
             ),
-            Refusal::NotSteerable(name) => write!(
+            Refusal::NotSteerable { name, linked } => write!(
                 f,
-                "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom note` without --steer or --interrupt."
+                "{name}: this node cannot take steer or interrupt (only these agents can: {}). Use `loom note` without --steer or --interrupt.",
+                linked.join(", ")
             ),
             Refusal::NoResume(name) => write!(
                 f,
                 "{name}: this node runs a shell or command, which has no agent session to continue in a new process."
             ),
-            Refusal::NoLink(agent) => write!(
+            Refusal::NoLink { agent, linked } => write!(
                 f,
-                "{agent}: loom has no message link for this agent. Give claude, codex, cursor, or opencode2 with --agent."
+                "{agent}: loom has no message link for this agent. Give one of these with --agent: {}.",
+                linked.join(", ")
             ),
             Refusal::Relaunching(name) => write!(
                 f,

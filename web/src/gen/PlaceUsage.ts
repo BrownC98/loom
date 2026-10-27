@@ -2,9 +2,9 @@
 import type { Usage } from "./Usage";
 
 /**
- * 한 위치의 Cursor CLI 로그인과 사용량. loom은 Cursor 계정을 여럿 두지 않고 바꾸지 않는다(M18 v2, Q666 A).
+ * 한 위치의 CLI 로그인 하나와 그 사용량. loom은 이 로그인을 여럿 두지 않고 바꾸지 않는다(M18 v2, Q666 A).
  */
-export type CursorView = { 
+export type PlaceUsage = { 
 /**
  * WSL 배포판. 이 PC면 없다.
  */

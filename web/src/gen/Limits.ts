@@ -5,6 +5,6 @@ import type { Window } from "./Window";
 
 export type Limits = { "kind": "ready", session: Window | null, weekly: Window | null, models: Array<ModelWindow>, 
 /**
- * 결제 주기 동안 포함 사용량 전체. Cursor만 준다.
+ * 결제 주기 동안 포함 사용량 전체. 결제 주기가 있는 출처만 준다.
  */
 plan: Window | null, } | { "kind": "needsLogin" } | { "kind": "failed", problem: UsageProblem, };

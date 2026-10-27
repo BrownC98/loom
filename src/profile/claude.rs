@@ -11,15 +11,17 @@ use serde_json::{Value, json};
 use portable_pty::CommandBuilder;
 
 use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
+    Started,
 };
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
-use crate::accounts::{self, Site};
-use crate::protocol::{
-    Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Provider, Session, WaitKind,
-};
+use crate::accounts::Site;
+use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
+
+mod accounts;
+mod usage;
 
 const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
@@ -75,7 +77,7 @@ pub struct Claude;
 impl Adapter for Claude {
     fn facts(&self) -> Facts {
         Facts {
-            provider: Some(Provider::Claude),
+            logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
             pinned: None,
@@ -166,7 +168,7 @@ impl Adapter for Claude {
             _ => return Err(NO_RECORD.to_owned().into()),
         }
         let new_root = site
-            .login_dir(Provider::Claude, to.to)
+            .login_dir(&accounts::CLI, to.to)
             .ok_or("홈 폴더를 찾지 못했다".to_owned())?;
         super::copy_session(&file, TRANSCRIPT_DEPTH, &new_root)?;
         let side = file.with_extension("");
@@ -177,10 +179,10 @@ impl Adapter for Claude {
             copy_dir(&side, &moved).map_err(|e| format!("{}: {e}", side.display()))?;
         }
         if let (Some(config), Some(from)) = (
-            site.accounts().config_dir(Provider::Claude, to.to),
-            site.claude_files(to.from),
+            site.accounts().config_dir(&accounts::CLI, to.to),
+            accounts::consent_files(site, to.from),
         ) {
-            accounts::carry_claude_consent(&from, &config, &site.cli_cwd(to.cwd))
+            accounts::carry_consent(&from, &config, &site.cli_cwd(to.cwd))
                 .map_err(|e| format!("{}: {e}", config.display()))?;
         }
         Ok(())
@@ -195,7 +197,7 @@ impl Adapter for Claude {
             let (Some(session), account) = (&rec.session, rec.account.as_ref()) else {
                 return Ok(());
             };
-            let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
+            let Ok(list) = site.command(&accounts::CLI, &["agents", "--json"], account) else {
                 return Ok(());
             };
             let Some(out) = run(list).await else {
@@ -205,7 +207,7 @@ impl Adapter for Claude {
                 return Ok(());
             };
             let stop = site
-                .command(Provider::Claude, &["stop", &job], account)
+                .command(&accounts::CLI, &["stop", &job], account)
                 .map_err(|e| e.to_string())?;
             run(stop).await.map(drop).ok_or_else(|| {
                 format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")

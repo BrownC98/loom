@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
-import type { CursorView } from './gen/CursorView';
+import type { PlaceUsage } from './gen/PlaceUsage';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
@@ -26,14 +26,12 @@ export function activeAccount(accounts: AccountView[], settings: SettingsView, p
 }
 
 function chosenAccount(settings: SettingsView, provider: Provider, distro: string | null): AccountId | null {
-  if (distro === null) return provider === 'claude' ? settings.claudeAccount : settings.codexAccount;
-  return settings.wslAccounts[distro]?.[provider] ?? null;
+  return (distro === null ? settings.accounts : settings.wslAccounts[distro])?.[provider] ?? null;
 }
 
 export function withAccount(settings: SettingsView, provider: Provider, distro: string | null, id: AccountId | null): SettingsView {
-  if (distro === null) return provider === 'claude' ? { ...settings, claudeAccount: id } : { ...settings, codexAccount: id };
-  const inUse = settings.wslAccounts[distro] ?? { claude: null, codex: null };
-  return { ...settings, wslAccounts: { ...settings.wslAccounts, [distro]: { ...inUse, [provider]: id } } };
+  const inUse = { ...(distro === null ? settings.accounts : settings.wslAccounts[distro]), [provider]: id ?? undefined };
+  return distro === null ? { ...settings, accounts: inUse } : { ...settings, wslAccounts: { ...settings.wslAccounts, [distro]: inUse } };
 }
 
 export function accountName(account: AccountView): string {
@@ -146,7 +144,7 @@ export function fetchedText(readAt: number, now: number): string {
   return i18next.t('usage.fetched', { ago: ago(readAt * 1000, now) });
 }
 
-export function oldestRead(accounts: AccountView[] | null, cursor: CursorView[] | null): number | null {
+export function oldestRead(accounts: AccountView[] | null, cursor: PlaceUsage[] | null): number | null {
   const times = [...(accounts ?? []).map((a) => a.usage.readAt), ...(cursor ?? []).map((c) => c.usage.readAt)];
   return times.length === 0 ? null : Math.min(...times);
 }

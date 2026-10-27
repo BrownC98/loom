@@ -2,7 +2,7 @@
 import type { Window } from "./Window";
 
 /**
- * 모델 하나나 모델 묶음에만 걸린 창. 예: Claude 「Fable」(주간), Cursor 「Cursor Models」(결제 주기).
+ * 모델 하나나 모델 묶음에만 걸린 창. 예: 한 모델의 주간 창, 모델 묶음의 결제 주기 창.
  */
 export type ModelWindow = { 
 /**

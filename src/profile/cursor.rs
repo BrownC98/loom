@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use portable_pty::CommandBuilder;
 
 use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
+    Started,
 };
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::Site;
@@ -16,6 +17,8 @@ use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, S
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 use crate::wsl::Inside;
+
+mod usage;
 
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
@@ -193,7 +196,7 @@ pub struct Cursor;
 impl Adapter for Cursor {
     fn facts(&self) -> Facts {
         Facts {
-            provider: None,
+            logins: Logins::One(&Cursor),
             sleeps: true,
             listens_at_start: false,
             pinned: None,

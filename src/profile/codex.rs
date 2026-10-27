@@ -13,10 +13,10 @@ use tokio::sync::{mpsc, watch};
 
 use super::VersionMismatch;
 use super::adapter::{
-    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError, Started,
 };
 use super::process::Served;
-use crate::accounts::Site;
+use crate::accounts::{Cli, Site};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
     Prompt, PromptKey, PromptOption, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
@@ -26,6 +26,7 @@ use crate::skills::Launch;
 use server::{Approval, Asked, CodexServer};
 
 pub mod server;
+mod usage;
 
 #[allow(clippy::all, dead_code)]
 pub mod protocol {
@@ -71,6 +72,17 @@ fn usage(launch: Launch) -> String {
 }
 
 pub const CMD: &str = "codex";
+static CLI: Cli = Cli {
+    provider: Provider::Codex,
+    label: "Codex",
+    command: CMD,
+    folder: "codex",
+    home: ".codex",
+    env: "CODEX_HOME",
+    login: &["login"],
+    logout: &["logout"],
+    ready: |_, _| {},
+};
 const DATE_DIRS: usize = 3;
 const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 
@@ -79,7 +91,7 @@ pub struct Codex;
 impl super::adapter::Adapter for Codex {
     fn facts(&self) -> Facts {
         Facts {
-            provider: Some(Provider::Codex),
+            logins: Logins::Many(&CLI, &Codex),
             sleeps: true,
             listens_at_start: true,
             pinned: Some(CMD),
@@ -220,7 +232,7 @@ impl super::adapter::Adapter for Codex {
     fn carry(&self, thread: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
         let root = |account| {
             to.site
-                .login_dir(Provider::Codex, account)
+                .login_dir(&CLI, account)
                 .ok_or("홈 폴더를 찾지 못했다".to_owned())
         };
         let (old_root, new_root) = (root(to.from)?, root(to.to)?);

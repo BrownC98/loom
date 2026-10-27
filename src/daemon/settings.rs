@@ -138,7 +138,7 @@ async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismat
     let reads = profile::pinned().into_iter().filter_map(|(profile, cmd)| {
         let program = inside.find(&[cmd.to_owned()])?.to_owned();
         let mut cmd = tokio::process::Command::from(
-            inside.server(&[program.as_str(), "--version"], &[] as &[(&str, &str)]),
+            inside.wsl_command(&[program.as_str(), "--version"], &[] as &[(&str, &str)]),
         );
         cmd.stdin(std::process::Stdio::null());
         Some(async move {

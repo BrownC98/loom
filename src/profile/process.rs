@@ -4,9 +4,20 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+use super::adapter::Record;
 use crate::distro::Distro;
 use crate::process_tree::{self, Snapshot};
+use crate::protocol::AdapterRecord;
 use crate::wsl::{self, Inside};
+
+#[derive(Serialize, Deserialize)]
+struct Stored<S> {
+    pid: Option<u32>,
+    state: S,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Served {
@@ -98,8 +109,34 @@ impl Served {
         .map_err(|e| e.to_string())?
     }
 
+    pub async fn end_stored(rec: &Record) -> Result<(), String> {
+        match Self::stored::<serde::de::IgnoredAny>(rec) {
+            Some((served, _)) => served.end().await,
+            None => Ok(()),
+        }
+    }
+
     pub fn here(&self) -> Option<u32> {
         self.pid.filter(|_| self.distro.is_none())
+    }
+
+    pub fn record<S: Serialize>(&self, state: S) -> AdapterRecord {
+        let stored = Stored {
+            pid: self.pid,
+            state,
+        };
+        AdapterRecord(serde_json::to_value(stored).expect("문자열 표는 늘 직렬화된다"))
+    }
+
+    pub fn stored<S: DeserializeOwned>(rec: &Record) -> Option<(Served, S)> {
+        let stored = Stored::<S>::deserialize(&rec.state.as_ref()?.0)
+            .inspect_err(|e| eprintln!("loom: 어댑터 기록을 읽지 못했다: {e}"))
+            .ok()?;
+        let served = Served {
+            pid: stored.pid,
+            distro: rec.distro.clone(),
+        };
+        Some((served, stored.state))
     }
 }
 

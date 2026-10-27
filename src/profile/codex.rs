@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde::de::DeserializeOwned;
@@ -10,13 +11,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Carry, Chosen, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::VersionMismatch;
+use super::adapter::{
+    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+};
 use super::process::Served;
-use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
-use crate::accounts::{AccountId, Site};
+use crate::accounts::Site;
 use crate::protocol::{
-    Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Provider, Report, ServerRecord,
-    ServerState, Session, WaitKind,
+    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
+    Prompt, Provider, Refusal, Report, Session, TakeRequest, WaitKind,
 };
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
@@ -93,27 +96,28 @@ impl super::adapter::Adapter for Codex {
         }
     }
 
-    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())
     }
 
     fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
 
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        at: &'a Serve<'_>,
+        at: &'a LaunchAt<'_>,
         resume: Option<&'a Session>,
         bypass: &'a [String],
         cmd: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
-        Some(Box::pin(async move {
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async move {
             let config: Vec<String> = sandbox_args(at.version, at.node_ip)
                 .into_iter()
                 .chain(server_args(at.launch))
                 .collect();
             let server = CodexServer::start(at.cwd, at.inside, at.env, &config)
                 .await
-                .map_err(|cause| LaunchError::Server {
+                .map_err(|cause| LaunchError::Helper {
                     program: "codex app-server".into(),
                     cause,
                 })?;
@@ -122,28 +126,49 @@ impl super::adapter::Adapter for Codex {
                 eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
             }
             cmd.args(["--remote", server.url()]);
-            let node = Node {
-                server,
-                resume: resume.map(|thread| (thread.clone(), resume_params(thread, bypass))),
-            };
-            Ok(Arc::new(node) as Arc<dyn Server>)
-        }))
+            let record = server.process().record(State {
+                url: server.url().to_owned(),
+            });
+            let server = Arc::new(server);
+            let before_start = resume.map(|thread| resume_thread(server.clone(), thread, bypass));
+            tokio::spawn(drive(server, port));
+            Ok(Started {
+                record: Some(record),
+                session: None,
+                before_start,
+            })
+        })
     }
 
-    fn reconnect<'a>(
+    fn attach<'a>(
         &'a self,
-        state: &'a ServerState,
-        served: Served,
-        session: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
-        Some(Box::pin(async move {
-            let state = State::deserialize(&state.0).map_err(|e| format!("server state: {e}"))?;
-            let server = CodexServer::reconnect(state.url, served, session).await?;
-            Ok(Arc::new(Node {
-                server,
-                resume: None,
-            }) as Arc<dyn Server>)
-        }))
+        rec: &'a Record,
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let Some((served, state)) = Served::stored::<State>(rec) else {
+                return Ok(());
+            };
+            match CodexServer::reconnect(state.url, served.clone(), rec.session.as_ref()).await {
+                Ok(server) => {
+                    tokio::spawn(drive(Arc::new(server), port));
+                    Ok(())
+                }
+                Err(e) => {
+                    served.stop();
+                    Err(e)
+                }
+            }
+        })
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _: &'a Record,
+        _: &'a Prompt,
+        _: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -193,17 +218,21 @@ impl super::adapter::Adapter for Codex {
         Ok(super::copy_session(&rollout, ROLLOUT_DEPTH, &new_root)?)
     }
 
-    fn end_detached<'a>(
-        &'a self,
-        _: &'a Session,
-        _: &'a Site,
-        _: Option<&'a AccountId>,
-    ) -> BoxFuture<'a, Result<(), String>> {
+    fn end_detached<'a>(&'a self, _: &'a Record, _: &'a Site) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 
-    fn record(&self, _: &Session) -> Option<PathBuf> {
-        None
+    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let (served, state) = Served::stored::<State>(rec)?;
+            let thread = rec.session.as_ref()?;
+            let server = CodexServer::reconnect(state.url, served, None).await.ok()?;
+            server.rollout(&thread.0).await.ok().flatten()
+        })
+    }
+
+    fn shell_root(&self, rec: &Record) -> Option<u32> {
+        Served::stored::<State>(rec)?.0.here()
     }
 }
 
@@ -299,228 +328,245 @@ fn thread_model(thread: &Thread) -> Model {
     }
 }
 
-fn kinds(status: Status) -> &'static [&'static [Kind]] {
-    match status {
-        Status::Idle => &[Kind::ALL],
-        Status::Busy => &[&[Kind::Steer, Kind::Interrupt]],
-    }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Status {
+    Idle,
+    Busy,
 }
+
+const BUSY_KINDS: &[Kind] = &[Kind::Steer, Kind::Interrupt];
+const HUMAN_STEP: &str = "human";
 
 #[derive(Serialize, Deserialize)]
 struct State {
     url: String,
 }
 
-struct Node {
-    server: CodexServer,
-    resume: Option<(Session, Value)>,
+fn resume_thread(
+    server: Arc<CodexServer>,
+    thread: &Session,
+    bypass: &[String],
+) -> BoxFuture<'static, Result<(), String>> {
+    let (id, params) = (thread.0.clone(), resume_params(thread, bypass));
+    Box::pin(async move {
+        server.call("thread/resume", params).await?;
+        server.follow_thread(id).await;
+        Ok(())
+    })
 }
 
-impl Server for Node {
-    fn record(&self) -> ServerRecord {
-        let state = State {
-            url: self.server.url().to_owned(),
+async fn pending<T>(future: &mut Option<BoxFuture<'_, T>>) -> T {
+    match future {
+        Some(future) => future.await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
+    let mut thread = server.thread();
+    let mut limited = server.limited();
+    let (read, mut models) = mpsc::unbounded_channel::<(u64, Model)>();
+    let (mut asked, mut answered) = (0, 0);
+    let mut status = None;
+    let mut ours = false;
+    let mut idle: Option<BoxFuture<'_, Result<IdleReply, String>>> = None;
+    let mut busy: Option<BoxFuture<'_, Result<Vec<Delivery>, Refusal>>> = None;
+    let mut ended = port.ended();
+    let mut moved = true;
+    loop {
+        let seen = match std::mem::take(&mut moved) {
+            true => thread.borrow_and_update().clone(),
+            false => None,
         };
-        ServerRecord {
-            pid: self.server.pid(),
-            state: ServerState(serde_json::to_value(state).expect("문자열 표는 늘 직렬화된다")),
-        }
-    }
-
-    fn session(&self) -> Option<Session> {
-        None
-    }
-
-    fn stop(&self) {
-        self.server.stop();
-    }
-
-    fn resume(&self) -> BoxFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            let Some((thread, params)) = &self.resume else {
-                return Ok(());
-            };
-            self.server.call("thread/resume", params.clone()).await?;
-            self.server.follow_thread(thread.0.clone()).await;
-            Ok(())
-        })
-    }
-
-    fn session_file<'a>(&'a self, session: &'a Session) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async move { self.server.rollout(&session.0).await.ok().flatten() })
-    }
-
-    fn choose<'a>(
-        &'a self,
-        _: &'a Prompt,
-        _: usize,
-    ) -> Option<BoxFuture<'a, Result<Chosen, String>>> {
-        None
-    }
-
-    fn link(self: Arc<Self>) -> Box<dyn ServerAdapter> {
-        let (read, models) = mpsc::unbounded_channel();
-        Box::new(Adapter {
-            thread: self.server.thread(),
-            limited: self.server.limited(),
-            node: self,
-            moved: true,
-            limit_hit: false,
-            fresh: None,
-            read,
-            models,
-            asked: 0,
-            answered: 0,
-            model: None,
-        })
-    }
-}
-
-struct Adapter {
-    node: Arc<Node>,
-    thread: watch::Receiver<Option<server::Thread>>,
-    limited: watch::Receiver<u64>,
-    moved: bool,
-    limit_hit: bool,
-    fresh: Option<server::Thread>,
-    read: mpsc::UnboundedSender<(u64, Model)>,
-    models: mpsc::UnboundedReceiver<(u64, Model)>,
-    asked: u64,
-    answered: u64,
-    model: Option<Model>,
-}
-
-impl Adapter {
-    fn thread(&self) -> Result<String, String> {
-        self.thread
-            .borrow()
-            .as_ref()
-            .map(|t| t.id.clone())
-            .ok_or_else(|| "Codex 스레드가 아직 없다".to_owned())
-    }
-
-    async fn turn_signal(&self, change: Option<Change>) -> Option<Signal> {
-        match change? {
-            Change {
-                before: Status::Idle,
-                now: Status::Busy,
-            } => return Some(Signal::HumanInput),
-            Change {
-                before: Status::Busy,
-                now: Status::Idle,
-            } => {}
-            Change { .. } => return None,
-        }
-        let thread = self.thread().ok()?;
-        let call = |method, params| self.node.server.call(method, params);
-        let reply = match last_reply(call, &thread).await {
-            Ok(reply) => reply,
-            Err(e) => {
-                eprintln!("loom: Codex 스레드 {thread}의 답 글을 읽지 못했다: {e}");
-                None
+        if let Some(now) = seen {
+            let wait = now.waiting.map(|kind| (kind, String::new(), None));
+            port.report(Report::HumanWait(wait));
+            port.report(Report::Session(Session(now.id.clone())));
+            asked += 1;
+            read_model(server.clone(), now.id.clone(), asked, read.clone());
+            let before = status.replace(now.status);
+            match now.status {
+                Status::Busy => {
+                    if before == Some(Status::Idle) && !ours {
+                        human_input(&server, &*port, &now.id, &mut idle).await;
+                    }
+                    if before != Some(Status::Busy) {
+                        port.report(Report::Busy);
+                    }
+                    ours = false;
+                    busy.get_or_insert_with(|| port.next_mail(BUSY_KINDS));
+                }
+                Status::Idle => {
+                    busy = None;
+                    if idle.is_none() {
+                        let unseen = before != Some(Status::Busy) && ours;
+                        let turn_end = match before == Some(Status::Busy) || unseen {
+                            true => Some(ended_turn(&server, &now.id).await),
+                            false => None,
+                        };
+                        ours &= !unseen;
+                        idle = Some(port.idle(IdleRequest {
+                            turn_end,
+                            ..IdleRequest::default()
+                        }));
+                    }
+                }
             }
-        };
-        Some(Signal::TurnEnded(reply))
-    }
-}
-
-impl ServerAdapter for Adapter {
-    fn takes(&self, now: Status) -> &'static [&'static [Kind]] {
-        self.thread().map_or(&[], |_| kinds(now))
-    }
-
-    fn status(&mut self) -> Option<Status> {
-        if !std::mem::take(&mut self.moved) {
-            return None;
         }
-        self.fresh = self.thread.borrow_and_update().clone();
-        self.fresh.as_ref().map(|t| t.status)
-    }
-
-    fn signals(&mut self, change: Option<Change>) -> BoxFuture<'_, Vec<Signal>> {
-        Box::pin(async move {
-            let mut signals = Vec::new();
-            if std::mem::take(&mut self.limit_hit) {
-                signals.push(Signal::Report(Report::RateLimited));
+        tokio::select! {
+            biased;
+            () = &mut ended => break,
+            changed = thread.changed() => match changed {
+                Ok(()) => moved = true,
+                Err(_) => {
+                    port.report(Report::HumanWait(None));
+                    port.report(Report::Lost);
+                    (&mut ended).await;
+                    break;
+                }
+            },
+            Ok(()) = limited.changed() => port.report(Report::RateLimited),
+            Some((n, model)) = models.recv() => {
+                if n > answered {
+                    answered = n;
+                    port.report(Report::Model(model));
+                }
             }
-            if let Some(model) = self.model.take() {
-                signals.push(Signal::Report(Report::Model(model)));
-            }
-            if let Some(thread) = self.fresh.take() {
-                let wait = thread.waiting.map(|kind| (kind, String::new(), None));
-                signals.push(Signal::Report(Report::HumanWait(wait)));
-                signals.push(Signal::Report(Report::Session(Session(thread.id.clone()))));
-                self.asked += 1;
-                let (node, read, asked) = (self.node.clone(), self.read.clone(), self.asked);
-                tokio::spawn(async move {
-                    let call = |method, params| node.server.call(method, params);
-                    match model(call, &thread.id).await {
-                        Ok(model) => drop(read.send((asked, model))),
-                        Err(e) => {
-                            eprintln!("loom: Codex 스레드 {}의 모델을 읽지 못했다: {e}", thread.id)
+            reply = pending(&mut idle) => {
+                idle = None;
+                let Some(id) = thread_id(&thread) else { continue };
+                match reply {
+                    Ok(IdleReply::Mail(mail)) if mail.is_empty() => {}
+                    Ok(IdleReply::Mail(mail)) => {
+                        let now = status.unwrap_or(Status::Idle);
+                        ours |= hand(&server, &*port, &id, now, &mail).await;
+                    }
+                    Ok(IdleReply::Nudge { nudge }) => {
+                        let call = |method, params| server.call(method, params);
+                        match start_turn(call, &id, &nudge).await {
+                            Ok(()) => ours = true,
+                            Err(e) => eprintln!("loom: Codex 스레드 {id}를 다시 일하게 하지 못했다: {e}"),
                         }
                     }
-                });
+                    Err(e) => eprintln!("loom: Codex 스레드 {id}의 쉬는 대기가 끝났다: {e}"),
+                }
             }
-            signals.extend(self.turn_signal(change).await);
-            signals
-        })
-    }
-
-    fn changed(&mut self) -> BoxFuture<'_, bool> {
-        Box::pin(async move {
-            tokio::select! {
-                moved = self.thread.changed() => {
-                    self.moved = true;
-                    moved.is_ok()
-                }
-                hit = self.limited.changed() => {
-                    self.limit_hit = hit.is_ok();
-                    hit.is_ok()
-                }
-                Some((asked, model)) = self.models.recv() => {
-                    if asked > self.answered {
-                        self.answered = asked;
-                        self.model = Some(model);
+            mail = pending(&mut busy) => {
+                busy = None;
+                let Some(id) = thread_id(&thread) else { continue };
+                match mail {
+                    Ok(mail) => {
+                        let interrupt = mail.iter().any(|d| d.kind == Kind::Interrupt);
+                        let handed = hand(&server, &*port, &id, Status::Busy, &mail).await;
+                        ours |= handed && interrupt;
+                        if handed && status == Some(Status::Busy) {
+                            busy = Some(port.next_mail(BUSY_KINDS));
+                        }
                     }
-                    true
+                    Err(e) => eprintln!("loom: Codex 스레드 {id}의 메일함을 읽지 못했다: {e}"),
                 }
             }
-        })
+        }
     }
+    server.stop();
+}
 
-    fn inject<'a>(
-        &'a mut self,
-        taken: &'a [Delivery],
-        now: Status,
-    ) -> BoxFuture<'a, Result<(), NotTaken>> {
-        Box::pin(async move {
-            let thread = self.thread().map_err(NotTaken::EventFollows)?;
-            let call = |method, params| self.node.server.call(method, params);
-            deliver(call, &thread, now, taken)
-                .await
-                .map_err(NotTaken::EventFollows)
-        })
+fn thread_id(thread: &watch::Receiver<Option<server::Thread>>) -> Option<String> {
+    thread.borrow().as_ref().map(|t| t.id.clone())
+}
+
+fn read_model(
+    server: Arc<CodexServer>,
+    thread: String,
+    asked: u64,
+    read: mpsc::UnboundedSender<(u64, Model)>,
+) {
+    tokio::spawn(async move {
+        let call = |method, params| server.call(method, params);
+        match model(call, &thread).await {
+            Ok(model) => drop(read.send((asked, model))),
+            Err(e) => eprintln!("loom: Codex 스레드 {thread}의 모델을 읽지 못했다: {e}"),
+        }
+    });
+}
+
+async fn human_input(
+    server: &CodexServer,
+    port: &dyn Port,
+    thread: &str,
+    idle: &mut Option<BoxFuture<'_, Result<IdleReply, String>>>,
+) {
+    let req = TakeRequest {
+        step: HUMAN_STEP.to_owned(),
+        kinds: Vec::new(),
+        limit_bytes: 0,
+        session: None,
+        human_input: true,
+        prompt: None,
+        turn: None,
+    };
+    let note = match port.take(req) {
+        Ok(taken) => taken.note,
+        Err(e) => {
+            eprintln!("loom: Codex 스레드 {thread}의 사람 입력을 처리하지 못했다: {e}");
+            return;
+        }
+    };
+    let call = |method, params| server.call(method, params);
+    match idle.take().and_then(FutureExt::now_or_never) {
+        Some(Ok(IdleReply::Mail(mail))) if !mail.is_empty() => {
+            hand(server, port, thread, Status::Busy, &mail).await;
+        }
+        Some(Ok(IdleReply::Nudge { nudge })) => {
+            if let Err(e) = steer(call, thread, &nudge).await {
+                eprintln!("loom: Codex 스레드 {thread}를 다시 일하게 하지 못했다: {e}");
+            }
+        }
+        _ => {}
     }
-
-    fn stop_shells(&self) -> BoxFuture<'_, ()> {
-        Box::pin(async move {
-            self.node.server.stop_shells();
-        })
+    if let Some(note) = note
+        && let Err(e) = steer(call, thread, &note).await
+    {
+        eprintln!("loom: Codex 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
     }
+}
 
-    fn start_turn<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            let call = |method, params| self.node.server.call(method, params);
-            start_turn(call, &self.thread()?, text).await
-        })
+async fn ended_turn(server: &CodexServer, thread: &str) -> EndedTurn {
+    let call = |method, params| server.call(method, params);
+    let reply = last_reply(call, thread)
+        .await
+        .inspect_err(|e| eprintln!("loom: Codex 스레드 {thread}의 답 글을 읽지 못했다: {e}"))
+        .ok()
+        .flatten();
+    EndedTurn { reply, turn: None }
+}
+
+async fn hand(
+    server: &CodexServer,
+    port: &dyn Port,
+    thread: &str,
+    now: Status,
+    mail: &[Delivery],
+) -> bool {
+    let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
+    if mail.iter().any(|d| d.kind == Kind::Interrupt) {
+        server.stop_shells();
     }
-
-    fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            let call = |method, params| self.node.server.call(method, params);
-            steer(call, &self.thread()?, text).await
-        })
+    let call = |method, params| server.call(method, params);
+    match deliver(call, thread, now, mail).await {
+        Ok(()) => {
+            if let Err(e) = port.ack(&ids) {
+                eprintln!("loom: Codex 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
+            }
+            true
+        }
+        Err(cause) => {
+            eprintln!("loom: Codex 스레드 {thread}에 메시지를 넘기지 못했다: {cause}");
+            if let Err(e) = port.release(&ids) {
+                eprintln!("loom: Codex 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}");
+            }
+            false
+        }
     }
 }
 

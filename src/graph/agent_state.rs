@@ -31,7 +31,7 @@ pub enum AgentState {
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum AgentEvent {
-    /// 턴 안의 훅이 메일함을 읽었다.
+    /// 턴 안에서 에이전트가 메일함을 읽었다.
     TurnStarted,
     /// 옛 판의 훅이 턴 끝을 따로 알렸다. 쉬는 대기는 따로 `WaitOpened`로 온다. 훅이 닿지 않은 턴 끝의 증거(기록 파일과 화면)도 이 사건이다.
     TurnEnded,
@@ -45,13 +45,16 @@ pub enum AgentEvent {
     /// 사람의 답을 기다리는 창이 떴다.
     Dialog,
     DialogCleared,
-    /// 서버(Codex, OpenCode 2)가 턴 중이라고 알렸다.
-    ServerBusy,
-    /// 서버가 쉰다고 알렸다. 데몬이 서버로 메시지를 넘기므로 듣는 중이다.
-    ServerIdle,
-    /// 서버 연결이 끊겼다.
-    ServerLost,
-    /// 데몬이 서버에 턴을 여는 입력을 넣었고, 서버는 아직 상태를 알리지 않았다. 읽음이 아니다.
+    /// 어댑터가 턴 중이라고 알렸다.
+    #[serde(alias = "serverBusy")]
+    Busy,
+    /// 옛 기록만: 어댑터가 쉰다고 알렸다.
+    #[serde(alias = "serverIdle")]
+    Idle,
+    /// 어댑터가 에이전트와 닿지 못한다고 알렸다.
+    #[serde(alias = "serverLost")]
+    Lost,
+    /// 옛 기록만: 데몬이 턴을 여는 입력을 넣었고, 에이전트는 아직 상태를 알리지 않았다.
     InputSent,
     RelaunchStarted,
     Relaunched,
@@ -92,9 +95,9 @@ impl AgentState {
                 before: Box::new(state),
             },
             (state, E::DialogCleared) => state,
-            (_, E::TurnStarted | E::ServerBusy | E::InputSent) => S::Turn,
-            (_, E::WaitOpened | E::TurnEndedWaitOpened | E::ServerIdle) => S::Listening,
-            (_, E::ServerLost) => S::Deaf,
+            (_, E::TurnStarted | E::Busy | E::InputSent) => S::Turn,
+            (_, E::WaitOpened | E::TurnEndedWaitOpened | E::Idle) => S::Listening,
+            (_, E::Lost) => S::Deaf,
             (
                 _,
                 E::WaitClosed {
@@ -184,7 +187,7 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
 fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Result<usize> {
     use AgentEvent as E;
     match event {
-        E::TurnStarted | E::ServerBusy | E::ServerIdle => mailbox::read(db, node),
+        E::TurnStarted | E::Busy | E::Idle => mailbox::read(db, node),
         E::TurnEnded | E::TurnEndedWaitOpened => {
             Ok(mailbox::read(db, node)? + mailbox::requeue_unprinted(db, node)?)
         }

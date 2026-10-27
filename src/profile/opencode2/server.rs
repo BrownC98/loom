@@ -9,7 +9,6 @@ use tokio::sync::watch;
 
 use crate::process_tree::{self, Snapshot};
 use crate::profile::process::Served;
-use crate::protocol::PermissionReply;
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -169,7 +168,7 @@ impl Server {
         &self,
         session: &str,
         request: &str,
-        reply: PermissionReply,
+        reply: super::PermissionReply,
     ) -> Result<(), String> {
         let path = format!("/api/session/{session}/permission/{request}/reply");
         self.call("POST", &path, Some(json!({ "decision": reply })))

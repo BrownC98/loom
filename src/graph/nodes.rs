@@ -11,7 +11,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerRecord, Session,
+    AdapterRecord, AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, Session,
     StartDigests, TreeLimits,
 };
 
@@ -29,7 +29,7 @@ const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
     pub token: String,
-    pub server: Option<ServerRecord>,
+    pub adapter: Option<AdapterRecord>,
     pub session: Option<Session>,
     pub account: Option<AccountId>,
     pub rules: Option<StartDigests>,
@@ -39,7 +39,7 @@ pub struct Active {
     pub id: NodeId,
     pub name: String,
     pub agent: Option<AgentId>,
-    pub server: Option<ServerRecord>,
+    pub adapter: Option<AdapterRecord>,
     pub account: Option<AccountId>,
     pub session: Option<Session>,
     pub model: Model,
@@ -1124,14 +1124,14 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
     }
 }
 
-const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, server, account, session, model, effort, token, role, rules FROM nodes";
+const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, adapter_state, account, session, model, effort, token, role, rules FROM nodes";
 
 fn launch_row(row: &Row) -> rusqlite::Result<Active> {
     Ok(Active {
         id: NodeId(row.get(0)?),
         name: row.get(1)?,
         agent: from_json(row, 2)?,
-        server: optional_json(row, 3)?,
+        adapter: optional_json(row, 3)?,
         account: optional_json(row, 4)?,
         session: row.get::<_, Option<String>>(5)?.map(Session),
         model: Model {
@@ -1153,12 +1153,12 @@ pub(super) fn caller_in(db: &Connection, token: &str) -> rusqlite::Result<Option
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE nodes SET token = ?2, server = ?3, account = ?4, rules = ?5,
+        "UPDATE nodes SET token = ?2, adapter_state = ?3, account = ?4, rules = ?5,
          session = coalesce(?6, session) WHERE id = ?1",
         params![
             id.0,
             launched.token,
-            launched.server.as_ref().map(to_json),
+            launched.adapter.as_ref().map(to_json),
             launched.account.as_ref().map(to_json),
             launched.rules.as_ref().map(to_json),
             launched.session.as_ref().map(|s| &s.0)

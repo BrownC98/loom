@@ -24,7 +24,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/question", post(agent_question))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))
-        .route("/api/agent/hook-wait", post(agent_hook_wait))
+        .route(crate::profile::OLD_WAIT_ROUTE, post(agent_old_wait))
         .route("/api/agent/answered", post(agent_answered))
         .route("/api/agent/said", post(agent_said))
         .route("/api/agent/question-box", post(agent_question_box))
@@ -93,62 +93,10 @@ pub struct WaitRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TakeRequest {
-    #[serde(default)]
-    pub hook: String,
-    pub kinds: Vec<Kind>,
-    pub limit_bytes: usize,
-    #[serde(default, rename = "transcript")]
-    pub session: Option<Session>,
-    #[serde(default)]
-    pub human_input: bool,
-    #[serde(default)]
-    pub prompt: Option<String>,
-    #[serde(default)]
-    pub turn: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Taken {
-    pub messages: Vec<Delivery>,
-    #[serde(default)]
-    pub note: Option<String>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct IdleRequest {
-    #[serde(rename = "transcript")]
-    pub session: Option<Session>,
-    pub rate_limited: bool,
-    pub turn_end: Option<EndedTurn>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct EndedTurn {
-    pub reply: Option<String>,
-    #[serde(default)]
-    pub turn: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum IdleReply {
-    Mail(Vec<Delivery>),
-    Nudge { nudge: String },
-}
-
-#[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GuardRequest {
     Pc { caller: u32 },
     Inside { shell: u32, birth: i64 },
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct AckRequest {
-    pub ids: Vec<MessageId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -216,11 +164,6 @@ struct SaidRequest {
     text: String,
     #[serde(default)]
     turn: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct HookWaitRequest {
-    wait: Option<(WaitKind, String)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -428,7 +371,7 @@ async fn agent_report(
     Json(report): Json<crate::protocol::Report>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.report(node, bearer(&headers)?, WaitSource::Hook, report);
+    app.report(node, bearer(&headers)?, report);
     Ok(Json(()))
 }
 
@@ -444,20 +387,12 @@ pub(super) async fn agent_turn_end(
     Ok(Json(nudge))
 }
 
-async fn agent_hook_wait(
+async fn agent_old_wait(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<HookWaitRequest>,
+    Json(req): Json<crate::profile::OldWait>,
 ) -> Result<Json<()>, AgentError> {
-    app.caller(&headers)?;
-    app.graph
-        .set_wait(
-            bearer(&headers)?,
-            WaitSource::Hook,
-            req.wait
-                .as_ref()
-                .map(|(kind, text)| (*kind, text.as_str(), None)),
-        )
-        .map_err(|e| for_agent(Refusal::from(e)))?;
+    let node = app.caller(&headers)?;
+    app.report(node, bearer(&headers)?, req.report());
     Ok(Json(()))
 }

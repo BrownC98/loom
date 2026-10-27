@@ -81,10 +81,10 @@ impl IdleWaits {
         true
     }
 
-    pub fn turn_started(&self, node: NodeId, hook: String) {
+    pub fn turn_started(&self, node: NodeId, step: String) {
         let mut ends = self.ends.lock().unwrap();
         let ended = self.graph.idle_turn(node);
-        self.wake(&mut ends, node, ended, IdleEnd::Turn { hook });
+        self.wake(&mut ends, node, ended, IdleEnd::Turn { step });
     }
 
     pub fn end(&self, node: NodeId, by: IdleEnd) {

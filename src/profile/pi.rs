@@ -1,17 +1,20 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served as Process;
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
 use crate::protocol::{
-    Delivery, Kind, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Session,
+    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PI_HOOK as PROTOCOL, Report,
+    ServerState, Session,
 };
-use crate::screen::{Dialog, Grammar};
+use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
@@ -37,7 +40,7 @@ impl Adapter for Pi {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/pi",
@@ -53,9 +56,27 @@ impl Adapter for Pi {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Process,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -64,6 +85,10 @@ impl Adapter for Pi {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[], &[]))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -341,12 +366,12 @@ impl HookEvent for Request {
         let event = &self.event;
         Signals {
             hook: event.name().to_owned(),
-            model: event.model(),
             take: event.take(),
             session: event.transcript().map(Session),
             prompt: event.prompt().map(str::to_owned),
             human_input: event.prompt().is_some(),
             turn_end: event.turn_ends(),
+            reports: event.model().map(Report::Model).into_iter().collect(),
             ..Signals::default()
         }
     }

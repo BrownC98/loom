@@ -31,9 +31,9 @@ mod waits;
 
 pub use commands::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked,
-    DetachRequest, DoneRequest, EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest,
-    NoteRequest, RelaunchRequest, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun,
-    TakeRequest, Taken, WaitRequest,
+    DetachRequest, DoneRequest, EndedTurn, GuardRequest, IdleReply, IdleRequest, NoteRequest,
+    RelaunchRequest, RemoveRequest, Reported, SpawnRequest, SpawnRun, TakeRequest, Taken,
+    WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -42,7 +42,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::IntoFuture;
 use std::hash::Hash;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -58,7 +58,6 @@ use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::accounts::{AccountId, Site};
@@ -73,15 +72,13 @@ use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
-use crate::profile::codex;
-use crate::profile::codex::server::CodexServer;
+use crate::profile::adapter::{Chosen, Serve, Server};
 use crate::profile::cursor;
 use crate::profile::omp;
-use crate::profile::opencode2;
-use crate::profile::{self, Profile, Remote, Start, VersionMismatch};
+use crate::profile::{self, Profile, Start};
 use crate::protocol::{
     Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
-    Refusal, ServerLink, Session, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
+    Refusal, ServerRecord, Session, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
 };
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;
@@ -111,8 +108,7 @@ struct App {
     spots: Spots,
     accounts_root: PathBuf,
     logins: settings::Logins,
-    codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
-    opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
+    servers: Mutex<HashMap<NodeId, Arc<dyn Server>>>,
     sessions: sessions::Sessions,
     first_inputs: sessions::FirstInputs,
     idle: idle::IdleWaits,
@@ -129,8 +125,8 @@ struct App {
     linux_loom: Option<PathBuf>,
     distros: Option<Arc<crate::distro::Distros>>,
     run_dir: PathBuf,
-    version_warnings: HashMap<Profile, VersionMismatch>,
-    codex_config: Vec<String>,
+    versions: HashMap<Profile, String>,
+    node_ip: Option<IpAddr>,
     url: String,
     spawn_url: String,
     update: Arc<Updater>,
@@ -216,7 +212,6 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         Ok(door) => Some(door),
         Err(_) => tokio::net::TcpListener::bind((NODE_IP, 0)).await.ok(),
     };
-    let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
     let (doors, endpoint_door) = tunnel::Door::<arrival::Caller>::new();
@@ -226,7 +221,6 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         &db_path,
         listen,
         node_door_addr,
-        codex_version.as_deref(),
         links,
     )?);
     tokio::spawn(app.clone().carry_links(linked, doors));
@@ -362,7 +356,6 @@ impl App {
         db_path: &std::path::Path,
         listen: SocketAddr,
         node_door: Option<SocketAddr>,
-        codex_version: Option<&str>,
         links: node_host::Links<NodeId>,
     ) -> std::io::Result<App> {
         let repos = Repos::new(database.clone());
@@ -428,8 +421,7 @@ impl App {
             database,
             accounts_root: db_path.with_file_name("accounts"),
             logins: settings::Logins::new(pty_dir.join("logins.screens")),
-            codex: Mutex::default(),
-            opencode2: Mutex::default(),
+            servers: Mutex::default(),
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
             idle,
@@ -453,11 +445,8 @@ impl App {
             linux_loom,
             distros,
             run_dir: db_path.with_file_name("run"),
-            version_warnings: profile::version_warnings(&[(codex::CMD, codex_version)]),
-            codex_config: match (codex_version, node_door) {
-                (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
-                _ => Vec::new(),
-            },
+            versions: profile::versions(),
+            node_ip: node_door.map(|_| NODE_IP.into()),
             url: match node_door {
                 Some(door) => format!("http://{door}"),
                 None => node_url(listen),

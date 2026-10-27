@@ -11,7 +11,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerLink, Session,
+    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Refusal, ServerRecord, Session,
     StartDigests, TreeLimits,
 };
 
@@ -29,7 +29,7 @@ const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
     pub token: String,
-    pub server: Option<ServerLink>,
+    pub server: Option<ServerRecord>,
     pub session: Option<Session>,
     pub account: Option<AccountId>,
     pub rules: Option<StartDigests>,
@@ -39,7 +39,7 @@ pub struct Active {
     pub id: NodeId,
     pub name: String,
     pub agent: Option<AgentId>,
-    pub server: Option<ServerLink>,
+    pub server: Option<ServerRecord>,
     pub account: Option<AccountId>,
     pub session: Option<Session>,
     pub model: Model,

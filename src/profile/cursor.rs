@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -6,11 +7,14 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served;
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{AccountId, Site};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::protocol::{
+    Delivery, Kind, LaunchError, Model, ModelChoice, ServerState, Session, WaitKind,
+};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
 pub const PROMPT: Grammar = Grammar {
@@ -179,7 +183,7 @@ impl Adapter for Cursor {
     fn facts(&self) -> Facts {
         Facts {
             provider: None,
-            hooked: true,
+            sleeps: true,
             listens_at_start: false,
             pinned: None,
             usage_part: "usage/cursor",
@@ -195,14 +199,32 @@ impl Adapter for Cursor {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args([
             "--plugin-dir".into(),
             at.plugin.to_string_lossy().into_owned(),
         ]);
         cmd.env(POSITION_ENV, position_value(at.launch.position));
         cmd.env(SKILLS_ENV, skills_value(at.launch.skills));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Served,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -216,6 +238,10 @@ impl Adapter for Cursor {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -332,27 +358,36 @@ impl Hook {
 impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let text = |key: &str| self.input[key].as_str().map(str::to_owned);
-        let reports = match &self.event {
-            Event::AfterAgentResponse { text } => vec![Report::Said(text.clone())],
+        let turn = text("generation_id").filter(|id| !id.is_empty());
+        let notice = match &self.event {
+            Event::AfterAgentResponse { text } => Some(Report::Said {
+                text: text.clone(),
+                turn: turn.clone(),
+            }),
             Event::Stop { .. } => match self.used_question_box() {
-                Ok(true) => vec![Report::QuestionBox],
-                Ok(false) => Vec::new(),
+                Ok(true) => Some(Report::QuestionBox),
+                Ok(false) => None,
                 Err(e) => {
                     eprintln!("loom: could not read the transcript: {e}");
-                    Vec::new()
+                    None
                 }
             },
-            _ => Vec::new(),
+            _ => None,
         };
         Signals {
             hook: text("hook_event_name").unwrap_or_default(),
-            model: self.event.model(),
             take: self.event.take(),
             session: text("transcript_path").map(Session),
             human_input: matches!(self.event, Event::BeforeSubmitPrompt { .. }),
-            turn: text("generation_id").filter(|id| !id.is_empty()),
+            turn,
             turn_end: matches!(self.event, Event::Stop { .. }).then_some(None),
-            reports,
+            reports: self
+                .event
+                .model()
+                .map(Report::Model)
+                .into_iter()
+                .chain(notice)
+                .collect(),
             ..Signals::default()
         }
     }

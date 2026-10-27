@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use super::idle::Wait;
 use super::relaunch::profile_of;
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, IdleEnd, NodeId, WaitSource};
+use crate::graph::{AgentEvent, IdleEnd, NodeId, Phase, WaitSource};
 use crate::profile::adapter::Port;
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
@@ -26,7 +26,7 @@ impl App {
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
-        let messages = self.unheld(node, || self.graph.take(node, &req.kinds, req.limit_bytes))?;
+        let messages = self.graph.take(node, &req.kinds, req.limit_bytes)?;
         let note = match req.human_input {
             true => self.human_input(node, req.prompt.as_deref())?,
             false => None,
@@ -34,36 +34,18 @@ impl App {
         Ok(Taken { messages, note })
     }
 
-    pub(super) fn take_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        self.unheld(node, || self.graph.take_waking(node, kinds, limit_bytes))
-    }
-
-    fn unheld(
-        &self,
-        node: NodeId,
-        take: impl FnOnce() -> Result<Vec<Delivery>, Refusal>,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        if self.holds_mail(node) {
-            return Ok(Vec::new());
-        }
-        take()
-    }
-
     pub(super) async fn next_mail(
         &self,
         node: NodeId,
         kinds: &[Kind],
-        limit_bytes: usize,
+        held_by: &[Phase],
     ) -> Result<Vec<Delivery>, Refusal> {
         loop {
             let mut changed = pin!(self.graph.mail_changed());
             changed.as_mut().enable();
-            let taken = self.take_mail(node, kinds, limit_bytes)?;
+            let taken = self
+                .graph
+                .take_waking(node, kinds, BATCH_LIMIT_BYTES, held_by)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -183,7 +165,7 @@ impl App {
             Opened::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
             Opened::Wait(wait) => wait,
         };
-        while self.holds_mail(node) {
+        while self.relaunching(node) {
             let by = wait.ended().await;
             if !current() || !self.idle.reopen(&mut wait) {
                 wait.finish(by);
@@ -191,7 +173,7 @@ impl App {
             }
         }
         tokio::select! {
-            taken = self.next_mail(node, Kind::ALL, BATCH_LIMIT_BYTES) => match taken {
+            taken = self.next_mail(node, Kind::ALL, &Phase::STARTED) => match taken {
                 Ok(taken) => {
                     wait.hand_mail();
                     Ok(IdleReply::Mail(taken))
@@ -405,7 +387,7 @@ impl Port for AgentPort {
         Box::pin(async move {
             let node = self.bound().await;
             tokio::select! {
-                taken = self.app.next_mail(node, kinds, BATCH_LIMIT_BYTES) => taken,
+                taken = self.app.next_mail(node, kinds, &Phase::ALL) => taken,
                 () = self.until_ended() => std::future::pending().await,
             }
         })

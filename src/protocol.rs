@@ -595,6 +595,17 @@ pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
 
+pub const REVIEW_RULES: &str = "# Review rules
+
+Look for these defects first, in this order:
+1. Races in idle, turn or relaunch state: lost mail, a check outside the lock, a guard that a retry skips.
+2. Design or skill documents that the change made wrong.
+3. No timeout or watchdog: a process, socket or wait that never stops.
+4. State only in memory, which a daemon restart loses.
+5. Cleanup or gate code that deletes or skips unmerged work, or reads a relation that can change.
+
+Read the owner's check log (result.md and logs/ in $LOOM_TASK_DIR). Do not run the full checks (`cargo clippy`, `cargo test`, scripts/gate/check.sh): the merge queue runs them. Do not set a new CARGO_TARGET_DIR. You can run one targeted test that shows a defect.";
+
 /// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`stops`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -669,7 +680,7 @@ macro_rules! message_usage {
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work. If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> <head> pass|block [--findings <file>] (give the head from the round message that loom sends; loom refuses another head; into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> <head> pass|block [--findings <file>] (give the head from the round message that loom sends; loom refuses another head; into the original checkout: only the branch's reviewers, never the owner: at `loom ready`, loom spawns one per reviewer role as children of the gate and sends them each next round; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }

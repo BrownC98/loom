@@ -78,7 +78,7 @@ pub struct PromptOption {
     pub key: PromptKey,
 }
 
-/// 선택지를 고르는 키. `Char`·`Tab`·`BackTab`은 누르면 바로 정한다(Claude 2.1.309, Codex 0.159.2 실측: 숫자 키 하나, Enter 없음).
+/// 선택지를 고르는 키. `Char`·`Tab`·`BackTab`은 누르면 바로 정한다(실측: 숫자 키 하나, Enter 없음).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 #[ts(export)]
@@ -86,21 +86,13 @@ pub enum PromptKey {
     Char(char),
     Tab,
     BackTab,
-    Permission(PermissionReply),
-    /// 번호 없는 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Enter. 아래가 양수다(Claude 2.1.310 폴더 신뢰 창은 숫자 키를 받지 않는다).
+    /// 터미널 키가 아니다. 에이전트 어댑터가 읽는 답이다.
+    #[serde(rename = "permission")]
+    Reply(String),
+    /// 번호 없는 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Enter. 아래가 양수다(숫자 키를 받지 않는 창이 있다).
     Move(i8),
     /// 셸 물음: 이 글과 Enter.
     Line(String),
-}
-
-/// OpenCode 2 권한 요청의 답(`POST /api/session/{세션}/permission/{요청}/reply`의 `decision`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum PermissionReply {
-    Once,
-    Always,
-    Reject,
 }
 
 impl PromptKey {
@@ -109,7 +101,7 @@ impl PromptKey {
             PromptKey::Char(c) => Some(c.to_string().into_bytes()),
             PromptKey::Tab => Some(b"\t".to_vec()),
             PromptKey::BackTab => Some(b"\x1b[Z".to_vec()),
-            PromptKey::Permission(_) => None,
+            PromptKey::Reply(_) => None,
             PromptKey::Move(rows) => {
                 let arrow: &[u8] = if *rows < 0 { b"\x1b[A" } else { b"\x1b[B" };
                 let mut keys = arrow.repeat(rows.unsigned_abs().into());

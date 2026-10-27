@@ -6,14 +6,14 @@ use serde::de::DeserializeOwned;
 
 use crate::daemon::gate::{Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest};
 use crate::daemon::{
-    AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
-    DoneRequest, GuardRequest, IdleReply, IdleRequest, NewAgent, NoteRequest, RelaunchRequest,
-    Relaunched, RemoveRequest, Reported, SpawnRequest, SpawnRun, WaitRequest,
+    AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
+    DoneRequest, GuardRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched, RemoveRequest,
+    Reported, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
 use crate::protocol::{
-    AgentId, Delivery, GateState, Judgment, Kind, MessageId, ModelChoice, NODE_CALLS,
-    NODE_CALLS_HEADER, WaitId,
+    AckRequest, AgentId, Delivery, GateState, IdleReply, IdleRequest, Judgment, Kind, MessageId,
+    ModelChoice, NODE_CALLS, NODE_CALLS_HEADER, WaitId,
 };
 use crate::roles::{Roles, SetRole};
 use crate::task;

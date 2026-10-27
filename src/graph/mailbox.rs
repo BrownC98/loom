@@ -460,21 +460,6 @@ impl Graph {
         Ok(())
     }
 
-    pub fn release(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
-        let db = self.lock();
-        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
-            .expect("숫자 목록은 늘 직렬화된다");
-        let released = db.execute(
-            "UPDATE messages SET sent_at = NULL, printed = 0
-             WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
-            params![node.0, ids],
-        )?;
-        if released > 0 {
-            self.publish_nodes();
-        }
-        Ok(())
-    }
-
     pub fn release_refused(&self, node: NodeId, ids: &[MessageId]) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())

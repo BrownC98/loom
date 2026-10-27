@@ -1,16 +1,17 @@
 use std::ffi::OsString;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::process::Served;
-use super::{ServerAdapter, VersionMismatch};
+use super::VersionMismatch;
 use crate::accounts::{AccountId, Site};
+use crate::distro::Distro;
 use crate::protocol::{
-    LaunchError, ModelChoice, Prompt, Provider, ServerRecord, ServerState, Session,
+    AdapterRecord, Delivery, IdleReply, IdleRequest, Kind, LaunchError, MessageId, ModelChoice,
+    Prompt, Provider, Refusal, Report, Session, TakeRequest, Taken,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
@@ -32,7 +33,7 @@ pub struct Command<'a> {
     pub brief: &'a str,
 }
 
-pub struct Serve<'a> {
+pub struct LaunchAt<'a> {
     pub cwd: &'a Path,
     pub inside: Option<&'a Inside>,
     pub env: &'a [(&'static str, OsString)],
@@ -42,6 +43,20 @@ pub struct Serve<'a> {
     pub launch: Launch,
     pub version: Option<&'a str>,
     pub node_ip: Option<IpAddr>,
+}
+
+#[derive(Default)]
+pub struct Started {
+    pub record: Option<AdapterRecord>,
+    pub session: Option<Session>,
+    pub before_start: Option<BoxFuture<'static, Result<(), String>>>,
+}
+
+pub struct Record {
+    pub state: Option<AdapterRecord>,
+    pub session: Option<Session>,
+    pub account: Option<AccountId>,
+    pub distro: Option<Distro>,
 }
 
 pub struct InputSeen {
@@ -78,26 +93,42 @@ impl std::fmt::Display for ResumeError {
 pub enum Chosen {
     Sent,
     PromptChanged,
+    OnScreen,
+}
+
+pub trait Port: Send + Sync {
+    fn take(&self, req: TakeRequest) -> Result<Taken, Refusal>;
+    fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>>;
+    fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>>;
+    fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal>;
+    fn report(&self, report: Report);
+    fn ended(&self) -> BoxFuture<'_, ()>;
 }
 
 pub trait Adapter: Sync {
     fn facts(&self) -> Facts;
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String>;
-    fn prepare(&self, at: &Serve<'_>) -> std::io::Result<()>;
+    fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()>;
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>);
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        at: &'a Serve<'_>,
+        at: &'a LaunchAt<'_>,
         resume: Option<&'a Session>,
         bypass: &'a [String],
         cmd: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>>;
-    fn reconnect<'a>(
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>>;
+    fn attach<'a>(
         &'a self,
-        state: &'a ServerState,
-        served: Served,
-        session: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>>;
+        rec: &'a Record,
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<(), String>>;
+    fn answer<'a>(
+        &'a self,
+        rec: &'a Record,
+        prompt: &'a Prompt,
+        option: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>>;
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>>;
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])>;
     fn input_seen(&self, screen: &Screen) -> Option<InputSeen>;
@@ -106,23 +137,9 @@ pub trait Adapter: Sync {
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError>;
     fn end_detached<'a>(
         &'a self,
-        session: &'a Session,
+        rec: &'a Record,
         site: &'a Site,
-        account: Option<&'a AccountId>,
     ) -> BoxFuture<'a, Result<(), String>>;
-    fn record(&self, session: &Session) -> Option<PathBuf>;
-}
-
-pub trait Server: Send + Sync {
-    fn record(&self) -> ServerRecord;
-    fn session(&self) -> Option<Session>;
-    fn stop(&self);
-    fn resume(&self) -> BoxFuture<'_, Result<(), String>>;
-    fn session_file<'a>(&'a self, session: &'a Session) -> BoxFuture<'a, Option<String>>;
-    fn choose<'a>(
-        &'a self,
-        prompt: &'a Prompt,
-        option: usize,
-    ) -> Option<BoxFuture<'a, Result<Chosen, String>>>;
-    fn link(self: Arc<Self>) -> Box<dyn ServerAdapter>;
+    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>>;
+    fn shell_root(&self, rec: &Record) -> Option<u32>;
 }

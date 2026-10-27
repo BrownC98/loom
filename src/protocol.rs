@@ -9,13 +9,15 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 pub use agent::{AgentId, InsideError, LaunchError, Model, ModelChoice, Provider, StartDigests};
-pub use link::{Report, ServerRecord, ServerState, Session};
+pub use link::{
+    AckRequest, AdapterRecord, EndedTurn, IdleReply, IdleRequest, Report, Session, TakeRequest,
+    Taken,
+};
 pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
 };
 pub use waits::{
-    InputField, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
-    WaitKind, entered,
+    InputField, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind, entered,
 };
 
 pub const VERSION: &str = match option_env!("LOOM_VERSION") {
@@ -41,7 +43,6 @@ pub const PTY_HOST: Versions = Versions { now: 5, oldest: 1 };
 pub const NODE_CALLS: Versions = Versions { now: 2, oldest: 1 };
 pub const NODE_CALLS_HEADER: &str = "loom-protocol";
 pub const STREAMS: Versions = Versions { now: 2, oldest: 1 };
-pub const PI_HOOK: u32 = 4;
 pub const DISTRO_HOST: u32 = 3;
 
 /// 관문 동사. `Queue`만 빼고 각각 `loom <동사>` 명령 하나다.
@@ -152,7 +153,7 @@ pub enum MessageKind {
         head: String,
         judgment: Judgment,
         findings: Option<String>,
-        /// 판정한 노드의 실행자와 모델(`claude opus`).
+        /// 판정한 노드의 실행자와 모델(`<에이전트> <모델>`).
         reviewer: Option<String>,
     },
     Merged {

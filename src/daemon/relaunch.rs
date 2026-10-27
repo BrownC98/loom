@@ -17,7 +17,7 @@ use crate::graph::{
     ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
-use crate::profile::adapter::{Carry, ResumeError};
+use crate::profile::adapter::{Carry, Record, ResumeError};
 use crate::profile::{self, ModelRule, Profile, Start};
 use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
 use crate::screen::Screen;
@@ -584,15 +584,13 @@ impl App {
         if self.end_old(&node, prepared.discarder(), guard).await? == Stop::Kept {
             return Ok(Stop::Kept);
         }
-        let _ = profile::adapter(profile)
-            .end_detached(&resume, &site, node.account.as_ref())
-            .await;
-        if let Some(old) = &node.server
-            && let Err(e) = self.end_server(node.id, old).await
+        if let Err(e) = profile::adapter(profile)
+            .end_detached(&self.record_of(&node), &site)
+            .await
         {
             prepared.discarder()();
             let _ = self.graph.lost(node.id);
-            return Err(format!("옛 서버가 끝나지 않았다: {e}"));
+            return Err(format!("옛 세션이 끝나지 않았다: {e}"));
         }
         self.run_resumed(node.id, prepared)
             .await
@@ -626,7 +624,7 @@ impl App {
     }
 
     pub(super) async fn end_detached(&self, node: &Active) -> Result<(), String> {
-        let (Some(profile), Some(session)) = (profile_of(node), &node.session) else {
+        let Some(profile) = profile_of(node) else {
             return Ok(());
         };
         let Ok(place) = self.graph.place_of(node.id) else {
@@ -636,7 +634,7 @@ impl App {
             return Ok(());
         };
         profile::adapter(profile)
-            .end_detached(session, &site, node.account.as_ref())
+            .end_detached(&self.record_of(node), &site)
             .await
     }
 
@@ -710,7 +708,11 @@ impl App {
         Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0))
     }
 
-    async fn prepare_other(&self, node: &Active, to: &NewAgent) -> Result<super::Prepared, String> {
+    async fn prepare_other(
+        self: &Arc<Self>,
+        node: &Active,
+        to: &NewAgent,
+    ) -> Result<super::Prepared, String> {
         let from = node.agent.as_ref().ok_or("에이전트 노드가 아니다")?;
         let record = self.old_record(node).await;
         let start = Start::Agent {
@@ -723,14 +725,8 @@ impl App {
     }
 
     async fn old_record(&self, node: &Active) -> Option<String> {
-        let session = node.session.as_ref()?;
-        match profile::adapter(profile_of(node)?).record(session) {
-            Some(path) => Some(path.to_string_lossy().into_owned()),
-            None => {
-                let server = self.servers.lock().unwrap().get(&node.id).cloned()?;
-                server.session_file(session).await
-            }
-        }
+        let adapter = profile::adapter(profile_of(node)?);
+        adapter.record(&self.record_of(node)).await
     }
 
     async fn run_other(
@@ -752,7 +748,6 @@ impl App {
             let _ = self.graph.lost(id);
             return Err(e.to_string());
         }
-        self.servers.lock().unwrap().remove(&id);
         self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
@@ -780,9 +775,11 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
-        let _ = profile::adapter(profile)
-            .end_detached(&resume, &site, node.account.as_ref())
-            .await;
+        let ended = Record {
+            state: None,
+            ..self.record_of(&node)
+        };
+        let _ = profile::adapter(profile).end_detached(&ended, &site).await;
         Ok(self.run_resumed(node.id, prepared).await?)
     }
 
@@ -811,7 +808,7 @@ impl App {
     }
 
     async fn prepare_resumed(
-        &self,
+        self: &Arc<Self>,
         node: &Active,
         agent: &AgentId,
         profile: Profile,
@@ -835,7 +832,11 @@ impl App {
         self.prepare_start(node.id, &start).await
     }
 
-    async fn prepare_start(&self, id: NodeId, start: &Start) -> Result<super::Prepared, String> {
+    async fn prepare_start(
+        self: &Arc<Self>,
+        id: NodeId,
+        start: &Start,
+    ) -> Result<super::Prepared, String> {
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
         let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
@@ -847,10 +848,10 @@ impl App {
     async fn run_resumed(
         self: &Arc<Self>,
         id: NodeId,
-        prepared: super::Prepared,
+        mut prepared: super::Prepared,
     ) -> Result<(), String> {
         let discard = prepared.discarder();
-        if let Err(e) = prepared.resume_server().await {
+        if let Err(e) = prepared.before_start().await {
             discard();
             let _ = self.graph.lost(id);
             return Err(e);
@@ -913,11 +914,9 @@ impl App {
     }
 
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
-        let server = node
-            .server
-            .as_ref()
-            .and_then(|server| self.served_by(node.id, server).here());
-        [self.host.pid(node.id), server]
+        let helper = profile_of(node)
+            .and_then(|profile| profile::adapter(profile).shell_root(&self.record_of(node)));
+        [self.host.pid(node.id), helper]
             .into_iter()
             .flatten()
             .flat_map(|root| snapshot.session_leaders_under(root))

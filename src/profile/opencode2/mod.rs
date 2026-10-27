@@ -1,8 +1,8 @@
 mod server;
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
@@ -10,13 +10,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Carry, Chosen, Command, Facts, InputSeen, ResumeError, Serve};
+use super::VersionMismatch;
+use super::adapter::{
+    Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+};
 use super::process::Served;
-use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
-use crate::accounts::{AccountId, Site};
+use crate::accounts::Site;
 use crate::protocol::{
-    Delivery, Kind, LaunchError, MessageId, Model, ModelChoice, PermissionReply, Prompt, PromptKey,
-    PromptOption, Report, ServerRecord, ServerState, Session, WaitKind,
+    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
+    Prompt, PromptKey, PromptOption, Refusal, Report, Session, TakeRequest, WaitKind,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
@@ -58,44 +60,84 @@ impl super::adapter::Adapter for OpenCode2 {
         bypass.to_vec()
     }
 
-    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())
     }
 
     fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
 
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        at: &'a Serve<'_>,
+        at: &'a LaunchAt<'_>,
         resume: Option<&'a Session>,
         _: &'a [String],
         cmd: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn super::adapter::Server>, LaunchError>>> {
-        Some(Box::pin(async move {
-            let failed = |cause| LaunchError::Server {
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async move {
+            let failed = |cause| LaunchError::Helper {
                 program: format!("{CMD} serve"),
                 cause,
             };
-            let node = Node::start(at, resume).await.map_err(failed)?;
+            let (node, turns) = Node::start(at, resume).await.map_err(failed)?;
             cmd.args(["--server", node.server.url(), "--session", &node.session]);
             cmd.env(PASSWORD_ENV, node.server.password());
-            Ok(Arc::new(node) as Arc<dyn super::adapter::Server>)
-        }))
+            let record = node.server.process().record(State {
+                url: node.server.url().to_owned(),
+                password: node.server.password().to_owned(),
+            });
+            let session = Session(node.session.clone());
+            tokio::spawn(drive(Arc::new(node), turns, port));
+            Ok(Started {
+                record: Some(record),
+                session: Some(session),
+                before_start: None,
+            })
+        })
     }
 
-    fn reconnect<'a>(
+    fn attach<'a>(
         &'a self,
-        state: &'a ServerState,
-        served: Served,
-        session: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn super::adapter::Server>, String>>> {
-        Some(Box::pin(async move {
-            let state = State::deserialize(&state.0).map_err(|e| format!("server state: {e}"))?;
-            let session = session.ok_or("OpenCode 2 세션이 없어 서버에 다시 붙지 않는다")?;
+        rec: &'a Record,
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let Some((served, state)) = Served::stored::<State>(rec) else {
+                return Ok(());
+            };
+            let Some(session) = &rec.session else {
+                served.stop();
+                return Err("OpenCode 2 세션이 없어 서버에 다시 붙지 않는다".into());
+            };
             let server = Server::connect(state.url, state.password, served);
-            Ok(Arc::new(Node::follow(server, session.0.clone()))
-                as Arc<dyn super::adapter::Server>)
-        }))
+            let (node, turns) = Node::follow(server, session.0.clone());
+            tokio::spawn(drive(Arc::new(node), turns, port));
+            Ok(())
+        })
+    }
+
+    fn answer<'a>(
+        &'a self,
+        rec: &'a Record,
+        prompt: &'a Prompt,
+        option: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async move {
+            let (Some((served, state)), Some(session)) =
+                (Served::stored::<State>(rec), &rec.session)
+            else {
+                return Ok(Chosen::OnScreen);
+            };
+            let server = Server::connect(state.url, state.password, served);
+            let asked = open_permission(&server, &session.0).await?;
+            let Some(decision) = decide(asked.as_ref(), prompt, option) else {
+                return Ok(Chosen::PromptChanged);
+            };
+            server
+                .reply_permission(&session.0, &decision.request, decision.reply)
+                .await?;
+            Ok(Chosen::Sent)
+        })
     }
 
     fn choice_args(&self, _: &ModelChoice) -> Option<Vec<String>> {
@@ -129,15 +171,23 @@ impl super::adapter::Adapter for OpenCode2 {
 
     fn end_detached<'a>(
         &'a self,
-        _: &'a Session,
+        rec: &'a Record,
         _: &'a Site,
-        _: Option<&'a AccountId>,
     ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            match Served::stored::<State>(rec) {
+                Some((served, _)) => served.end().await,
+                None => Ok(()),
+            }
+        })
     }
 
-    fn record(&self, _: &Session) -> Option<PathBuf> {
-        None
+    fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
+    }
+
+    fn shell_root(&self, rec: &Record) -> Option<u32> {
+        Served::stored::<State>(rec)?.0.here()
     }
 }
 
@@ -196,6 +246,21 @@ struct Permission {
     resources: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PermissionReply {
+    Once,
+    Always,
+    Reject,
+}
+
+impl PermissionReply {
+    fn key(self) -> PromptKey {
+        let text = serde_json::to_value(self).expect("enum은 늘 직렬화된다");
+        PromptKey::Reply(text.as_str().unwrap_or_default().to_owned())
+    }
+}
+
 const PERMISSION_OPTIONS: [(&str, PermissionReply); 3] = [
     ("Allow once", PermissionReply::Once),
     ("Always allow", PermissionReply::Always),
@@ -224,7 +289,7 @@ impl Permission {
                 .iter()
                 .map(|(label, reply)| PromptOption {
                     label: (*label).to_owned(),
-                    key: PromptKey::Permission(*reply),
+                    key: reply.key(),
                 })
                 .collect(),
             field: None,
@@ -244,17 +309,11 @@ fn decide(asked: Option<&Permission>, chosen: &Prompt, option: usize) -> Option<
     if now != *chosen {
         return None;
     }
-    match now.options.get(option)?.key {
-        PromptKey::Permission(reply) => Some(Decision {
-            request: asked.id.clone(),
-            reply,
-        }),
-        PromptKey::Char(_)
-        | PromptKey::Tab
-        | PromptKey::BackTab
-        | PromptKey::Move(_)
-        | PromptKey::Line(_) => None,
-    }
+    let (_, reply) = PERMISSION_OPTIONS.get(option)?;
+    Some(Decision {
+        request: asked.id.clone(),
+        reply: *reply,
+    })
 }
 
 fn permission_event(event: &Value, session: &str) -> bool {
@@ -270,11 +329,13 @@ struct Node {
     session: String,
     model: watch::Receiver<Model>,
     permission: watch::Receiver<()>,
-    turns: Mutex<Option<mpsc::UnboundedReceiver<Seen>>>,
 }
 
 impl Node {
-    async fn start(at: &Serve<'_>, resume: Option<&Session>) -> Result<Self, String> {
+    async fn start(
+        at: &LaunchAt<'_>,
+        resume: Option<&Session>,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<Seen>), String> {
         let config = serde_json::json!({ "skills": [at.skills] }).to_string();
         let mut env: Vec<(&'static str, OsString)> = at.env.to_vec();
         env.push((CONFIG_ENV, config.into()));
@@ -301,7 +362,7 @@ impl Node {
         Ok(Self::follow(server, session))
     }
 
-    fn follow(server: Server, session: String) -> Self {
+    fn follow(server: Server, session: String) -> (Self, mpsc::UnboundedReceiver<Seen>) {
         let (tx, model) = watch::channel(Model::default());
         let (tx_permission, permission) = watch::channel(());
         let (tx_turns, turns) = mpsc::unbounded_channel();
@@ -334,26 +395,17 @@ impl Node {
                 Some(TurnEvent::Enqueued { .. }) | None => {}
             }
         });
-        Self {
+        let node = Self {
             server,
             session,
             model,
             permission,
-            turns: Mutex::new(Some(turns)),
-        }
+        };
+        (node, turns)
     }
 
-    async fn open_permission(&self) -> Result<Option<Permission>, String> {
-        let reply = self.server.permissions(&self.session).await?;
-        reply["data"]
-            .get(0)
-            .map(Permission::deserialize)
-            .transpose()
-            .map_err(|e| format!("permission list: {e}"))
-    }
-
-    async fn permission_wait(&self) -> Option<(WaitKind, String, Option<Prompt>)> {
-        match self.open_permission().await {
+    async fn permission_wait(&self) -> PermissionWait {
+        match open_permission(&self.server, &self.session).await {
             Ok(now) => now.map(|p| (WaitKind::Approval, p.summary(), Some(p.prompt()))),
             Err(e) => {
                 eprintln!("loom: OpenCode 2 승인 요청을 읽지 못했다: {e}");
@@ -365,10 +417,6 @@ impl Node {
         }
     }
 
-    async fn interrupt(&self) -> Result<(), String> {
-        self.server.interrupt(&self.session).await
-    }
-
     async fn prompt(&self, mail: &[MessageId], text: &str, inbox: Inbox) -> Result<(), String> {
         let id = inbox_id(&self.session, mail)?;
         self.server
@@ -377,77 +425,19 @@ impl Node {
     }
 }
 
+async fn open_permission(server: &Server, session: &str) -> Result<Option<Permission>, String> {
+    let reply = server.permissions(session).await?;
+    reply["data"]
+        .get(0)
+        .map(Permission::deserialize)
+        .transpose()
+        .map_err(|e| format!("permission list: {e}"))
+}
+
 #[derive(Serialize, Deserialize)]
 struct State {
     url: String,
     password: String,
-}
-
-impl super::adapter::Server for Node {
-    fn record(&self) -> ServerRecord {
-        let state = State {
-            url: self.server.url().to_owned(),
-            password: self.server.password().to_owned(),
-        };
-        ServerRecord {
-            pid: self.server.process().pid,
-            state: ServerState(serde_json::to_value(state).expect("문자열 표는 늘 직렬화된다")),
-        }
-    }
-
-    fn session(&self) -> Option<Session> {
-        Some(Session(self.session.clone()))
-    }
-
-    fn stop(&self) {
-        self.server.stop();
-    }
-
-    fn resume(&self) -> BoxFuture<'_, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn session_file<'a>(&'a self, _: &'a Session) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async { None })
-    }
-
-    fn choose<'a>(
-        &'a self,
-        prompt: &'a Prompt,
-        option: usize,
-    ) -> Option<BoxFuture<'a, Result<Chosen, String>>> {
-        Some(Box::pin(async move {
-            let asked = self.open_permission().await?;
-            let Some(decision) = decide(asked.as_ref(), prompt, option) else {
-                return Ok(Chosen::PromptChanged);
-            };
-            self.server
-                .reply_permission(&self.session, &decision.request, decision.reply)
-                .await?;
-            Ok(Chosen::Sent)
-        }))
-    }
-
-    fn link(self: Arc<Self>) -> Box<dyn ServerAdapter> {
-        let turns = self.turns.lock().unwrap().take();
-        let (read, reads) = mpsc::unbounded_channel();
-        Box::new(Adapter {
-            turns,
-            stopped: self.server.stopped(),
-            model: self.model.clone(),
-            permission: self.permission.clone(),
-            node: self,
-            pending: Some(Seen::Connected),
-            model_moved: false,
-            asked: true,
-            ended: false,
-            read,
-            reads,
-            sent: 0,
-            answered: 0,
-            read_wait: None,
-        })
-    }
 }
 
 fn password() -> Result<String, String> {
@@ -456,164 +446,199 @@ fn password() -> Result<String, String> {
 }
 
 enum Seen {
-    Connected,
     Started,
     Succeeded(Option<String>),
     Stopped,
     Human,
 }
 
-struct Adapter {
-    node: Arc<Node>,
-    turns: Option<mpsc::UnboundedReceiver<Seen>>,
-    stopped: watch::Receiver<bool>,
-    model: watch::Receiver<Model>,
-    permission: watch::Receiver<()>,
-    pending: Option<Seen>,
-    model_moved: bool,
-    asked: bool,
-    ended: bool,
-    read: mpsc::UnboundedSender<(u64, PermissionWait)>,
-    reads: mpsc::UnboundedReceiver<(u64, PermissionWait)>,
-    sent: u64,
-    answered: u64,
-    read_wait: Option<PermissionWait>,
-}
-
 type PermissionWait = Option<(WaitKind, String, Option<Prompt>)>;
 
-impl ServerAdapter for Adapter {
-    fn takes(&self, _: Status) -> &'static [&'static [Kind]] {
-        match self.ended {
-            true => &[],
-            false => &[&[Kind::Steer, Kind::Interrupt], &[Kind::Queue]],
-        }
-    }
+const BUSY_KINDS: &[Kind] = &[Kind::Steer, Kind::Interrupt];
+const HUMAN_STEP: &str = "human";
+const TURN_STEP: &str = "started";
 
-    fn status(&mut self) -> Option<Status> {
-        match self.pending.as_ref()? {
-            Seen::Started => Some(Status::Busy),
-            Seen::Connected | Seen::Succeeded(_) | Seen::Stopped => Some(Status::Idle),
-            Seen::Human => None,
-        }
-    }
-
-    fn signals(&mut self, _: Option<Change>) -> BoxFuture<'_, Vec<Signal>> {
-        Box::pin(async move {
-            let mut signals = Vec::new();
-            if std::mem::take(&mut self.model_moved) {
-                let model = self.model.borrow_and_update().clone();
-                signals.push(Signal::Report(Report::Model(model)));
-            }
-            if std::mem::take(&mut self.asked) {
-                self.permission.borrow_and_update();
-                self.sent += 1;
-                let (node, read, sent) = (self.node.clone(), self.read.clone(), self.sent);
-                tokio::spawn(async move { drop(read.send((sent, node.permission_wait().await))) });
-            }
-            if let Some(wait) = self.read_wait.take() {
-                signals.push(Signal::Report(Report::HumanWait(wait)));
-            }
-            let turn = match self.pending.take() {
-                None | Some(Seen::Connected | Seen::Started) => None,
-                Some(Seen::Succeeded(reply)) => Some(Signal::TurnEnded(reply)),
-                Some(Seen::Stopped) => Some(Signal::Stopped),
-                Some(Seen::Human) => Some(Signal::HumanInput),
-            };
-            signals.extend(turn);
-            signals
-        })
-    }
-
-    fn changed(&mut self) -> BoxFuture<'_, bool> {
-        Box::pin(async move {
-            if self.ended {
-                return false;
-            }
-            let Self {
-                turns,
-                stopped,
-                model,
-                permission,
-                pending,
-                model_moved,
-                asked,
-                reads,
-                answered,
-                read_wait,
-                ..
-            } = self;
-            let turn = async {
-                match turns.as_mut() {
-                    Some(turns) => turns.recv().await,
-                    None => std::future::pending().await,
-                }
-            };
-            tokio::select! {
-                _ = stopped.wait_for(|s| *s) => false,
-                turn = turn => {
-                    match turn {
-                        Some(turn) => *pending = Some(turn),
-                        None => *turns = None,
-                    }
-                    true
-                }
-                moved = model.changed() => {
-                    *model_moved = moved.is_ok();
-                    moved.is_ok()
-                }
-                changed = permission.changed() => {
-                    *asked = changed.is_ok();
-                    changed.is_ok()
-                }
-                Some((sent, wait)) = reads.recv() => {
-                    if sent > *answered {
-                        *answered = sent;
-                        *read_wait = Some(wait);
-                    }
-                    true
-                }
-            }
-        })
-    }
-
-    fn inject<'a>(
-        &'a mut self,
-        taken: &'a [Delivery],
-        _: Status,
-    ) -> BoxFuture<'a, Result<(), NotTaken>> {
-        Box::pin(async move {
-            deliver(&self.node, taken)
-                .await
-                .map_err(|e| NotTaken::ServerStopped(self.refused(e)))
-        })
-    }
-
-    fn stop_shells(&self) -> BoxFuture<'_, ()> {
-        Box::pin(self.node.server.stop_shells(&self.node.session))
-    }
-
-    fn start_turn<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            let sent = self.node.prompt(&[], text, Inbox::Queue).await;
-            sent.map_err(|e| self.refused(e))
-        })
-    }
-
-    fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            let sent = self.node.prompt(&[], text, Inbox::Steer).await;
-            sent.map_err(|e| self.refused(e))
-        })
+async fn pending<T>(future: &mut Option<BoxFuture<'_, T>>) -> T {
+    match future {
+        Some(future) => future.await,
+        None => std::future::pending().await,
     }
 }
 
-impl Adapter {
-    fn refused(&mut self, cause: String) -> String {
-        self.node.server.stop();
-        self.ended = true;
-        format!("{cause}; loom stopped the OpenCode 2 server")
+fn take_request(step: &str, human_input: bool) -> TakeRequest {
+    TakeRequest {
+        step: step.to_owned(),
+        kinds: Vec::new(),
+        limit_bytes: 0,
+        session: None,
+        human_input,
+        prompt: None,
+        turn: None,
     }
+}
+
+async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: Arc<dyn Port>) {
+    let mut stopped = node.server.stopped();
+    let mut model = node.model.clone();
+    let mut permission = node.permission.clone();
+    let (read, mut reads) = mpsc::unbounded_channel::<(u64, PermissionWait)>();
+    let (mut sent, mut answered) = (0, 0);
+    let mut idle: Option<BoxFuture<'_, Result<IdleReply, String>>> = None;
+    let mut busy: Option<BoxFuture<'_, Result<Vec<Delivery>, Refusal>>> = None;
+    let mut ended = port.ended();
+    let mut asked = true;
+    let mut seen = Some(Seen::Stopped);
+    let mut turn_end = None;
+    let mut rest = false;
+    loop {
+        if std::mem::take(&mut asked) {
+            permission.borrow_and_update();
+            sent += 1;
+            let (node, read) = (node.clone(), read.clone());
+            tokio::spawn(async move { drop(read.send((sent, node.permission_wait().await))) });
+        }
+        match seen.take() {
+            Some(Seen::Started) => {
+                if idle.is_some() && port.take(take_request(TURN_STEP, false)).is_ok() {
+                    settle(&mut idle).await;
+                }
+                port.report(Report::Busy);
+                busy.get_or_insert_with(|| port.next_mail(BUSY_KINDS));
+            }
+            Some(Seen::Human) => match port.take(take_request(HUMAN_STEP, true)) {
+                Ok(taken) => {
+                    settle(&mut idle).await;
+                    if let Some(note) = taken.note
+                        && let Err(e) = node.prompt(&[], &note, Inbox::Steer).await
+                    {
+                        refused(&node, &*port, Vec::new(), e);
+                        (&mut ended).await;
+                        break;
+                    }
+                }
+                Err(e) => eprintln!("loom: OpenCode 2 사람 입력을 처리하지 못했다: {e}"),
+            },
+            Some(Seen::Succeeded(reply)) => {
+                busy = None;
+                turn_end = Some(EndedTurn { reply, turn: None });
+            }
+            Some(Seen::Stopped) => busy = None,
+            None => {}
+        }
+        if busy.is_none() && idle.is_none() && !rest {
+            let turn_end = turn_end.take();
+            idle = Some(port.idle(IdleRequest {
+                turn_end,
+                ..IdleRequest::default()
+            }));
+        }
+        tokio::select! {
+            biased;
+            () = &mut ended => break,
+            () = async { drop(stopped.wait_for(|s| *s).await) } => {
+                port.report(Report::HumanWait(None));
+                port.report(Report::Lost);
+                (&mut ended).await;
+                break;
+            }
+            turn = turns.recv() => match turn {
+                Some(turn) => {
+                    seen = Some(turn);
+                    rest = false;
+                }
+                None => {
+                    port.report(Report::Lost);
+                    (&mut ended).await;
+                    break;
+                }
+            },
+            Ok(()) = model.changed() => {
+                let now = model.borrow_and_update().clone();
+                port.report(Report::Model(now));
+            }
+            Ok(()) = permission.changed() => asked = true,
+            Some((n, wait)) = reads.recv() => {
+                if n > answered {
+                    answered = n;
+                    port.report(Report::HumanWait(wait));
+                }
+            }
+            reply = pending(&mut idle) => {
+                idle = None;
+                let sent = match reply {
+                    Ok(IdleReply::Mail(mail)) if mail.is_empty() => {
+                        rest = true;
+                        continue;
+                    }
+                    Ok(IdleReply::Mail(mail)) => hand(&node, &*port, &mail).await,
+                    Ok(IdleReply::Nudge { nudge }) => node
+                        .prompt(&[], &nudge, Inbox::Queue)
+                        .await
+                        .map_err(|e| (Vec::new(), e)),
+                    Err(e) => {
+                        eprintln!("loom: OpenCode 2 쉬는 대기가 끝났다: {e}");
+                        rest = true;
+                        continue;
+                    }
+                };
+                if let Err((ids, e)) = sent {
+                    refused(&node, &*port, ids, e);
+                    (&mut ended).await;
+                    break;
+                }
+                busy = Some(port.next_mail(BUSY_KINDS));
+            }
+            mail = pending(&mut busy) => {
+                busy = Some(port.next_mail(BUSY_KINDS));
+                match mail {
+                    Ok(mail) => {
+                        if mail.iter().any(|d| d.kind == Kind::Interrupt) {
+                            node.server.stop_shells(&node.session).await;
+                        }
+                        if let Err((ids, e)) = hand(&node, &*port, &mail).await {
+                            refused(&node, &*port, ids, e);
+                            (&mut ended).await;
+                            break;
+                        }
+                    }
+                    Err(e) => eprintln!("loom: OpenCode 2 메일함을 읽지 못했다: {e}"),
+                }
+            }
+        }
+    }
+    node.server.stop();
+}
+
+async fn settle(idle: &mut Option<BoxFuture<'_, Result<IdleReply, String>>>) {
+    if let Some(wait) = idle.take() {
+        let _ = wait.await;
+    }
+}
+
+async fn hand(
+    node: &Node,
+    port: &dyn Port,
+    mail: &[Delivery],
+) -> Result<(), (Vec<MessageId>, String)> {
+    let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
+    if let Err(e) = deliver(node, mail).await {
+        return Err((ids, e));
+    }
+    if let Err(e) = port.ack(&ids) {
+        eprintln!("loom: OpenCode 2 받음 확인을 쓰지 못했다: {e}");
+    }
+    Ok(())
+}
+
+fn refused(node: &Node, port: &dyn Port, ids: Vec<MessageId>, cause: String) {
+    node.server.stop();
+    let cause = format!("{cause}; loom stopped the OpenCode 2 server");
+    eprintln!("loom: OpenCode 2에 메시지를 넘기지 못했다: {cause}");
+    if !ids.is_empty() {
+        port.report(Report::Refused { ids, cause });
+    }
+    port.report(Report::HumanWait(None));
+    port.report(Report::Lost);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -633,7 +658,7 @@ impl Inbox {
 
 async fn deliver(api: &Node, taken: &[Delivery]) -> Result<(), String> {
     if taken.iter().any(|d| d.kind == Kind::Interrupt)
-        && let Err(e) = api.interrupt().await
+        && let Err(e) = api.server.interrupt(&api.session).await
     {
         eprintln!("loom: OpenCode 2 실행을 멈추지 못했다: {e}");
     }

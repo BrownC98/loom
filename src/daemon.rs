@@ -30,10 +30,9 @@ mod verbs;
 mod waits;
 
 pub use commands::{
-    AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked,
-    DetachRequest, DoneRequest, EndedTurn, GuardRequest, IdleReply, IdleRequest, NoteRequest,
-    RelaunchRequest, RemoveRequest, Reported, SpawnRequest, SpawnRun, TakeRequest, Taken,
-    WaitRequest,
+    AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
+    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, SpawnRequest,
+    SpawnRun, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -44,7 +43,7 @@ use std::future::IntoFuture;
 use std::hash::Hash;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -72,11 +71,12 @@ use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
-use crate::profile::adapter::{Chosen, Serve, Server};
+use crate::profile::adapter::Chosen;
 use crate::profile::{self, Profile, Start};
 use crate::protocol::{
-    Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
-    Refusal, ServerRecord, Session, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
+    AckRequest, Delivery, EndedTurn, IMAGE_EXTENSIONS, IdleReply, IdleRequest, Kind, LaunchError,
+    MessageId, MessageKind, Model, Prompt, Question, Refusal, TakeRequest, Taken, TreeLimits,
+    WaitDoc, WaitId, entered,
 };
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;
@@ -106,7 +106,6 @@ struct App {
     spots: Spots,
     accounts_root: PathBuf,
     logins: settings::Logins,
-    servers: Mutex<HashMap<NodeId, Arc<dyn Server>>>,
     sessions: sessions::Sessions,
     first_inputs: sessions::FirstInputs,
     idle: idle::IdleWaits,
@@ -419,7 +418,6 @@ impl App {
             database,
             accounts_root: db_path.with_file_name("accounts"),
             logins: settings::Logins::new(pty_dir.join("logins.screens")),
-            servers: Mutex::default(),
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
             idle,

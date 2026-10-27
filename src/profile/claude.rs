@@ -10,12 +10,13 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
-use super::process::Served;
+use super::adapter::{
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+};
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
-use crate::accounts::{self, AccountId, Site};
+use crate::accounts::{self, Site};
 use crate::protocol::{
-    Delivery, Kind, LaunchError, Model, ModelChoice, Provider, ServerState, Session, WaitKind,
+    Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Provider, Session, WaitKind,
 };
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
@@ -92,7 +93,7 @@ impl Adapter for Claude {
             .collect()
     }
 
-    fn prepare(&self, _: &Serve<'_>) -> std::io::Result<()> {
+    fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())
     }
 
@@ -100,23 +101,28 @@ impl Adapter for Claude {
         cmd.args(args(at.plugin, at.launch, at.brief));
     }
 
-    fn serve<'a>(
+    fn launch<'a>(
         &'a self,
-        _: &'a Serve<'_>,
+        _: &'a LaunchAt<'_>,
         _: Option<&'a Session>,
         _: &'a [String],
         _: &'a mut CommandBuilder,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
-        None
+        _: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async { Ok(Started::default()) })
     }
 
-    fn reconnect<'a>(
+    fn attach<'a>(&'a self, _: &'a Record, _: Arc<dyn Port>) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn answer<'a>(
         &'a self,
-        _: &'a ServerState,
-        _: Served,
-        _: Option<&'a Session>,
-    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
-        None
+        _: &'a Record,
+        _: &'a Prompt,
+        _: usize,
+    ) -> BoxFuture<'a, Result<Chosen, String>> {
+        Box::pin(async { Ok(Chosen::OnScreen) })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -182,11 +188,13 @@ impl Adapter for Claude {
 
     fn end_detached<'a>(
         &'a self,
-        session: &'a Session,
+        rec: &'a Record,
         site: &'a Site,
-        account: Option<&'a AccountId>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
+            let (Some(session), account) = (&rec.session, rec.account.as_ref()) else {
+                return Ok(());
+            };
             let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
                 return Ok(());
             };
@@ -205,8 +213,12 @@ impl Adapter for Claude {
         })
     }
 
-    fn record(&self, session: &Session) -> Option<PathBuf> {
-        Some(PathBuf::from(&session.0))
+    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+    }
+
+    fn shell_root(&self, _: &Record) -> Option<u32> {
+        None
     }
 }
 
@@ -366,7 +378,7 @@ impl HookEvent for Hook {
         let wait = ((main && !self.event.idle_prompt()) || wait.is_some())
             .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
-            hook: self.event.name().to_owned(),
+            step: self.event.name().to_owned(),
             take: self.event.take().filter(|_| main),
             session: self.transcript_path.clone().map(Session),
             prompt: self.event.prompt().map(str::to_owned),

@@ -11,12 +11,12 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::relaunch::{Relaunched, provider_of};
-use super::usage_cache::{Key, UsageCache};
 use super::{App, Problem, internal};
-use crate::accounts::{AccountId, Site};
+use crate::accounts::AccountId;
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
+use crate::profile;
 use crate::protocol::Provider;
-use crate::usage::{self, Limits, Window};
+use crate::usage::{Limits, Window};
 use crate::wsl;
 
 const EXHAUSTED_AT: u8 = 100;
@@ -182,6 +182,9 @@ impl App {
         if !settings.auto_switch || self.cooling_down(&key) {
             return;
         }
+        let Some(accounted) = profile::of_provider(provider) else {
+            return;
+        };
         let site = match self.site_of(distro.as_deref()).await {
             Ok(site) => Arc::new(site),
             Err(e) => {
@@ -193,18 +196,21 @@ impl App {
         let mut ids = vec![None];
         ids.extend(
             site.accounts()
-                .list(provider)
+                .list(accounted.cli)
                 .unwrap_or_default()
                 .into_iter()
                 .map(Some),
         );
         ids.retain(|id| *id != current);
-        let probes = join_all(
-            ids.iter()
-                .map(|id| probe(&self.usage, &site, provider, id.clone())),
-        )
+        let probes = join_all(ids.iter().map(|id| {
+            self.usage
+                .read(&site, accounted.profile, accounted.meter, id.clone())
+        }))
         .await;
-        let candidates: Vec<_> = ids.into_iter().zip(probes).collect();
+        let candidates: Vec<_> = ids
+            .into_iter()
+            .zip(probes.into_iter().map(|usage| usage.limits))
+            .collect();
         self.switch
             .last_auto
             .lock()
@@ -244,23 +250,6 @@ impl App {
             .get(key)
             .is_some_and(|at| at.elapsed() < COOLDOWN)
     }
-}
-
-async fn probe(
-    cache: &UsageCache,
-    site: &Arc<Site>,
-    provider: Provider,
-    id: Option<AccountId>,
-) -> Limits {
-    let key = Key::provider(site, provider, id.as_ref());
-    let site = site.clone();
-    let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
-    cache
-        .get(key, fingerprint, move || {
-            usage::probe(provider, &site, id.as_ref())
-        })
-        .await
-        .limits
 }
 
 fn most_used(accounts: impl Iterator<Item = Option<AccountId>>) -> Option<AccountId> {

@@ -1,6 +1,6 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
-import type { CursorView } from './gen/CursorView';
+import type { PlaceUsage } from './gen/PlaceUsage';
 import type { AgentView } from './gen/AgentView';
 import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
@@ -143,7 +143,7 @@ export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean
   call<RepoView>('DELETE', `/api/repos/${repo}/worktrees?${worktreeQuery(path)}&deleteBranch=${deleteBranch}`);
 export const getEventLog = () => call<EventLog>('GET', '/api/events/log');
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
-export const getCursorUsage = () => call<CursorView[]>('GET', '/api/usage/cursor');
+export const getCursorUsage = () => call<PlaceUsage[]>('GET', '/api/usage/cursor');
 const at = (distro: string | null): Record<string, string> => (distro === null ? {} : { distro });
 const query = (params: Record<string, string>) => (Object.keys(params).length === 0 ? '' : `?${new URLSearchParams(params)}`);
 export const getMovableNodes = (provider: Provider, distro: string | null, to: AccountId | null) =>

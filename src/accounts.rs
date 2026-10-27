@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,6 +24,18 @@ impl AccountId {
     }
 }
 
+pub struct Cli {
+    pub provider: Provider,
+    pub label: &'static str,
+    pub command: &'static str,
+    pub folder: &'static str,
+    pub home: &'static str,
+    pub env: &'static str,
+    pub login: &'static [&'static str],
+    pub logout: &'static [&'static str],
+    pub ready: fn(&Path, &Site),
+}
+
 pub struct Accounts {
     root: PathBuf,
     cli_root: Option<String>,
@@ -37,8 +49,8 @@ impl Accounts {
         }
     }
 
-    pub fn list(&self, provider: Provider) -> io::Result<Vec<AccountId>> {
-        let dir = self.root.join(provider_dir(provider));
+    pub fn list(&self, cli: &Cli) -> io::Result<Vec<AccountId>> {
+        let dir = self.root.join(cli.folder);
         let entries = match std::fs::read_dir(&dir) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             entries => entries?,
@@ -54,44 +66,37 @@ impl Accounts {
         Ok(ids)
     }
 
-    pub fn create(&self, provider: Provider) -> io::Result<AccountId> {
+    pub fn create(&self, cli: &Cli) -> io::Result<AccountId> {
         let millis = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
             .as_millis();
         let id = AccountId(format!("{millis:016x}"));
-        std::fs::create_dir_all(self.root.join(provider_dir(provider)))?;
-        std::fs::create_dir(self.dir(provider, &id)?)?;
+        std::fs::create_dir_all(self.root.join(cli.folder))?;
+        std::fs::create_dir(self.dir(cli, &id)?)?;
         Ok(id)
     }
 
-    pub fn remove(&self, provider: Provider, id: &AccountId) -> io::Result<()> {
-        std::fs::remove_dir_all(self.dir(provider, id)?)
+    pub fn remove(&self, cli: &Cli, id: &AccountId) -> io::Result<()> {
+        std::fs::remove_dir_all(self.dir(cli, id)?)
     }
 
-    pub fn config_dir(&self, provider: Provider, id: Option<&AccountId>) -> Option<PathBuf> {
-        id.and_then(|id| self.dir(provider, id).ok())
+    pub fn config_dir(&self, cli: &Cli, id: Option<&AccountId>) -> Option<PathBuf> {
+        id.and_then(|id| self.dir(cli, id).ok())
             .filter(|dir| dir.is_dir())
     }
 
-    fn env(&self, provider: Provider, id: Option<&AccountId>) -> Option<(&'static str, OsString)> {
-        let dir = self.config_dir(provider, id)?;
+    fn env(&self, cli: &Cli, id: Option<&AccountId>) -> Option<(&'static str, OsString)> {
+        let dir = self.config_dir(cli, id)?;
         let value = match (&self.cli_root, id) {
-            (Some(root), Some(id)) => format!("{root}/{}/{}", provider_dir(provider), id.0).into(),
+            (Some(root), Some(id)) => format!("{root}/{}/{}", cli.folder, id.0).into(),
             _ => dir.into_os_string(),
         };
-        Some((config_env(provider), value))
+        Some((cli.env, value))
     }
 
-    fn dir(&self, provider: Provider, id: &AccountId) -> io::Result<PathBuf> {
-        Ok(self.root.join(provider_dir(provider)).join(id.checked()?))
-    }
-}
-
-fn provider_dir(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Claude => "claude",
-        Provider::Codex => "codex",
+    fn dir(&self, cli: &Cli, id: &AccountId) -> io::Result<PathBuf> {
+        Ok(self.root.join(cli.folder).join(id.checked()?))
     }
 }
 
@@ -163,58 +168,33 @@ impl Site {
         }
     }
 
-    pub fn login_dir(&self, provider: Provider, id: Option<&AccountId>) -> Option<PathBuf> {
-        self.accounts.config_dir(provider, id).or_else(|| {
-            Some(self.home()?.join(match provider {
-                Provider::Claude => ".claude",
-                Provider::Codex => ".codex",
-            }))
-        })
+    pub fn login_dir(&self, cli: &Cli, id: Option<&AccountId>) -> Option<PathBuf> {
+        self.accounts
+            .config_dir(cli, id)
+            .or_else(|| Some(self.home()?.join(cli.home)))
     }
 
-    pub fn claude_files(&self, id: Option<&AccountId>) -> Option<(PathBuf, PathBuf)> {
-        match self.accounts.config_dir(Provider::Claude, id) {
-            Some(dir) => Some((dir.join(".claude.json"), dir.join("settings.json"))),
-            None => {
-                let home = self.home()?;
-                Some((
-                    home.join(".claude.json"),
-                    home.join(".claude").join("settings.json"),
-                ))
-            }
-        }
-    }
-
-    pub fn apply(&self, cmd: &mut CommandBuilder, provider: Provider, id: Option<&AccountId>) {
-        if let Some((key, value)) = self.env(provider, id) {
+    pub fn apply(&self, cmd: &mut CommandBuilder, cli: &Cli, id: Option<&AccountId>) {
+        if let Some((key, value)) = self.env(cli, id) {
             cmd.env(key, value);
         }
     }
 
-    pub fn env(
-        &self,
-        provider: Provider,
-        id: Option<&AccountId>,
-    ) -> Option<(&'static str, OsString)> {
-        if provider == Provider::Claude
-            && let Some(dir) = self.accounts.config_dir(provider, id)
-        {
-            let _ = mark_claude_onboarded(&dir);
-            if let Some(home_md) = self.home_file(HOME_CLAUDE_MD) {
-                link_claude_md(&home_md, &dir);
-            }
+    pub fn env(&self, cli: &Cli, id: Option<&AccountId>) -> Option<(&'static str, OsString)> {
+        if let Some(dir) = self.accounts.config_dir(cli, id) {
+            (cli.ready)(&dir, self);
         }
-        self.accounts.env(provider, id)
+        self.accounts.env(cli, id)
     }
 
     pub fn command(
         &self,
-        provider: Provider,
+        cli: &Cli,
         args: &[&str],
         id: Option<&AccountId>,
     ) -> Result<std::process::Command, LaunchError> {
-        let program = self.cli(provider)?;
-        let env: Vec<_> = self.accounts.env(provider, id).into_iter().collect();
+        let program = self.program(cli)?;
+        let env: Vec<_> = self.accounts.env(cli, id).into_iter().collect();
         Ok(match &self.wsl {
             Some(inside) => {
                 let argv: Vec<OsString> = std::iter::once(program)
@@ -231,46 +211,32 @@ impl Site {
         })
     }
 
-    pub fn login(
-        &self,
-        provider: Provider,
-        id: Option<&AccountId>,
-    ) -> Result<CommandBuilder, LaunchError> {
-        let program = self.cli(provider)?;
+    pub fn login(&self, cli: &Cli, id: Option<&AccountId>) -> Result<CommandBuilder, LaunchError> {
+        let program = self.program(cli)?;
         let mut cmd = match &self.wsl {
             Some(_) => CommandBuilder::new(&program),
             None => CommandBuilder::from_argv(process_tree::argv(Path::new(&program))),
         };
-        cmd.args(match provider {
-            Provider::Claude => &["auth", "login"][..],
-            Provider::Codex => &["login"],
-        });
+        cmd.args(cli.login);
         process_tree::color_terminal(&mut cmd);
-        self.apply(&mut cmd, provider, id);
+        self.apply(&mut cmd, cli, id);
         Ok(match &self.wsl {
             Some(inside) => inside.wrap(&cmd),
             None => cmd,
         })
     }
 
-    pub fn logout(&self, provider: Provider) -> Result<std::process::Command, LaunchError> {
-        let args: &[&str] = match provider {
-            Provider::Claude => &["auth", "logout"],
-            Provider::Codex => &["logout"],
-        };
-        self.command(provider, args, None)
+    pub fn logout(&self, cli: &Cli) -> Result<std::process::Command, LaunchError> {
+        self.command(cli, cli.logout, None)
     }
 
-    fn cli(&self, provider: Provider) -> Result<OsString, LaunchError> {
-        let (label, command) = match provider {
-            Provider::Claude => ("Claude", "claude"),
-            Provider::Codex => ("Codex", "codex"),
-        };
-        self.find(command).ok_or_else(|| LaunchError::NotInstalled {
-            agent: label.into(),
-            command: command.into(),
-            distro: self.distro().map(str::to_owned),
-        })
+    fn program(&self, cli: &Cli) -> Result<OsString, LaunchError> {
+        self.find(cli.command)
+            .ok_or_else(|| LaunchError::NotInstalled {
+                agent: cli.label.into(),
+                command: cli.command.into(),
+                distro: self.distro().map(str::to_owned),
+            })
     }
 
     pub fn installed(&self, command: &str) -> bool {
@@ -282,104 +248,5 @@ impl Site {
             Some(inside) => inside.find(&[command.to_owned()]).map(OsString::from),
             None => crate::search_path::find(command).map(PathBuf::into_os_string),
         }
-    }
-}
-
-const CLAUDE_ONBOARDED: &str = "hasCompletedOnboarding";
-
-fn mark_claude_onboarded(dir: &Path) -> io::Result<()> {
-    update_json(&dir.join(".claude.json"), |config| {
-        config.insert(CLAUDE_ONBOARDED.into(), true.into()) != Some(true.into())
-    })
-}
-
-const HOME_CLAUDE_MD: &str = ".claude/CLAUDE.md";
-const CLAUDE_MD_IMPORT: &str = "@~/.claude/CLAUDE.md\n";
-
-fn link_claude_md(home_md: &Path, dir: &Path) {
-    if !home_md.is_file() {
-        return;
-    }
-    let file = dir.join("CLAUDE.md");
-    let created = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&file)
-        .and_then(|mut f| f.write_all(CLAUDE_MD_IMPORT.as_bytes()));
-    match created {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-            if std::fs::read_to_string(&file).ok().as_deref() != Some(CLAUDE_MD_IMPORT) {
-                eprintln!(
-                    "loom: {}이 이미 있어 ~/.claude/CLAUDE.md를 잇지 않는다",
-                    file.display()
-                );
-            }
-        }
-        Err(e) => eprintln!("loom: {}을 쓰지 못했다: {e}", file.display()),
-    }
-}
-
-pub fn carry_claude_consent(from: &(PathBuf, PathBuf), to: &Path, cwd: &str) -> io::Result<()> {
-    let (config, settings) = from;
-    let trusted = read_json(config)?
-        .and_then(|c| c.get("projects")?.get(cwd)?.get(CLAUDE_TRUSTED).cloned())
-        == Some(true.into());
-    if trusted {
-        update_json(&to.join(".claude.json"), |config| {
-            let projects = config
-                .entry("projects")
-                .or_insert_with(|| serde_json::json!({}));
-            let Some(project) = projects
-                .as_object_mut()
-                .map(|p| p.entry(cwd).or_insert_with(|| serde_json::json!({})))
-            else {
-                return false;
-            };
-            if project[CLAUDE_TRUSTED] == true {
-                return false;
-            }
-            project[CLAUDE_TRUSTED] = true.into();
-            true
-        })?;
-    }
-    let bypass = read_json(settings)?.and_then(|c| c.get(CLAUDE_BYPASS_ACCEPTED).cloned())
-        == Some(true.into());
-    if bypass {
-        update_json(&to.join("settings.json"), |settings| {
-            settings.insert(CLAUDE_BYPASS_ACCEPTED.into(), true.into()) != Some(true.into())
-        })?;
-    }
-    Ok(())
-}
-
-const CLAUDE_TRUSTED: &str = "hasTrustDialogAccepted";
-const CLAUDE_BYPASS_ACCEPTED: &str = "skipDangerousModePermissionPrompt";
-
-fn read_json(path: &Path) -> io::Result<Option<serde_json::Map<String, serde_json::Value>>> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(io::Error::other),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
-fn update_json(
-    path: &Path,
-    change: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> bool,
-) -> io::Result<()> {
-    let mut config = read_json(path)?.unwrap_or_default();
-    if change(&mut config) {
-        std::fs::write(path, serde_json::to_vec_pretty(&config)?)?;
-    }
-    Ok(())
-}
-
-fn config_env(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Claude => "CLAUDE_CONFIG_DIR",
-        Provider::Codex => "CODEX_HOME",
     }
 }

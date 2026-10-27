@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
-import type { CursorView } from './gen/CursorView';
+import type { PlaceUsage } from './gen/PlaceUsage';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
 import { DocList } from './DocList';
@@ -71,8 +71,7 @@ const SIDE_KEY = shortcut('[');
 const DOCK_MIN_GRAPH = 120;
 const EMPTY_SETTINGS: SettingsView = {
   bypassOff: [],
-  claudeAccount: null,
-  codexAccount: null,
+  accounts: {},
   wslAccounts: {},
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
@@ -149,7 +148,7 @@ export function App() {
   const updates = useUpdates(viewVersion);
   const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
-  const [cursor, setCursor] = useState<CursorView[] | null>(null);
+  const [cursor, setCursor] = useState<PlaceUsage[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const phone = usePhone();

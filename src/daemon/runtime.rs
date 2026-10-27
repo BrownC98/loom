@@ -485,7 +485,7 @@ impl App {
         task: Option<&task::TaskDir>,
     ) -> Result<Prepared, Problem> {
         let profile = start.profile();
-        let provider = profile.and_then(|p| p.provider());
+        let accounted = profile.and_then(Profile::accounts);
         let settings = self.settings.get().map_err(internal)?;
         let launch = Launch {
             position,
@@ -508,12 +508,12 @@ impl App {
         if let Some(at) = &endpoint {
             env.push((ENDPOINT_ENV, at.into()));
         }
-        let account = provider.and_then(|p| settings.account(p, site.distro()));
+        let account = accounted.and_then(|a| settings.account(a.cli.provider, site.distro()));
         if let Some(dir) = task {
             env.push((task::ENV, dir.shown.clone().into()));
         }
-        if let Some(provider) = provider {
-            env.extend(site.env(provider, account));
+        if let Some(a) = accounted {
+            env.extend(site.env(a.cli, account));
         }
         let inside = site.inside();
         let (plugin, skills) = match inside.as_ref().and_then(|i| i.path(0)) {

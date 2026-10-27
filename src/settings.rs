@@ -17,9 +17,8 @@ use crate::worktree::RepoId;
 pub struct SettingsView {
     /// 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
     pub bypass_off: Vec<AgentId>,
-    /// 이 PC 저장소의 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
-    pub claude_account: Option<AccountId>,
-    pub codex_account: Option<AccountId>,
+    /// 이 PC 저장소의 새 노드가 공급자마다 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
+    pub accounts: InUse,
     /// WSL 배포판마다 그 배포판 저장소의 노드가 쓰는 계정. 키는 배포판 이름이다. 옛 설정에는 없다. 없는 배포판은 시스템 기본이다.
     /// 근거: 목업 docs/mockups/wsl-place.html ③ 「사용 중」은 위치마다 하나다.
     pub wsl_accounts: BTreeMap<String, InUse>,
@@ -90,12 +89,25 @@ pub struct SettingsView {
 }
 
 /// 한 위치에서 공급자마다 쓰는 계정. 없으면 시스템 기본이다.
-#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, TS)]
 #[ts(export)]
-pub struct InUse {
-    pub claude: Option<AccountId>,
-    pub codex: Option<AccountId>,
+pub struct InUse(BTreeMap<Provider, AccountId>);
+
+impl<'de> Deserialize<'de> for InUse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let stored = BTreeMap::<String, serde_json::Value>::deserialize(d)?;
+        Ok(Self(
+            stored
+                .into_iter()
+                .filter_map(|(provider, id)| {
+                    Some((
+                        serde_json::from_value(serde_json::Value::String(provider)).ok()?,
+                        serde_json::from_value(id).ok()?,
+                    ))
+                })
+                .collect(),
+        ))
+    }
 }
 
 /// [정렬] 방향. 나무가 뻗는 쪽이다.
@@ -316,29 +328,22 @@ pub enum Theme {
 
 impl SettingsView {
     pub fn account(&self, provider: Provider, distro: Option<&str>) -> Option<&AccountId> {
-        match (distro, provider) {
-            (None, Provider::Claude) => self.claude_account.as_ref(),
-            (None, Provider::Codex) => self.codex_account.as_ref(),
-            (Some(d), Provider::Claude) => self.wsl_accounts.get(d)?.claude.as_ref(),
-            (Some(d), Provider::Codex) => self.wsl_accounts.get(d)?.codex.as_ref(),
-        }
+        let in_use = match distro {
+            None => &self.accounts,
+            Some(d) => self.wsl_accounts.get(d)?,
+        };
+        in_use.0.get(&provider)
     }
 
     pub fn set_account(&mut self, provider: Provider, distro: Option<&str>, id: Option<AccountId>) {
-        let slot = match distro {
-            None => match provider {
-                Provider::Claude => &mut self.claude_account,
-                Provider::Codex => &mut self.codex_account,
-            },
-            Some(d) => {
-                let in_use = self.wsl_accounts.entry(d.to_owned()).or_default();
-                match provider {
-                    Provider::Claude => &mut in_use.claude,
-                    Provider::Codex => &mut in_use.codex,
-                }
-            }
+        let in_use = match distro {
+            None => &mut self.accounts,
+            Some(d) => self.wsl_accounts.entry(d.to_owned()).or_default(),
         };
-        *slot = id;
+        match id {
+            Some(id) => in_use.0.insert(provider, id),
+            None => in_use.0.remove(&provider),
+        };
     }
 }
 
@@ -392,9 +397,11 @@ impl Settings {
                     .entry(distro.to_owned())
                     .or_insert(dir);
             }
+            let pc = std::mem::take(&mut view.accounts);
             let in_use = view.wsl_accounts.entry(distro.to_owned()).or_default();
-            in_use.claude = in_use.claude.take().or(view.claude_account.take());
-            in_use.codex = in_use.codex.take().or(view.codex_account.take());
+            for (provider, id) in pc.0 {
+                in_use.0.entry(provider).or_insert(id);
+            }
         })
     }
 

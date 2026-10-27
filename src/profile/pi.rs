@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use portable_pty::CommandBuilder;
 
 use super::adapter::{
-    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Port, Record, ResumeError, Started,
+    Adapter, Carry, Chosen, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
+    Started,
 };
 use super::{Handed, HookEvent, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::Site;
@@ -40,7 +41,7 @@ pub struct Pi;
 impl Adapter for Pi {
     fn facts(&self) -> Facts {
         Facts {
-            provider: None,
+            logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
             pinned: None,

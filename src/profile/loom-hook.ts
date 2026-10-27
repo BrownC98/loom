@@ -183,7 +183,6 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
       void call({ event: "close", of: id }, ctx);
     },
     aborted(ctx: C) {
-      if (!interrupted) return;
       interrupted = false;
       void wait("idle", ctx);
     },

@@ -52,7 +52,6 @@ export function apply(ctx, config) {
   let reply;
   let ended;
   let watching;
-  let interrupted = false;
 
   ctx.inject(["systemPrompt"], (inner) =>
     inner.systemPrompt.section({ name: "loom", order: LAST, text: config.usage, interpolate: false }),
@@ -141,7 +140,6 @@ export function apply(ctx, config) {
     const got = await answer;
     if (watching === id) watching = undefined;
     if (!got?.interrupted || main?.status !== "running") return;
-    interrupted = true;
     main.cancel(INTERRUPT, { keepInbox: true });
   };
 
@@ -206,8 +204,6 @@ export function apply(ctx, config) {
     ended = undefined;
     if (!reason) return;
     if (reason.kind !== "aborted") return void wait("settled", reply);
-    if (!interrupted) return;
-    interrupted = false;
     void wait("idle");
   });
 

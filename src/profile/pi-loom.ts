@@ -135,9 +135,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_settled", (event, ctx) => {
-    if (event.aborted) return;
     const reply = lastReply;
     lastReply = undefined;
+    if (event.aborted) return loom.aborted(ctx);
     loom.settled(ctx, reply);
   });
 }

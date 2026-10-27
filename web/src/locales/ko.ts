@@ -676,6 +676,10 @@ const ko: typeof en = {
       noBrief: '{{value}}: 첫 지시문을 받지 않습니다. 지시문을 비워 노드를 만든 뒤 터미널에 입력하십시오.',
       notLoggedIn: '`{{command}}`에 로그인하지 않았습니다. 터미널에서 `{{command}} login`을 실행한 뒤 노드를 다시 띄우십시오.',
       notLoggedIn_wsl: 'WSL · {{distro}}의 `{{command}}`에 로그인하지 않았습니다. 그 배포판에서 `{{command}} login`을 실행한 뒤 노드를 다시 띄우십시오.',
+      loginCheckNoReply: '띄우기 전 로그인 검사 `{{command}}`가 {{secs}}초 안에 답하지 않았습니다. 잠시 뒤 노드를 다시 띄우십시오.',
+      loginCheckNoReply_wsl: 'WSL · {{distro}}의 로그인 검사 `{{command}}`가 {{secs}}초 안에 답하지 않았습니다. 잠시 뒤 노드를 다시 띄우십시오.',
+      loginCheckUnreadable: '띄우기 전 로그인 검사 `{{command}}`의 답을 읽지 못했습니다. CLI를 업데이트한 뒤 노드를 다시 띄우십시오.',
+      loginCheckUnreadable_wsl: 'WSL · {{distro}}의 로그인 검사 `{{command}}`의 답을 읽지 못했습니다. 그 배포판의 CLI를 업데이트한 뒤 노드를 다시 띄우십시오.',
       noModelChoice: '{{agent}}: 이 모델·추론 강도를 받지 않습니다. 둘 다 받는 에이전트: {{free}}. 모델이 있을 때만 추론 강도를 받는 에이전트: {{effortNeedsModel}}.',
     },
     wsl: {

@@ -12,6 +12,7 @@ use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
+use crate::usage::UsageProblem;
 use crate::wsl::Inside;
 
 mod usage;
@@ -77,6 +78,7 @@ const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
 const TRUST: &str = "--trust";
+const AUTH_ENV: [&str; 2] = ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"];
 const HOOK: &str = "loom hook cursor";
 const RULES: &str = "loom hook cursor-rules";
 const HELPER_SHELLS: [&str; 2] = [HOOK, RULES];
@@ -218,18 +220,36 @@ impl Adapter for Cursor {
         _: &'a mut CommandBuilder,
         _: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
-        let status = usage::status(at.site);
+        let status = (!env_auth(at)).then(|| usage::status(at.site));
         let distro = at.site.distro().map(str::to_owned);
         Box::pin(async move {
+            let Some(status) = status else {
+                return Ok(Started::default());
+            };
+            let check = || usage::STATUS.into();
             match tokio::task::spawn_blocking(status).await {
                 Ok(Ok(usage::Status {
-                    is_authenticated: false,
+                    is_authenticated: true,
                     ..
-                })) => Err(LaunchError::NotLoggedIn {
+                })) => Ok(Started::default()),
+                Ok(Ok(_)) => Err(LaunchError::NotLoggedIn {
                     command: usage::COMMAND.into(),
                     distro,
                 }),
-                _ => Ok(Started::default()),
+                Ok(Err(UsageProblem::NotInstalled(command))) => Err(LaunchError::NotInstalled {
+                    agent: usage::AGENT.into(),
+                    command,
+                    distro,
+                }),
+                Ok(Err(UsageProblem::NoReply(_))) => Err(LaunchError::LoginCheckNoReply {
+                    command: check(),
+                    distro,
+                    secs: crate::usage::PROBE_TIMEOUT.as_secs(),
+                }),
+                Ok(Err(_)) | Err(_) => Err(LaunchError::LoginCheckUnreadable {
+                    command: check(),
+                    distro,
+                }),
             }
         })
     }
@@ -275,6 +295,17 @@ impl Adapter for Cursor {
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
     }
+}
+
+fn env_auth(at: &LaunchAt<'_>) -> bool {
+    AUTH_ENV.iter().any(|key| {
+        let given = at.env.iter().rev().find(|(k, _)| k == key);
+        let inherited = || at.inside.is_none().then(|| std::env::var_os(key)).flatten();
+        given
+            .map(|(_, v)| v.clone())
+            .or_else(inherited)
+            .is_some_and(|v| !v.is_empty())
+    })
 }
 
 fn position_value(position: Position) -> &'static str {

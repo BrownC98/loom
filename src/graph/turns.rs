@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::waits::unreported_root;
 use super::{Graph, NodeId, TurnCheck};
 use crate::protocol::kind_line;
 
@@ -122,12 +123,7 @@ impl Graph {
         )
     }
 
-    pub fn end_turn(
-        &self,
-        node: NodeId,
-        gated_repo: bool,
-        unreported_root: impl FnOnce() -> bool,
-    ) -> rusqlite::Result<Option<TurnCheck>> {
+    pub fn end_turn(&self, node: NodeId, gated_repo: bool) -> rusqlite::Result<Option<TurnCheck>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let (flags, reply): (u8, Option<String>) = tx
@@ -149,6 +145,8 @@ impl Graph {
             })
         {
             Some(TurnCheck::KindLine)
+        } else if has(Bit::Human) && reply.is_some() && unreported_root(&tx, node)? {
+            Some(TurnCheck::Unreported)
         } else {
             None
         };
@@ -167,12 +165,7 @@ impl Graph {
             params![node.0, kept],
         )?;
         tx.commit()?;
-        drop(db);
-        if check.is_some() {
-            return Ok(check);
-        }
-        Ok((has(Bit::Human) && reply.is_some() && unreported_root())
-            .then_some(TurnCheck::Unreported))
+        Ok(check)
     }
 
     pub fn turn_launched(&self, node: NodeId) -> rusqlite::Result<()> {

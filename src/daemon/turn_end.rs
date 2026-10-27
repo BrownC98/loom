@@ -83,12 +83,7 @@ impl App {
             eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
             false
         });
-        let nudge = self.graph.end_turn(node, gated_repo, || {
-            self.graph.unreported_root(node).unwrap_or_else(|e| {
-                eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
-                false
-            })
-        })?;
+        let nudge = self.graph.end_turn(node, gated_repo)?;
         let Some(check) = nudge.filter(|_| !self.holds_mail(node)) else {
             return Ok(None);
         };

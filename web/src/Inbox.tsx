@@ -362,7 +362,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
           prompt={prompt}
           busy={choosing}
           onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
-          onType={(text) => answerPrompt(typeText(wait.id, prompt, text))}
+          onType={(text, option) => answerPrompt(typeText(wait.id, prompt, text, option))}
         />
       )}
       {!prompt && (wait.text || wait.doc) && (

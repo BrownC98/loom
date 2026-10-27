@@ -3,7 +3,7 @@ import type { InputField } from "./InputField";
 import type { PromptOption } from "./PromptOption";
 
 /**
- * 터미널 창(승인, 폴더 신뢰, 로그인, 셸 입력)의 본문과 답하는 수단(`profile::prompt`). 화면은 선택지마다 버튼을, `field`가 있으면 입력칸을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::dialog`). 2026-10-24 목업 M20 v2 승인(Q889).
+ * 터미널 창(승인, 질문 상자, 폴더 신뢰, 로그인, 셸 입력)의 본문과 답하는 수단(`profile::prompt`). 화면은 선택지마다 버튼을, `field`가 있으면 입력칸을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::dialog`). 2026-10-24 목업 M20 v2 승인(Q889).
  * 데몬은 보내기 직전 화면을 다시 읽어 같은 값일 때만 키를 친다. 그래서 다른 창에 키가 들어가지 않는다(2026-10-23 목업 M11 승인).
  */
 export type Prompt = { 

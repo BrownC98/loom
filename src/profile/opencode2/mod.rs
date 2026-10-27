@@ -283,6 +283,7 @@ impl Permission {
                 .map(|(label, reply)| PromptOption {
                     label: (*label).to_owned(),
                     key: reply.key(),
+                    writes: false,
                 })
                 .collect(),
             field: None,

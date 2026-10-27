@@ -566,12 +566,17 @@ impl CodexServer {
             .map(drop)
     }
 
-    pub fn kill_shells(&self) {
-        let Some(root) = self.process.here() else {
-            return;
-        };
+    pub fn kill_shells(&self) -> Result<(), String> {
+        if cfg!(windows) {
+            return Err("Windows 프로세스에는 셸을 찾을 세션 리더가 없다".into());
+        }
+        let root = self
+            .process
+            .here()
+            .ok_or("app-server가 이 PC의 프로세스가 아니다")?;
         let snapshot = Snapshot::now();
         snapshot.kill_trees(snapshot.session_leaders_under(root));
+        Ok(())
     }
 
     pub fn stop(&self) {

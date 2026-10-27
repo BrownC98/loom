@@ -686,17 +686,15 @@ async fn hand(
 ) -> bool {
     let ids: Vec<MessageId> = mail.iter().map(|d| d.id).collect();
     let call = |method, params| server.call(method, params);
-    if mail.iter().any(|d| d.kind == Kind::Interrupt) {
-        let stopped = match (Rpc { call, thread }).interrupt().await {
-            Ok(()) => server.clean_terminals(thread).await,
-            Err(e) => Err(e),
-        };
-        if let Err(e) = stopped {
-            eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
-            server.kill_shells();
-        }
-    }
-    match deliver(call, thread, now, mail).await {
+    let stopped = match mail.iter().any(|d| d.kind == Kind::Interrupt) {
+        true => stop_turn(server, thread).await,
+        false => Ok(()),
+    };
+    let delivered = match stopped {
+        Ok(()) => deliver(call, thread, now, mail).await,
+        Err(e) => Err(e),
+    };
+    match delivered {
         Ok(()) => {
             if let Err(e) = port.ack(&ids) {
                 eprintln!("loom: Codex 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
@@ -711,6 +709,19 @@ async fn hand(
             false
         }
     }
+}
+
+async fn stop_turn(server: &CodexServer, thread: &str) -> Result<(), String> {
+    let call = |method, params| server.call(method, params);
+    let interrupted = (Rpc { call, thread }).interrupt().await;
+    let cleaned = server.clean_terminals(thread).await;
+    let Err(e) = interrupted.and(cleaned) else {
+        return Ok(());
+    };
+    eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
+    server
+        .kill_shells()
+        .map_err(|killed| format!("턴을 끊지 못했다({e}). 셸도 끝내지 못했다: {killed}"))
 }
 
 async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>

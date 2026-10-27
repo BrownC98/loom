@@ -10,8 +10,8 @@ use ts_rs::TS;
 
 pub use agent::{AgentId, InsideError, LaunchError, Model, ModelChoice, Provider, StartDigests};
 pub use link::{
-    AckRequest, AdapterRecord, EndedTurn, Handoff, IdleReply, IdleRequest, ListenAt, ListenRequest,
-    Report, Session, TakeRequest, Taken, WakeReply,
+    AckRequest, AdapterRecord, ChoiceRequest, EndedTurn, Handoff, IdleReply, IdleRequest, ListenAt,
+    ListenRequest, Report, Session, TakeRequest, Taken, WakeReply,
 };
 pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,

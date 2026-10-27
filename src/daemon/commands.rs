@@ -15,6 +15,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/wake", post(agent_wake))
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/interrupt", post(agent_interrupt))
+        .route("/api/agent/choice", post(waits::agent_choice))
         .route(
             "/api/agent/interrupt-pending",
             post(agent_interrupt_pending),

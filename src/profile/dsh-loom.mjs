@@ -6,9 +6,17 @@ export const name = "loom";
 const PROTOCOL = 4;
 const ENTRY = "dsh";
 const IDLE_ENV = "LOOM_DSH_IDLE";
-const SHELL_LOOM = "BASH_FUNC_loom%%";
+const MODEL_ENV = "LOOM_DSH_MODEL";
+const EFFORT_ENV = "LOOM_DSH_EFFORT";
+const SHELL_TOKEN = "DSH_LOOM_TOKEN";
+const WSL_ENV = "WSLENV";
+const MODEL_NOTICE = "model-selection";
 const LAST = Number.MAX_SAFE_INTEGER;
 const INTERRUPT = { kind: "hook", reason: "loom interrupt" };
+const APPROVAL_OPTIONS = Object.freeze([
+  Object.freeze({ label: "Yes, allow once", reply: "allowed-once" }),
+  Object.freeze({ label: "No", reply: "rejected" }),
+]);
 
 const parse = (line) => {
   try {
@@ -32,6 +40,21 @@ const loomMessage = (text) =>
     source: Object.freeze({ kind: "user" }),
   });
 
+const chosenRoute = (model, effort) => {
+  const at = model?.indexOf("/") ?? -1;
+  return Object.freeze({
+    ...(at >= 0 ? { provider: model.slice(0, at), model: model.slice(at + 1) } : model ? { model } : {}),
+    ...(effort ? { reasoningEffort: effort } : {}),
+  });
+};
+
+const routeKey = (route) => `${route.provider}/${route.model}/${route.reasoningEffort}`;
+
+const commandOf = (args) => {
+  const parsed = typeof args === "string" ? parse(args) : args;
+  return typeof parsed?.command === "string" ? parsed.command : undefined;
+};
+
 const top = (agent) => !agent.session.header.origin && !agent.session.header.delegationDepth;
 
 export function apply(ctx, config) {
@@ -39,9 +62,19 @@ export function apply(ctx, config) {
   const shutdown = new AbortController();
   ctx.effect(() => () => shutdown.abort());
   const token = process.env.LOOM_TOKEN;
-  if (token) process.env[SHELL_LOOM] = `() { LOOM_TOKEN=${token} command loom "$@"; }`;
+  if (token && process.env[WSL_ENV] !== undefined)
+    process.env[WSL_ENV] = [process.env[WSL_ENV], SHELL_TOKEN].filter(Boolean).join(":");
+  ctx.inject(["shellEnv"], (inner) =>
+    inner.shellEnv.register({
+      name: "loom",
+      variables: { [SHELL_TOKEN]: { description: "The token of this loom node. The loom command reads it." } },
+      resolve: () => (token ? { [SHELL_TOKEN]: token } : {}),
+    }),
+  );
   const idleAtStart = process.env[IDLE_ENV] === "1";
-  delete process.env[IDLE_ENV];
+  const chosen = chosenRoute(process.env[MODEL_ENV], process.env[EFFORT_ENV]);
+  for (const name of [IDLE_ENV, MODEL_ENV, EFFORT_ENV]) delete process.env[name];
+  let steered;
   const ours = new Set();
   const unacked = new Map();
   let hook;
@@ -52,6 +85,9 @@ export function apply(ctx, config) {
   let reply;
   let ended;
   let watching;
+  const commands = new Map();
+  const relayed = new WeakSet();
+  let asking = Promise.resolve();
 
   ctx.inject(["systemPrompt"], (inner) =>
     inner.systemPrompt.section({ name: "loom", order: LAST, text: config.usage, interpolate: false }),
@@ -150,14 +186,93 @@ export function apply(ctx, config) {
     void call({ event: "close", of });
   };
 
+  const steer = (agent) => {
+    let first;
+    let steering = true;
+    let notices;
+    const request = agent.ctx.on(
+      "agent/request",
+      async (_payload, next) => {
+        const resolved = await next();
+        first ??= routeKey(resolved);
+        steering &&= first === routeKey(resolved);
+        return steering ? { ...resolved, ...chosen } : resolved;
+      },
+      { prepend: true },
+    );
+    const quiet = () => {
+      notices ??= agent.ctx.on(
+        "agent/pre-step",
+        async (_payload, next) => {
+          const decision = await next();
+          if (!steering || decision.kind !== "enter") return decision;
+          return { ...decision, messages: decision.messages.filter((m) => m.source?.kind !== MODEL_NOTICE) };
+        },
+        { prepend: true },
+      );
+    };
+    const end = () => {
+      request();
+      notices?.();
+    };
+    return { quiet, end };
+  };
+
+  const callKey = (session, callId) => `${session}/${callId}`;
+
+  const approval = (req) => {
+    const command = req.callId === undefined ? undefined : commands.get(callKey(req.agent?.session?.id, req.callId));
+    return {
+      event: "approval",
+      summary: command ?? req.toolName,
+      body: [command, req.reason].filter(Boolean),
+      options: APPROVAL_OPTIONS,
+    };
+  };
+
+  ctx.on(
+    "approval/request",
+    async function (req, next) {
+      if (relayed.has(req)) return next();
+      const local = new AbortController();
+      const copy = { ...req, signal: local.signal };
+      relayed.add(copy);
+      const withdraw = () => local.abort();
+      req.signal?.addEventListener("abort", withdraw, { once: true });
+      const terminal = ctx.waterfall(this, "approval/request", copy, () => Promise.resolve("unavailable"));
+      let ask;
+      const inbox = asking.then(() => {
+        if (local.signal.aborted) return undefined;
+        ask = send(approval(req));
+        return ask.answer.then((answer) => answer?.choice);
+      });
+      asking = inbox.then(
+        () => {},
+        () => {},
+      );
+      const outcome = await new Promise((resolve) => {
+        terminal.then(resolve, () => resolve("unavailable"));
+        inbox.then((choice) => choice && resolve(choice));
+      });
+      req.signal?.removeEventListener("abort", withdraw);
+      local.abort();
+      if (ask) void call({ event: "close", of: ask.id });
+      return outcome;
+    },
+    { prepend: true },
+  );
+
   ctx.on("agent/created", async ({ agent }) => {
     if (!top(agent)) return;
     unwatch();
+    steered?.end();
     main = agent;
+    steered = Object.keys(chosen).length ? steer(agent) : undefined;
+    const { provider, model, reasoningEffort } = { ...agent.options, ...chosen };
     state = {
       transcript: String(agent.session.id),
-      model: `${agent.options.provider}/${agent.options.model}`,
-      effort: agent.options.reasoningEffort,
+      model: `${provider}/${model}`,
+      effort: reasoningEffort,
     };
     await call({ event: "session_start" });
     if (started) return;
@@ -168,10 +283,15 @@ export function apply(ctx, config) {
   ctx.on("agent/disposed", ({ agent }) => {
     if (agent !== main) return;
     unwatch();
+    steered?.end();
+    steered = undefined;
     main = undefined;
   });
 
   ctx.on("session/event", (session, event) => {
+    if (event.type === "tool/call") commands.set(callKey(session.id, event.data.callId), commandOf(event.data.arguments));
+    if (event.type === "tool/ptc-dispatch-start")
+      commands.set(callKey(session.id, event.data.subCallId), commandOf(event.data.arguments));
     if (String(session.id) !== state.transcript) return;
     switch (event.type) {
       case "request/header": {
@@ -184,6 +304,7 @@ export function apply(ctx, config) {
         break;
       case "turn/start":
         reply = undefined;
+        commands.clear();
         break;
       case "assistant/message": {
         const text = event.data.interrupted ? "" : textOf(event.data.message);
@@ -198,7 +319,10 @@ export function apply(ctx, config) {
 
   ctx.on("agent/status", ({ agent, status }) => {
     if (agent !== main) return;
-    if (status === "running") return void watch();
+    if (status === "running") {
+      steered?.quiet();
+      return void watch();
+    }
     unwatch();
     const reason = ended;
     ended = undefined;

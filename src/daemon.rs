@@ -133,6 +133,7 @@ struct App {
     port: u16,
     door: lan::Door,
     passes: passes::Passes,
+    choices: waits::Choices,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -416,6 +417,7 @@ impl App {
                 devices,
             ),
             passes: passes::Passes::default(),
+            choices: waits::Choices::default(),
             spots: Spots::new(database.clone()),
             database,
             accounts_root: db_path.with_file_name("accounts"),

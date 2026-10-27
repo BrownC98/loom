@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -6,11 +7,12 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record, TurnTake};
+use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
+use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
+use crate::usage::UsageProblem;
 use crate::wsl::Inside;
 
 mod usage;
@@ -29,18 +31,12 @@ pub const QUESTION: Grammar = Grammar {
     writes: &["Other"],
 };
 
-pub const DIALOGS: [Dialog; 8] = [
+pub const DIALOGS: [Dialog; 6] = [
     Dialog {
         text: "Enter next/submit",
         kind: WaitKind::Question,
         place: Place::Panel,
         answer: Answer::Plain,
-    },
-    Dialog {
-        text: "Do you trust the contents of this directory?",
-        kind: WaitKind::Trust,
-        place: Place::BeforeSession,
-        answer: Answer::InBox(Options::Bracketed),
     },
     Dialog {
         text: "Run this command",
@@ -72,12 +68,6 @@ pub const DIALOGS: [Dialog; 8] = [
         place: Place::Panel,
         answer: Answer::Plain,
     },
-    Dialog {
-        text: "Press any key to log in",
-        kind: WaitKind::Auth,
-        place: Place::BeforeSession,
-        answer: Answer::Press("Log in"),
-    },
 ];
 
 const POSITION_ENV: &str = "LOOM_POSITION";
@@ -87,6 +77,8 @@ const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
+const TRUST: &str = "--trust";
+const AUTH_ENV: [&str; 2] = ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"];
 const HOOK: &str = "loom hook cursor";
 const RULES: &str = "loom hook cursor-rules";
 const HELPER_SHELLS: [&str; 2] = [HOOK, RULES];
@@ -215,8 +207,51 @@ impl Adapter for Cursor {
         resume
             .into_iter()
             .flat_map(|session| ["--resume".into(), super::session_id(session)])
+            .chain([TRUST.into()])
             .chain(bypass.iter().cloned())
             .collect()
+    }
+
+    fn launch<'a>(
+        &'a self,
+        at: &'a LaunchAt<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+        _: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        let status = (!env_auth(at)).then(|| usage::status(at.site));
+        let distro = at.site.distro().map(str::to_owned);
+        Box::pin(async move {
+            let Some(status) = status else {
+                return Ok(Started::default());
+            };
+            let check = || usage::STATUS.into();
+            match tokio::task::spawn_blocking(status).await {
+                Ok(Ok(usage::Status {
+                    is_authenticated: true,
+                    ..
+                })) => Ok(Started::default()),
+                Ok(Ok(_)) => Err(LaunchError::NotLoggedIn {
+                    command: usage::COMMAND.into(),
+                    distro,
+                }),
+                Ok(Err(UsageProblem::NotInstalled(command))) => Err(LaunchError::NotInstalled {
+                    agent: usage::AGENT.into(),
+                    command,
+                    distro,
+                }),
+                Ok(Err(UsageProblem::NoReply(_))) => Err(LaunchError::LoginCheckNoReply {
+                    command: check(),
+                    distro,
+                    secs: crate::usage::PROBE_TIMEOUT.as_secs(),
+                }),
+                Ok(Err(_)) | Err(_) => Err(LaunchError::LoginCheckUnreadable {
+                    command: check(),
+                    distro,
+                }),
+            }
+        })
     }
 
     fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()> {
@@ -260,6 +295,17 @@ impl Adapter for Cursor {
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
     }
+}
+
+fn env_auth(at: &LaunchAt<'_>) -> bool {
+    AUTH_ENV.iter().any(|key| {
+        let given = at.env.iter().rev().find(|(k, _)| k == key);
+        let inherited = || at.inside.is_none().then(|| std::env::var_os(key)).flatten();
+        given
+            .map(|(_, v)| v.clone())
+            .or_else(inherited)
+            .is_some_and(|v| !v.is_empty())
+    })
 }
 
 fn position_value(position: Position) -> &'static str {

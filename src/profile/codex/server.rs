@@ -1,30 +1,160 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::stream::BoxStream;
+use futures_util::{Sink, SinkExt, StreamExt};
+use portable_pty::CommandBuilder;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::{self, Message};
 
 use super::Status;
 use super::protocol::{
-    CommandExecutionRequestApprovalParams, FileChangeRequestApprovalParams, RequestId,
-    ServerRequestResolvedNotification, ThreadActiveFlag, ThreadItem, ThreadReadParams,
-    ThreadReadResponse, ThreadStartedNotification, ThreadStatus, ThreadStatusChangedNotification,
-    Turn,
+    CodexErrorInfo, CommandExecutionRequestApprovalParams, ErrorNotification,
+    FileChangeRequestApprovalParams, GetAccountParams, GetAccountResponse, RequestId,
+    ServerRequestResolvedNotification, ThreadActiveFlag, ThreadBackgroundTerminalsCleanParams,
+    ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification, ThreadStatus,
+    ThreadStatusChangedNotification, Turn,
 };
-use crate::process_tree::{self, Snapshot};
+use crate::process_tree::{Listen, Snapshot};
 use crate::profile::adapter::Chosen;
 use crate::profile::process::Served;
 use crate::protocol::{Session, WaitKind};
+use crate::task::TaskDir;
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const REPLAY_WAIT: Duration = Duration::from_secs(2);
+const NAME_CHARS: usize = 16;
+const TOKEN_ENV: &str = "LOOM_CODEX_TOKEN";
+#[cfg(unix)]
+const SOCKET_REQUEST: &str = "ws://localhost/";
+
+type ToServer = Pin<Box<dyn Sink<Message, Error = tungstenite::Error> + Send>>;
+type FromServer = BoxStream<'static, Result<Message, tungstenite::Error>>;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Address {
+    Ws {
+        url: String,
+        token: Option<String>,
+    },
+    #[cfg(unix)]
+    Socket {
+        socket: PathBuf,
+    },
+}
+
+impl Address {
+    fn url(&self) -> String {
+        match self {
+            Address::Ws { url, .. } => url.clone(),
+            #[cfg(unix)]
+            Address::Socket { socket } => format!("unix://{}", socket.display()),
+        }
+    }
+
+    pub fn tui(&self, cmd: &mut CommandBuilder) {
+        cmd.args(["--remote".to_owned(), self.url()]);
+        if let Address::Ws {
+            token: Some(token), ..
+        } = self
+        {
+            cmd.args(["--remote-auth-token-env", TOKEN_ENV]);
+            cmd.env(TOKEN_ENV, token);
+        }
+    }
+
+    async fn open(&self) -> Result<(ToServer, FromServer), String> {
+        match self {
+            Address::Ws { url, token } => {
+                let mut request = url
+                    .as_str()
+                    .into_client_request()
+                    .map_err(|e| e.to_string())?;
+                if let Some(token) = token {
+                    let bearer = HeaderValue::try_from(format!("Bearer {token}"))
+                        .map_err(|e| e.to_string())?;
+                    request.headers_mut().insert("Authorization", bearer);
+                }
+                let (socket, _) = tokio_tungstenite::connect_async(request)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(halves(socket))
+            }
+            #[cfg(unix)]
+            Address::Socket { socket } => {
+                let stream = tokio::net::UnixStream::connect(socket)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let (socket, _) = tokio_tungstenite::client_async(SOCKET_REQUEST, stream)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(halves(socket))
+            }
+        }
+    }
+}
+
+fn halves<S>(socket: WebSocketStream<S>) -> (ToServer, FromServer)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (sink, stream) = socket.split();
+    (Box::pin(sink), stream.boxed())
+}
+
+struct Listener {
+    at: Listen,
+    address: Address,
+    args: Vec<String>,
+    secret: Option<PathBuf>,
+}
+
+#[cfg(unix)]
+fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
+    let socket = task.local.join(format!("{name}.sock"));
+    Ok(Listener {
+        at: Listen::Socket(socket.clone()),
+        address: Address::Socket { socket },
+        args: Vec::new(),
+        secret: None,
+    })
+}
+
+#[cfg(windows)]
+fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
+    let port = crate::process_tree::free_port()?;
+    let token = crate::pake::random_token();
+    let file = format!("{name}.token");
+    let secret = task.local.join(&file);
+    std::fs::write(&secret, &token).map_err(|e| format!("{}: {e}", secret.display()))?;
+    Ok(Listener {
+        at: Listen::Port(port),
+        address: Address::Ws {
+            url: format!("ws://127.0.0.1:{port}"),
+            token: Some(token),
+        },
+        args: vec![
+            "--ws-auth".into(),
+            "capability-token".into(),
+            "--ws-token-file".into(),
+            format!("{}/{file}", task.shown),
+        ],
+        secret: Some(secret),
+    })
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Thread {
@@ -112,7 +242,7 @@ impl Approval {
 type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
 
 pub struct CodexServer {
-    url: String,
+    address: Address,
     process: Served,
     to_server: mpsc::UnboundedSender<Message>,
     pending: Arc<Pending>,
@@ -122,6 +252,7 @@ pub struct CodexServer {
     approvals: watch::Receiver<Vec<Approval>>,
     changes: Arc<Changes>,
     limited: watch::Receiver<u64>,
+    account: watch::Receiver<u64>,
 }
 
 impl CodexServer {
@@ -130,9 +261,12 @@ impl CodexServer {
         inside: Option<&Inside>,
         node_env: &[(&'static str, OsString)],
         config: &[String],
+        task: &TaskDir,
     ) -> Result<Self, String> {
-        let port = process_tree::free_port()?;
-        let url = format!("ws://127.0.0.1:{port}");
+        std::fs::create_dir_all(&task.local)
+            .map_err(|e| format!("{}: {e}", task.local.display()))?;
+        let name = format!("codex-{}", &crate::pake::random_token()[..NAME_CHARS]);
+        let listener = listener(task, &name)?;
         let mut args = config.to_vec();
         let path = match inside {
             Some(inside) => Some(inside.node_path()),
@@ -147,24 +281,36 @@ impl CodexServer {
                 format!("shell_environment_policy.set.PATH={}", json!(path)),
             ]);
         }
-        args.extend(["app-server".into(), "--listen".into(), url.clone()]);
+        args.extend([
+            "app-server".into(),
+            "--listen".into(),
+            listener.address.url(),
+        ]);
+        args.extend(listener.args);
         let argv = [&["codex".to_owned()], &args[..]].concat();
         let failed = |e| format!("`codex app-server`: {e}");
-        let process = Served::start(&argv, cwd, inside, node_env, port, REPLY_TIMEOUT)
+        let started =
+            Served::start(&argv, cwd, inside, node_env, &listener.at, REPLY_TIMEOUT).await;
+        if let Some(secret) = &listener.secret
+            && let Err(e) = std::fs::remove_file(secret)
+        {
+            eprintln!("loom: {}를 지우지 못했다: {e}", secret.display());
+        }
+        let process = started.map_err(failed)?;
+        Self::connect(listener.address, process.clone())
             .await
-            .map_err(failed)?;
-        Self::connect(url, process.clone()).await.map_err(|e| {
-            process.stop();
-            failed(e)
-        })
+            .map_err(|e| {
+                process.stop();
+                failed(e)
+            })
     }
 
     pub async fn reconnect(
-        url: String,
+        address: Address,
         process: Served,
         thread: Option<&Session>,
     ) -> Result<Self, String> {
-        let server = Self::connect(url, process).await?;
+        let server = Self::connect(address, process).await?;
         if let Some(id) = thread {
             server.follow_thread(id.0.clone()).await;
         }
@@ -187,8 +333,23 @@ impl CodexServer {
         Ok(self.read(thread).await?.thread.path)
     }
 
+    pub async fn logged_out(&self) -> Result<bool, String> {
+        let params = GetAccountParams {
+            refresh_token: Some(false),
+        };
+        let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
+        let read = self.call("account/read", params).await?;
+        let read: GetAccountResponse =
+            serde_json::from_value(read).map_err(|e| format!("account/read: {e}"))?;
+        Ok(read.account.is_none() && read.requires_openai_auth)
+    }
+
     pub fn limited(&self) -> watch::Receiver<u64> {
         self.limited.clone()
+    }
+
+    pub fn account_updates(&self) -> watch::Receiver<u64> {
+        self.account.clone()
     }
 
     pub fn approvals(&self) -> watch::Receiver<Vec<Approval>> {
@@ -293,15 +454,13 @@ impl CodexServer {
         &self.process
     }
 
-    async fn connect(url: String, process: Served) -> Result<Self, String> {
-        let connected = tokio::time::timeout(
-            REPLY_TIMEOUT,
-            tokio_tungstenite::connect_async(url.as_str()),
-        )
-        .await
-        .map_err(|_| format!("could not connect to {url}: timed out"))?;
-        let (socket, _) = connected.map_err(|e| format!("could not connect to {url}: {e}"))?;
-        let (mut sink, mut stream) = socket.split();
+    async fn connect(address: Address, process: Served) -> Result<Self, String> {
+        let url = address.url();
+        let connected = tokio::time::timeout(REPLY_TIMEOUT, address.open())
+            .await
+            .map_err(|_| format!("could not connect to {url}: timed out"))?;
+        let (mut sink, mut stream) =
+            connected.map_err(|e| format!("could not connect to {url}: {e}"))?;
         let (to_server, mut outbox) = mpsc::unbounded_channel::<Message>();
         tokio::spawn(async move {
             while let Some(msg) = outbox.recv().await {
@@ -315,6 +474,7 @@ impl CodexServer {
         let thread_tx = Arc::new(thread_tx);
         let weak_tx = Arc::downgrade(&thread_tx);
         let (limited_tx, limited) = watch::channel(0);
+        let (account_tx, account) = watch::channel(0);
         let (approvals_tx, approvals) = watch::channel(Vec::new());
         let changes = Arc::new(Changes::default());
         let seen_changes = changes.clone();
@@ -327,6 +487,9 @@ impl CodexServer {
                     if is_usage_limit(&value) {
                         limited_tx.send_modify(|n| *n += 1);
                     }
+                    if value["method"] == "account/updated" {
+                        account_tx.send_modify(|n| *n += 1);
+                    }
                     receive(value, &replies, &thread_tx, &approvals_tx, &seen_changes);
                 }
             }
@@ -335,7 +498,7 @@ impl CodexServer {
             }
         });
         let server = Self {
-            url,
+            address,
             process,
             to_server,
             pending,
@@ -345,16 +508,19 @@ impl CodexServer {
             approvals,
             changes,
             limited,
+            account,
         };
-        let init =
-            json!({ "clientInfo": { "name": "loom", "version": env!("CARGO_PKG_VERSION") } });
+        let init = json!({
+            "clientInfo": { "name": "loom", "version": env!("CARGO_PKG_VERSION") },
+            "capabilities": { "experimentalApi": true },
+        });
         server.call("initialize", init).await?;
         server.notify("initialized");
         Ok(server)
     }
 
-    pub fn url(&self) -> &str {
-        &self.url
+    pub fn address(&self) -> &Address {
+        &self.address
     }
 
     pub fn thread(&self) -> watch::Receiver<Option<Thread>> {
@@ -390,12 +556,27 @@ impl CodexServer {
         ));
     }
 
-    pub fn stop_shells(&self) -> usize {
-        let Some(root) = self.process.here() else {
-            return 0;
+    pub async fn clean_terminals(&self, thread: &str) -> Result<(), String> {
+        let params = ThreadBackgroundTerminalsCleanParams {
+            thread_id: thread.to_owned(),
         };
+        let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
+        self.call("thread/backgroundTerminals/clean", params)
+            .await
+            .map(drop)
+    }
+
+    pub fn kill_shells(&self) -> Result<(), String> {
+        if cfg!(windows) {
+            return Err("Windows 프로세스에는 셸을 찾을 세션 리더가 없다".into());
+        }
+        let root = self
+            .process
+            .here()
+            .ok_or("app-server가 이 PC의 프로세스가 아니다")?;
         let snapshot = Snapshot::now();
-        snapshot.kill_trees(snapshot.session_leaders_under(root))
+        snapshot.kill_trees(snapshot.session_leaders_under(root));
+        Ok(())
     }
 
     pub fn stop(&self) {
@@ -493,6 +674,11 @@ fn receive(
 
 fn is_usage_limit(msg: &Value) -> bool {
     msg["method"] == "error"
-        && msg["params"]["willRetry"] != true
-        && msg["params"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
+        && serde_json::from_value::<ErrorNotification>(msg["params"].clone()).is_ok_and(|e| {
+            !e.will_retry
+                && matches!(
+                    e.error.codex_error_info,
+                    Some(CodexErrorInfo::UsageLimitExceeded)
+                )
+        })
 }

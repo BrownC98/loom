@@ -15,6 +15,7 @@ use crate::protocol::{
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
+use crate::task::TaskDir;
 use crate::usage::Usage;
 use crate::wsl::Inside;
 
@@ -51,16 +52,19 @@ pub struct Command<'a> {
     pub plugin: &'a Path,
     pub launch: Launch,
     pub brief: &'a str,
+    pub choice: &'a ModelChoice,
 }
 
 pub struct LaunchAt<'a> {
     pub cwd: &'a Path,
+    pub site: &'a Site,
     pub inside: Option<&'a Inside>,
     pub env: &'a [(&'static str, OsString)],
     pub plugin: &'a Path,
     pub plugin_here: &'a Path,
     pub run_dir: &'a Path,
     pub skills: &'a Path,
+    pub task: Option<&'a TaskDir>,
     pub launch: Launch,
     pub version: Option<&'a str>,
     pub node_ip: Option<IpAddr>,

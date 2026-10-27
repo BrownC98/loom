@@ -114,6 +114,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     let warnings = join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await;
     let pc = profile::version_warnings(&app.versions);
     let mut agents = profile::agents(&wsl);
+    agents.sort_by_cached_key(|a| a.label.to_lowercase());
     for agent in &mut agents {
         let Some(profile) = agent.profile else {
             continue;

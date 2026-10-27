@@ -334,8 +334,9 @@ async fn end_found(distro: &Distro, find: distro::Command) -> Result<(), String>
         .map_err(|e| e.to_string())?
 }
 
-pub async fn end_token(distro: &Distro, token: &str) -> Result<(), String> {
-    bounded(distro, sh(END_TOKEN, [token])).await.map(drop)
+pub async fn end_token(distro: &Distro, token: &str, names: &[&str]) -> Result<(), String> {
+    let args = std::iter::once(token).chain(names.iter().copied());
+    bounded(distro, sh(END_TOKEN, args)).await.map(drop)
 }
 
 pub fn end_trees(distro: &Distro, roots: &[u32]) {
@@ -370,11 +371,17 @@ async fn run(distro: &Distro, command: distro::Command) -> Result<distro::Ran, S
 
 const END_TOKEN: &str = r#"token=$1 nl='
 '
+shift
+names=$*
 signal() {
   sent=1
-  for f in $(grep -laF "LOOM_TOKEN=$token" /proc/[0-9]*/environ 2>/dev/null); do
+  for f in $(grep -laF "=$token" /proc/[0-9]*/environ 2>/dev/null); do
     env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
-    case $env in *"${nl}LOOM_TOKEN=$token$nl"*) ;; *) continue ;; esac
+    held=1
+    for name in $names; do
+      case $env in *"${nl}$name=$token$nl"*) held=0 ;; esac
+    done
+    [ "$held" = 0 ] || continue
     case $env in *"${nl}HOME=$HOME$nl"*) ;; *) continue ;; esac
     pid=${f#/proc/}
     kill -"$1" "${pid%/environ}" 2>/dev/null && sent=0

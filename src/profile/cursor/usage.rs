@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::Cursor;
@@ -13,7 +14,10 @@ use crate::usage::{
 const ORIGIN: &str = "https://cursor.com";
 const USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const AUTH_FILE: &str = ".config/cursor/auth.json";
-const COMMAND: &str = "cursor-agent";
+pub(super) const COMMAND: &str = "cursor-agent";
+const STATUS_ARGS: &[&str] = &["status", "--format", "json"];
+pub(super) const STATUS: &str = "cursor-agent status";
+pub(super) const AGENT: &str = "Cursor";
 const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -29,24 +33,46 @@ impl Meter for Cursor {
     }
 
     fn read(&self, site: &Site, _: Option<&AccountId>) -> Usage {
-        if !site.installed(COMMAND) {
-            return Usage::failed(UsageProblem::NotInstalled(COMMAND.into()));
-        }
-        let read = |rel: &str| {
-            site.home_file(rel)
-                .and_then(|path| std::fs::read(path).ok())
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        let email = match status(site)() {
+            Ok(status) => status.user_info.and_then(|u| u.email),
+            Err(problem) => return Usage::failed(problem),
         };
-        let email = read(".cursor/cli-config.json")
-            .and_then(|v| v["authInfo"]["email"].as_str().map(str::to_owned));
-        let token = read(AUTH_FILE).and_then(|v| v["accessToken"].as_str().and_then(Token::parse));
+        let token = site
+            .home_file(AUTH_FILE)
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|v| v["accessToken"].as_str().and_then(Token::parse));
         let limits = match token {
             Some(token) => limits(&token),
-            None if email.is_some() => failed(UsageProblem::NoToken("Cursor".into())),
+            None if email.is_some() => failed(UsageProblem::NoToken(AGENT.into())),
             None => Limits::NeedsLogin,
         };
         Usage::new(email, None, limits)
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Status {
+    pub(super) is_authenticated: bool,
+    user_info: Option<UserInfo>,
+}
+
+pub(super) fn status(
+    site: &Site,
+) -> impl FnOnce() -> Result<Status, UsageProblem> + Send + 'static {
+    let command = site.installed_command(COMMAND, STATUS_ARGS);
+    move || {
+        let command = command.ok_or_else(|| UsageProblem::NotInstalled(COMMAND.into()))?;
+        let out = crate::timed::output(command, PROBE_TIMEOUT)
+            .ok_or_else(|| UsageProblem::NoReply(STATUS.into()))?;
+        serde_json::from_slice(&out).map_err(|_| UsageProblem::CliFormat(STATUS.into()))
+    }
+}
+
+#[derive(Deserialize)]
+struct UserInfo {
+    email: Option<String>,
 }
 
 struct Token {
@@ -77,7 +103,7 @@ impl Token {
 }
 
 fn limits(token: &Token) -> Limits {
-    let expired = || failed(UsageProblem::TokenExpired("Cursor".into()));
+    let expired = || failed(UsageProblem::TokenExpired(AGENT.into()));
     if token
         .expires_at
         .is_some_and(|exp| exp <= jiff::Timestamp::now().as_second())

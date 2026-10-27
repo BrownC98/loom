@@ -20,8 +20,8 @@ export function problemText(p: Problem): string {
     case 'launch': {
       const launch = p.value;
       if (launch.code === 'wsl') return i18next.t(`problem.wsl.${launch.value.code}`, { ...launch.value });
-      const context = launch.code === 'notInstalled' && launch.value.distro ? 'wsl' : undefined;
-      return i18next.t(`problem.launch.${launch.code}`, { ...vars(launch), context });
+      const values = vars(launch);
+      return i18next.t(`problem.launch.${launch.code}`, { ...values, context: values.distro ? 'wsl' : undefined });
     }
     case 'repo':
       return i18next.t(`problem.repo.${p.value.code}`, vars(p.value));

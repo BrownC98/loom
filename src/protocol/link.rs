@@ -103,3 +103,9 @@ pub struct AckRequest {
     #[serde(default)]
     pub handoff: Option<Handoff>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ChoiceRequest {
+    pub kind: WaitKind,
+    pub prompt: Prompt,
+}

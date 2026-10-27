@@ -220,14 +220,31 @@ pub fn free_port() -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-pub async fn until_listening(exited: impl Future<Output = ()>, port: u16) -> Result<(), String> {
+pub enum Listen {
+    Port(u16),
+    #[cfg(unix)]
+    Socket(std::path::PathBuf),
+}
+
+impl Listen {
+    async fn open(&self) -> bool {
+        match self {
+            Listen::Port(port) => {
+                tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, *port))
+                    .await
+                    .is_ok()
+            }
+            #[cfg(unix)]
+            Listen::Socket(path) => tokio::net::UnixStream::connect(path).await.is_ok(),
+        }
+    }
+}
+
+pub async fn until_listening(exited: impl Future<Output = ()>, at: &Listen) -> Result<(), String> {
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
     tokio::pin!(exited);
     loop {
-        if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
-            .await
-            .is_ok()
-        {
+        if at.open().await {
             return Ok(());
         }
         tokio::select! {

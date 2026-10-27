@@ -1,4 +1,6 @@
+use super::runtime::bearer;
 use super::*;
+use crate::protocol::ChoiceRequest;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -73,8 +75,13 @@ async fn choose_wait(
     let (node, _) = app.graph.dialog(wait)?;
     let active = app.graph.active().map_err(internal)?;
     let found = active.iter().find(|n| n.id == node);
-    let chosen = match found.and_then(|n| Some((n, relaunch::profile_of(n)?))) {
-        Some((n, profile)) => {
+    let held = app.choices.choose(node, &req.prompt, req.option);
+    let chosen = match (
+        held,
+        found.and_then(|n| Some((n, relaunch::profile_of(n)?))),
+    ) {
+        (Some(chosen), _) => chosen,
+        (None, Some((n, profile))) => {
             let record = app.record_of(n);
             let adapter = profile::adapter(profile);
             adapter
@@ -82,7 +89,7 @@ async fn choose_wait(
                 .await
                 .map_err(internal)?
         }
-        None => Chosen::OnScreen,
+        (None, None) => Chosen::OnScreen,
     };
     match chosen {
         Chosen::Sent => {}
@@ -230,4 +237,122 @@ pub(super) async fn serve_file(
         .await
         .map_err(internal)?
         .into_response())
+}
+
+#[derive(Default)]
+pub(super) struct Choices(std::sync::Mutex<Holds>);
+
+#[derive(Default)]
+struct Holds {
+    next: u64,
+    held: HashMap<NodeId, Held>,
+}
+
+struct Held {
+    serial: u64,
+    prompt: Prompt,
+    chosen: tokio::sync::oneshot::Sender<usize>,
+}
+
+impl Choices {
+    fn hold<E>(
+        &self,
+        node: NodeId,
+        prompt: Prompt,
+        show: impl FnOnce(Prompt) -> Result<(), E>,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<usize>), E> {
+        let mut holds = self.0.lock().unwrap();
+        show(prompt.clone())?;
+        holds.next += 1;
+        let serial = holds.next;
+        let (chosen, receiver) = tokio::sync::oneshot::channel();
+        holds.held.insert(
+            node,
+            Held {
+                serial,
+                prompt,
+                chosen,
+            },
+        );
+        Ok((serial, receiver))
+    }
+
+    fn choose(&self, node: NodeId, prompt: &Prompt, option: usize) -> Option<Chosen> {
+        let held = &mut self.0.lock().unwrap().held;
+        let now = held.get(&node)?;
+        if now.prompt != *prompt || option >= now.prompt.options.len() {
+            return Some(Chosen::PromptChanged);
+        }
+        let now = held.remove(&node)?;
+        Some(match now.chosen.send(option) {
+            Ok(()) => Chosen::Sent,
+            Err(_) => Chosen::PromptChanged,
+        })
+    }
+
+    fn release(&self, node: NodeId, serial: u64, clear: impl FnOnce()) {
+        let held = &mut self.0.lock().unwrap().held;
+        if held.get(&node).is_some_and(|h| h.serial != serial) {
+            return;
+        }
+        held.remove(&node);
+        clear();
+    }
+}
+
+struct Release {
+    app: Arc<App>,
+    node: NodeId,
+    serial: u64,
+    token: String,
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.app.choices.release(self.node, self.serial, || {
+            if let Err(e) = self
+                .app
+                .graph
+                .set_wait(&self.token, WaitSource::Agent, None)
+            {
+                eprintln!(
+                    "loom: 노드 {}의 응답 대기를 지우지 못했다: {e}",
+                    self.node.0
+                );
+            }
+        });
+    }
+}
+
+pub(super) async fn agent_choice(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<ChoiceRequest>,
+) -> Result<Json<usize>, AgentError> {
+    let node = app.caller(&headers)?;
+    let token = bearer(&headers)?.to_owned();
+    let summary = req.prompt.summary.clone();
+    let (serial, chosen) = app
+        .choices
+        .hold(node, req.prompt, |prompt| {
+            app.graph.set_wait(
+                &token,
+                WaitSource::Agent,
+                Some((req.kind, &summary, Some(prompt))),
+            )
+        })
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    let _release = Release {
+        app: app.clone(),
+        node,
+        serial,
+        token,
+    };
+    let option = chosen.await.map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "A newer choice of this node replaced this one.".to_owned(),
+        )
+    })?;
+    Ok(Json(option))
 }

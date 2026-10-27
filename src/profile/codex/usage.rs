@@ -1,12 +1,9 @@
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::Instant;
+use std::process::Command;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use super::{CLI, Codex};
+use super::{CLI, Codex, stdio};
 use crate::accounts::{AccountId, Site};
 use crate::profile::adapter::Meter;
 use crate::usage::{
@@ -77,60 +74,13 @@ fn rate_limits(rate_limits: &Value) -> Limits {
     }
 }
 
-fn app_server(mut cmd: Command) -> Result<[Value; 2], UsageProblem> {
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| app_server_failed(&e))?;
-    let result = exchange(&mut child);
-    let _ = child.kill();
-    let _ = child.wait();
-    result
-}
-
-fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], UsageProblem> {
-    let requests = [
-        r#"{"method":"initialize","id":0,"params":{"clientInfo":{"name":"loom","version":"0"}}}"#,
-        r#"{"method":"initialized"}"#,
-        r#"{"method":"account/read","id":1,"params":{"refreshToken":false}}"#,
-        r#"{"method":"account/rateLimits/read","id":2}"#,
+fn app_server(cmd: Command) -> Result<[Value; 2], UsageProblem> {
+    let calls = [
+        ("account/read", json!({ "refreshToken": false })),
+        ("account/rateLimits/read", Value::Null),
     ];
-    let mut stdin = child.stdin.take().expect("stdin을 piped로 열었다");
-    for line in requests {
-        writeln!(stdin, "{line}").map_err(|e| app_server_failed(&e))?;
-    }
-    let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
-                return;
-            }
-        }
-    });
-    let deadline = Instant::now() + PROBE_TIMEOUT;
-    let mut replies = [Value::Null, Value::Null];
-    let mut pending = 2;
-    while pending > 0 {
-        let line = rx
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|_| UsageProblem::NoReply(APP_SERVER.into()))?;
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        let slot = match msg["id"].as_u64() {
-            Some(1) => 0,
-            Some(2) => 1,
-            _ => continue,
-        };
-        replies[slot] = msg.get("result").cloned().unwrap_or(Value::Null);
-        pending -= 1;
-    }
-    Ok(replies)
-}
-
-fn app_server_failed(e: &std::io::Error) -> UsageProblem {
-    run_failed(APP_SERVER, e)
+    stdio::replies(cmd, calls, PROBE_TIMEOUT).map_err(|failure| match failure {
+        stdio::Failure::Run(e) => run_failed(APP_SERVER, &e),
+        stdio::Failure::NoReply => UsageProblem::NoReply(APP_SERVER.into()),
+    })
 }

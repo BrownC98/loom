@@ -407,11 +407,12 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 Status::Idle => {
                     busy = None;
                     if idle.is_none() {
-                        let turn_end = match before == Some(Status::Busy) || ours {
+                        let unseen = before != Some(Status::Busy) && ours;
+                        let turn_end = match before == Some(Status::Busy) || unseen {
                             true => Some(ended_turn(&server, &now.id).await),
                             false => None,
                         };
-                        ours = false;
+                        ours &= !unseen;
                         idle = Some(port.idle(IdleRequest {
                             turn_end,
                             ..IdleRequest::default()
@@ -467,10 +468,11 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 let Some(id) = thread_id(&thread) else { continue };
                 match mail {
                     Ok(mail) => {
-                        if mail.iter().any(|d| d.kind == Kind::Interrupt) {
+                        let interrupt = mail.iter().any(|d| d.kind == Kind::Interrupt);
+                        if interrupt {
                             server.stop_shells();
                         }
-                        hand(&server, &*port, &id, Status::Busy, &mail).await;
+                        ours |= hand(&server, &*port, &id, Status::Busy, &mail).await && interrupt;
                         if status == Some(Status::Busy) {
                             busy = Some(port.next_mail(BUSY_KINDS));
                         }

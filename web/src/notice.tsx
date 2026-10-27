@@ -1,45 +1,39 @@
 import { CircleCheck, CircleQuestionMark, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { HumanWait } from './gen/HumanWait';
+import type { ScreenWait } from './gen/ScreenWait';
 import type { NodeView } from './gen/NodeView';
 import type { WaitId } from './gen/WaitId';
 import type { WaitKind } from './gen/WaitKind';
-import { plainText } from './links';
-
-export type Tone = 'ask' | 'done';
-
-export const toneOf = (kind: WaitKind): Tone => (kind === 'done' ? 'done' : 'ask');
+import type { WaitTone } from './gen/WaitTone';
 
 export const QuestionIcon: LucideIcon = CircleQuestionMark;
 
-export const ICON: Record<Tone, LucideIcon> = { ask: QuestionIcon, done: CircleCheck };
+export const ICON: Record<WaitTone, LucideIcon> = { ask: QuestionIcon, done: CircleCheck };
 
 export const showsId = (kind: WaitKind) => kind === 'question';
 
-export const summaryOf = (wait: HumanWait) => wait.prompt?.summary ?? plainText(wait.parts ?? []);
+export const bySince = (a: ScreenWait, b: ScreenWait) => a.since - b.since;
 
-export const bySince = (a: HumanWait, b: HumanWait) => a.since - b.since;
+const oldest = (waits: readonly ScreenWait[]): ScreenWait => waits.reduce((a, b) => (bySince(b, a) < 0 ? b : a));
 
-const oldest = (waits: readonly HumanWait[]): HumanWait => waits.reduce((a, b) => (bySince(b, a) < 0 ? b : a));
+export const oldestWait = (v: NodeView): ScreenWait => oldest(v.waits);
 
-export const oldestWait = (v: NodeView): HumanWait => oldest(v.waits);
+export const newestId = (waits: readonly ScreenWait[]): WaitId => Math.max(...waits.map((w) => w.id));
 
-export const newestId = (waits: readonly HumanWait[]): WaitId => Math.max(...waits.map((w) => w.id));
+export const pillClosed = (closed: WaitId | null, waits: readonly ScreenWait[]) => closed !== null && waits.every((w) => w.id <= closed);
 
-export const pillClosed = (closed: WaitId | null, waits: readonly HumanWait[]) => closed !== null && waits.every((w) => w.id <= closed);
-
-export const asking = (view: NodeView) => view.waits.filter((w) => toneOf(w.kind) === 'ask');
+export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask');
 
 export const minimapClass = (v: NodeView): string => {
-  if (v.waits.length > 0) return toneOf(oldestWait(v).kind);
+  if (v.waits.length > 0) return oldestWait(v).tone;
   return v.state.kind === 'exited' || v.state.kind === 'setupFailed' ? v.state.kind : '';
 };
 
-const TONES: readonly Tone[] = ['ask', 'done'];
+const TONES: readonly WaitTone[] = ['ask', 'done'];
 
-export const countsByTone = (waits: readonly HumanWait[]) => TONES.map((tone) => ({ tone, n: waits.filter((w) => toneOf(w.kind) === tone).length })).filter((c) => c.n > 0);
+export const countsByTone = (waits: readonly ScreenWait[]) => TONES.map((tone) => ({ tone, n: waits.filter((w) => w.tone === tone).length })).filter((c) => c.n > 0);
 
-export function NoticeBadges(props: { waits: readonly HumanWait[] }) {
+export function NoticeBadges(props: { waits: readonly ScreenWait[] }) {
   return (
     <>
       {countsByTone(props.waits).map(({ tone, n }) => {
@@ -76,10 +70,10 @@ export function NoticeChips(props: { view: NodeView }) {
   );
 }
 
-export function NoticeLead(props: { wait: HumanWait; waits: readonly HumanWait[] }) {
+export function NoticeLead(props: { wait: ScreenWait; waits: readonly ScreenWait[] }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const Icon = ICON[toneOf(wait.kind)];
+  const Icon = ICON[wait.tone];
   return (
     <>
       <Icon className="qicon" aria-hidden="true" />
@@ -90,8 +84,8 @@ export function NoticeLead(props: { wait: HumanWait; waits: readonly HumanWait[]
   );
 }
 
-export function NodeText(props: { name: string; wait: HumanWait }) {
-  const text = summaryOf(props.wait);
+export function NodeText(props: { name: string; wait: ScreenWait }) {
+  const text = props.wait.summary;
   return (
     <>
       <b>{props.name}</b>

@@ -5,11 +5,16 @@ import type { TextPart } from "./TextPart";
 import type { WaitDoc } from "./WaitDoc";
 import type { WaitId } from "./WaitId";
 import type { WaitKind } from "./WaitKind";
+import type { WaitTone } from "./WaitTone";
 
 /**
- * 화면에 보내는 대기 한 건.
+ * 화면에 보내는 대기: 저장한 대기와 데몬이 정한 표시 값.
  */
-export type HumanWait = { id: WaitId, kind: WaitKind, 
+export type ScreenWait = { tone: WaitTone, 
+/**
+ * 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글.
+ */
+summary: string, id: WaitId, kind: WaitKind, 
 /**
  * `loom ask` 질문과 완료는 전문, 다른 대기는 한 줄이다. 없으면 빈 글이고, 화면은 종류 이름만 보인다.
  */

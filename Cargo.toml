@@ -72,3 +72,6 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+[lints.rust]
+warnings = "deny"

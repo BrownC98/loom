@@ -209,6 +209,14 @@ impl App {
         }
     }
 
+    pub(super) fn turn_stopped(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<()> {
+        self.graph.attempted(id, Attempt::Deaf)?;
+        if self.graph.waking_mail(id)? {
+            self.recover(id);
+        }
+        Ok(())
+    }
+
     fn refused(&self, id: NodeId) {
         if let Err(e) = self.graph.attempted(id, Attempt::Deaf) {
             eprintln!("loom: 노드 {}의 살리기 시도를 적지 못했다: {e}", id.0);

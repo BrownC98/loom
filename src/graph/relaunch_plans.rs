@@ -258,6 +258,10 @@ impl Graph {
         }
     }
 
+    pub fn waking_mail(&self, node: NodeId) -> rusqlite::Result<bool> {
+        Ok(mailbox::newest(&self.lock(), node)?.is_some())
+    }
+
     pub fn mailed_since_attempt(&self, cause: Attempt) -> rusqlite::Result<Vec<NodeId>> {
         let db = self.lock();
         let held = db

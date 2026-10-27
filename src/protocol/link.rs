@@ -23,4 +23,5 @@ pub enum Report {
     Said { text: String, turn: Option<String> },
     QuestionBox,
     RateLimited,
+    TurnStopped { turn: Option<String> },
 }

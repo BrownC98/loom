@@ -17,7 +17,7 @@ file: string | null,
  */
 warning: string | null, } | { "kind": "note" } | { "kind": "ready", branch: string, head: string, worktree: string, target: string, } | { "kind": "verdict", branch: string, head: string, judgment: Judgment, findings: string | null, 
 /**
- * 판정한 노드의 실행자와 모델(`claude opus`).
+ * 판정한 노드의 실행자와 모델(`<에이전트> <모델>`).
  */
 reviewer: string | null, } | { "kind": "merged", branch: string, head: string, 
 /**

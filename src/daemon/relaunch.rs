@@ -13,8 +13,8 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::Site;
 use crate::graph::{
-    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan,
-    ProcessOutcome, Who,
+    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, Next, NodeId, Phase,
+    Plan, ProcessOutcome, Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::adapter::{Carry, ResumeError};
@@ -126,38 +126,15 @@ impl App {
     }
 
     fn drop_plan(&self, node: NodeId) {
-        self.change_plan(node, |_| (None, ()));
+        plan_written(node, self.graph.drop_relaunch(node));
     }
 
     fn finish_plan(&self, node: NodeId) {
-        self.change_plan(node, |now| match now.pending {
-            Some((phase, _)) if phase.started() => (None, ()),
-            kept => (kept, ()),
-        });
-    }
-
-    fn change_plan<R: Default>(
-        &self,
-        node: NodeId,
-        decide: impl FnOnce(crate::graph::Planned) -> (Option<(Phase, Plan)>, R),
-    ) -> R {
-        self.graph
-            .plan_relaunch(node, decide)
-            .inspect_err(|e| {
-                eprintln!(
-                    "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
-                    node.0
-                )
-            })
-            .unwrap_or_default()
+        plan_written(node, self.graph.finish_relaunch(node));
     }
 
     pub(super) fn process_ended(&self, node: NodeId) {
-        let dropped = self.change_plan(node, |now| match now.pending {
-            Some((Phase::AtTurnEnd, _)) => (None, true),
-            kept => (kept, false),
-        });
-        if dropped {
+        if plan_written(node, self.graph.drop_turn_end(node)) {
             eprintln!(
                 "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
                 node.0
@@ -245,16 +222,11 @@ impl App {
             Some(ProcessOutcome::HostGone) => HOST_GONE_NOTICE,
             _ => REVIVED_NOTICE,
         };
-        let running = self.change_plan(id, |now| match now.pending {
-            Some((phase, kept)) if phase.started() => (Some((phase, kept)), true),
-            _ => (Some((Phase::Running, plan.clone())), false),
-        });
-        if running {
-            return match plan {
-                Plan::Resume => Ok(Relaunched::Now),
-                Plan::Switch(_) => Err(Refusal::Relaunching(node.name).into()),
-            };
-        }
+        let plan = match self.graph.claim_revive(id, &plan).map_err(internal)? {
+            Next::Start(plan) => plan,
+            Next::Refuse => return Err(Refusal::Relaunching(node.name).into()),
+            Next::Keep | Next::Wait | Next::ReviveEnded => return Ok(Relaunched::Now),
+        };
         let who = Who {
             id: Some(id),
             name: node.name.clone(),
@@ -300,51 +272,33 @@ impl App {
     }
 
     async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, Problem> {
-        let queued = self
+        match self
             .graph
-            .plan_relaunch(node.id, |now| {
-                if now.ended {
-                    return (now.pending, Queued::Ended);
-                }
-                match (now.pending, &plan) {
-                    (Some((phase, kept)), Plan::Switch(_)) if phase.started() => {
-                        (Some((phase, kept)), Queued::Refused)
-                    }
-                    (Some((phase, kept)), Plan::Resume) => {
-                        (Some((phase, kept)), Queued::Kept(phase))
-                    }
-                    (Some((phase, _)), Plan::Switch(_)) => {
-                        (Some((phase, plan.clone())), Queued::Kept(phase))
-                    }
-                    (None, _) => {
-                        let phase = match now.busy {
-                            true => Phase::AtTurnEnd,
-                            false => Phase::Running,
-                        };
-                        (Some((phase, plan.clone())), Queued::Added(phase))
-                    }
-                }
-            })
-            .map_err(internal)?;
-        match queued {
-            Queued::Ended => self.revive_ended(node.id, plan).await,
-            Queued::Refused => Err(Refusal::Relaunching(node.name).into()),
-            Queued::Kept(Phase::AtTurnEnd) | Queued::Added(Phase::AtTurnEnd) => {
-                match self.run_unless_busy(node.id) {
-                    true => Ok(Relaunched::Now),
-                    false => Ok(Relaunched::AtTurnEnd),
-                }
-            }
-            Queued::Added(Phase::Running) => {
-                let app = self.clone();
-                tokio::spawn(async move { app.relaunch(node, plan, None).await })
-                    .await
-                    .map_err(internal)?
-                    .map_err(internal)?;
-                Ok(Relaunched::Now)
-            }
-            Queued::Kept(_) | Queued::Added(_) => Ok(Relaunched::Now),
+            .request_relaunch(node.id, &plan)
+            .map_err(internal)?
+        {
+            Next::ReviveEnded => self.revive_ended(node.id, plan).await,
+            Next::Refuse => Err(Refusal::Relaunching(node.name).into()),
+            Next::Wait => match self.run_unless_busy(node.id) {
+                true => Ok(Relaunched::Now),
+                false => Ok(Relaunched::AtTurnEnd),
+            },
+            Next::Start(plan) => self.relaunch_now(node, plan).await,
+            Next::Keep => Ok(Relaunched::Now),
         }
+    }
+
+    async fn relaunch_now(
+        self: &Arc<Self>,
+        node: Active,
+        plan: Plan,
+    ) -> Result<Relaunched, Problem> {
+        let app = self.clone();
+        tokio::spawn(async move { app.relaunch(node, plan, None).await })
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
+        Ok(Relaunched::Now)
     }
 
     pub(super) async fn relaunch_unserved(
@@ -364,36 +318,11 @@ impl App {
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
-        let claimed = self
-            .graph
-            .plan_relaunch(id, |now| match (now.ended, now.pending) {
-                (true, kept) => (kept, Queued::Ended),
-                (false, Some((Phase::AtTurnEnd, kept))) => {
-                    (Some((Phase::Running, kept)), Queued::Added(Phase::Running))
-                }
-                (false, None) => (
-                    Some((Phase::Running, Plan::Resume)),
-                    Queued::Added(Phase::Running),
-                ),
-                (false, Some((phase, kept))) => (Some((phase, kept)), Queued::Kept(phase)),
-            })
-            .map_err(internal)?;
-        match claimed {
-            Queued::Ended => return self.revive_ended(id, Plan::Resume).await,
-            Queued::Added(_) => {}
-            Queued::Kept(_) | Queued::Refused => return Ok(Relaunched::Now),
+        match self.graph.claim_unserved(id).map_err(internal)? {
+            Next::ReviveEnded => self.revive_ended(id, Plan::Resume).await,
+            Next::Start(plan) => self.relaunch_now(node, plan).await,
+            Next::Keep | Next::Wait | Next::Refuse => Ok(Relaunched::Now),
         }
-        let plan = self
-            .graph
-            .relaunch_plan(id)
-            .map_err(internal)?
-            .map_or(Plan::Resume, |(_, plan)| plan);
-        let app = self.clone();
-        tokio::spawn(async move { app.relaunch(node, plan, None).await })
-            .await
-            .map_err(internal)?
-            .map_err(internal)?;
-        Ok(Relaunched::Now)
     }
 
     pub(super) fn relaunch_stale(self: &Arc<Self>) -> rusqlite::Result<()> {
@@ -439,29 +368,22 @@ impl App {
     }
 
     pub(super) fn run_unless_busy(self: &Arc<Self>, node: NodeId) -> bool {
-        self.run_claimed(node, None, |now| !now.busy)
+        let claimed = plan_written(node, self.graph.claim_idle_turn_end(node));
+        self.run_claimed(node, None, claimed)
     }
 
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {
-        self.run_claimed(node, guard, |_| true);
+        let claimed = plan_written(node, self.graph.claim_turn_end(node));
+        self.run_claimed(node, guard, claimed);
     }
 
     fn run_claimed(
         self: &Arc<Self>,
         node: NodeId,
         guard: Option<Guard>,
-        ready: impl FnOnce(&crate::graph::Planned) -> bool,
+        claimed: Option<Plan>,
     ) -> bool {
-        let plan = self.change_plan(node, |now| {
-            let ready = ready(&now);
-            match now.pending {
-                Some((Phase::AtTurnEnd, plan)) if ready => {
-                    (Some((Phase::Running, plan.clone())), Some(plan))
-                }
-                kept => (kept, None),
-            }
-        });
-        let Some(plan) = plan else {
+        let Some(plan) = claimed else {
             return false;
         };
         let app = self.clone();
@@ -508,10 +430,7 @@ impl App {
     }
 
     pub(super) fn kept_at_turn_end(&self, node: NodeId) {
-        self.change_plan(node, |now| {
-            let next = now.pending.map(|(_, plan)| (Phase::AtTurnEnd, plan));
-            (next, ())
-        });
+        plan_written(node, self.graph.defer_relaunch(node));
         eprintln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
             node.0
@@ -921,11 +840,15 @@ impl App {
     }
 }
 
-enum Queued {
-    Ended,
-    Refused,
-    Kept(Phase),
-    Added(Phase),
+fn plan_written<R: Default>(node: NodeId, written: rusqlite::Result<R>) -> R {
+    written
+        .inspect_err(|e| {
+            eprintln!(
+                "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
+                node.0
+            )
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn profile_of(node: &Active) -> Option<Profile> {

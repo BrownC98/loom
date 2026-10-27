@@ -127,11 +127,11 @@ impl App {
         if let Some(arrival) = arrival {
             arrival.arrived();
         }
-        let alive = match self.graph.process(node) {
-            Ok(process) => process.is_none(),
+        let alive = match self.graph.relations(node) {
+            Ok(relations) => relations.me.alive,
             Err(e) => {
                 wait.finish(IdleEnd::Error);
-                return Err(for_agent(Refusal::from(e)));
+                return Err(for_agent(e));
             }
         };
         if !alive {

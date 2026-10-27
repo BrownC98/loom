@@ -533,6 +533,7 @@ impl App {
         };
         let at = LaunchAt {
             cwd,
+            site: &site,
             inside,
             env: &env,
             plugin: &plugin,

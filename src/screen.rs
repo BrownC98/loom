@@ -17,18 +17,15 @@ pub struct Dialog {
 
 pub enum Answer {
     Plain,
-    Press(&'static str),
     Below(Options),
-    InBox(Options),
     Panel(Options),
 }
 
 impl Dialog {
     fn grammar(&self) -> Option<Grammar> {
         let (top, options) = match self.answer {
-            Answer::Plain | Answer::Press(_) => return None,
+            Answer::Plain => return None,
             Answer::Below(options) => (Top::Line(self.text), options),
-            Answer::InBox(options) => (Top::Boxed(self.text), options),
             Answer::Panel(options) => (Top::PanelEdge, options),
         };
         Some(Grammar {
@@ -37,32 +34,6 @@ impl Dialog {
             guard: None,
             writes: &[],
         })
-    }
-
-    fn pressed(&self, screen: &str) -> Option<(usize, Prompt)> {
-        let Answer::Press(label) = self.answer else {
-            return None;
-        };
-        let lines: Vec<&str> = screen.lines().collect();
-        let top = lines.iter().rposition(|l| !l.trim().is_empty())?;
-        if !lines[top].contains(self.text) {
-            return None;
-        }
-        let line = lines[top].trim().to_owned();
-        Some((
-            top,
-            Prompt {
-                rows: vec![lines[top].to_owned()],
-                body: vec![line.clone()],
-                summary: line,
-                options: vec![PromptOption {
-                    label: label.to_owned(),
-                    key: PromptKey::Enter,
-                    writes: false,
-                }],
-                field: None,
-            },
-        ))
     }
 }
 
@@ -139,7 +110,6 @@ pub enum Top {
 pub enum Options {
     Numbered,
     Hinted,
-    Bracketed,
     Listed,
     Ticked,
 }
@@ -177,7 +147,6 @@ pub fn prompt(
         .copied()
         .chain(dialogs.iter().filter_map(Dialog::grammar))
         .filter_map(|g| read(&g, screen, width))
-        .chain(dialogs.iter().filter_map(|d| d.pressed(screen)))
         .rev()
         .max_by_key(|(top, _)| *top)
         .map(|(_, prompt)| prompt)
@@ -245,9 +214,7 @@ fn read(grammar: &Grammar, screen: &str, width: usize) -> Option<(usize, Prompt)
     };
     let run = match grammar.options {
         Options::Listed | Options::Ticked => listed(&grammar.options, &lines[top..])?,
-        Options::Numbered | Options::Hinted | Options::Bracketed => {
-            keyed(&grammar.options, &lines[top..], width)?
-        }
+        Options::Numbered | Options::Hinted => keyed(&grammar.options, &lines[top..], width)?,
     };
     let (first, end) = (top + run.first, top + run.end);
     let options = run.options;
@@ -264,9 +231,7 @@ fn read(grammar: &Grammar, screen: &str, width: usize) -> Option<(usize, Prompt)
             .map(|(o, _)| {
                 let label = match grammar.options {
                     Options::Numbered => without_hint(&o.label).to_owned(),
-                    Options::Hinted | Options::Bracketed | Options::Listed | Options::Ticked => {
-                        o.label
-                    }
+                    Options::Hinted | Options::Listed | Options::Ticked => o.label,
                 };
                 PromptOption {
                     writes: grammar.writes.iter().any(|w| label.starts_with(w)),
@@ -467,14 +432,6 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
             PromptOption {
                 label: label.to_owned(),
                 key: hint.split(" or ").find_map(hinted_key)?,
-                writes: false,
-            }
-        }
-        Options::Bracketed => {
-            let (hint, label) = unmarked.strip_prefix('[')?.split_once("] ")?;
-            PromptOption {
-                label: label.trim_end().to_owned(),
-                key: single_key(hint)?,
                 writes: false,
             }
         }

@@ -56,6 +56,7 @@ pub struct Command<'a> {
 
 pub struct LaunchAt<'a> {
     pub cwd: &'a Path,
+    pub site: &'a Site,
     pub inside: Option<&'a Inside>,
     pub env: &'a [(&'static str, OsString)],
     pub plugin: &'a Path,

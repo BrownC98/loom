@@ -672,6 +672,12 @@ const en = {
       briefTooLong: 'The first prompt is {{len}} bytes. Keep it to {{limit}} bytes or less and give a file path for longer material.',
       helper: 'Could not start `{{program}}`: {{cause}}',
       noBrief: '{{value}} does not take a first prompt. Leave it empty, create the node, then type in its terminal.',
+      notLoggedIn: '`{{command}}` is not logged in. Run `{{command}} login` in a terminal, then start the node again.',
+      notLoggedIn_wsl: '`{{command}}` is not logged in in WSL · {{distro}}. Run `{{command}} login` in that distro, then start the node again.',
+      loginCheckNoReply: 'The login check `{{command}}` did not answer in {{secs}} s. Start the node again later.',
+      loginCheckNoReply_wsl: 'The login check `{{command}}` in WSL · {{distro}} did not answer in {{secs}} s. Start the node again later.',
+      loginCheckUnreadable: 'Could not read the answer of the login check `{{command}}`. Update the CLI, then start the node again.',
+      loginCheckUnreadable_wsl: 'Could not read the answer of the login check `{{command}}` in WSL · {{distro}}. Update the CLI in that distro, then start the node again.',
       noModelChoice: '{{agent}} does not take this model or effort. These take both: {{free}}. These take a model with an optional effort: {{effortNeedsModel}}.',
     },
     wsl: {

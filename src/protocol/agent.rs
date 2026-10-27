@@ -60,6 +60,23 @@ pub enum LaunchError {
     },
     /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoBrief(String),
+    /// 에이전트 CLI가 로그인하지 않았다고 답했다. `command`는 그 CLI, `distro`는 WSL 노드의 배포판이다.
+    NotLoggedIn {
+        command: String,
+        distro: Option<String>,
+    },
+    /// 띄우기 전 로그인 검사 `command`가 `secs`초 안에 답하지 않았다. `distro`는 WSL 노드의 배포판이다.
+    LoginCheckNoReply {
+        command: String,
+        distro: Option<String>,
+        #[ts(type = "number")]
+        secs: u64,
+    },
+    /// 띄우기 전 로그인 검사 `command`의 답을 읽지 못했다. `distro`는 WSL 노드의 배포판이다.
+    LoginCheckUnreadable {
+        command: String,
+        distro: Option<String>,
+    },
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. `agent`는 그 이름, `free`는 둘을 다 받는 에이전트, `effortNeedsModel`은 모델이 있을 때만 추론 강도를 받는 에이전트다.
     #[serde(rename_all = "camelCase")]
     NoModelChoice {
@@ -69,6 +86,13 @@ pub enum LaunchError {
     },
     /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
     Wsl(InsideError),
+}
+
+fn in_distro(distro: &Option<String>) -> String {
+    distro
+        .as_ref()
+        .map(|d| format!(" in WSL · {d}"))
+        .unwrap_or_default()
 }
 
 impl std::fmt::Display for LaunchError {
@@ -114,6 +138,34 @@ impl std::fmt::Display for LaunchError {
             LaunchError::NoBrief(agent) => write!(
                 f,
                 "{agent}: does not take a brief. Start it without a brief and type into its terminal."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: None,
+            } => write!(
+                f,
+                "`{command}` is not logged in. Run `{command} login` in a terminal, then start the node again."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "`{command}` is not logged in in WSL · {distro}. Run `{command} login` in that distro, then start the node again."
+            ),
+            LaunchError::LoginCheckNoReply {
+                command,
+                distro,
+                secs,
+            } => write!(
+                f,
+                "The login check `{command}`{} did not answer in {secs} s. Start the node again later.",
+                in_distro(distro)
+            ),
+            LaunchError::LoginCheckUnreadable { command, distro } => write!(
+                f,
+                "Could not read the answer of the login check `{command}`{}. Update the CLI, then start the node again.",
+                in_distro(distro)
             ),
         }
     }

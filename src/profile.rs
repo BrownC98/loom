@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod claude;
 pub mod codex;
 pub mod cursor;
+mod lines;
 pub mod omp;
 pub mod opencode2;
 pub mod pi;
@@ -17,8 +18,9 @@ use ts_rs::TS;
 
 use crate::accounts::Cli;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
-    Prompt as ScreenPrompt, Provider, Report, Session, StartDigests, WaitKind,
+    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, MessageId, ModelChoice,
+    OpenQuestion, Prompt as ScreenPrompt, Provider, Refusal, Report, Session, StartDigests,
+    WaitKind,
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
@@ -104,7 +106,28 @@ pub enum HookEntry {
 
 pub enum Hook {
     Once(fn(serde_json::Value) -> Result<Box<dyn HookEvent>, serde_json::Error>),
-    Lines,
+    Lines(fn(&str) -> Result<Box<dyn LineEvent>, Unserved>),
+}
+
+pub enum Served<'a> {
+    Hook,
+    Ack(&'a [MessageId]),
+    Interrupt,
+    Close(u64),
+}
+
+pub trait LineEvent: HookEvent + Send {
+    fn id(&self) -> Option<u64>;
+    fn served(&self) -> Served<'_>;
+    fn acked(&self) -> String;
+    fn interrupted(&self) -> String;
+    fn failed(&self, error: String) -> String;
+}
+
+pub struct Unserved {
+    pub reply: Option<String>,
+    pub error: String,
+    pub extension: &'static str,
 }
 
 pub fn hook(entry: HookEntry) -> Hook {
@@ -112,7 +135,7 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
-        HookEntry::Pi | HookEntry::Omp => Hook::Lines,
+        HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
     }
 }
 
@@ -458,6 +481,31 @@ pub fn linked(id: &AgentId) -> bool {
     profile_of(id).is_some()
 }
 
+fn linked_agents() -> impl Iterator<Item = &'static Agent> {
+    CATALOG.iter().filter(|a| a.profile.is_some())
+}
+
+pub fn not_steerable(name: String) -> Refusal {
+    Refusal::NotSteerable {
+        name,
+        linked: linked_agents().map(|a| a.label.clone()).collect(),
+    }
+}
+
+pub fn no_link(agent: AgentId) -> Refusal {
+    Refusal::NoLink {
+        agent: agent.0,
+        linked: linked_agents().map(|a| a.id.0.clone()).collect(),
+    }
+}
+
+fn labels_of(rule: ModelRule) -> Vec<String> {
+    linked_agents()
+        .filter(|a| model_rule(a.profile) == rule)
+        .map(|a| a.label.clone())
+        .collect()
+}
+
 #[derive(Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -657,7 +705,11 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
     agent
         .profile
         .and_then(|p| adapter(p).choice_args(choice))
-        .ok_or_else(|| LaunchError::NoModelChoice(agent.label.clone()))
+        .ok_or_else(|| LaunchError::NoModelChoice {
+            agent: agent.label.clone(),
+            free: labels_of(ModelRule::Free),
+            effort_needs_model: labels_of(ModelRule::EffortNeedsModel),
+        })
 }
 
 pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {

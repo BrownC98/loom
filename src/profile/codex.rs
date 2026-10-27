@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Carry, Chosen, Facts, LaunchAt, Logins, Port, Record, ResumeError, Started};
+use super::adapter::{
+    Carry, Chosen, Facts, LaunchAt, Logins, Port, Record, ResumeError, Started, TurnTake,
+};
 use super::process::Served;
 use super::{ModelRule, VersionMismatch};
 use crate::accounts::Cli;
@@ -93,6 +95,7 @@ impl super::adapter::Adapter for Codex {
             logins: Logins::Many(&CLI, &Codex),
             sleeps: true,
             listens_at_start: true,
+            turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: Some(CMD),
             usage_part: "usage/codex",

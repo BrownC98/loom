@@ -6,6 +6,6 @@ import type { PromptKey } from "./PromptKey";
  */
 export type PromptOption = { label: string, key: PromptKey, 
 /**
- * 글로 답하는 선택지(「Tell Claude what to change」, 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
+ * 글로 답하는 선택지(예: 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
  */
 writes: boolean, };

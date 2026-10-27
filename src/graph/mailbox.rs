@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::{
-    Graph, HUMAN, NodeId, NodeState, Phase, REACHABLE, Toward, Work, ambiguous, from_json,
+    Graph, HUMAN, Hold, NodeId, NodeState, REACHABLE, Toward, Work, ambiguous, from_json,
     optional_json, parent_of, set_work, state_of, to_json,
 };
 use super::{hosts, waits};
@@ -289,7 +289,7 @@ impl Graph {
         loop {
             let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
-            let taken = self.take(node, kinds, limit_bytes)?;
+            let taken = self.take(node, kinds, limit_bytes, Hold::Started)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -311,8 +311,9 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
+        hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, &Phase::STARTED, |_| true)
+        self.take_if(node, kinds, limit_bytes, hold, |_| true)
     }
 
     pub fn take_waking(
@@ -320,9 +321,9 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
-        held_by: &[Phase],
+        hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, held_by, |wakes| {
+        self.take_if(node, kinds, limit_bytes, hold, |wakes| {
             wakes.contains(&true)
         })
     }
@@ -332,14 +333,14 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
-        held_by: &[Phase],
+        hold: Hold,
         wanted: impl FnOnce(&[bool]) -> bool,
     ) -> Result<Vec<Delivery>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let kinds = serde_json::to_string(&kinds.iter().map(to_json).collect::<Vec<_>>())
             .expect("문자열 목록은 늘 직렬화된다");
-        let held_by = serde_json::to_string(&held_by.iter().map(to_json).collect::<Vec<_>>())
+        let held = serde_json::to_string(&hold.phases().iter().map(to_json).collect::<Vec<_>>())
             .expect("문자열 목록은 늘 직렬화된다");
         let (queued, wakes): (Vec<Delivery>, Vec<bool>) = tx
             .prepare(&format!(
@@ -352,7 +353,7 @@ impl Graph {
                  ORDER BY id",
                 wakes()
             ))?
-            .query_map(params![node.0, kinds, held_by], |row| {
+            .query_map(params![node.0, kinds, held], |row| {
                 Ok((read_delivery(row)?, row.get::<_, bool>(5)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?

@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError};
+use super::adapter::{
+    Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError, TurnTake,
+};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
@@ -34,6 +36,7 @@ const RUNNING_STATUS: &str = "esc to interrupt";
 const TRANSCRIPT_DEPTH: usize = 3;
 const CLI_WAIT: Duration = Duration::from_secs(20);
 const NO_RECORD: &str = "이어 갈 Claude 세션 기록이 없다";
+const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -76,6 +79,7 @@ impl Adapter for Claude {
             logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/claude",
@@ -116,6 +120,12 @@ impl Adapter for Claude {
             empty: input(&screen.undimmed) == Some(""),
             turn_shown: turn_shown(&screen.text),
         })
+    }
+
+    fn install(&self, dir: &Path) -> std::io::Result<()> {
+        let manifest = dir.join(".claude-plugin");
+        std::fs::create_dir_all(&manifest)?;
+        std::fs::write(manifest.join("plugin.json"), MANIFEST)
     }
 
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {

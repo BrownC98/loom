@@ -76,7 +76,7 @@ pub enum InputField {
 pub struct PromptOption {
     pub label: String,
     pub key: PromptKey,
-    /// 글로 답하는 선택지(「Tell Claude what to change」, 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
+    /// 글로 답하는 선택지(예: 「Other」). 화면은 입력칸을 붙이고, 데몬은 이 선택지로 옮긴 뒤 글과 Enter를 친다(2026-10-27 목업 M29 v1 승인).
     #[serde(default)]
     pub writes: bool,
 }
@@ -94,7 +94,7 @@ pub enum PromptKey {
     Reply(String),
     /// 번호 없는 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Enter. 아래가 양수다(숫자 키를 받지 않는 창이 있다).
     Move(i8),
-    /// 체크 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Space로 고르고 Enter(Cursor 2026.10.22 질문 상자 실측: Enter만으로는 보내지 않는다).
+    /// 체크 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Space로 고르고 Enter(2026.10.22 질문 상자 실측: Enter만으로는 보내지 않는다).
     Tick(i8),
     /// 셸 물음: 이 글과 Enter.
     Line(String),

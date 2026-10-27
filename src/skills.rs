@@ -11,8 +11,6 @@ use ts_rs::TS;
 #[folder = "skills"]
 struct Files;
 
-const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
-
 pub struct Plugin(PathBuf);
 
 impl Plugin {
@@ -21,10 +19,6 @@ impl Plugin {
         for on in AlwaysOn::all() {
             let dir = plugin.dir(on);
             let _ = std::fs::remove_dir_all(&dir);
-            write(
-                &dir.join(".claude-plugin").join("plugin.json"),
-                MANIFEST.as_bytes(),
-            )?;
             for name in Files::iter().filter(|name| on.has(skill_of(name))) {
                 let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
                 write(&dir.join("skills").join(name.as_ref()), &file.data)?;

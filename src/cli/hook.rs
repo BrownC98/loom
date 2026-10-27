@@ -7,7 +7,8 @@ use super::endpoint::Close;
 use super::{call, interrupt_arrived, wait_until_mail};
 use crate::daemon::Relaunched;
 use crate::profile::{
-    BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, Shown, Signals, Take, pi,
+    BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, LineEvent, Served, Shown, Signals, Take,
+    Unserved,
 };
 use crate::protocol::{
     AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, TakeRequest, Taken,
@@ -24,7 +25,7 @@ pub fn hook(entry: HookEntry) -> Result<(), String> {
                 .map_err(|e| format!("hook input: {e}"))?;
             once(&*event)
         }
-        Hook::Lines => lines(),
+        Hook::Lines(parse) => lines(parse),
     }
 }
 
@@ -37,65 +38,68 @@ fn once(event: &dyn HookEvent) -> Result<(), String> {
     Ok(())
 }
 
-fn lines() -> Result<(), String> {
+fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), String> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
     let waits: Arc<Mutex<HashMap<u64, Close>>> = Arc::default();
     for line in std::io::stdin().lines() {
         let line = line.map_err(|e| format!("hook input: {e}"))?;
-        let request = match pi::request(&line) {
+        let request = match parse(&line) {
             Ok(request) => request,
             Err(refused) => return unserved(refused, &out),
         };
         let out = out.clone();
         let send = move |line: String| send_line(&out, line);
-        let Some(id) = request.id else {
-            return run(&request, |shown| send(shown.out.unwrap_or_default()))
+        let Some(id) = request.id() else {
+            return run(&*request, |shown| send(shown.out.unwrap_or_default()))
                 .map(|(_, unacked)| unacked.acknowledge());
         };
         let close = Close::default();
-        if let pi::Served::Interrupt = request.event.served() {
+        if let Served::Interrupt = request.served() {
             waits.lock().unwrap().insert(id, close.clone());
         }
         let waits = waits.clone();
         std::thread::spawn(move || {
-            let served = match request.event.served() {
-                pi::Served::Ack(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
+            let served = match request.served() {
+                Served::Ack(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
                     .map_err(String::from)
-                    .and_then(|()| send(pi::acked(id).line())),
-                pi::Served::Close(of) => {
+                    .and_then(|()| send(request.acked())),
+                Served::Close(of) => {
                     if let Some(close) = waits.lock().unwrap().remove(&of) {
                         close.close();
                     }
-                    send(pi::acked(id).line())
+                    send(request.acked())
                 }
-                pi::Served::Interrupt => {
+                Served::Interrupt => {
                     let arrived = interrupt_arrived(close.clone());
                     waits.lock().unwrap().remove(&id);
                     match arrived {
-                        Ok(true) => send(pi::interrupted(id).line()),
-                        Ok(false) => send(pi::acked(id).line()),
-                        Err(_) if close.closed() => send(pi::acked(id).line()),
+                        Ok(true) => send(request.interrupted()),
+                        Ok(false) => send(request.acked()),
+                        Err(_) if close.closed() => send(request.acked()),
                         Err(e) => Err(e),
                     }
                 }
-                pi::Served::Hook => {
-                    run(&request, |shown| send(shown.out.unwrap_or_default())).map(drop)
+                Served::Hook => {
+                    run(&*request, |shown| send(shown.out.unwrap_or_default())).map(drop)
                 }
             };
             if let Err(e) = served {
-                let _ = send(pi::failed(Some(id), e).line());
+                let _ = send(request.failed(e));
             }
         });
     }
     Ok(())
 }
 
-fn unserved(unserved: pi::Unserved, out: &Mutex<std::io::Stdout>) -> Result<(), String> {
-    if unserved.id.is_some() {
-        send_line(out, pi::failed(unserved.id, unserved.error.clone()).line())?;
+fn unserved(unserved: Unserved, out: &Mutex<std::io::Stdout>) -> Result<(), String> {
+    if let Some(reply) = unserved.reply {
+        send_line(out, reply)?;
     }
     let relaunch = match call::<Relaunched>("relaunch-unserved", &(), Some(CALL_LIMIT)) {
-        Ok(_) => "loom relaunches this node with the current pi extension".to_owned(),
+        Ok(_) => format!(
+            "loom relaunches this node with the current {}",
+            unserved.extension
+        ),
         Err(e) => format!("loom could not relaunch this node: {e}"),
     };
     Err(format!("{}. {relaunch}.", unserved.error))

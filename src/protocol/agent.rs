@@ -60,8 +60,13 @@ pub enum LaunchError {
     },
     /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoBrief(String),
-    /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
-    NoModelChoice(String),
+    /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. `agent`는 그 이름, `free`는 둘을 다 받는 에이전트, `effortNeedsModel`은 모델이 있을 때만 추론 강도를 받는 에이전트다.
+    #[serde(rename_all = "camelCase")]
+    NoModelChoice {
+        agent: String,
+        free: Vec<String>,
+        effort_needs_model: Vec<String>,
+    },
     /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
     Wsl(InsideError),
 }
@@ -95,9 +100,15 @@ impl std::fmt::Display for LaunchError {
             LaunchError::Helper { program, cause } => {
                 write!(f, "Could not start `{program}`: {cause}")
             }
-            LaunchError::NoModelChoice(agent) => write!(
+            LaunchError::NoModelChoice {
+                agent,
+                free,
+                effort_needs_model,
+            } => write!(
                 f,
-                "{agent}: does not take this `--model` or `--effort` (Claude, Codex and Pi take both, Cursor takes `--model` with an optional `--effort`). Fix them and try again."
+                "{agent}: does not take this `--model` or `--effort` (these take both: {}; these take `--model` with an optional `--effort`: {}). Fix them and try again.",
+                free.join(", "),
+                effort_needs_model.join(", ")
             ),
             LaunchError::Wsl(e) => e.fmt(f),
             LaunchError::NoBrief(agent) => write!(

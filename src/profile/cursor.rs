@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record};
+use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record, TurnTake};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
@@ -202,6 +202,7 @@ impl Adapter for Cursor {
             logins: Logins::One(&Cursor),
             sleeps: true,
             listens_at_start: false,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::EffortNeedsModel,
             pinned: None,
             usage_part: "usage/cursor",

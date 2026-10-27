@@ -16,7 +16,7 @@ pub fn open(path: &Path) -> io::Result<()> {
     }
     let host = Host::current();
     let target = match host {
-        Host::Wsl => windows_path(path)?,
+        Host::Wsl => crate::wsl::interop_path(path)?.into(),
         Host::Windows => backslashes(path),
         _ => path.as_os_str().to_owned(),
     };
@@ -110,14 +110,4 @@ fn is_wsl() -> bool {
         || ["WSLInterop", "WSLInterop-late"]
             .iter()
             .any(|name| Path::new("/proc/sys/fs/binfmt_misc").join(name).exists())
-}
-
-fn windows_path(path: &Path) -> io::Result<OsString> {
-    let out = Command::new("wslpath").arg("-w").arg(path).output()?;
-    if !out.status.success() {
-        return Err(io::Error::other(
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        ));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim_end().into())
 }

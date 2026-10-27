@@ -50,6 +50,10 @@ pub fn location(path: &str) -> Option<WslPath> {
     })
 }
 
+pub fn linux_of(path: &str) -> String {
+    location(path).map_or_else(|| path.to_owned(), |inside| inside.path)
+}
+
 pub fn of(dir: &Path) -> Option<WslPath> {
     if !cfg!(windows) {
         return None;
@@ -64,15 +68,22 @@ pub fn windows_path(distro: &str, linux: &str) -> String {
     )
 }
 
-fn interop_path(distro: &str, linux: &str) -> String {
-    std::process::Command::new("wslpath")
+pub fn interop_path(linux: &Path) -> std::io::Result<String> {
+    let out = std::process::Command::new("wslpath")
         .arg("-w")
         .arg(linux)
-        .output()
+        .output()?;
+    if !out.status.success() {
+        return Err(std::io::Error::other(
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_owned())
+}
+
+fn daemon_path(distro: &str, linux: &str) -> String {
+    interop_path(Path::new(linux))
         .ok()
-        .filter(|out| out.status.success())
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .map(|path| path.trim_end_matches('\n').to_owned())
         .filter(|path| !path.is_empty())
         .unwrap_or_else(|| windows_path(distro, linux))
 }
@@ -99,14 +110,14 @@ fn linux(path: &Path) -> Option<&str> {
 
 pub fn for_daemon(path: PathBuf) -> PathBuf {
     match (daemon_distro(), linux(&path)) {
-        (Some(distro), Some(linux)) => verbatim(&interop_path(&distro, linux)).into(),
+        (Some(distro), Some(linux)) => verbatim(&daemon_path(&distro, linux)).into(),
         _ => path,
     }
 }
 
 pub fn cwd_for_daemon(dir: PathBuf) -> PathBuf {
     match (daemon_distro(), linux(&dir)) {
-        (Some(distro), Some(linux)) => interop_path(&distro, linux).into(),
+        (Some(distro), Some(linux)) => daemon_path(&distro, linux).into(),
         _ => from_caller(dir),
     }
 }

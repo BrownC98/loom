@@ -182,8 +182,7 @@ impl App {
                 target,
             });
         }
-        let worktree =
-            crate::wsl::location(&mine.path).map_or_else(|| mine.path.clone(), |w| w.path);
+        let worktree = crate::wsl::linux_of(&mine.path);
         let round = Round {
             branch,
             target: &target,

@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError};
+use super::adapter::{
+    Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError, TurnTake,
+};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
 use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
@@ -77,6 +79,7 @@ impl Adapter for Claude {
             logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/claude",

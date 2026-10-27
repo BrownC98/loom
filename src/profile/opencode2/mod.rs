@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Chosen, Facts, LaunchAt, Logins, Port, Record, Started};
+use super::adapter::{Chosen, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::process::Served;
 use super::{ModelRule, VersionMismatch};
 use crate::protocol::{
@@ -47,6 +47,7 @@ impl super::adapter::Adapter for OpenCode2 {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
+            turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Fixed,
             pinned: Some(CMD),
             usage_part: "usage/opencode2",

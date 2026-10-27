@@ -1,6 +1,5 @@
 use super::runtime::bearer;
 use super::*;
-use crate::graph::Phase;
 use crate::process_tree::Identity;
 
 pub(super) fn node_routes() -> Router<Arc<App>> {
@@ -269,7 +268,7 @@ async fn agent_interrupt(
     headers: HeaderMap,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.next_mail(node, &[Kind::Interrupt], &Phase::STARTED)
+    app.take_in_turn(node, &[Kind::Interrupt])
         .await
         .map_err(for_agent)?;
     Ok(Json(()))

@@ -3,7 +3,7 @@ use std::path::Path;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Command, Facts, Logins, Record};
+use super::adapter::{Adapter, Command, Facts, Logins, Record, TurnTake};
 use super::{LineEvent, ModelRule, Unserved};
 use crate::protocol::{ModelChoice, Session};
 use crate::screen::{Dialog, Grammar};
@@ -34,6 +34,7 @@ impl Adapter for Pi {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/pi",

@@ -9,7 +9,7 @@ import { DocText } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { Choice } from './gen/Choice';
-import type { HumanWait } from './gen/HumanWait';
+import type { ScreenWait } from './gen/ScreenWait';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
@@ -160,7 +160,7 @@ function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>
   );
 }
 
-function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onClose: () => void }) {
+function PillHead(props: { node: NodeView; wait: ScreenWait; waits: readonly ScreenWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onClose: () => void }) {
   const { t } = useTranslation();
   const { wait, open } = props;
   return (
@@ -223,7 +223,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
   );
 }
 
-function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFocus: () => void }) {
+function WaitRow(props: { node: NodeId; wait: ScreenWait; onGo: () => void; onFocus: () => void }) {
   return (
     <li
       className="wait-row"
@@ -238,7 +238,7 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
   );
 }
 
-function WaitEntry(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
+function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const Icon = ICON[wait.tone];
@@ -257,7 +257,7 @@ function WaitEntry(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   );
 }
 
-function Published(props: { wait: HumanWait }) {
+function Published(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
   const at = props.wait.since * 1000;
   return <time className="published" dateTime={new Date(at).toISOString()}>{t('inbox.published', { time: dateAndTime(at) })}</time>;
@@ -304,7 +304,7 @@ function ConfirmButton(props: { wait: WaitId }) {
   );
 }
 
-function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
+function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const { prompt } = wait;

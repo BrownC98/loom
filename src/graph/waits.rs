@@ -24,9 +24,8 @@ pub enum WaitSource {
     Server,
 }
 
-/// 화면에 보내는 대기 한 건.
+/// DB에 두는 대기 한 건.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct HumanWait {
     pub id: WaitId,
     pub kind: WaitKind,
@@ -55,26 +54,31 @@ pub struct HumanWait {
     /// 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<Choice>,
-    /// 화면에 보낼 때만 채운다(`for_screen`).
-    #[serde(default)]
+}
+
+/// 화면에 보내는 대기: 저장한 대기와 데몬이 정한 표시 값.
+#[derive(Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ScreenWait {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub wait: HumanWait,
     pub tone: WaitTone,
-    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글. 화면에 보낼 때만 채운다(`for_screen`).
-    #[serde(default)]
+    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글.
     pub summary: String,
 }
 
 /// 대기의 색과 아이콘, 알림 채널.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize, TS)]
+#[derive(Clone, Copy, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum WaitTone {
-    #[default]
     Ask,
     Done,
 }
 
 impl HumanWait {
-    pub(super) fn for_screen(self) -> HumanWait {
+    pub(super) fn for_screen(self) -> ScreenWait {
         let parts = parts(&self.text);
         let summary = match &self.prompt {
             Some(prompt) => prompt.summary.clone(),
@@ -86,16 +90,15 @@ impl HumanWait {
                 })
                 .collect(),
         };
-        HumanWait {
-            tone: match self.kind {
-                WaitKind::Question
-                | WaitKind::Approval
-                | WaitKind::Trust
-                | WaitKind::Auth
-                | WaitKind::Input => WaitTone::Ask,
-                WaitKind::Done => WaitTone::Done,
-            },
-            summary,
+        let tone = match self.kind {
+            WaitKind::Question
+            | WaitKind::Approval
+            | WaitKind::Trust
+            | WaitKind::Auth
+            | WaitKind::Input => WaitTone::Ask,
+            WaitKind::Done => WaitTone::Done,
+        };
+        let wait = HumanWait {
             parts,
             choices: match self.kind {
                 WaitKind::Question => choices(&self.text),
@@ -106,6 +109,11 @@ impl HumanWait {
                 | WaitKind::Done => Vec::new(),
             },
             ..self
+        };
+        ScreenWait {
+            wait,
+            tone,
+            summary,
         }
     }
 }
@@ -547,8 +555,6 @@ fn new_wait(
         prompt: None,
         parts: Vec::new(),
         choices: Vec::new(),
-        tone: WaitTone::default(),
-        summary: String::new(),
     })
 }
 

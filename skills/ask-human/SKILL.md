@@ -14,7 +14,7 @@ The loom inbox shows the human only questions in this form.
 - Rule/structure change: give each option a "now → after" example.
 - Give a yes/no question the tail too: `(A: Yes / B: No, Recommended: A)`. Without it, the inbox shows no buttons.
 - Write a document for the human (mockup, report) with user-doc. Check it with `show.sh` and attach it with `--doc <file>`. The human cannot open a path in text. Do not open the human's browser.
-  - A markdown link to that file becomes the document link. The link text is the document's `<h1>` (the heading at the top of the page), not a label of your own. Put a version after the link: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. loom refuses other link text. Without a link, loom adds one at the end.
+  - A markdown link to that file becomes the document link. The link text is the document's `<h1>` (the heading at the top of the page), not a label of your own. Put a version after the link: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. loom drops `[` and `]` from the `<h1>` and refuses other link text. Without a link, loom adds one at the end.
 - In question and done text, put URLs and absolute paths only in markdown links.
 - After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox or your terminal.
 - Ask each question of a set with its own `loom ask`. Earlier questions stay open.

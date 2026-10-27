@@ -398,13 +398,14 @@ pub(super) async fn agent_ask(
     }
     let asked = match unchecked_link(&app.graph, node, &req.question) {
         Ok(Some(link)) => Err(Refusal::UncheckedDoc(link)),
-        Ok(None) => attach(req.doc.as_deref()),
+        Ok(None) => req
+            .doc
+            .as_deref()
+            .map_or(Ok(()), |path| user_doc::doc_label(&req.question, path))
+            .and_then(|()| attach(req.doc.as_deref())),
         Err(e) => Err(e),
     }
     .and_then(|doc| {
-        if let Some(path) = req.doc.as_deref() {
-            user_doc::doc_label(&req.question, path)?;
-        }
         let id = app.graph.ask(node, &req.question, doc.clone())?;
         let open = app.graph.open_questions(node)?;
         Ok(AskResult::Inbox(Asked {

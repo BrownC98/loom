@@ -57,6 +57,6 @@ In a report:
    - `show.sh` calls `loom show <file>`. It checks the form (title, light default, toggle button, head line) and adds the document ID. If the check fails, send the document back to the author.
    - It keeps a render made with headless Chromium. The node that asks looks at that render.
    - On a computer without bash (a Windows node), call only `loom show <file>`.
-3. Attach the document to the question: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. The link text is the document's `<h1>`. A version or other words go after the link. loom refuses other link text. The link in the text becomes the document link. Without a link, loom adds "M3 <title>" at the end. When the human clicks it, the daemon opens it in the default browser. For a new version, write the same path, run `show.sh` again and ask again with `loom ask --doc`.
+3. Attach the document to the question: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. The link text is the document's `<h1>`. A version or other words go after the link. loom drops `[` and `]` from the `<h1>` and refuses other link text. The link in the text becomes the document link. Without a link, loom adds "M3 <title>" at the end. When the human clicks it, the daemon opens it in the default browser. For a new version, write the same path, run `show.sh` again and ask again with `loom ask --doc`.
 4. Outside loom (no inbox), give the human a link to the file.
 5. In chat, write a summary in the human's language, a markdown link to the file and the open decisions. Do not copy the full tables into chat.

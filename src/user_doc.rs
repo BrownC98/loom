@@ -161,12 +161,48 @@ fn h1(html: &str) -> Option<String> {
             _ => {}
         }
     }
-    let bare = bare
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&");
+    let bare = entities(&bare).replace(['[', ']'], "");
     Some(words(&bare)).filter(|h1| !h1.is_empty())
+}
+
+fn entities(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let entity = rest.find(';').map(|end| (&rest[1..end], end + 1));
+        let decoded = entity.and_then(|(name, len)| {
+            let c = match name {
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "amp" => Some('&'),
+                "nbsp" => Some(' '),
+                _ => match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok().and_then(char::from_u32),
+                    None => name
+                        .strip_prefix('#')
+                        .and_then(|dec| dec.parse().ok())
+                        .and_then(char::from_u32),
+                },
+            };
+            c.map(|c| (c, len))
+        });
+        match decoded {
+            Some((c, len)) => {
+                out.push(c);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn words(text: &str) -> String {

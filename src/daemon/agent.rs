@@ -284,6 +284,12 @@ impl App {
                 }
                 Ok(())
             }
+            Report::TurnStopped { turn } => {
+                self.feed(node, AgentEvent::TurnEnded);
+                self.run_at_turn_end(node, None);
+                self.turn_ends.stopped(node, turn.as_deref());
+                self.turn_stopped(node)
+            }
         };
         if let Err(e) = written {
             eprintln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);

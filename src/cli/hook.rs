@@ -8,11 +8,10 @@ use serde::Deserialize;
 use super::endpoint::Close;
 use super::{call, interrupt_arrived, wait_until_mail};
 use crate::daemon::{
-    AckRequest, EndedTurn, HookWaitRequest, IdleReply, IdleRequest, Relaunched, SaidRequest,
-    TakeRequest, Taken,
+    AckRequest, EndedTurn, IdleReply, IdleRequest, Relaunched, TakeRequest, Taken,
 };
 use crate::profile::{
-    BATCH_LIMIT_BYTES, Handed, HookEvent, Report, Shown, Signals, Take, claude, cursor, pi,
+    BATCH_LIMIT_BYTES, Handed, HookEvent, Shown, Signals, Take, claude, cursor, pi,
 };
 use crate::protocol::MessageId;
 use crate::wsl::REWAKE_EXIT;
@@ -179,13 +178,10 @@ fn run(
     write: impl FnOnce(Shown) -> Result<(), String>,
 ) -> Result<(bool, Unacked), String> {
     let mut signals = event.signals();
-    if let Some(model) = &signals.model
-        && let Err(e) = call::<()>("model", model, Some(CALL_LIMIT))
-    {
-        eprintln!("loom: could not report the model: {e}");
-    }
     for report in std::mem::take(&mut signals.reports) {
-        send_report(report, signals.turn.clone());
+        if let Err(e) = call::<()>("report", &report, Some(CALL_LIMIT)) {
+            eprintln!("loom: could not report to loom: {e}");
+        }
     }
     let (handed, ack_limit) = match step(&signals) {
         Step::Skip => {
@@ -218,26 +214,6 @@ fn run(
         limit: ack_limit,
     };
     Ok((rewake, unacked))
-}
-
-fn send_report(report: Report, turn: Option<String>) {
-    let (what, sent) = match report {
-        Report::Wait(wait) => (
-            "the human wait",
-            call::<()>("hook-wait", &HookWaitRequest { wait }, Some(CALL_LIMIT)),
-        ),
-        Report::Said(text) => (
-            "the reply",
-            call::<()>("said", &SaidRequest { text, turn }, Some(CALL_LIMIT)),
-        ),
-        Report::QuestionBox => (
-            "the question box",
-            call::<()>("question-box", &(), Some(CALL_LIMIT)),
-        ),
-    };
-    if let Err(e) = sent {
-        eprintln!("loom: could not report {what}: {e}");
-    }
 }
 
 fn interrupt_pending() -> bool {

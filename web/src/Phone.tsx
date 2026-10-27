@@ -9,7 +9,7 @@ import { bookmarkToggle } from './BookmarkButton';
 import { watchComposition, type Composition } from './composition';
 import { InboxPanel, waitCount } from './Inbox';
 import { AgentLine, stateLabel } from './NodeCard';
-import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
+import { NodeText, NoticeChips, NoticeLead, oldestWait } from './notice';
 import { useNotifyState } from './phoneNotify';
 import type { PhoneNotify } from './native';
 import { borrowSize, SizingTerminal } from './Terminal';
@@ -313,7 +313,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
       </header>
       {!props.online && <Offline />}
       {first && (
-        <div className="phone-ask-wrap" data-tone={toneOf(first.kind)}>
+        <div className="phone-ask-wrap" data-tone={first.tone}>
           <div className="phone-ask" onClick={() => setAskOpen(!askOpen)}>
             <NoticeLead wait={first} waits={waits} />
             <span className="text">

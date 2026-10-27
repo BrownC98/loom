@@ -8,10 +8,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-pub use agent::{
-    AgentId, InsideError, LaunchError, Model, ModelChoice, Provider, ServerLink, StartDigests,
-};
-pub use link::Session;
+pub use agent::{AgentId, InsideError, LaunchError, Model, ModelChoice, Provider, StartDigests};
+pub use link::{Report, ServerRecord, ServerState, Session};
 pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
 };
@@ -40,7 +38,7 @@ impl Versions {
 }
 
 pub const PTY_HOST: Versions = Versions { now: 5, oldest: 1 };
-pub const NODE_CALLS: Versions = Versions { now: 1, oldest: 1 };
+pub const NODE_CALLS: Versions = Versions { now: 2, oldest: 1 };
 pub const NODE_CALLS_HEADER: &str = "loom-protocol";
 pub const STREAMS: Versions = Versions { now: 2, oldest: 1 };
 pub const PI_HOOK: u32 = 4;

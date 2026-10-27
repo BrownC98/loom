@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use super::relaunch::provider_of;
 use super::{AgentError, App, EndedTurn, IdleReply, IdleRequest, TakeRequest, Taken, for_agent};
-use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId};
+use crate::graph::{AgentEvent, AgentState, IdleEnd, NodeId, WaitSource};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Change, NotTaken, ServerAdapter, Signal, Status};
-use crate::protocol::{Delivery, Kind, MessageId, Refusal, Session};
+use crate::protocol::{Delivery, Kind, MessageId, Refusal, Report, Session};
 use axum::http::StatusCode;
 
 impl App {
@@ -180,7 +180,8 @@ impl App {
     pub(super) async fn deliver_loop(
         self: Arc<Self>,
         node: NodeId,
-        mut server: impl ServerAdapter,
+        token: String,
+        mut server: Box<dyn ServerAdapter>,
         current: impl Fn(&App) -> bool,
     ) {
         let mut seen = server.status();
@@ -194,32 +195,10 @@ impl App {
                 Some(now) => self.server_status(node, now),
                 None => None,
             };
-            match server.signal(change).await {
-                Some(Signal::TurnEnded(reply)) => {
-                    match self.turn_ended(node, EndedTurn { reply, turn: None }) {
-                        Ok(Some(nudge)) => match server.start_turn(&nudge).await {
-                            Ok(()) => self.feed(node, AgentEvent::InputSent),
-                            Err(e) => {
-                                eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0)
-                            }
-                        },
-                        Ok(None) => {}
-                        Err(e) => eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0),
-                    }
-                }
-                Some(Signal::Stopped) => self.run_at_turn_end(node, None),
-                Some(Signal::HumanInput) => match self.human_input(node, None) {
-                    Ok(Some(text)) => {
-                        if let Err(e) = server.steer(&text).await {
-                            eprintln!("loom: 노드 {}에 열린 질문을 알리지 못했다: {e}", node.0);
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
-                },
-                None => {}
+            for signal in server.signals(change).await {
+                self.signaled(node, &token, &mut *server, signal).await;
             }
-            if self.deliver_batch(node, &mut server).await {
+            if self.deliver_batch(node, &mut *server).await {
                 continue;
             }
             tokio::select! {
@@ -227,6 +206,7 @@ impl App {
                 alive = server.changed() => match alive {
                     true => seen = server.status(),
                     false => {
+                        self.report(node, &token, WaitSource::Server, Report::HumanWait(None));
                         if current(&self) {
                             self.feed(node, AgentEvent::ServerLost);
                         }
@@ -234,6 +214,79 @@ impl App {
                     }
                 },
             }
+        }
+    }
+
+    async fn signaled(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        server: &mut dyn ServerAdapter,
+        signal: Signal,
+    ) {
+        match signal {
+            Signal::TurnEnded(reply) => {
+                match self.turn_ended(node, EndedTurn { reply, turn: None }) {
+                    Ok(Some(nudge)) => match server.start_turn(&nudge).await {
+                        Ok(()) => self.feed(node, AgentEvent::InputSent),
+                        Err(e) => {
+                            eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0)
+                        }
+                    },
+                    Ok(None) => {}
+                    Err(e) => eprintln!("loom: 노드 {}의 턴 표시를 읽지 못했다: {e}", node.0),
+                }
+            }
+            Signal::Stopped => self.run_at_turn_end(node, None),
+            Signal::HumanInput => match self.human_input(node, None) {
+                Ok(Some(text)) => {
+                    if let Err(e) = server.steer(&text).await {
+                        eprintln!("loom: 노드 {}에 열린 질문을 알리지 못했다: {e}", node.0);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
+            },
+            Signal::Report(report) => self.report(node, token, WaitSource::Server, report),
+        }
+    }
+
+    pub(super) fn report(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        source: WaitSource,
+        report: Report,
+    ) {
+        let written = match report {
+            Report::Model(model) => self.graph.set_model(node, &model),
+            Report::Session(session) => {
+                self.sessions.started(node, token);
+                self.graph.set_session(token, &session)
+            }
+            Report::HumanWait(wait) => self.graph.set_wait(
+                token,
+                source,
+                wait.as_ref()
+                    .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
+            ),
+            Report::Said { text, turn } => {
+                self.turn_ends.said(node, &text, turn.as_deref());
+                Ok(())
+            }
+            Report::QuestionBox => {
+                self.turn_ends.question_box(node);
+                Ok(())
+            }
+            Report::RateLimited => {
+                if let Some(provider) = self.provider(node) {
+                    self.rate_limited(node, provider);
+                }
+                Ok(())
+            }
+        };
+        if let Err(e) = written {
+            eprintln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);
         }
     }
 
@@ -254,7 +307,7 @@ impl App {
         }
     }
 
-    async fn deliver_batch(&self, node: NodeId, server: &mut impl ServerAdapter) -> bool {
+    async fn deliver_batch(&self, node: NodeId, server: &mut dyn ServerAdapter) -> bool {
         let now = status_of(self.agent_state(node).as_ref());
         let mut taken = Vec::new();
         for kinds in server.takes(now) {

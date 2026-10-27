@@ -5,13 +5,10 @@ import org.json.JSONObject
 
 internal enum class Tone { ASK, DONE }
 
-internal data class Wait(val id: Long, val node: Long, val name: String, val kind: String, val summary: String) {
-    val tone get() = if (kind == DONE_KIND) Tone.DONE else Tone.ASK
-
+internal data class Wait(val id: Long, val node: Long, val name: String, val kind: String, val tone: Tone, val summary: String) {
     fun title(label: String) = if (kind == QUESTION_KIND) "$name · $label Q$id" else "$name · $label"
 
     private companion object {
-        const val DONE_KIND = "done"
         const val QUESTION_KIND = "question"
     }
 }
@@ -51,9 +48,15 @@ internal object Waits {
     }
 
     private fun wait(node: Long, name: String, json: JSONObject) =
-        Wait(json.optLong("id"), node, name, json.optString("kind"), summary(json))
+        Wait(json.optLong("id"), node, name, json.optString("kind"), tone(json), if (json.has("summary")) json.optString("summary") else oldSummary(json))
 
-    private fun summary(json: JSONObject): String {
+    private fun tone(json: JSONObject): Tone = when (json.optString("tone")) {
+        "ask" -> Tone.ASK
+        "done" -> Tone.DONE
+        else -> if (json.optString("kind") == "done") Tone.DONE else Tone.ASK
+    }
+
+    private fun oldSummary(json: JSONObject): String {
         json.optJSONObject("prompt")?.let { return it.optString("summary") }
         val parts = json.optJSONArray("parts") ?: return ""
         return (0 until parts.length()).mapNotNull { parts.optJSONObject(it) }.joinToString("") { part ->

@@ -1,24 +1,24 @@
 use std::future::Future;
 use std::net::IpAddr;
-
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-
-use std::sync::Arc;
-
-use tokio::sync::watch;
-
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::sync::{mpsc, watch};
 
-use super::adapter::{Carry, Command, Facts, NoServer, ResumeError};
-use super::{Change, NotTaken, Remote, ServerAdapter, Signal, Status, VersionMismatch};
+use super::adapter::{Carry, Chosen, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served;
+use super::{Change, NotTaken, ServerAdapter, Signal, Status, VersionMismatch};
 use crate::accounts::{AccountId, Site};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, Session, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::protocol::{
+    Delivery, Kind, LaunchError, Model, ModelChoice, Prompt, Provider, Report, ServerRecord,
+    ServerState, Session, WaitKind,
+};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 use server::CodexServer;
 
@@ -77,7 +77,7 @@ impl super::adapter::Adapter for Codex {
     fn facts(&self) -> Facts {
         Facts {
             provider: Some(Provider::Codex),
-            hooked: false,
+            sleeps: true,
             listens_at_start: true,
             pinned: Some(CMD),
             usage_part: "usage/codex",
@@ -92,12 +92,53 @@ impl super::adapter::Adapter for Codex {
         }
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
-        let Some(Remote::Codex { url }) = at.remote else {
-            return Err(NoServer);
-        };
-        cmd.args(["--remote", url]);
-        Ok(())
+    fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
+
+    fn serve<'a>(
+        &'a self,
+        at: &'a Serve<'_>,
+        resume: Option<&'a Session>,
+        bypass: &'a [String],
+        cmd: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        Some(Box::pin(async move {
+            let config: Vec<String> = sandbox_args(at.version, at.node_ip)
+                .into_iter()
+                .chain(server_args(at.launch))
+                .collect();
+            let server = CodexServer::start(at.cwd, at.inside, at.env, &config)
+                .await
+                .map_err(|cause| LaunchError::Server {
+                    program: "codex app-server".into(),
+                    cause,
+                })?;
+            let call = |method, params| server.call(method, params);
+            if let Err(e) = add_skills(call, at.skills).await {
+                eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
+            }
+            cmd.args(["--remote", server.url()]);
+            let node = Node {
+                server,
+                resume: resume.map(|thread| (thread.clone(), resume_params(thread, bypass))),
+            };
+            Ok(Arc::new(node) as Arc<dyn Server>)
+        }))
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        state: &'a ServerState,
+        served: Served,
+        session: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        Some(Box::pin(async move {
+            let state = State::deserialize(&state.0).map_err(|e| format!("server state: {e}"))?;
+            let server = CodexServer::reconnect(state.url, served, session).await?;
+            Ok(Arc::new(Node {
+                server,
+                resume: None,
+            }) as Arc<dyn Server>)
+        }))
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -114,6 +155,10 @@ impl super::adapter::Adapter for Codex {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
+        None
     }
 
     fn install(&self, _: &Path) -> std::io::Result<()> {
@@ -181,30 +226,28 @@ fn children(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn server_args(launch: Launch) -> Vec<String> {
+fn server_args(launch: Launch) -> Vec<String> {
     let usage = serde_json::to_string(&usage(launch)).expect("문자열은 늘 직렬화된다");
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
-pub async fn resume<F, Fut>(call: F, thread: &Session, bypass: bool) -> Result<(), String>
-where
-    F: Fn(&'static str, Value) -> Fut,
-    Fut: Future<Output = Result<Value, String>>,
-{
-    let (sandbox, approval) = match bypass {
-        true => ("danger-full-access", "never"),
-        false => ("workspace-write", "on-request"),
+fn resume_params(thread: &Session, bypass: &[String]) -> Value {
+    let (sandbox, approval) = match bypass.is_empty() {
+        false => ("danger-full-access", "never"),
+        true => ("workspace-write", "on-request"),
     };
-    let params = serde_json::json!({
+    serde_json::json!({
         "threadId": thread.0,
         "sandbox": sandbox,
         "approvalPolicy": approval,
         "excludeTurns": true,
-    });
-    call("thread/resume", params).await.map(drop)
+    })
 }
 
-pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
+fn sandbox_args(version_output: Option<&str>, daemon: Option<IpAddr>) -> Vec<String> {
+    let (Some(version_output), Some(daemon)) = (version_output, daemon) else {
+        return Vec::new();
+    };
     if cfg!(windows) || version_output.split_whitespace().last() != Some(PINNED_VERSION) {
         return Vec::new();
     }
@@ -218,11 +261,7 @@ pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
     .collect()
 }
 
-pub fn installed_version() -> Option<String> {
-    super::installed_version(CMD)
-}
-
-pub async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>
+async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -236,7 +275,7 @@ where
     Ok(thread_model(&read.thread))
 }
 
-pub async fn add_skills<F, Fut>(call: F, skills: &std::path::Path) -> Result<(), String>
+async fn add_skills<F, Fut>(call: F, skills: &std::path::Path) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -255,39 +294,98 @@ fn thread_model(thread: &Thread) -> Model {
     }
 }
 
-pub fn kinds(status: Status) -> &'static [&'static [Kind]] {
+fn kinds(status: Status) -> &'static [&'static [Kind]] {
     match status {
         Status::Idle => &[Kind::ALL],
         Status::Busy => &[&[Kind::Steer, Kind::Interrupt]],
     }
 }
 
-pub fn adapter(server: Arc<CodexServer>) -> impl ServerAdapter {
-    let thread = server.thread();
-    let stopper = server.clone();
-    Adapter::new(
-        move |method, params| {
-            let server = server.clone();
-            async move { server.call(method, params).await }
-        },
-        thread,
-        move || {
-            stopper.stop_shells();
-        },
-    )
+#[derive(Serialize, Deserialize)]
+struct State {
+    url: String,
 }
 
-pub struct Adapter<F, S> {
-    call: F,
-    stop: S,
-    thread: watch::Receiver<Option<server::Thread>>,
+struct Node {
+    server: CodexServer,
+    resume: Option<(Session, Value)>,
 }
 
-impl<F, S> Adapter<F, S> {
-    pub fn new(call: F, thread: watch::Receiver<Option<server::Thread>>, stop: S) -> Self {
-        Self { call, stop, thread }
+impl Server for Node {
+    fn record(&self) -> ServerRecord {
+        let state = State {
+            url: self.server.url().to_owned(),
+        };
+        ServerRecord {
+            pid: self.server.pid(),
+            state: ServerState(serde_json::to_value(state).expect("문자열 표는 늘 직렬화된다")),
+        }
     }
 
+    fn session(&self) -> Option<Session> {
+        None
+    }
+
+    fn stop(&self) {
+        self.server.stop();
+    }
+
+    fn resume(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            let Some((thread, params)) = &self.resume else {
+                return Ok(());
+            };
+            self.server.call("thread/resume", params.clone()).await?;
+            self.server.follow_thread(thread.0.clone()).await;
+            Ok(())
+        })
+    }
+
+    fn session_file<'a>(&'a self, session: &'a Session) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move { self.server.rollout(&session.0).await.ok().flatten() })
+    }
+
+    fn choose<'a>(
+        &'a self,
+        _: &'a Prompt,
+        _: usize,
+    ) -> Option<BoxFuture<'a, Result<Chosen, String>>> {
+        None
+    }
+
+    fn link(self: Arc<Self>) -> Box<dyn ServerAdapter> {
+        let (read, models) = mpsc::unbounded_channel();
+        Box::new(Adapter {
+            thread: self.server.thread(),
+            limited: self.server.limited(),
+            node: self,
+            moved: true,
+            limit_hit: false,
+            fresh: None,
+            read,
+            models,
+            asked: 0,
+            answered: 0,
+            model: None,
+        })
+    }
+}
+
+struct Adapter {
+    node: Arc<Node>,
+    thread: watch::Receiver<Option<server::Thread>>,
+    limited: watch::Receiver<u64>,
+    moved: bool,
+    limit_hit: bool,
+    fresh: Option<server::Thread>,
+    read: mpsc::UnboundedSender<(u64, Model)>,
+    models: mpsc::UnboundedReceiver<(u64, Model)>,
+    asked: u64,
+    answered: u64,
+    model: Option<Model>,
+}
+
+impl Adapter {
     fn thread(&self) -> Result<String, String> {
         self.thread
             .borrow()
@@ -295,23 +393,8 @@ impl<F, S> Adapter<F, S> {
             .map(|t| t.id.clone())
             .ok_or_else(|| "Codex 스레드가 아직 없다".to_owned())
     }
-}
 
-impl<F, Fut, S> ServerAdapter for Adapter<F, S>
-where
-    F: Fn(&'static str, Value) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<Value, String>> + Send,
-    S: Fn() + Send + Sync,
-{
-    fn takes(&self, now: Status) -> &'static [&'static [Kind]] {
-        self.thread().map_or(&[], |_| kinds(now))
-    }
-
-    fn status(&mut self) -> Option<Status> {
-        self.thread.borrow_and_update().as_ref().map(|t| t.status)
-    }
-
-    async fn signal(&mut self, change: Option<Change>) -> Option<Signal> {
+    async fn turn_signal(&self, change: Option<Change>) -> Option<Signal> {
         match change? {
             Change {
                 before: Status::Idle,
@@ -324,7 +407,8 @@ where
             Change { .. } => return None,
         }
         let thread = self.thread().ok()?;
-        let reply = match last_reply(&self.call, &thread).await {
+        let call = |method, params| self.node.server.call(method, params);
+        let reply = match last_reply(call, &thread).await {
             Ok(reply) => reply,
             Err(e) => {
                 eprintln!("loom: Codex 스레드 {thread}의 답 글을 읽지 못했다: {e}");
@@ -333,32 +417,109 @@ where
         };
         Some(Signal::TurnEnded(reply))
     }
+}
 
-    async fn changed(&mut self) -> bool {
-        self.thread.changed().await.is_ok()
+impl ServerAdapter for Adapter {
+    fn takes(&self, now: Status) -> &'static [&'static [Kind]] {
+        self.thread().map_or(&[], |_| kinds(now))
     }
 
-    async fn inject(&mut self, taken: &[Delivery], now: Status) -> Result<(), NotTaken> {
-        let thread = self.thread().map_err(NotTaken::EventFollows)?;
-        deliver(&self.call, &thread, now, taken)
-            .await
-            .map_err(NotTaken::EventFollows)
+    fn status(&mut self) -> Option<Status> {
+        if !std::mem::take(&mut self.moved) {
+            return None;
+        }
+        self.fresh = self.thread.borrow_and_update().clone();
+        self.fresh.as_ref().map(|t| t.status)
     }
 
-    async fn stop_shells(&self) {
-        (self.stop)();
+    fn signals(&mut self, change: Option<Change>) -> BoxFuture<'_, Vec<Signal>> {
+        Box::pin(async move {
+            let mut signals = Vec::new();
+            if std::mem::take(&mut self.limit_hit) {
+                signals.push(Signal::Report(Report::RateLimited));
+            }
+            if let Some(model) = self.model.take() {
+                signals.push(Signal::Report(Report::Model(model)));
+            }
+            if let Some(thread) = self.fresh.take() {
+                let wait = thread.waiting.map(|kind| (kind, String::new(), None));
+                signals.push(Signal::Report(Report::HumanWait(wait)));
+                signals.push(Signal::Report(Report::Session(Session(thread.id.clone()))));
+                self.asked += 1;
+                let (node, read, asked) = (self.node.clone(), self.read.clone(), self.asked);
+                tokio::spawn(async move {
+                    let call = |method, params| node.server.call(method, params);
+                    match model(call, &thread.id).await {
+                        Ok(model) => drop(read.send((asked, model))),
+                        Err(e) => {
+                            eprintln!("loom: Codex 스레드 {}의 모델을 읽지 못했다: {e}", thread.id)
+                        }
+                    }
+                });
+            }
+            signals.extend(self.turn_signal(change).await);
+            signals
+        })
     }
 
-    async fn start_turn(&mut self, text: &str) -> Result<(), String> {
-        start_turn(&self.call, &self.thread()?, text).await
+    fn changed(&mut self) -> BoxFuture<'_, bool> {
+        Box::pin(async move {
+            tokio::select! {
+                moved = self.thread.changed() => {
+                    self.moved = true;
+                    moved.is_ok()
+                }
+                hit = self.limited.changed() => {
+                    self.limit_hit = hit.is_ok();
+                    hit.is_ok()
+                }
+                Some((asked, model)) = self.models.recv() => {
+                    if asked > self.answered {
+                        self.answered = asked;
+                        self.model = Some(model);
+                    }
+                    true
+                }
+            }
+        })
     }
 
-    async fn steer(&mut self, text: &str) -> Result<(), String> {
-        steer(&self.call, &self.thread()?, text).await
+    fn inject<'a>(
+        &'a mut self,
+        taken: &'a [Delivery],
+        now: Status,
+    ) -> BoxFuture<'a, Result<(), NotTaken>> {
+        Box::pin(async move {
+            let thread = self.thread().map_err(NotTaken::EventFollows)?;
+            let call = |method, params| self.node.server.call(method, params);
+            deliver(call, &thread, now, taken)
+                .await
+                .map_err(NotTaken::EventFollows)
+        })
+    }
+
+    fn stop_shells(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            self.node.server.stop_shells();
+        })
+    }
+
+    fn start_turn<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let call = |method, params| self.node.server.call(method, params);
+            start_turn(call, &self.thread()?, text).await
+        })
+    }
+
+    fn steer<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let call = |method, params| self.node.server.call(method, params);
+            steer(call, &self.thread()?, text).await
+        })
     }
 }
 
-pub async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
+async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -375,7 +536,7 @@ where
     }))
 }
 
-pub async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
+async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -383,7 +544,7 @@ where
     Rpc { call, thread }.start(input(text.to_owned())).await
 }
 
-pub async fn steer<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
+async fn steer<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
     Fut: Future<Output = Result<Value, String>>,
@@ -399,7 +560,7 @@ fn input(text: String) -> Vec<UserInput> {
     }]
 }
 
-pub async fn deliver<F, Fut>(
+async fn deliver<F, Fut>(
     call: F,
     thread: &str,
     status: Status,

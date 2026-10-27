@@ -14,17 +14,23 @@ class WaitsTest {
     private val all = Switches(ask = true, done = true)
 
     @Test
-    fun kindsMapToTwoTones() {
+    fun theDaemonToneWins() {
+        val waits = read(node(1, "a", wait(1, "question", ""","tone":"done""""), wait(2, "done", ""","tone":"ask"""")))
+        assertEquals(listOf(Tone.DONE, Tone.ASK), waits.map { it.tone })
+    }
+
+    @Test
+    fun kindsMapToTwoTonesWithoutTheDaemonTone() {
         val asks = listOf("question", "approval", "trust", "auth", "input")
-        asks.forEach { assertEquals(Tone.ASK, Wait(1, 1, "n", it, "").tone) }
-        assertEquals(Tone.DONE, Wait(1, 1, "n", "done", "").tone)
+        val waits = read(node(1, "a", *asks.map { wait(1, it) }.toTypedArray(), wait(2, "done")))
+        assertEquals(asks.map { Tone.ASK } + Tone.DONE, waits.map { it.tone })
     }
 
     @Test
     fun titleShowsTheQuestionIdOnlyForQuestions() {
-        assertEquals("loom 총괄 · 질문 Q712", Wait(712, 1, "loom 총괄", "question", "").title("질문"))
-        assertEquals("코디 화면정리 · 완료", Wait(9, 2, "코디 화면정리", "done", "").title("완료"))
-        assertEquals("w · 승인 요청", Wait(9, 2, "w", "approval", "").title("승인 요청"))
+        assertEquals("loom 총괄 · 질문 Q712", Wait(712, 1, "loom 총괄", "question", Tone.ASK, "").title("질문"))
+        assertEquals("코디 화면정리 · 완료", Wait(9, 2, "코디 화면정리", "done", Tone.DONE, "").title("완료"))
+        assertEquals("w · 승인 요청", Wait(9, 2, "w", "approval", Tone.ASK, "").title("승인 요청"))
     }
 
     @Test
@@ -33,6 +39,12 @@ class WaitsTest {
         val prompt = ""","prompt":{"rows":[],"body":[],"summary":"rm -rf build","options":[]},"parts":[{"part":"text","text":"other"}]"""
         val waits = read(node(1, "a", wait(1, "done", parts), wait(2, "approval", prompt), wait(3, "question")))
         assertEquals(listOf("see plan M41", "rm -rf build", ""), waits.map { it.summary })
+    }
+
+    @Test
+    fun theDaemonSummaryWins() {
+        val waits = read(node(1, "a", wait(1, "approval", ""","summary":"ls","parts":[{"part":"text","text":"other"}]""")))
+        assertEquals(listOf("ls"), waits.map { it.summary })
     }
 
     @Test

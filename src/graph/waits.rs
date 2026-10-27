@@ -20,14 +20,12 @@ use super::{Graph, NodeId, NodeState, from_json, parent_of, state_of, to_json};
 #[serde(rename_all = "camelCase")]
 pub enum WaitSource {
     Hook,
-    Codex,
     Screen,
-    OpenCode2,
+    Server,
 }
 
-/// 화면에 보내는 대기 한 건.
+/// DB에 두는 대기 한 건.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct HumanWait {
     pub id: WaitId,
     pub kind: WaitKind,
@@ -58,10 +56,50 @@ pub struct HumanWait {
     pub choices: Vec<Choice>,
 }
 
+/// 화면에 보내는 대기: 저장한 대기와 데몬이 정한 표시 값.
+#[derive(Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ScreenWait {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub wait: HumanWait,
+    pub tone: WaitTone,
+    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글.
+    pub summary: String,
+}
+
+/// 대기의 색과 아이콘, 알림 채널.
+#[derive(Clone, Copy, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum WaitTone {
+    Ask,
+    Done,
+}
+
 impl HumanWait {
-    pub(super) fn for_screen(self) -> HumanWait {
-        HumanWait {
-            parts: parts(&self.text),
+    pub(super) fn for_screen(self) -> ScreenWait {
+        let parts = parts(&self.text);
+        let summary = match &self.prompt {
+            Some(prompt) => prompt.summary.clone(),
+            None => parts
+                .iter()
+                .map(|part| match part {
+                    TextPart::Text { text } => text.as_str(),
+                    TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
+                })
+                .collect(),
+        };
+        let tone = match self.kind {
+            WaitKind::Question
+            | WaitKind::Approval
+            | WaitKind::Trust
+            | WaitKind::Auth
+            | WaitKind::Input => WaitTone::Ask,
+            WaitKind::Done => WaitTone::Done,
+        };
+        let wait = HumanWait {
+            parts,
             choices: match self.kind {
                 WaitKind::Question => choices(&self.text),
                 WaitKind::Approval
@@ -71,6 +109,11 @@ impl HumanWait {
                 | WaitKind::Done => Vec::new(),
             },
             ..self
+        };
+        ScreenWait {
+            wait,
+            tone,
+            summary,
         }
     }
 }

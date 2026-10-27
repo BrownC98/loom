@@ -1,6 +1,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -9,11 +10,14 @@ use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
-use super::adapter::{Adapter, Carry, Command, Facts, NoServer, ResumeError};
+use super::adapter::{Adapter, Carry, Command, Facts, InputSeen, ResumeError, Serve, Server};
+use super::process::Served;
 use super::{Handed, HookEvent, Report, Shown, Signals, Take, VersionMismatch};
 use crate::accounts::{self, AccountId, Site};
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Provider, Session, WaitKind};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::protocol::{
+    Delivery, Kind, LaunchError, Model, ModelChoice, Provider, ServerState, Session, WaitKind,
+};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 
 const HOOK_TIMEOUT_SECS: u64 = 10;
@@ -25,6 +29,7 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
+const RUNNING_STATUS: &str = "esc to interrupt";
 const TRANSCRIPT_DEPTH: usize = 3;
 const CLI_WAIT: Duration = Duration::from_secs(20);
 const NO_RECORD: &str = "이어 갈 Claude 세션 기록이 없다";
@@ -68,7 +73,7 @@ impl Adapter for Claude {
     fn facts(&self) -> Facts {
         Facts {
             provider: Some(Provider::Claude),
-            hooked: true,
+            sleeps: true,
             listens_at_start: true,
             pinned: None,
             usage_part: "usage/claude",
@@ -84,9 +89,27 @@ impl Adapter for Claude {
             .collect()
     }
 
-    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) -> Result<(), NoServer> {
+    fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         cmd.args(args(at.plugin, at.launch, at.brief));
-        Ok(())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _: &'a Serve<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        _: &'a mut CommandBuilder,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, LaunchError>>> {
+        None
+    }
+
+    fn reconnect<'a>(
+        &'a self,
+        _: &'a ServerState,
+        _: Served,
+        _: Option<&'a Session>,
+    ) -> Option<BoxFuture<'a, Result<Arc<dyn Server>, String>>> {
+        None
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -102,6 +125,13 @@ impl Adapter for Claude {
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
         Some((&[PROMPT], &DIALOGS))
+    }
+
+    fn input_seen(&self, screen: &Screen) -> Option<InputSeen> {
+        Some(InputSeen {
+            empty: input(&screen.undimmed) == Some(""),
+            turn_shown: turn_shown(&screen.text),
+        })
     }
 
     fn install(&self, _: &Path) -> std::io::Result<()> {
@@ -326,9 +356,10 @@ impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let main = self.agent_id.is_none();
         let wait = self.event.human_wait();
+        let wait = ((main && !self.event.idle_prompt()) || wait.is_some())
+            .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
             hook: self.event.name().to_owned(),
-            model: reported_model(&self.event, self.transcript_path.as_deref()),
             take: self.event.take().filter(|_| main),
             session: self.transcript_path.clone().map(Session),
             prompt: self.event.prompt().map(str::to_owned),
@@ -337,9 +368,10 @@ impl HookEvent for Hook {
                 .then(|| self.last_assistant_message.clone()),
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
-            reports: ((main && !self.event.idle_prompt()) || wait.is_some())
-                .then_some(Report::Wait(wait))
+            reports: reported_model(&self.event, self.transcript_path.as_deref())
+                .map(Report::Model)
                 .into_iter()
+                .chain(wait)
                 .collect(),
             ..Signals::default()
         }
@@ -562,7 +594,7 @@ fn last_model(tail: &str) -> Option<Model> {
         })
 }
 
-pub fn input(screen: &str) -> Option<&str> {
+fn input(screen: &str) -> Option<&str> {
     let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
     lines.windows(3).rev().find_map(|w| match w {
         [above, input, below] if is_rule(above) && is_rule(below) => {
@@ -588,4 +620,30 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     let mut input = input.clone();
     input["command"] = format!("{GUARD}\n{command}").into();
     Some(input)
+}
+
+fn turn_shown(screen: &str) -> bool {
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|&i| !lines[i].is_empty() && lines[i].chars().all(|c| c == '─'))
+        .collect();
+    let (above, footer) = match rules[..] {
+        [.., top, bottom] => (&lines[..top], &lines[bottom + 1..]),
+        _ => (&lines[..], &lines[..0]),
+    };
+    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
+}
+
+fn spinner(line: &str) -> bool {
+    let mut chars = line.chars();
+    let glyph = chars
+        .next()
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace() && !"❯●⎿─".contains(c));
+    let rest = chars.as_str();
+    glyph
+        && rest.starts_with(' ')
+        && rest[1..]
+            .split(' ')
+            .next()
+            .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
 }

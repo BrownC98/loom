@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use super::{App, Problem, internal};
 use crate::db;
 use crate::graph::{Entry, Who};
-use crate::protocol::ServerLink;
 use crate::settings::Settings;
 use crate::wsl::{self, WslPath};
 
@@ -61,10 +60,7 @@ impl App {
         let active = self.graph.active().map_err(|e| e.to_string())?;
         let servers: Vec<u32> = active
             .iter()
-            .filter_map(|n| match &n.server {
-                Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
-                None => None,
-            })
+            .filter_map(|n| n.server.as_ref()?.pid)
             .collect();
         let mut carried = Carried {
             relaunched: Vec::new(),

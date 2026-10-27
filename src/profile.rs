@@ -50,6 +50,8 @@ pub enum Profile {
 pub enum Take {
     Now(&'static [Kind]),
     WhenIdle,
+    Listen,
+    Woken,
 }
 
 pub enum Handed {

@@ -330,6 +330,11 @@ impl Graph {
         })
     }
 
+    pub fn has_waking(&self, node: NodeId, kinds: &[Kind], hold: Hold) -> rusqlite::Result<bool> {
+        let (_, wakes) = takeable(&self.lock(), node, kinds, hold)?;
+        Ok(wakes.contains(&true))
+    }
+
     fn take_if(
         &self,
         node: NodeId,
@@ -340,27 +345,7 @@ impl Graph {
     ) -> Result<Vec<Delivery>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let kinds = serde_json::to_string(&kinds.iter().map(to_json).collect::<Vec<_>>())
-            .expect("문자열 목록은 늘 직렬화된다");
-        let held = serde_json::to_string(&hold.phases().iter().map(to_json).collect::<Vec<_>>())
-            .expect("문자열 목록은 늘 직렬화된다");
-        let (queued, wakes): (Vec<Delivery>, Vec<bool>) = tx
-            .prepare(&format!(
-                "SELECT id, sender_name, kind, body, what, {} FROM messages
-                 WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
-                 AND kind IN (SELECT value FROM json_each(?2))
-                 AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1)
-                 AND NOT EXISTS(SELECT 1 FROM relaunch_plans
-                                WHERE node = ?1 AND phase IN (SELECT value FROM json_each(?3)))
-                 ORDER BY id",
-                wakes()
-            ))?
-            .query_map(params![node.0, kinds, held], |row| {
-                Ok((read_delivery(row)?, row.get::<_, bool>(5)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-            .into_iter()
-            .unzip();
+        let (queued, wakes) = takeable(&tx, node, kinds, hold)?;
         if !wanted(&wakes) {
             return Ok(Vec::new());
         }
@@ -715,6 +700,35 @@ fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
         [to.0],
         |row| row.get(0),
     )
+}
+
+fn takeable(
+    db: &Connection,
+    node: NodeId,
+    kinds: &[Kind],
+    hold: Hold,
+) -> rusqlite::Result<(Vec<Delivery>, Vec<bool>)> {
+    let kinds = serde_json::to_string(&kinds.iter().map(to_json).collect::<Vec<_>>())
+        .expect("문자열 목록은 늘 직렬화된다");
+    let held = serde_json::to_string(&hold.phases().iter().map(to_json).collect::<Vec<_>>())
+        .expect("문자열 목록은 늘 직렬화된다");
+    Ok(db
+        .prepare(&format!(
+            "SELECT id, sender_name, kind, body, what, {} FROM messages
+             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
+             AND kind IN (SELECT value FROM json_each(?2))
+             AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1)
+             AND NOT EXISTS(SELECT 1 FROM relaunch_plans
+                            WHERE node = ?1 AND phase IN (SELECT value FROM json_each(?3)))
+             ORDER BY id",
+            wakes()
+        ))?
+        .query_map(params![node.0, kinds, held], |row| {
+            Ok((read_delivery(row)?, row.get::<_, bool>(5)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .unzip())
 }
 
 pub(super) fn newest(db: &Connection, to: NodeId) -> rusqlite::Result<Option<u32>> {

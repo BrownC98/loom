@@ -5,10 +5,10 @@ use futures_util::future::BoxFuture;
 use tokio::sync::watch;
 
 use super::idle::Wait;
-use super::relaunch::profile_of;
+use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
 use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, WaitSource};
-use crate::profile::adapter::{Port, TurnTake};
+use crate::profile::adapter::{Port, TurnTake, Wake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
@@ -109,6 +109,87 @@ impl App {
         let nudge = nudge?;
         self.turn_ends.stopped(node, ended.turn.as_deref());
         Ok(nudge.map(str::to_owned))
+    }
+
+    pub(super) fn listen_open(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: IdleRequest,
+    ) -> Result<IdleReply, Refusal> {
+        self.keep_session(token, req.session.as_ref())?;
+        let after_turn = req.turn_end.is_some();
+        if let Some(ended) = req.turn_end
+            && let Some(nudge) = self.turn_ended(node, ended)?
+        {
+            return Ok(IdleReply::Nudge { nudge });
+        }
+        self.feed(
+            node,
+            match after_turn {
+                true => AgentEvent::TurnEndedWaitOpened,
+                false => AgentEvent::WaitOpened,
+            },
+        );
+        if req.rate_limited
+            && let Some(provider) = self.provider(node)
+        {
+            self.rate_limited(node, provider);
+        }
+        if !after_turn {
+            self.run_at_turn_end(node, None);
+        }
+        Ok(IdleReply::Mail(Vec::new()))
+    }
+
+    pub(super) fn take_woken(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: TakeRequest,
+    ) -> Result<IdleReply, Refusal> {
+        self.keep_session(token, req.session.as_ref())?;
+        match self.wake(node)? {
+            None => Ok(IdleReply::Mail(Vec::new())),
+            Some(Wake::TurnEnd) => Ok(IdleReply::Nudge {
+                nudge: FINISH_TURN.to_owned(),
+            }),
+            Some(Wake::Mail) => {
+                let hold = self.hold_in_turn(node);
+                let messages = self
+                    .graph
+                    .take_waking(node, &req.kinds, req.limit_bytes, hold)?;
+                if !messages.is_empty() {
+                    self.idle.turn_started(node, req.step);
+                }
+                Ok(IdleReply::Mail(messages))
+            }
+        }
+    }
+
+    async fn wakes(&self, node: NodeId, on: &mut (dyn FnMut(Option<Wake>) + Send)) -> Refusal {
+        loop {
+            let mut changed = pin!(self.graph.mail_changed());
+            changed.as_mut().enable();
+            match self.wake(node) {
+                Ok(wake) => on(wake),
+                Err(e) => return e.into(),
+            }
+            changed.await;
+        }
+    }
+
+    fn wake(&self, node: NodeId) -> rusqlite::Result<Option<Wake>> {
+        if self.first_inputs.pending(node) {
+            return Ok(None);
+        }
+        if self
+            .graph
+            .has_waking(node, Kind::ALL, self.hold_in_turn(node))?
+        {
+            return Ok(Some(Wake::Mail));
+        }
+        Ok(self.awaits_turn_end(node).then_some(Wake::TurnEnd))
     }
 
     pub(super) async fn wait_idle(
@@ -408,6 +489,16 @@ impl Port for AgentPort {
             let node = self.bound().await;
             tokio::select! {
                 taken = self.app.take_in_turn(node, kinds) => taken,
+                () = self.until_ended() => std::future::pending().await,
+            }
+        })
+    }
+
+    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut(Option<Wake>) + Send)) -> BoxFuture<'a, Refusal> {
+        Box::pin(async move {
+            let node = self.bound().await;
+            tokio::select! {
+                refused = self.app.wakes(node, on) => refused,
                 () = self.until_ended() => std::future::pending().await,
             }
         })

@@ -55,4 +55,8 @@ impl FirstInputs {
     pub fn injected(&self, node: NodeId) -> bool {
         self.0.lock().unwrap().remove(&node)
     }
+
+    pub fn pending(&self, node: NodeId) -> bool {
+        self.0.lock().unwrap().contains(&node)
+    }
 }

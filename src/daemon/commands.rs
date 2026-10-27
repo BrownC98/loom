@@ -11,6 +11,8 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/take", post(agent_take))
         .route(IDLE_PATH, post(agent_idle))
+        .route("/api/agent/listen", post(agent_listen))
+        .route("/api/agent/wake", post(agent_wake))
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/interrupt", post(agent_interrupt))
         .route(
@@ -261,6 +263,28 @@ pub(super) async fn agent_idle(
     )
     .await
     .map(Json)
+}
+
+async fn agent_listen(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<IdleRequest>,
+) -> Result<Json<IdleReply>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.listen_open(node, bearer(&headers)?, req)
+        .map(Json)
+        .map_err(for_agent)
+}
+
+async fn agent_wake(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<TakeRequest>,
+) -> Result<Json<IdleReply>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.take_woken(node, bearer(&headers)?, req)
+        .map(Json)
+        .map_err(for_agent)
 }
 
 async fn agent_interrupt(

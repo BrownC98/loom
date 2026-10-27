@@ -1,20 +1,23 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use portable_pty::CommandBuilder;
 
 use super::adapter::{
-    Adapter, Carry, Command, Facts, InputSeen, Logins, Record, ResumeError, TurnTake,
+    Adapter, Carry, Command, Facts, InputSeen, LaunchAt, Logins, Port, Record, ResumeError,
+    Started, TurnTake, Wake,
 };
+use super::process::Served;
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
-use crate::protocol::{Delivery, Kind, Model, ModelChoice, Session, WaitKind};
+use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 
@@ -22,13 +25,13 @@ mod accounts;
 mod usage;
 
 const HOOK_TIMEOUT_SECS: u64 = 10;
-const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
+const WAKE_ENV: &str = "LOOM_WAKE";
+const WAKE_FILE: &str = "wake";
 const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
-const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
 const HOOK: &str = "loom hook claude";
 const HELPER_SHELLS: [&str; 1] = [HOOK];
@@ -79,7 +82,7 @@ impl Adapter for Claude {
             logins: Logins::Many(&accounts::CLI, &Claude),
             sleeps: true,
             listens_at_start: true,
-            turn_take: TurnTake::StaysInTurn,
+            turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/claude",
@@ -97,7 +100,61 @@ impl Adapter for Claude {
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
-        cmd.args(args(at.plugin, at.launch, at.brief));
+        cmd.args(args(at.plugin, at.launch));
+    }
+
+    fn launch<'a>(
+        &'a self,
+        at: &'a LaunchAt<'_>,
+        _: Option<&'a Session>,
+        _: &'a [String],
+        cmd: &'a mut CommandBuilder,
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        Box::pin(async move {
+            let failed = |cause: String| LaunchError::Helper {
+                program: WAKE_FILE.into(),
+                cause,
+            };
+            let name = getrandom::u64().map_err(|e| failed(e.to_string()))?;
+            let name = format!("{name:016x}.{WAKE_FILE}");
+            let (seen, wake) = match at.inside {
+                Some(inside) => {
+                    let seen = format!("{}/{name}", inside.run_dir());
+                    let wake = inside.local(&seen);
+                    (seen, wake)
+                }
+                None => {
+                    let wake = at.run_dir.join(name);
+                    (wake.display().to_string(), wake)
+                }
+            };
+            touch(&wake, 0).map_err(failed)?;
+            cmd.env(WAKE_ENV, seen);
+            let record = Served {
+                pid: None,
+                distro: None,
+            }
+            .record(State { wake: wake.clone() });
+            tokio::spawn(wake_on_mail(wake, port));
+            Ok(Started {
+                record: Some(record),
+                ..Started::default()
+            })
+        })
+    }
+
+    fn attach<'a>(
+        &'a self,
+        rec: &'a Record,
+        port: Arc<dyn Port>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            if let Some((_, state)) = Served::stored::<State>(rec) {
+                tokio::spawn(wake_on_mail(state.wake, port));
+            }
+            Ok(())
+        })
     }
 
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
@@ -191,6 +248,40 @@ impl Adapter for Claude {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct State {
+    wake: PathBuf,
+}
+
+fn touch(file: &Path, times: u64) -> Result<(), String> {
+    let written = file
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(file, times.to_string()));
+    written.map_err(|e| format!("{}: {e}", file.display()))
+}
+
+async fn wake_on_mail(file: PathBuf, port: Arc<dyn Port>) {
+    let mut times = 0;
+    let mut asked = false;
+    let mut on = |wake: Option<Wake>| {
+        if wake == Some(Wake::Mail) || (wake == Some(Wake::TurnEnd) && !asked) {
+            times += 1;
+            if let Err(e) = touch(&file, times) {
+                eprintln!("loom: Claude를 깨우지 못했다: {e}");
+            }
+        }
+        asked = wake == Some(Wake::TurnEnd);
+    };
+    tokio::select! {
+        refused = port.wakes(&mut on) => eprintln!("loom: Claude 깨움을 멈췄다: {refused}"),
+        () = port.ended() => {}
+    }
+    if let Err(e) = std::fs::remove_file(&file) {
+        eprintln!("loom: {}을 지우지 못했다: {e}", file.display());
+    }
+}
+
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -232,43 +323,32 @@ fn background_job(json: &[u8], session: &str) -> Option<String> {
         .id
 }
 
-pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
+fn args(plugin: &Path, launch: Launch) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": HOOK,
         "timeout": HOOK_TIMEOUT_SECS,
     }] }]);
-    let idle = json!([{ "hooks": [{
+    let rewake = json!([{ "hooks": [{
         "type": "command",
         "command": HOOK,
         "asyncRewake": true,
-        "timeout": IDLE_HOOK_TIMEOUT_SECS,
+        "timeout": HOOK_TIMEOUT_SECS,
         "rewakeMessage": REWAKE_MESSAGE,
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
-    let session_start = if brief.is_empty() {
-        idle.clone()
-    } else {
-        json!([{ "matcher": RESTARTED_SESSION, "hooks": idle[0]["hooks"] }])
-    };
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
-            "SessionStart": session_start,
+            "SessionStart": hook,
             "UserPromptSubmit": hook,
             "PreToolUse": hook,
             "PostToolUse": hook,
             "PostToolUseFailure": hook,
-            "Stop": idle,
-            "StopFailure": idle,
-            "Notification": [
-                { "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
-                    "type": "command",
-                    "command": HOOK,
-                    "timeout": HOOK_TIMEOUT_SECS,
-                }] },
-                { "matcher": IDLE_NOTIFICATION, "hooks": idle[0]["hooks"] },
-            ],
+            "Stop": rewake,
+            "StopFailure": hook,
+            "FileChanged": rewake,
+            "Notification": [{ "matcher": HUMAN_NOTIFICATIONS, "hooks": hook[0]["hooks"] }],
         },
     });
     vec![
@@ -335,7 +415,6 @@ pub const DIALOGS: [Dialog; 6] = [
 ];
 
 const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
-const IDLE_NOTIFICATION: &str = "idle_prompt";
 const ASK_TOOL: &str = "AskUserQuestion";
 const ASK_REDIRECT: &str = "loom blocked AskUserQuestion: the human answers only loom ask, and loom keeps no record of that box. Ask the same question with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskUserQuestion again.";
 const PLAN_TOOL: &str = "ExitPlanMode";
@@ -353,7 +432,7 @@ impl HookEvent for Hook {
     fn signals(&self) -> Signals {
         let main = self.agent_id.is_none();
         let wait = self.event.human_wait();
-        let wait = ((main && !self.event.idle_prompt()) || wait.is_some())
+        let wait = ((main && !matches!(self.event, Event::FileChanged)) || wait.is_some())
             .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
         Signals {
             step: self.event.name().to_owned(),
@@ -375,6 +454,25 @@ impl HookEvent for Hook {
     }
 
     fn show(&self, handed: &Handed) -> Shown {
+        let shown = self.shown(handed);
+        match (&self.event, std::env::var(WAKE_ENV)) {
+            (Event::SessionStart { .. }, Ok(wake)) => Shown {
+                out: Some(
+                    json!({ "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "watchPaths": [wake],
+                    } })
+                    .to_string(),
+                ),
+                ..shown
+            },
+            _ => shown,
+        }
+    }
+}
+
+impl Hook {
+    fn shown(&self, handed: &Handed) -> Shown {
         match handed {
             Handed::Taken { messages, note } => Shown {
                 out: self
@@ -440,6 +538,7 @@ pub enum Event {
         #[serde(default)]
         message: String,
     },
+    FileChanged,
 }
 
 const NOTIFICATION_TAG: &str = "<task-notification>";
@@ -457,16 +556,17 @@ impl Event {
             Event::Stop => "Stop",
             Event::StopFailure { .. } => "StopFailure",
             Event::Notification { .. } => "Notification",
+            Event::FileChanged => "FileChanged",
         }
     }
 
     pub fn take(&self) -> Option<Take> {
         Some(match self {
-            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::Listen,
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
-            Event::Notification { .. } if self.idle_prompt() => Take::WhenIdle,
+            Event::FileChanged => Take::Woken,
             Event::Notification { .. } => return None,
         })
     }
@@ -485,7 +585,6 @@ impl Event {
             Event::PreToolUse { tool_name, .. } if tool_name == PLAN_TOOL => {
                 Some((WaitKind::Approval, String::new()))
             }
-            Event::Notification { .. } if self.idle_prompt() => None,
             Event::Notification {
                 notification_type,
                 message,
@@ -499,10 +598,6 @@ impl Event {
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
-    }
-
-    fn idle_prompt(&self) -> bool {
-        matches!(self, Event::Notification { notification_type, .. } if notification_type == IDLE_NOTIFICATION)
     }
 
     pub fn rate_limited(&self) -> bool {
@@ -535,7 +630,8 @@ impl Event {
             Event::SessionStart { .. }
             | Event::Stop
             | Event::StopFailure { .. }
-            | Event::Notification { .. } => None,
+            | Event::Notification { .. }
+            | Event::FileChanged => None,
             Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),

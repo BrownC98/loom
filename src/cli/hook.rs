@@ -11,7 +11,7 @@ use crate::profile::{
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, TakeRequest, Taken,
+    AckRequest, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, TakeRequest, Taken,
 };
 use crate::wsl::REWAKE_EXIT;
 
@@ -132,28 +132,47 @@ enum Step {
     Skip,
     Take(TakeRequest),
     Idle(IdleRequest),
+    Listen(IdleRequest),
+    Woken(TakeRequest),
 }
 
 fn step(signals: &Signals) -> Step {
     match signals.take {
         None => Step::Skip,
-        Some(Take::WhenIdle) => Step::Idle(IdleRequest {
-            session: signals.session.clone(),
-            rate_limited: signals.rate_limited,
-            turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
-                reply,
-                turn: signals.turn.clone().or_else(ended_turn),
-            }),
+        Some(Take::WhenIdle) => Step::Idle(idle_request(signals)),
+        Some(Take::Listen) => Step::Listen(idle_request(signals)),
+        Some(Take::Now(kinds)) => Step::Take(take_request(signals, kinds)),
+        Some(Take::Woken) => Step::Woken(take_request(signals, Kind::ALL)),
+    }
+}
+
+fn idle_request(signals: &Signals) -> IdleRequest {
+    IdleRequest {
+        session: signals.session.clone(),
+        rate_limited: signals.rate_limited,
+        turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
+            reply,
+            turn: signals.turn.clone().or_else(ended_turn),
         }),
-        Some(Take::Now(kinds)) => Step::Take(TakeRequest {
-            step: signals.step.clone(),
-            kinds: kinds.to_vec(),
-            limit_bytes: BATCH_LIMIT_BYTES,
-            session: signals.session.clone(),
-            human_input: signals.human_input,
-            prompt: signals.prompt.clone(),
-            turn: signals.turn.clone(),
-        }),
+    }
+}
+
+fn take_request(signals: &Signals, kinds: &[Kind]) -> TakeRequest {
+    TakeRequest {
+        step: signals.step.clone(),
+        kinds: kinds.to_vec(),
+        limit_bytes: BATCH_LIMIT_BYTES,
+        session: signals.session.clone(),
+        human_input: signals.human_input,
+        prompt: signals.prompt.clone(),
+        turn: signals.turn.clone(),
+    }
+}
+
+fn handed(reply: IdleReply) -> Handed {
+    match reply {
+        IdleReply::Nudge { nudge } => Handed::Nudge(nudge),
+        IdleReply::Mail(messages) => Handed::Mail(messages),
     }
 }
 
@@ -198,13 +217,18 @@ fn run(
             };
             (handed, Some(CALL_LIMIT))
         }
-        Step::Idle(request) => {
-            let handed = match wait_until_mail(request)? {
-                IdleReply::Nudge { nudge } => Handed::Nudge(nudge),
-                IdleReply::Mail(messages) => Handed::Mail(messages),
-            };
-            (handed, None)
+        Step::Idle(request) => (handed(wait_until_mail(request)?), None),
+        Step::Listen(request) => {
+            let reply = call("listen", &request, Some(CALL_LIMIT)).unwrap_or_else(|e| {
+                eprintln!("loom: could not report the idle state to loom: {e}");
+                IdleReply::Mail(Vec::new())
+            });
+            (handed(reply), Some(CALL_LIMIT))
         }
+        Step::Woken(request) => (
+            handed(call("wake", &request, Some(CALL_LIMIT))?),
+            Some(CALL_LIMIT),
+        ),
         Step::Take(request) => {
             let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
             (Handed::Taken { messages, note }, Some(CALL_LIMIT))

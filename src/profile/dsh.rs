@@ -14,6 +14,8 @@ use crate::skills::Launch;
 const PLUGIN: &str = include_str!("dsh-loom.mjs");
 const PLUGIN_FILE: &str = "dsh-loom.mjs";
 const IDLE_ENV: &str = "LOOM_DSH_IDLE";
+const MODEL_ENV: &str = "LOOM_DSH_MODEL";
+const EFFORT_ENV: &str = "LOOM_DSH_EFFORT";
 const PERMISSION_ENV: &str = "DSH_PERMISSION_MODE";
 const WORKSPACE: &str = ".";
 const PLUGIN_NAME: &str = "dsh plugin";
@@ -82,7 +84,7 @@ impl Adapter for Dsh {
             sleeps: true,
             listens_at_start: false,
             turn_take: TurnTake::StaysInTurn,
-            model_rule: ModelRule::Fixed,
+            model_rule: ModelRule::Free,
             pinned: None,
             usage_part: "usage/dsh",
             waiting: WAITING,
@@ -125,10 +127,16 @@ impl Adapter for Dsh {
         if at.brief.trim().is_empty() {
             cmd.env(IDLE_ENV, "1");
         }
+        if let Some(model) = &at.choice.model {
+            cmd.env(MODEL_ENV, model);
+        }
+        if let Some(effort) = &at.choice.effort {
+            cmd.env(EFFORT_ENV, effort);
+        }
     }
 
     fn choice_args(&self, _: &ModelChoice) -> Option<Vec<String>> {
-        None
+        Some(Vec::new())
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Handed, HookEvent, LineEvent, Served, Shown, Signals, Take, Unserved};
-use crate::protocol::{Delivery, Kind, MessageId, Model, Report, Session};
+use crate::protocol::{
+    ChoiceRequest, Delivery, Kind, MessageId, Model, Prompt, PromptKey, PromptOption, Report,
+    Session, WaitKind,
+};
 
 const UNNUMBERED: u32 = 2;
 const PROTOCOL: u32 = 4;
@@ -87,11 +90,24 @@ enum Event {
         #[serde(flatten)]
         state: State,
     },
+    Approval {
+        summary: String,
+        body: Vec<String>,
+        options: Vec<Choice>,
+        #[serde(flatten)]
+        state: State,
+    },
     Close {
         of: u64,
         #[serde(flatten)]
         state: State,
     },
+}
+
+#[derive(Deserialize)]
+struct Choice {
+    label: String,
+    reply: String,
 }
 
 #[derive(Deserialize)]
@@ -113,6 +129,8 @@ struct Reply {
     error: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     interrupted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    choice: Option<String>,
 }
 
 impl Event {
@@ -126,6 +144,7 @@ impl Event {
             | Event::Settled { state, .. }
             | Event::Ack { state, .. }
             | Event::Interrupt { state }
+            | Event::Approval { state, .. }
             | Event::Close { state, .. } => state,
         }
     }
@@ -140,6 +159,7 @@ impl Event {
             Event::Settled { .. } => "settled",
             Event::Ack { .. } => "ack",
             Event::Interrupt { .. } => "interrupt",
+            Event::Approval { .. } => "approval",
             Event::Close { .. } => "close",
         }
     }
@@ -149,6 +169,7 @@ impl Event {
             Event::SessionStart { .. }
             | Event::Ack { .. }
             | Event::Interrupt { .. }
+            | Event::Approval { .. }
             | Event::Close { .. } => return None,
             Event::Idle { .. } | Event::Settled { .. } => Take::WhenIdle,
             Event::Prompt { .. } | Event::ToolResult { .. } => Take::Now(Kind::ALL),
@@ -206,6 +227,30 @@ impl LineEvent for Request {
         match &self.event {
             Event::Ack { ids, .. } => Served::Ack(ids),
             Event::Interrupt { .. } => Served::Interrupt,
+            Event::Approval {
+                summary,
+                body,
+                options,
+                ..
+            } => Served::Choice(ChoiceRequest {
+                kind: WaitKind::Approval,
+                prompt: Prompt {
+                    rows: std::iter::once(summary.clone())
+                        .chain(body.iter().cloned())
+                        .collect(),
+                    body: body.clone(),
+                    summary: summary.clone(),
+                    options: options
+                        .iter()
+                        .map(|o| PromptOption {
+                            label: o.label.clone(),
+                            key: PromptKey::Reply(o.reply.clone()),
+                            writes: false,
+                        })
+                        .collect(),
+                    field: None,
+                },
+            }),
             Event::Close { of, .. } => Served::Close(*of),
             _ => Served::Hook,
         }
@@ -218,6 +263,14 @@ impl LineEvent for Request {
     fn interrupted(&self) -> String {
         Reply {
             interrupted: true,
+            ..acked(self.id)
+        }
+        .line()
+    }
+
+    fn chosen(&self, reply: &str) -> String {
+        Reply {
+            choice: Some(reply.to_owned()),
             ..acked(self.id)
         }
         .line()
@@ -264,6 +317,7 @@ fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
         ids: taken.iter().map(|d| d.id).collect(),
         error: None,
         interrupted: false,
+        choice: None,
     }
 }
 
@@ -274,6 +328,7 @@ fn nudge(id: Option<u64>, text: String) -> Reply {
         ids: Vec::new(),
         error: None,
         interrupted: false,
+        choice: None,
     }
 }
 
@@ -284,6 +339,7 @@ fn acked(id: Option<u64>) -> Reply {
         ids: Vec::new(),
         error: None,
         interrupted: false,
+        choice: None,
     }
 }
 
@@ -294,5 +350,6 @@ fn failed(id: Option<u64>, error: String) -> Reply {
         ids: Vec::new(),
         error: Some(error),
         interrupted: false,
+        choice: None,
     }
 }

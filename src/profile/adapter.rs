@@ -51,6 +51,7 @@ pub struct Command<'a> {
     pub plugin: &'a Path,
     pub launch: Launch,
     pub brief: &'a str,
+    pub choice: &'a ModelChoice,
 }
 
 pub struct LaunchAt<'a> {

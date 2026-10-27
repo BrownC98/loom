@@ -74,3 +74,9 @@ pub enum IdleReply {
 pub struct AckRequest {
     pub ids: Vec<MessageId>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ChoiceRequest {
+    pub kind: WaitKind,
+    pub prompt: Prompt,
+}

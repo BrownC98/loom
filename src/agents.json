@@ -10,7 +10,7 @@
   {"id": "ante", "label": "Ante", "cmd": "ante", "prompt": "none", "homepage": "https://github.com/AntigmaLabs/ante-preview"},
   {"id": "trae", "label": "Trae", "cmd": "traecli", "prompt": {"argvAfter": "--"}, "homepage": "https://docs.trae.cn/cli_get-started-with-trae-cli"},
   {"id": "muse", "label": "Muse", "cmd": "muse", "args": ["--trust-workspace"], "prompt": "none", "homepage": "https://dev.meta.ai/docs/muse-code"},
-  {"id": "dsh", "label": "DeepSeek Harness", "cmd": "dsh-tui", "aliases": ["dst"], "args": ["."], "prompt": "none", "homepage": "https://deepseek-harness.github.io/deepseek-harness/"},
+  {"id": "dsh", "label": "DeepSeek Harness", "cmd": "dsh-tui", "aliases": ["dst"], "prompt": {"argvAfter": "--"}, "profile": "dsh", "bypass": ["danger-full-access"], "homepage": "https://deepseek-harness.github.io/deepseek-harness/"},
   {"id": "qoder", "label": "Qoder CLI", "cmd": "qodercli", "aliases": ["qoder"], "prompt": {"flag": "--prompt-interactive"}, "homepage": "https://docs.qoder.com/cli/overview"},
   {"id": "qoder-cn", "label": "Qoder CLI China", "cmd": "qoderclicn", "aliases": ["qodercn"], "prompt": {"flag": "--prompt-interactive"}, "homepage": "https://docs.qoder.cn/cli/overview"},
   {"id": "zcode", "label": "ZCode", "cmd": "zcode", "prompt": "none", "homepage": "https://zcode.z.ai/en/docs"},

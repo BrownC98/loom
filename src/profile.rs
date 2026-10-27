@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod claude;
 pub mod codex;
 pub mod cursor;
+pub mod dsh;
 mod lines;
 pub mod omp;
 pub mod opencode2;
@@ -42,6 +43,7 @@ pub enum Profile {
     Cursor,
     Pi,
     Omp,
+    Dsh,
 }
 
 #[derive(Debug, PartialEq)]
@@ -102,6 +104,7 @@ pub enum HookEntry {
     CursorRules,
     Pi,
     Omp,
+    Dsh,
 }
 
 pub enum Hook {
@@ -136,6 +139,7 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
+        HookEntry::Dsh => Hook::Lines(dsh::request),
     }
 }
 
@@ -185,6 +189,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
+        Profile::Dsh => &dsh::Dsh,
     }
 }
 

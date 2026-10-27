@@ -636,6 +636,7 @@ const ko: typeof en = {
       bareLink: '주소와 파일 경로는 이름을 붙인 markdown 링크 [이름](https://…)나 [이름](file:///…)로 쓰십시오. 주소의 빈칸과 괄호는 %20·%28·%29로 적습니다.',
       badChoices: '질문이 표준 꼴이 아닌 선택지를 냈습니다. 단추가 뜨지 않으므로 (A: … / B: …, 권장: A) 꼴로 다시 물으십시오.',
       uncheckedDoc: '{{value}}: --doc은 show.sh를 지난 user-doc HTML 파일만 받습니다. user-doc style.html로 HTML 문서를 쓰고 show.sh를 돌린 뒤 붙이십시오.',
+      docLinkLabel: '링크 글자 "{{label}}"이(가) 문서의 <h1>이 아닙니다. <h1>을 링크 글자로 쓰고, 판 번호나 다른 말은 링크 뒤에 쓰십시오: `[{{h1}}](<파일>) v2 ...`.',
       notImage: '{{value}}: 있는 그림 파일만 붙입니다(png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "설정에 역할 '{{role}}'이 없습니다. 있는 역할: {{names}}",
       roleHasNoAgent: "역할 '{{role}}'에 에이전트가 없습니다. 이 역할은 사람이 띄웁니다.",

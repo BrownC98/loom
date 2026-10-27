@@ -634,6 +634,7 @@ const en = {
       bareLink: 'Write each web address and file path as a Markdown link with a label: [label](https://...) or [label](file:///...). The target has no spaces or parentheses (use %20, %28, %29).',
       badChoices: 'The question offers choices without the standard tail, so no buttons show. Ask again with (A: ... / B: ..., recommended: A).',
       uncheckedDoc: '{{value}}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it.',
+      docLinkLabel: 'The link text "{{label}}" is not the document\'s <h1>. Use the <h1> as the link text, and put a version or other words after the link: `[{{h1}}](<file>) v2 ...`.',
       notImage: '{{value}}: --image takes an image file that exists (png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "The settings have no role '{{role}}'. The roles are: {{names}}.",
       roleHasNoAgent: "The role '{{role}}' has no agent in the settings. The human starts nodes of this role.",

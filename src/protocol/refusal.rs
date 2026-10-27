@@ -92,6 +92,11 @@ pub enum Refusal {
     BadChoices,
     /// `--doc`의 파일이나 사람이 읽는 글 속 `file://` 링크의 파일이 `show.sh`를 지난 user-doc HTML 그대로가 아니다. 값은 그 경로나 주소다.
     UncheckedDoc(String),
+    /// `loom ask --doc` 글의 문서 링크 글자가 그 문서의 `<h1>`이 아니다.
+    DocLinkLabel {
+        label: String,
+        h1: String,
+    },
     /// `loom done --image`의 파일이 그림 파일(`IMAGE_EXTENSIONS`)이 아니거나 없다. 값은 그 경로다.
     NotImage(String),
     /// `loom spawn --role`의 역할이 설정에 없다. `names`는 설정의 역할 이름이다.
@@ -387,6 +392,10 @@ impl fmt::Display for Refusal {
             Refusal::UncheckedDoc(path) => write!(
                 f,
                 "{path}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it."
+            ),
+            Refusal::DocLinkLabel { label, h1 } => write!(
+                f,
+                "The link text \"{label}\" is not the document's <h1>. Use the <h1> as the link text, and put a version or other words after the link: `[{h1}](<file>) v2 ...`."
             ),
             Refusal::NotImage(path) => write!(
                 f,

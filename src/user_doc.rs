@@ -123,6 +123,92 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
     Ok(WaitDoc { id, title })
 }
 
+pub fn doc_label(text: &str, doc: &Path) -> Result<(), Refusal> {
+    let Some(h1) = read_html(doc).ok().as_deref().and_then(h1) else {
+        return Ok(());
+    };
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let link = &rest[open..];
+        match crate::link_text::parse_link(link) {
+            Some((label, DOC_LINK, len)) => {
+                if words(label) != h1 {
+                    return Err(Refusal::DocLinkLabel {
+                        label: label.to_owned(),
+                        h1,
+                    });
+                }
+                rest = &link[len..];
+            }
+            Some((_, _, len)) => rest = &link[len..],
+            None => rest = &link[1..],
+        }
+    }
+    Ok(())
+}
+
+fn h1(html: &str) -> Option<String> {
+    let open = html.find("<h1")?;
+    let start = open + html[open..].find('>')? + 1;
+    let inner = &html[start..start + html[start..].find("</h1>")?];
+    let mut bare = String::with_capacity(inner.len());
+    let mut in_tag = false;
+    for c in inner.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => bare.push(c),
+            _ => {}
+        }
+    }
+    let bare = entities(&bare).replace(['[', ']'], "");
+    Some(words(&bare)).filter(|h1| !h1.is_empty())
+}
+
+fn entities(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let entity = rest.find(';').map(|end| (&rest[1..end], end + 1));
+        let decoded = entity.and_then(|(name, len)| {
+            let c = match name {
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "amp" => Some('&'),
+                "nbsp" => Some(' '),
+                _ => match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok().and_then(char::from_u32),
+                    None => name
+                        .strip_prefix('#')
+                        .and_then(|dec| dec.parse().ok())
+                        .and_then(char::from_u32),
+                },
+            };
+            c.map(|c| (c, len))
+        });
+        match decoded {
+            Some((c, len)) => {
+                out.push(c);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn words(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn unchecked_link(text: &str, folder: &Path) -> Option<String> {
     let store = Store::here().ok()?;
     unchecked_link_in(&store, text, folder)

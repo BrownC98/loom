@@ -45,8 +45,9 @@ impl App {
                 break;
             }
             for (child, name) in spent {
-                match self.sweep_one(parent, child, &name, &mut swept).await {
-                    Ok(()) => swept.removed.push(name),
+                match self.sweep_one(parent, child, &name, keep, &mut swept).await {
+                    Ok(true) => swept.removed.push(name),
+                    Ok(false) => failed.push(child),
                     Err(e) => {
                         failed.push(child);
                         swept
@@ -64,15 +65,19 @@ impl App {
         parent: NodeId,
         child: NodeId,
         name: &str,
+        keep: &[Kept],
         swept: &mut Swept,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let left = self.left(child).await?;
         let limits = self.settings.get().map_err(|e| e.to_string())?.tree_limits;
-        let (removed, moved) = self
+        let Some(moved) = self
             .graph
-            .remove_child(parent, &child.0.to_string(), limits)
-            .map_err(|e| e.to_string())?;
-        self.host.kill(removed);
+            .remove_spent_child(parent, child, name, keep, limits)
+            .map_err(|e| e.to_string())?
+        else {
+            return Ok(false);
+        };
+        self.host.kill(child);
         let moved: Vec<NodeId> = moved.into_iter().map(|(id, _)| id).collect();
         self.parent_changed(&moved);
         match left {
@@ -89,20 +94,20 @@ impl App {
                         "{name}: git did not remove the worktree {}: {e}. loom kept it and the branch {branch}.",
                         own.path
                     ));
-                    return Ok(());
+                    return Ok(true);
                 }
-                match delete_merged(&dir, &branch, &target).await {
-                    Ok(None) => {}
-                    Ok(Some(cause)) => swept.kept.push(format!(
-                        "{name}: origin/{branch} changed after loom last fetched it, so loom kept it: {cause}."
-                    )),
-                    Err(e) => swept.kept.push(format!(
-                        "{name}: git did not delete the branch {branch}: {e}. loom kept it."
-                    )),
-                }
+                tokio::spawn(async move {
+                    match delete_merged(&dir, &branch, &target).await {
+                        Ok(None) => {}
+                        Ok(Some(cause)) => {
+                            eprintln!("loom: kept origin/{branch} of a removed node: {cause}")
+                        }
+                        Err(e) => eprintln!("loom: did not delete the branch {branch}: {e}"),
+                    }
+                });
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     async fn left(&self, child: NodeId) -> Result<Left, String> {

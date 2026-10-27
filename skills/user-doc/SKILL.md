@@ -28,7 +28,7 @@ In a report:
 
 | Type | Body |
 |---|---|
-| Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); at the end an approval table (`승인할 것`) that marks the recommended option. One desktop width |
+| Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); each open decision (options and the recommended option) is a callout on the screen that the human must look at to decide it, not a row in a table. A decision without its own screen goes beside the nearest screen that it changes. No decision table. One desktop width |
 | Report | Title; the conclusion in the first section; one section for each decision, in the order and form above; in each open decision section a diagram first that compares "now" with "after" or the options side by side (inline SVG with document tokens, visible in light and dark), then the recommendation, reasons and options table; a done item has only its three lines; a table only for what a diagram cannot show; sources as links; at the end a decision table (`정할 것`) with one line per decision: its options and the recommended option. `loom show` refuses a report without a diagram. Research, design and check records go in reports, not in mockups |
 
 - Location: a mockup goes in the repository at `docs/mockups/<name>.html`; a report goes in the task folder (`$LOOM_TASK_DIR`, else `~/.cache/loom/<task>/<subject>.html`). Write a new version to the same path and increase its version number.
@@ -57,6 +57,6 @@ In a report:
    - `show.sh` calls `loom show <file>`. It checks the form (title, light default, toggle button, head line) and adds the document ID. If the check fails, send the document back to the author.
    - It keeps a render made with headless Chromium. The node that asks looks at that render.
    - On a computer without bash (a Windows node), call only `loom show <file>`.
-3. Attach the document to the question: `loom ask "[<title>](<file>)을 승인할까요?" --doc <file>`. The link in the text becomes the document link. Without a link, loom adds "M3 <title>" at the end. When the human clicks it, the daemon opens it in the default browser. For a new version, write the same path, run `show.sh` again and ask again with `loom ask --doc`.
+3. Attach the document to the question: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. The link text is the document's `<h1>`. A version or other words go after the link. loom refuses other link text. The link in the text becomes the document link. Without a link, loom adds "M3 <title>" at the end. When the human clicks it, the daemon opens it in the default browser. For a new version, write the same path, run `show.sh` again and ask again with `loom ask --doc`.
 4. Outside loom (no inbox), give the human a link to the file.
 5. In chat, write a summary in the human's language, a markdown link to the file and the open decisions. Do not copy the full tables into chat.

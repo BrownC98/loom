@@ -402,6 +402,9 @@ pub(super) async fn agent_ask(
         Err(e) => Err(e),
     }
     .and_then(|doc| {
+        if let Some(path) = req.doc.as_deref() {
+            user_doc::doc_label(&req.question, path)?;
+        }
         let id = app.graph.ask(node, &req.question, doc.clone())?;
         let open = app.graph.open_questions(node)?;
         Ok(AskResult::Inbox(Asked {

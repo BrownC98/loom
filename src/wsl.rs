@@ -265,17 +265,15 @@ fn caller() -> Option<WslPath> {
     std::env::current_dir().ok().and_then(|dir| of(&dir))
 }
 
-pub async fn end_hosts(distro: &Distro, home: &str, servers: &[u32]) -> Result<(), String> {
-    let script = r#"home=$1; shift; servers=" $* "
+pub async fn end_hosts(distro: &Distro, home: &str) -> Result<(), String> {
+    let script = r#"home=$1
 for d in /proc/[0-9]*; do
   pid=${d#/proc/}
-  case $servers in *" $pid "*) ;; *) [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue ;; esac
+  [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue
   tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" && echo "$pid"
 done
 exit 0"#;
-    let servers: Vec<String> = servers.iter().map(u32::to_string).collect();
-    let args = std::iter::once(home).chain(servers.iter().map(String::as_str));
-    end_found(distro, sh(script, args)).await
+    end_found(distro, sh(script, [home])).await
 }
 
 pub async fn end_shells(distro: &Distro, token: &str, shells: &[Identity]) -> Result<(), String> {
@@ -578,7 +576,7 @@ impl Inside {
         }
     }
 
-    pub fn server<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+    pub fn wsl_command<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
         &self,
         argv: &[impl AsRef<std::ffi::OsStr>],
         env: &[(K, V)],

@@ -58,15 +58,16 @@ impl App {
         copied?;
         self.graph.publish_view_changed();
         let active = self.graph.active().map_err(|e| e.to_string())?;
-        let servers: Vec<u32> = active
-            .iter()
-            .filter_map(|n| n.server.as_ref()?.pid)
-            .collect();
+        for node in &active {
+            if let Err(e) = self.end_detached(node).await {
+                eprintln!("loom: 노드 {}의 옛 세션을 끝내지 못했다: {e}", node.id.0);
+            }
+        }
         let mut carried = Carried {
             relaunched: Vec::new(),
             ended: Vec::new(),
         };
-        if let Err(e) = wsl::end_hosts(&distro, &home, &servers).await {
+        if let Err(e) = wsl::end_hosts(&distro, &home).await {
             for node in active {
                 let _ = self.graph.lost(node.id);
                 carried

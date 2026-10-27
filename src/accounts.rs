@@ -220,7 +220,7 @@ impl Site {
                 let argv: Vec<OsString> = std::iter::once(program)
                     .chain(args.iter().map(OsString::from))
                     .collect();
-                inside.server(&argv, &env)
+                inside.wsl_command(&argv, &env)
             }
             None => {
                 let mut cmd = process_tree::command_at(Path::new(&program));

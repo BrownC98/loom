@@ -15,6 +15,7 @@ use super::protocol::{
     CommandExecutionRequestApprovalParams, FileChangeRequestApprovalParams, RequestId,
     ServerRequestResolvedNotification, ThreadActiveFlag, ThreadItem, ThreadReadParams,
     ThreadReadResponse, ThreadStartedNotification, ThreadStatus, ThreadStatusChangedNotification,
+    Turn,
 };
 use crate::process_tree::{self, Snapshot};
 use crate::profile::adapter::Chosen;
@@ -63,24 +64,19 @@ pub struct Approval {
 #[derive(Clone, Debug)]
 pub enum Asked {
     Command(CommandExecutionRequestApprovalParams),
-    FileChange {
-        asked: FileChangeRequestApprovalParams,
-        files: Vec<String>,
-    },
+    FileChange(FileChangeRequestApprovalParams),
 }
 
-type Changes = HashMap<String, Vec<String>>;
+type Changes = Mutex<HashMap<String, Vec<String>>>;
 
 impl Approval {
-    fn from_request(method: &str, id: Value, params: Value, changes: &Changes) -> Option<Self> {
+    fn from_request(method: &str, id: Value, params: Value) -> Option<Self> {
         let asked = match method {
             "item/commandExecution/requestApproval" => {
                 Asked::Command(serde_json::from_value(params).ok()?)
             }
             "item/fileChange/requestApproval" => {
-                let asked: FileChangeRequestApprovalParams = serde_json::from_value(params).ok()?;
-                let files = changes.get(&asked.item_id).cloned().unwrap_or_default();
-                Asked::FileChange { asked, files }
+                Asked::FileChange(serde_json::from_value(params).ok()?)
             }
             _ => return None,
         };
@@ -93,14 +89,14 @@ impl Approval {
     pub fn thread(&self) -> &str {
         match &self.asked {
             Asked::Command(asked) => &asked.thread_id,
-            Asked::FileChange { asked, .. } => &asked.thread_id,
+            Asked::FileChange(asked) => &asked.thread_id,
         }
     }
 
     pub fn item(&self) -> &str {
         match &self.asked {
             Asked::Command(asked) => &asked.item_id,
-            Asked::FileChange { asked, .. } => &asked.item_id,
+            Asked::FileChange(asked) => &asked.item_id,
         }
     }
 
@@ -124,6 +120,7 @@ pub struct CodexServer {
     thread: watch::Receiver<Option<Thread>>,
     thread_tx: Weak<watch::Sender<Option<Thread>>>,
     approvals: watch::Receiver<Vec<Approval>>,
+    changes: Arc<Changes>,
     limited: watch::Receiver<u64>,
 }
 
@@ -203,6 +200,47 @@ impl CodexServer {
         self.call("thread/resume", params).await.map(drop)
     }
 
+    pub async fn files(&self, approval: &Approval) -> Vec<String> {
+        let Asked::FileChange(asked) = &approval.asked else {
+            return Vec::new();
+        };
+        if let Some(files) = self.changes.lock().unwrap().get(&asked.item_id) {
+            return files.clone();
+        }
+        let files = match self.active_turn(&asked.thread_id).await {
+            Ok(turn) => turn
+                .into_iter()
+                .flat_map(|t| t.items)
+                .find_map(|item| match item {
+                    ThreadItem::FileChange { id, changes, .. } if id == asked.item_id => {
+                        Some(changes.into_iter().map(|c| c.path).collect::<Vec<_>>())
+                    }
+                    _ => None,
+                }),
+            Err(e) => {
+                eprintln!(
+                    "loom: Codex 스레드 {}의 진행 중인 턴을 읽지 못했다: {e}",
+                    asked.thread_id
+                );
+                None
+            }
+        };
+        let files = files.unwrap_or_default();
+        self.changes
+            .lock()
+            .unwrap()
+            .insert(asked.item_id.clone(), files.clone());
+        files
+    }
+
+    async fn active_turn(&self, thread: &str) -> Result<Option<Turn>, String> {
+        let params = json!({ "threadId": thread, "excludeTurns": false });
+        let resumed = self.call("thread/resume", params).await?;
+        let turns: Vec<Turn> = serde_json::from_value(resumed["thread"]["turns"].clone())
+            .map_err(|e| format!("thread/resume: {e}"))?;
+        Ok(turns.into_iter().last())
+    }
+
     pub async fn answer(
         &self,
         thread: &str,
@@ -276,9 +314,10 @@ impl CodexServer {
         let weak_tx = Arc::downgrade(&thread_tx);
         let (limited_tx, limited) = watch::channel(0);
         let (approvals_tx, approvals) = watch::channel(Vec::new());
+        let changes = Arc::new(Changes::default());
+        let seen_changes = changes.clone();
         let replies = pending.clone();
         tokio::spawn(async move {
-            let mut changes = Changes::new();
             while let Some(Ok(msg)) = stream.next().await {
                 if let Message::Text(text) = msg
                     && let Ok(value) = serde_json::from_str::<Value>(&text)
@@ -286,7 +325,7 @@ impl CodexServer {
                     if is_usage_limit(&value) {
                         limited_tx.send_modify(|n| *n += 1);
                     }
-                    receive(value, &replies, &thread_tx, &approvals_tx, &mut changes);
+                    receive(value, &replies, &thread_tx, &approvals_tx, &seen_changes);
                 }
             }
             for (_, reply) in replies.lock().unwrap().drain() {
@@ -302,6 +341,7 @@ impl CodexServer {
             thread,
             thread_tx: weak_tx,
             approvals,
+            changes,
             limited,
         };
         let init =
@@ -372,7 +412,7 @@ fn receive(
     pending: &Pending,
     thread: &watch::Sender<Option<Thread>>,
     approvals: &watch::Sender<Vec<Approval>>,
-    changes: &mut Changes,
+    changes: &Changes,
 ) {
     if msg.get("method").is_none() {
         let Some(id) = msg["id"].as_u64() else { return };
@@ -387,7 +427,7 @@ fn receive(
     }
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     if let (Some(method), Some(id)) = (msg["method"].as_str(), msg.get("id")) {
-        if let Some(approval) = Approval::from_request(method, id.clone(), params, changes) {
+        if let Some(approval) = Approval::from_request(method, id.clone(), params) {
             approvals.send_if_modified(|all| {
                 let new = !all.iter().any(|a| a.is(&approval.id));
                 if new {
@@ -425,12 +465,13 @@ fn receive(
                 id, changes: files, ..
             }) = serde_json::from_value(params["item"].clone())
             {
-                changes.insert(id, files.into_iter().map(|f| f.path).collect());
+                let files = files.into_iter().map(|f| f.path).collect();
+                changes.lock().unwrap().insert(id, files);
             }
         }
         Some("item/completed") => {
             if let Some(id) = params["item"]["id"].as_str() {
-                changes.remove(id);
+                changes.lock().unwrap().remove(id);
             }
         }
         Some("serverRequest/resolved") => {

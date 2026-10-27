@@ -376,7 +376,7 @@ fn approval_rows(approval: &Approval) -> Vec<String> {
     vec![approval.id.to_string(), approval.item().to_owned()]
 }
 
-fn approval_prompt(approval: &Approval) -> Prompt {
+fn approval_prompt(approval: &Approval, files: &[String]) -> Prompt {
     let (summary, body): (String, Vec<String>) = match &approval.asked {
         Asked::Command(asked) => {
             let command = asked
@@ -389,7 +389,7 @@ fn approval_prompt(approval: &Approval) -> Prompt {
                 .collect();
             (command, body)
         }
-        Asked::FileChange { asked, files } => {
+        Asked::FileChange(asked) => {
             let summary = match files.is_empty() {
                 true => "file change".to_owned(),
                 false => format!("file change: {}", files.join(", ")),
@@ -423,14 +423,16 @@ fn approval_prompt(approval: &Approval) -> Prompt {
     }
 }
 
-fn human_wait(
-    thread: Option<&server::Thread>,
-    approvals: &[Approval],
+async fn human_wait(
+    server: &CodexServer,
+    thread: Option<server::Thread>,
+    approvals: Vec<Approval>,
 ) -> Option<(WaitKind, String, Option<Prompt>)> {
     let now = thread?;
     match approvals.iter().find(|a| a.thread() == now.id) {
         Some(approval) => {
-            let prompt = approval_prompt(approval);
+            let files = server.files(approval).await;
+            let prompt = approval_prompt(approval, &files);
             Some((WaitKind::Approval, prompt.summary.clone(), Some(prompt)))
         }
         None => now.waiting.map(|kind| (kind, String::new(), None)),
@@ -525,8 +527,9 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
             }
         }
         if std::mem::take(&mut waits) {
-            let wait = human_wait(thread.borrow().as_ref(), &approvals.borrow_and_update());
-            port.report(Report::HumanWait(wait));
+            let now = thread.borrow().clone();
+            let asked = approvals.borrow_and_update().clone();
+            port.report(Report::HumanWait(human_wait(&server, now, asked).await));
         }
         tokio::select! {
             biased;

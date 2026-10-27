@@ -26,7 +26,7 @@ impl App {
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
-        let messages = self.unheld(node, || self.graph.take(node, &req.kinds, req.limit_bytes))?;
+        let messages = self.graph.take(node, &req.kinds, req.limit_bytes)?;
         let note = match req.human_input {
             true => self.human_input(node, req.prompt.as_deref())?,
             false => None,
@@ -40,18 +40,7 @@ impl App {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.unheld(node, || self.graph.take_waking(node, kinds, limit_bytes))
-    }
-
-    fn unheld(
-        &self,
-        node: NodeId,
-        take: impl FnOnce() -> Result<Vec<Delivery>, Refusal>,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        if self.relaunching(node) {
-            return Ok(Vec::new());
-        }
-        take()
+        self.graph.take_waking(node, kinds, limit_bytes)
     }
 
     pub(super) async fn next_mail(

@@ -431,6 +431,7 @@ impl App {
 
     pub(super) fn kept_at_turn_end(&self, node: NodeId) {
         plan_written(node, self.graph.defer_relaunch(node));
+        self.graph.wake_mail();
         eprintln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
             node.0

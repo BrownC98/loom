@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::{
-    Graph, HUMAN, NodeId, NodeState, REACHABLE, Toward, Work, ambiguous, from_json, optional_json,
-    parent_of, set_work, state_of, to_json,
+    Graph, HUMAN, NodeId, NodeState, Phase, REACHABLE, Toward, Work, ambiguous, from_json,
+    optional_json, parent_of, set_work, state_of, to_json,
 };
 use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
@@ -312,7 +312,7 @@ impl Graph {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, |_| true)
+        self.take_if(node, kinds, limit_bytes, &Phase::STARTED, |_| true)
     }
 
     pub fn take_waking(
@@ -321,7 +321,9 @@ impl Graph {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, |wakes| wakes.contains(&true))
+        self.take_if(node, kinds, limit_bytes, &Phase::ALL, |wakes| {
+            wakes.contains(&true)
+        })
     }
 
     fn take_if(
@@ -329,21 +331,27 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
+        held_by: &[Phase],
         wanted: impl FnOnce(&[bool]) -> bool,
     ) -> Result<Vec<Delivery>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let kinds = serde_json::to_string(&kinds.iter().map(to_json).collect::<Vec<_>>())
             .expect("문자열 목록은 늘 직렬화된다");
+        let held_by = serde_json::to_string(&held_by.iter().map(to_json).collect::<Vec<_>>())
+            .expect("문자열 목록은 늘 직렬화된다");
         let (queued, wakes): (Vec<Delivery>, Vec<bool>) = tx
             .prepare(&format!(
                 "SELECT id, sender_name, kind, body, what, {} FROM messages
                  WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
                  AND kind IN (SELECT value FROM json_each(?2))
-                 AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1) ORDER BY id",
+                 AND NOT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND sleeping = 1)
+                 AND NOT EXISTS(SELECT 1 FROM relaunch_plans
+                                WHERE node = ?1 AND phase IN (SELECT value FROM json_each(?3)))
+                 ORDER BY id",
                 wakes()
             ))?
-            .query_map(params![node.0, kinds], |row| {
+            .query_map(params![node.0, kinds, held_by], |row| {
                 Ok((read_delivery(row)?, row.get::<_, bool>(5)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?

@@ -110,7 +110,11 @@ impl App {
         }
     }
 
-    async fn gate_of(&self, node: NodeId, repo: &Path) -> Result<(NodeId, String), Refusal> {
+    pub(super) async fn gate_of(
+        &self,
+        node: NodeId,
+        repo: &Path,
+    ) -> Result<(NodeId, String), Refusal> {
         match self.graph.gate_for(node)? {
             GateChoice::Parent { gate, worktree } => {
                 Ok((gate, target_of(repo, Some(&worktree)).await?))

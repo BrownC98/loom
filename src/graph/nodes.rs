@@ -697,6 +697,37 @@ impl Graph {
         if id == caller {
             return Err(Refusal::NotFound(name.to_owned()));
         }
+        self.take_child(tx, caller, id, name, limits)
+            .map(|moved| (id, moved))
+    }
+
+    pub fn remove_spent_child(
+        &self,
+        parent: NodeId,
+        child: NodeId,
+        name: &str,
+        keep: &[mailbox::Kept],
+        limits: TreeLimits,
+    ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        if !spent_in(&tx, parent, keep)?
+            .iter()
+            .any(|(id, _)| *id == child)
+        {
+            return Ok(None);
+        }
+        self.take_child(tx, parent, child, name, limits).map(Some)
+    }
+
+    fn take_child(
+        &self,
+        tx: rusqlite::Transaction,
+        caller: NodeId,
+        id: NodeId,
+        name: &str,
+        limits: TreeLimits,
+    ) -> Result<Vec<(NodeId, String)>, Refusal> {
         let withdrawn = super::gate::close_owned(&tx, id, self.linked)?;
         let before = super::gate::open_gates(&tx, &children_of(&tx, id)?)?;
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
@@ -729,7 +760,7 @@ impl Graph {
             adoption.publish(self);
         }
         self.publish_withdrawn(&withdrawn);
-        Ok((id, moved))
+        Ok(moved)
     }
 
     fn publish_withdrawn(&self, sent: &[NodeId]) {
@@ -1058,15 +1089,31 @@ fn adopt_in(
     }))
 }
 
-pub(super) fn check_spent(
+impl Graph {
+    pub fn spent_children(
+        &self,
+        node: NodeId,
+        keep: &[mailbox::Kept],
+    ) -> rusqlite::Result<Vec<(NodeId, String)>> {
+        spent_in(&self.lock(), node, keep)
+    }
+}
+
+fn spent_in(
     db: &Connection,
     node: NodeId,
     keep: &[mailbox::Kept],
-) -> Result<(), Refusal> {
-    let spent = db
+) -> rusqlite::Result<Vec<(NodeId, String)>> {
+    Ok(db
         .prepare(
             r#"SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1
-             AND c.state ->> 'kind' = 'done' AND c.process IS NOT NULL AND c.role IS NOT NULL
+             AND c.state ->> 'kind' = 'done' AND c.role IS NOT NULL
+             AND (c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
+                 WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))
+             AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
+             AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
+             AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
+                 AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
              AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
                  AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))
              ORDER BY c.id"#,
@@ -1077,22 +1124,7 @@ pub(super) fn check_spent(
         .collect::<rusqlite::Result<Vec<_>>>()?
         .into_iter()
         .filter(|(_, name)| !keep.iter().any(|k| &k.name == name))
-        .collect::<Vec<_>>();
-    if spent.is_empty() {
-        return Ok(());
-    }
-    let mut inherited = Vec::new();
-    for (id, _) in &spent {
-        inherited.extend(
-            db.prepare("SELECT name FROM nodes WHERE parent = ?1 ORDER BY id")?
-                .query_map([id.0], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?,
-        );
-    }
-    Err(Refusal::SpentChildren {
-        children: spent.into_iter().map(|(_, name)| name).collect(),
-        inherited,
-    })
+        .collect())
 }
 
 fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {

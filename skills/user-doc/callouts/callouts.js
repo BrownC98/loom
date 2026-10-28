@@ -30,10 +30,23 @@
     }
     return out;
   };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
   const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
     const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
     fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
-    for (let x = 80; place(fig, src) && x <= 1200; x += 80) fig.style.paddingBottom = base + x + 'px';
+    for (let x = 20; place(fig, src) && x <= 1200; x += 20) fig.style.paddingBottom = base + x + 'px';
   } };
   const place = (fig, src) => {
     fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
@@ -71,7 +84,7 @@
     const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
     order.forEach(i => { const m = marks[i];
       const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
-      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts.get(String(n))}</span>`;
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
       Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
       const own = m.closest('.page, .xlwin, .shotwrap');
       const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));

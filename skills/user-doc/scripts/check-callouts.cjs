@@ -53,7 +53,7 @@ const IDS = mockup => {
     if (document.querySelector('.calls')) {
       const ns = d.dataset.for?.match(/\d+/g) ?? [];
       if (!ns.length) bad.push(`decision ${k} has no target: give it data-for="<box numbers>"`);
-      for (const n of ns) if (!document.querySelector(`.mk[data-n="${n}"]`)) bad.push(`decision ${k} target ${n} is not a box number in this document`);
+      for (const n of ns) if (![...document.querySelectorAll(`.fig .mk[data-n="${n}"]`)].some(m => [...m.closest('.fig').querySelectorAll(':scope > .calls > div > b')].some(b => b.textContent.trim() === n))) bad.push(`decision ${k} target ${n} is not a box with a callout in a screen section`);
     }
   }
   for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);

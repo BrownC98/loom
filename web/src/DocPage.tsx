@@ -1,14 +1,14 @@
 import { Check, Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { answerWait, docUrl, getEventLog, getNodes } from './api';
+import { answerWait, docUrl, getDocQuestion } from './api';
+import type { DocQuestion } from './gen/DocQuestion';
 import type { WaitId } from './gen/WaitId';
 import { dateAndTime } from './i18n';
 
 type Decision = { id: string; keys: string[]; recommended: string | null };
 type Pick = { key?: string; text?: string };
 type Picks = Record<string, Pick>;
-type Question = { kind: 'none' } | { kind: 'open'; wait: WaitId } | { kind: 'answered'; wait: WaitId; text: string; at: number } | { kind: 'closed'; wait: WaitId };
 type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { kind: 'pick'; id: string; key: string } | { kind: 'write'; id: string; text: string });
 
 const ANSWER_JOIN = ', ';
@@ -16,18 +16,6 @@ const ANSWER_JOIN = ', ';
 export function docPageId(): string | null {
   const match = /^\/docs\/([^/]+)$/.exec(location.pathname);
   return match ? decodeURIComponent(match[1]) : null;
-}
-
-async function findQuestion(id: string): Promise<Question> {
-  const waits = (await getNodes()).flatMap((n) => n.waits).filter((w) => w.kind === 'question' && w.answerable && w.doc?.id === id);
-  if (waits.length > 0) return { kind: 'open', wait: Math.max(...waits.map((w) => w.id)) };
-  const records = (await getEventLog()).records;
-  const asked = records.find((r) => r.entry.kind === 'asked' && r.entry.doc?.id === id);
-  if (asked?.entry.kind !== 'asked') return { kind: 'none' };
-  const wait = asked.entry.wait;
-  const answer = records.find((r) => r.entry.kind === 'answered' && r.entry.wait === wait);
-  if (answer?.entry.kind === 'answered') return { kind: 'answered', wait, text: answer.entry.text, at: answer.at * 1000 };
-  return { kind: 'closed', wait };
 }
 
 function answerText(decisions: readonly Decision[], picks: Picks, unpicked: string): string {
@@ -57,7 +45,7 @@ function picksOf(text: string, decisions: readonly Decision[]): Picks {
 export function DocPage({ id }: { id: string }) {
   const { t } = useTranslation();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [question, setQuestion] = useState<Question | null>(null);
+  const [question, setQuestion] = useState<DocQuestion | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [confirming, setConfirming] = useState(false);
@@ -66,7 +54,7 @@ export function DocPage({ id }: { id: string }) {
 
   useEffect(() => {
     document.title = id;
-    findQuestion(id).then(setQuestion, (err: Error) => setRefusal(err.message));
+    getDocQuestion(id).then(setQuestion, (err: Error) => setRefusal(err.message));
   }, [id]);
 
   useEffect(() => {
@@ -95,10 +83,10 @@ export function DocPage({ id }: { id: string }) {
     const text = answerText(decisions, picks, t('docPage.unpickedAnswer'));
     setBusy(true);
     answerWait(wait, text, []).then(
-      () => setQuestion({ kind: 'answered', wait, text, at: Date.now() }),
+      () => setQuestion({ kind: 'answered', wait, text, at: Math.floor(Date.now() / 1000) }),
       (err: Error) => {
         setRefusal(err.message);
-        findQuestion(id).then(setQuestion, () => {});
+        getDocQuestion(id).then(setQuestion, () => {});
       },
     ).finally(() => {
       setBusy(false);
@@ -158,7 +146,7 @@ export function DocPage({ id }: { id: string }) {
         {question?.kind === 'answered' && (
           <>
             <Check className="ok" aria-hidden="true" />
-            <span className="bar-title">{t('docPage.answered', { id: `Q${question.wait}`, time: dateAndTime(question.at) })}</span>
+            <span className="bar-title">{t('docPage.answered', { id: `Q${question.wait}`, time: dateAndTime(question.at * 1000) })}</span>
             <span className="sent" title={question.text}>
               {question.text}
             </span>

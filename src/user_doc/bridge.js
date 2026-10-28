@@ -12,6 +12,7 @@
   style.textContent = `
 .decision .opt[data-loom-open] { cursor: pointer; }
 .decision .opt[data-loom-open]:hover { filter: brightness(0.96); }
+.decision .opt[data-loom-open]:focus-visible { outline: 2px solid var(--warn, #9a7b16); outline-offset: 2px; }
 .decision .opt[data-loom-picked] { border: 2px solid var(--warn, #9a7b16); padding: 4px 9px; }
 .decision .opt[data-loom-picked]::after { content: attr(data-loom-picked); margin-left: auto; padding-left: 8px; color: var(--warn, #9a7b16); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .decision[data-loom-locked] .opt:not([data-loom-picked]) { opacity: 0.55; }
@@ -23,9 +24,16 @@
     for (const box of boxes) {
       const pick = picks[box.id] ?? {};
       for (const opt of box.querySelectorAll('.opt')) {
-        opt.toggleAttribute('data-loom-open', mode === 'open');
-        if (mode !== 'off' && keyOf(opt) === pick.key) opt.setAttribute('data-loom-picked', labels.picked);
+        const open = mode === 'open';
+        const picked = mode !== 'off' && keyOf(opt) === pick.key;
+        opt.toggleAttribute('data-loom-open', open);
+        if (picked) opt.setAttribute('data-loom-picked', labels.picked);
         else opt.removeAttribute('data-loom-picked');
+        if (open) {
+          opt.setAttribute('role', 'button');
+          opt.setAttribute('tabindex', '0');
+          opt.setAttribute('aria-pressed', String(picked));
+        } else for (const name of ['role', 'tabindex', 'aria-pressed']) opt.removeAttribute(name);
       }
       box.toggleAttribute('data-loom-locked', mode === 'locked');
       let field = box.querySelector(':scope > .loom-write');
@@ -40,13 +48,19 @@
         (box.querySelector(':scope > .opts') ?? box.lastElementChild).after(field);
       }
       field.placeholder = labels.write;
+      field.setAttribute('aria-label', `${box.id}: ${labels.write}`);
       field.disabled = mode === 'locked';
       if (document.activeElement !== field) field.value = pick.text ?? '';
     }
   };
-  document.addEventListener('click', (e) => {
-    const opt = e.target.closest('.decision[id] .opt[data-loom-open]');
+  const pickAt = (target) => {
+    const opt = target.closest?.('.decision[id] .opt[data-loom-open]');
     if (opt) post({ kind: 'pick', id: opt.closest('.decision[id]').id, key: keyOf(opt) });
+    return opt;
+  };
+  document.addEventListener('click', (e) => pickAt(e.target));
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.opt[data-loom-open]') && pickAt(e.target)) e.preventDefault();
   });
   window.addEventListener('message', (e) => {
     if (e.source !== window.parent || e.data?.loom !== 'page') return;

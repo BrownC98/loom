@@ -7,7 +7,15 @@ use super::{entities, title};
 
 const BRIDGE: &str = include_str!("bridge.js");
 const BODY_END: &str = "</body>";
-const REFERENCES: [&str; 6] = ["src=\"", "src='", "href=\"", "href='", "url(\"", "url('"];
+const REFERENCES: [(&str, char); 7] = [
+    ("src=\"", '"'),
+    ("src='", '\''),
+    ("href=\"", '"'),
+    ("href='", '\''),
+    ("url(\"", '"'),
+    ("url('", '\''),
+    ("url(", ')'),
+];
 const NAME_BANS: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
 pub struct Shared {
@@ -43,20 +51,19 @@ pub fn shareable(
 fn inlined(html: &str, sibling: impl Fn(&str) -> Option<PathBuf>) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some((at, open)) = REFERENCES
+    while let Some((at, open, close)) = REFERENCES
         .iter()
-        .filter_map(|r| rest.find(r).map(|at| (at, *r)))
-        .min_by_key(|(at, _)| *at)
+        .filter_map(|(open, close)| rest.find(open).map(|at| (at, *open, *close)))
+        .min_by_key(|(at, open, _)| (*at, std::cmp::Reverse(open.len())))
     {
         let start = at + open.len();
         out.push_str(&rest[..start]);
         rest = &rest[start..];
-        let quote = open.chars().last().expect("REFERENCES ends with a quote");
-        let end = rest.find(quote).unwrap_or(rest.len());
-        let value = &rest[..end];
+        let end = rest.find(close).unwrap_or(rest.len());
+        let value = rest[..end].trim();
         match data_url(value, &sibling) {
             Some(url) => out.push_str(&url),
-            None => out.push_str(value),
+            None => out.push_str(&rest[..end]),
         }
         rest = &rest[end..];
     }

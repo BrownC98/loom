@@ -55,6 +55,27 @@ pub struct HumanWait {
     pub choices: Vec<Choice>,
 }
 
+/// 문서 페이지(`/docs/{id}`)의 응답 막대 상태: 그 문서가 붙은 가장 최근 질문. 목업 docs/mockups/doc-answer.html.
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum DocQuestion {
+    None,
+    Open {
+        wait: WaitId,
+    },
+    Answered {
+        wait: WaitId,
+        text: String,
+        /// 답한 유닉스 초.
+        #[ts(type = "number")]
+        at: i64,
+    },
+    Closed {
+        wait: WaitId,
+    },
+}
+
 /// 화면에 보내는 대기: 저장한 대기와 데몬이 정한 표시 값.
 #[derive(Clone, Serialize, TS)]
 #[ts(export)]
@@ -318,6 +339,42 @@ impl Graph {
         self.publish_nodes();
         self.mail.notify_waiters();
         Ok(node)
+    }
+
+    pub fn doc_question(&self, doc: &str) -> Result<DocQuestion, Refusal> {
+        let db = self.lock();
+        let open: Option<u32> = db
+            .query_row(
+                "SELECT id FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
+                [doc],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(wait) = open {
+            return Ok(DocQuestion::Open { wait: WaitId(wait) });
+        }
+        let asked: Option<u32> = db
+            .query_row(
+                "SELECT entry ->> '$.wait' FROM events WHERE json_valid(entry) AND entry ->> '$.kind' = 'asked' AND entry ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
+                [doc],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(wait) = asked else {
+            return Ok(DocQuestion::None);
+        };
+        let answer: Option<(String, i64)> = db
+            .query_row(
+                "SELECT entry ->> '$.text', at FROM events WHERE json_valid(entry) AND entry ->> '$.kind' = 'answered' AND entry ->> '$.wait' = ?1 ORDER BY id DESC LIMIT 1",
+                [wait],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let wait = WaitId(wait);
+        Ok(match answer {
+            Some((text, at)) => DocQuestion::Answered { wait, text, at },
+            None => DocQuestion::Closed { wait },
+        })
     }
 
     pub fn answered(&self, id: NodeId, ids: &[WaitId]) -> Result<Vec<WaitId>, Refusal> {

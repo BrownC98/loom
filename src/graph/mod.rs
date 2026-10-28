@@ -34,7 +34,7 @@ pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
 pub use turns::TurnMark;
-pub use waits::{HUMAN, HumanWait, ScreenWait, WaitSource};
+pub use waits::{DocQuestion, HUMAN, HumanWait, ScreenWait, WaitSource};
 
 use crate::db::Database;
 use crate::protocol::{AgentId, Kind, MessageKind, Refusal};

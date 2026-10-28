@@ -3,6 +3,7 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 use super::runtime::bearer;
 use super::*;
+use crate::graph::DocQuestion;
 use crate::protocol::ChoiceRequest;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -18,6 +19,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         )
         .route("/api/docs/{id}/", get(doc))
         .route("/api/docs/{id}/download", get(download_doc))
+        .route("/api/docs/{id}/question", get(doc_question))
         .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
 }
@@ -171,6 +173,13 @@ async fn open_doc(
     doc_file(&id)?;
     open::open_url(&format!("http://127.0.0.1:{}/docs/{id}", app.port)).map_err(internal)?;
     Ok(Json(()))
+}
+
+async fn doc_question(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<DocQuestion>, Problem> {
+    Ok(Json(app.graph.doc_question(&id)?))
 }
 
 async fn doc(Path(id): Path<String>) -> Result<Response, DocProblem> {

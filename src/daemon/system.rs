@@ -10,6 +10,10 @@ pub(super) fn routes() -> Router<Arc<App>> {
             "/api/files/open",
             post(open_file).layer(axum::middleware::from_fn(origin::from_page)),
         )
+        .route(
+            "/api/links/open",
+            post(open_link).layer(axum::middleware::from_fn(origin::from_page)),
+        )
         .route("/api/files/view/{node}/{*path}", get(view_file))
         .route("/api/shutdown", post(shutdown))
         .route("/api/update", get(update_view))
@@ -36,6 +40,28 @@ async fn open_file(
     let path = host_path(&app, req.node, req.path)?;
     open::open(std::path::Path::new(&path)).map_err(internal)?;
     Ok(Json(()))
+}
+
+/// 앱(Tauri) 화면이 누른 웹 링크. 데몬은 `http`·`https` 주소만 기계의 기본 브라우저로 연다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct OpenLink {
+    pub url: String,
+}
+
+const WEB_SCHEMES: [&str; 2] = ["http://", "https://"];
+
+async fn open_link(Json(req): Json<OpenLink>) -> Result<Response, Problem> {
+    let web = WEB_SCHEMES.iter().any(|s| {
+        req.url
+            .get(..s.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(s))
+    });
+    if !web {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    }
+    open::open_url(&req.url).map_err(internal)?;
+    Ok(Json(()).into_response())
 }
 
 pub(super) fn host_path(app: &App, node: Option<NodeId>, path: String) -> Result<String, Problem> {

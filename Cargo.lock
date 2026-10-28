@@ -1053,6 +1053,7 @@ dependencies = [
  "if-addrs",
  "jiff",
  "libc",
+ "mime_guess",
  "num-bigint",
  "percent-encoding",
  "portable-pty",

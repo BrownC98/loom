@@ -8,6 +8,9 @@ use ts_rs::TS;
 use crate::link_text::DOC_LINK;
 use crate::protocol::{Refusal, WaitDoc};
 
+mod share;
+pub use share::{Shared, shareable, with_bridge};
+
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 

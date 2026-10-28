@@ -2,6 +2,7 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { PlaceUsage } from './gen/PlaceUsage';
 import type { AgentView } from './gen/AgentView';
+import type { DocQuestion } from './gen/DocQuestion';
 import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
@@ -31,6 +32,7 @@ import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { OpenFile } from './gen/OpenFile';
+import type { OpenLink } from './gen/OpenLink';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
@@ -95,6 +97,8 @@ export const typeText = (wait: WaitId, prompt: Prompt, text: string, option?: nu
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;
+export const getDocQuestion = (id: string) => call<DocQuestion>('GET', `/api/docs/${encodeURIComponent(id)}/question`);
+export const docPageUrl = (id: string) => `/docs/${encodeURIComponent(id)}`;
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
@@ -110,6 +114,7 @@ export function fileViewUrl(path: string, node: NodeId | null): string {
 
 export const filePass = (path: string, node: NodeId | null) => call<string>('POST', '/api/files/pass', { path, node } satisfies OpenFile);
 export const docPass = (id: string) => call<string>('POST', `/api/docs/${encodeURIComponent(id)}/pass`);
+export const openWebLink = (url: string) => call<null>('POST', '/api/links/open', { url } satisfies OpenLink);
 export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');

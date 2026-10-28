@@ -49,7 +49,8 @@ const DRAGGING_Z = 2000;
 const EMPTY_GROUP: Size = { width: 320, height: 100 };
 const CARD_X = 20;
 const CARD_TOP = 60;
-const STEP_BEND = ARROW;
+const BEND_DROP = 16;
+const STEP_BEND = ARROW + BEND_DROP;
 const CARD_SIZE: Record<CardView, Size> = {
   standard: { width: 600, height: 466 },
   simple: { width: 260, height: 134 },

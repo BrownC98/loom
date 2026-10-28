@@ -8,6 +8,7 @@ const END_GAP = 40;
 const LABEL_SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95];
 const LABEL_GAP = 2;
 const BEND_GAP = 16;
+const BOX_GAP = 8;
 
 export type HopEnd = { id: number; box: Box; room: Box; bend: number | null };
 export type LabelSize = { width: number; height: number };
@@ -72,20 +73,16 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
   const room = Math.max(...pairs.map((p) => p.label.full.height)) + LABEL_GAP;
   const bus = (end: HopEnd) => up.b + (end.bend ?? (rects.get(end.id)!.t - up.b) / 2);
   const bendLine = (p: HopPair) => Math.max(bus(p.source), bus(p.target));
-  const roomTop = (p: HopPair) => Math.min(rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t) - LABEL_GAP;
+  const headTop = (p: HopPair) => Math.min(rects.get(p.source.id)!.t, rects.get(p.target.id)!.t) - LABEL_GAP;
   const wanted = (p: HopPair) => bendLine(p) + Math.max(BEND_GAP, room / 2);
-  const busLine = (p: HopPair) => (roomTop(p) >= wanted(p) ? wanted(p) : (bendLine(p) + roomTop(p)) / 2);
-  const labelled = (p: HopPair) => roomTop(p) - busLine(p) >= room / 2;
-  const band = (p: HopPair) => ({ lo: busLine(p), hi: labelled(p) ? roomTop(p) - room / 2 : roomTop(p) });
-  const below = pairs.filter((p) => roomTop(p) >= busLine(p));
+  const busLine = (p: HopPair) => (headTop(p) >= wanted(p) ? wanted(p) : (bendLine(p) + headTop(p)) / 2);
+  const labelled = (p: HopPair) => headTop(p) - busLine(p) >= room / 2;
+  const band = (p: HopPair) => ({ lo: busLine(p), hi: labelled(p) ? headTop(p) - room / 2 : headTop(p) });
+  const below = pairs.filter((p) => headTop(p) >= busLine(p));
   if (below.length === 0) return routes;
   const span = (p: HopPair) => Math.abs(mid(p.source.id) - mid(p.target.id));
   const left = (p: HopPair) => Math.min(mid(p.source.id), mid(p.target.id));
   const order = [...below].sort((a, b) => span(a) - span(b) || left(a) - left(b) || (a.key < b.key ? -1 : 1));
-  const lo = Math.max(...order.map((p) => band(p).lo));
-  const hi = Math.min(...order.map((p) => band(p).hi));
-  const step = order.length > 1 ? Math.max(0, Math.min(room, (hi - lo) / (order.length - 1))) : 0;
-  const lane = (i: number) => Math.min(band(order[i]).hi, Math.max(band(order[i]).lo, lo + (order.length - 1 - i) * step));
 
   type End = { pair: number; id: number; toward: number };
   const ends = new Map<number, End[]>();
@@ -103,19 +100,34 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
     const gap = Math.min(END_GAP, (r.r - r.l) / (list.length + 1));
     list.forEach((e, k) => at.set(`${e.pair}:${id}`, mid(id) + (k - (list.length - 1) / 2) * gap));
   }
+  const reach = (i: number) => {
+    const xa = at.get(`${i}:${order[i].source.id}`)!;
+    const xb = at.get(`${i}:${order[i].target.id}`)!;
+    return { l: Math.min(xa, xb), r: Math.max(xa, xb) };
+  };
+  const boxes = [...rooms].filter(([id, q]) => q.t < rects.get(id)!.t).map(([id, q]) => ({ q, card: rects.get(id)!.t - LABEL_GAP - room }));
+  const lanes: number[] = [];
+  order.forEach((p, i) => {
+    const x = reach(i);
+    const nested = lanes.filter((_, j) => reach(j).l < x.r && x.l < reach(j).r);
+    let y = Math.min(band(p).hi, ...nested.map((n) => n - room));
+    for (const { q, card } of boxes) if (q.l < x.r && x.l < q.r && y > q.t - BOX_GAP && y < card) y = q.t - BOX_GAP;
+    lanes.push(Math.max(band(p).lo, y));
+  });
 
   const apart = (r: Rect, q: Rect, gap: number) => r.r + gap <= q.l || q.r + gap <= r.l || r.b + gap <= q.t || q.b + gap <= r.t;
-  const walls = [up, ...rooms.values(), ...rects.values()];
+  const heads = pairs.flatMap((p) => [p.source, p.target]).filter((e) => e.room.at.y < e.box.at.y).map((e) => rectDown({ at: e.room.at, size: { width: e.room.size.width, height: e.box.at.y - e.room.at.y - LABEL_GAP - room } }, direction));
+  const walls = [up, ...rects.values(), ...heads];
   const placed: Rect[] = [];
   const stems = order.flatMap((p, i) =>
     [p.source.id, p.target.id].map((id) => {
       const x = at.get(`${i}:${id}`)!;
-      return { pair: i, rect: { l: x - 1, t: lane(i), r: x + 1, b: rects.get(id)!.t } };
+      return { pair: i, rect: { l: x - 1, t: lanes[i], r: x + 1, b: rects.get(id)!.t } };
     }),
   );
   order.forEach((p, i) => {
     const clear = (r: Rect) => walls.every((q) => apart(r, q, 0)) && placed.every((q) => apart(r, q, LABEL_GAP)) && stems.every((s) => s.pair === i || apart(r, s.rect, 0));
-    const y = lane(i);
+    const y = lanes[i];
     const xa = at.get(`${i}:${p.source.id}`)!;
     const xb = at.get(`${i}:${p.target.id}`)!;
     const fit = (size: LabelSize) => {

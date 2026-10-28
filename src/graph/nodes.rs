@@ -1099,6 +1099,47 @@ impl Graph {
     ) -> rusqlite::Result<Vec<(NodeId, String)>> {
         spent_in(&self.lock(), node, keep)
     }
+
+    pub fn accept_done(&self, parent: NodeId, keep: &[mailbox::Kept]) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let done = tx
+            .prepare("SELECT id, name FROM nodes WHERE parent = ?1 AND state ->> 'kind' = 'done'")?
+            .query_map([parent.0], |row| {
+                Ok((NodeId(row.get(0)?), row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (id, name) in done {
+            let accepted = !keep.iter().any(|k| k.name == name);
+            tx.execute(
+                "UPDATE nodes SET state = ?2 WHERE id = ?1",
+                params![id.0, to_json(&Work::Done { accepted })],
+            )?;
+        }
+        tx.commit()
+    }
+
+    pub fn accepted_in_turn(&self, parent: NodeId) -> rusqlite::Result<Vec<String>> {
+        self.lock()
+            .prepare(
+                "SELECT c.name FROM nodes c JOIN agent_states s ON s.node = c.id
+                 WHERE c.parent = ?1 AND c.state ->> 'accepted' AND s.state ->> 'kind' = 'turn'
+                 ORDER BY c.id",
+            )?
+            .query_map([parent.0], |row| row.get(0))?
+            .collect()
+    }
+
+    pub fn accepted_by(&self, child: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
+        self.lock()
+            .query_row(
+                "SELECT parent, name FROM nodes
+                 WHERE id = ?1 AND parent IS NOT NULL AND state ->> 'accepted'",
+                [child.0],
+                |row| Ok((NodeId(row.get(0)?), row.get(1)?)),
+            )
+            .optional()
+    }
 }
 
 fn spent_in(

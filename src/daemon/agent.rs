@@ -146,6 +146,7 @@ impl App {
         if !open.after_turn {
             self.run_at_turn_end(node, None);
         }
+        self.remove_accepted(node);
     }
 
     pub(super) fn listen_open(

@@ -27,6 +27,11 @@ impl App {
     pub(super) async fn sweep(self: &Arc<Self>, parent: NodeId, keep: &[Kept]) -> Swept {
         let mut swept = Swept::default();
         let mut failed = Vec::new();
+        if let Err(e) = self.graph.accept_done(parent, keep) {
+            swept
+                .kept
+                .push(format!("loom could not mark finished children: {e}"));
+        }
         loop {
             let spent = match self.graph.spent_children(parent, keep) {
                 Ok(spent) => spent,
@@ -57,7 +62,37 @@ impl App {
                 }
             }
         }
+        match self.graph.accepted_in_turn(parent) {
+            Ok(names) => swept.kept.extend(names.into_iter().map(|name| {
+                format!("{name}: its turn is still running. loom removes it when the turn ends.")
+            })),
+            Err(e) => swept
+                .kept
+                .push(format!("loom could not list children in a turn: {e}")),
+        }
         swept
+    }
+
+    pub(super) fn remove_accepted(self: &Arc<Self>, child: NodeId) {
+        let accepted = match self.graph.accepted_by(child) {
+            Ok(Some(accepted)) => accepted,
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 완료 수락을 읽지 못했다: {e}", child.0);
+                return;
+            }
+        };
+        let app = self.clone();
+        tokio::spawn(async move {
+            let (parent, name) = accepted;
+            let mut swept = Swept::default();
+            if let Err(e) = app.sweep_one(parent, child, &name, &[], &mut swept).await {
+                swept.kept.push(format!("loom could not remove it: {e}"));
+            }
+            for kept in swept.kept {
+                eprintln!("loom: 턴이 끝난 노드 {} ({name}): {kept}", child.0);
+            }
+        });
     }
 
     async fn sweep_one(

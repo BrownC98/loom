@@ -74,7 +74,10 @@ pub enum NodeState {
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum Work {
     Running,
-    Done,
+    Done {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        accepted: bool,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -89,7 +92,7 @@ pub enum ProcessOutcome {
 
 fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
     match (work, process) {
-        (Work::Done, _) => NodeState::Done,
+        (Work::Done { .. }, _) => NodeState::Done,
         (Work::Running, None | Some(ProcessOutcome::Asleep | ProcessOutcome::HostGone)) => {
             NodeState::Running
         }

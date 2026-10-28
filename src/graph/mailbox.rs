@@ -522,7 +522,7 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_work(&tx, node, &Work::Done)?;
+        set_work(&tx, node, &Work::Done { accepted: false })?;
         match asked {
             Some(asked) if parent.is_none() => {
                 waits::put_done(&tx, node, asked, summary, images, doc)?

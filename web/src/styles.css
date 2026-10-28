@@ -420,7 +420,6 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__edge.to-child .react-flow__edge-path { animation: edge-flow 0.6s linear infinite; }
 .react-flow__edge.to-parent .react-flow__edge-path { animation: edge-flow 0.6s linear infinite reverse; }
 @keyframes edge-flow { to { stroke-dashoffset: -11; } }
-@media (prefers-reduced-motion: reduce) { .react-flow__edge.to-child .react-flow__edge-path, .react-flow__edge.to-parent .react-flow__edge-path { animation: none; } }
 .react-flow__edge-textbg { fill: var(--hop); }
 .react-flow__edge-text { fill: var(--accent-ink); font-size: 12px; font-weight: 600; }
 .react-flow__edge.hop .react-flow__edge-interaction { pointer-events: visibleStroke; }

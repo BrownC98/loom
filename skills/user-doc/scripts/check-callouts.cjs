@@ -39,6 +39,31 @@ const LOCAL_REFS = () => {
   return bad;
 };
 
+const IDS = mockup => {
+  const bad = [], ids = new Map(), cut = e => e.textContent.trim().replace(/\s+/g, ' ').slice(0, 30);
+  const use = (k, what) => { if (ids.has(k)) bad.push(`ID ${k} is used twice (${ids.get(k)} and ${what})`); else ids.set(k, what); };
+  const SCREEN = '.page, .xlwin, .shotwrap';
+  for (const d of document.querySelectorAll('.decision')) {
+    const k = d.id, chip = d.querySelector('.did')?.textContent.trim();
+    if (!/^D\d+$/.test(k) || chip !== k) bad.push(`decision "${cut(d)}" has no ID: give it id="D<n>" and the same text in .did`);
+    else use(k, 'decision');
+    const opts = d.querySelectorAll('.opt').length, rec = d.querySelectorAll('.opt[data-recommended]');
+    if (opts < 2 || opts > 4) bad.push(`decision ${k} has ${opts} options (needs 2 to 4 .opt)`);
+    if (rec.length !== 1 || !rec[0].querySelector('.mark')?.textContent.trim()) bad.push(`decision ${k} needs one recommended option (.opt[data-recommended] with text in .mark)`);
+  }
+  for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
+  for (const c of document.querySelectorAll('.calls > div')) {
+    const k = c.querySelector(':scope > b')?.textContent.trim() ?? '';
+    if (!/^\d+$/.test(k)) bad.push(`callout "${cut(c)}" has no number (<b>n</b>)`); else use(k, 'callout "' + cut(c.querySelector(':scope > span') ?? c) + '"');
+  }
+  for (const m of document.querySelectorAll('.mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
+  if (mockup) {
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let t; (t = w.nextNode());) if (/권장|정할 것|Recommended/i.test(t.textContent) && !t.parentElement.closest('.decision, .lead, .who, script, style, ' + SCREEN)) bad.push(`decision outside a decision box: "${cut(t)}"`);
+  }
+  return [...new Set(bad)];
+};
+
 const DOM_PASS = LEADER_MAX => {
   const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
   const hit = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
@@ -79,7 +104,7 @@ const DOM_PASS = LEADER_MAX => {
     const cos = by(':scope > .co'), boxes = by(':scope > .ov-box'), pins = by(':scope > .ov-badge'), lines = by(':scope > .lead-svg polyline');
     n += cos.size;
     if (calls && getComputedStyle(calls).display !== 'none') bad.push(title + ' placement script did not run (.calls still shown)');
-    const want = new Set((calls ? [...calls.querySelectorAll(':scope > div')].map((_, i) => String(i + 1)) : []).concat(marks.map(m => m.dataset.n)));
+    const want = new Set((calls ? [...calls.querySelectorAll(':scope > div > b')].map(b => b.textContent.trim()) : []).concat(marks.map(m => m.dataset.n)));
     for (const k of want) {
       if (!cos.has(k)) bad.push(title + ' #' + k + ' has no bubble (box without text, text without box, or no free place)');
       if (!boxes.has(k)) bad.push(title + ' #' + k + ' has no box overlay (.ov-box)');
@@ -257,6 +282,7 @@ async function checkRun(page) {
     if (run.slow) await openSlow(page, run.slow);
     else await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
     if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(LOCAL_REFS)));
+    if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc))));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }

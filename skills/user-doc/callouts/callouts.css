@@ -4,7 +4,7 @@
 .shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
 .doc { width: auto; max-width: 1440px; }
 .doc > *, .fig > * { min-width: 0; }
-.flow, table.dec { width: auto; max-width: 1200px; }
+.flow { width: auto; max-width: 1200px; }
 .fig > .xlwin { margin-bottom: 8px; }
 .lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
 .ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }

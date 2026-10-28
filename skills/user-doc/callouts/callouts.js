@@ -38,7 +38,7 @@
   const place = (fig, src) => {
     fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
     fit(fig);
-    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
     src.style.display = 'none';
     const F = fig.getBoundingClientRect();
     const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
@@ -70,8 +70,8 @@
     fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
     const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
     order.forEach(i => { const m = marks[i];
-      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
-      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts.get(String(n))}</span>`;
       Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
       const own = m.closest('.page, .xlwin, .shotwrap');
       const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));

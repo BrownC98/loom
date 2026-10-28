@@ -28,7 +28,7 @@ In a report:
 
 | Type | Body |
 |---|---|
-| Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); each open decision (options and the recommended option) is a callout on the screen that the human must look at to decide it, not a row in a table. A decision without its own screen goes beside the nearest screen that it changes. No decision table. One desktop width |
+| Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); each open decision in a decision box (see "Decisions and IDs") right after the screen that the human must look at to decide it, or the nearest screen that it changes. No decision table. One desktop width |
 | Report | Title; the conclusion in the first section; one section for each decision, in the order and form above; in each open decision section a diagram first that compares "now" with "after" or the options side by side (inline SVG with document tokens, visible in light and dark), then the recommendation, reasons and options table; a done item has only its three lines; a table only for what a diagram cannot show; sources as links; at the end a decision table (`정할 것`) with one line per decision: its options and the recommended option. `loom show` refuses a report without a diagram. Research, design and check records go in reports, not in mockups |
 
 - Location: a mockup goes in the repository at `docs/mockups/<name>.html`; a report goes in the task folder (`$LOOM_TASK_DIR`, else `~/.cache/loom/<task>/<subject>.html`). Write a new version to the same path and increase its version number.
@@ -46,9 +46,19 @@ In a report:
 - Make: copy [callouts/callouts.css](callouts/callouts.css) into the `<style>` and [callouts/callouts.js](callouts/callouts.js) into a `<script>` at the end of `<body>`. The script places the boxes, badges, callouts and leader lines after the images load and after each resize.
   - In each section, put a screen frame in `<div class="fig"><h2>…</h2>`. The frame is `.page` (a drawn screen), `.xlwin` (an Excel window) or `.shotwrap` (a capture `<img>`).
   - Item: `<span class="mk" data-n="1">…</span>`; a new item is `class="mk new"`. `.mk` and `.new` only mark the item. Do not give them a style (outline, border, padding). For an item on a capture, put an empty element in `.shotwrap` with `style="left:…;top:…;width:…;height:…"`. The values are the position on the capture, in %. That box stays at that position.
-  - Explanations: after the screen frame, `<div class="calls"><div><b>1</b><span>explanation</span></div>…</div>`. Item n is the callout of the box with `data-n="n"`.
+  - Explanations: after the screen frame, `<div class="calls"><div><b>1</b><span>explanation</span></div>…</div>`. Item `<b>n</b>` is the callout of the box with `data-n="n"`. Numbers continue through the whole document: if section ① ends at 3, section ② starts at 4.
   - Give the product's control classes (for example `.abtn`, `.seg`) in `<body data-ui=".abtn, .seg">`. The layout and the check both keep clear of them.
 - Check: `show.sh` runs [scripts/check-callouts.cjs](scripts/check-callouts.cjs) at all window widths. It counts violations of the one-file rule and all rules above, except the developer-note rule. One violation is a failure.
+
+## Decisions and IDs
+
+- Put each open decision in its own decision box. The box is amber, the color of the loom question notice. Explanation callouts stay red. Do not put a decision, an option or a recommendation in a callout or a note.
+- Copy the markup and the `.decision` styles from [style.html](style.html):
+  `<section class="decision" id="D1"><h3><span class="did">D1</span>question</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">option<span class="mark">권장</span><span class="sub">now → after · cost · risk · undo</span></span></div>…</div><ul class="why"><li>reason</li></ul></section>`.
+  The option buttons and the recommended mark have the look of the inbox question options.
+- Give two to four `.opt`. Exactly one has `data-recommended` and `<span class="mark">권장</span>`. Give at most three reasons in `.why`.
+- IDs: decisions are `D1`, `D2`, …; `id` and `.did` have the same text. Callouts are numbers (see "Mockup callouts"). No ID is used twice in a document. Name items by ID in the document, in chat and in questions (`D2`, `7번`).
+- Check: `show.sh` fails a document with an option or recommendation outside a decision box (in a mockup: the text `권장`, `정할 것` or `Recommended` outside a box, the lead, the head line and the screen drawings), a decision without exactly one recommended option, a missing ID or an ID used twice.
 
 ## Display
 

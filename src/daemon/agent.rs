@@ -1,5 +1,6 @@
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use tokio::sync::{broadcast, watch};
@@ -16,6 +17,8 @@ use crate::protocol::{
 };
 use axum::http::StatusCode;
 
+const WATCH_START: Duration = Duration::from_secs(2);
+
 impl App {
     pub(super) fn take_now(
         self: &Arc<Self>,
@@ -24,6 +27,9 @@ impl App {
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
         self.heard(node);
+        if let Some(prompt) = req.prompt_id.as_deref() {
+            self.wakes.submitted(&self.wakes.order(), node, prompt);
+        }
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
@@ -156,7 +162,14 @@ impl App {
                 return Ok(IdleReply::Mail(Vec::new()));
             }
             ListenAt::End { .. } => {}
-            ListenAt::Start => self.wakes.forget(node),
+            ListenAt::Start => {
+                self.wakes.forget(node);
+                let graph = self.graph.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(WATCH_START).await;
+                    graph.wake_mail();
+                });
+            }
         }
         self.heard(node);
         for report in req.reports {

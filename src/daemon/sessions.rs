@@ -107,6 +107,12 @@ impl Wakes {
         }
     }
 
+    pub fn submitted(&self, _: &Order<'_>, node: NodeId, prompt: &str) {
+        if let Some(wakes) = self.nodes.lock().unwrap().get_mut(&node) {
+            wakes.prompts.remove(prompt);
+        }
+    }
+
     pub fn ended_before(&self, _: &Order<'_>, node: NodeId, prompt: Option<&str>) -> bool {
         let mut nodes = self.nodes.lock().unwrap();
         match (nodes.get_mut(&node), prompt) {

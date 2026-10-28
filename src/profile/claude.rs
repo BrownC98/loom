@@ -448,7 +448,7 @@ impl HookEvent for Hook {
             }
             .filter(|_| main),
             session: self.transcript_path.clone().map(Session),
-            prompt_id: self.prompt_id.clone(),
+            prompt_id: self.prompt_id.clone().filter(|_| self.event.marks_prompt()),
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
             turn_end: matches!(self.event, Event::Stop)
@@ -571,6 +571,16 @@ impl Event {
             Event::Notification { .. } => "Notification",
             Event::FileChanged { .. } => "FileChanged",
         }
+    }
+
+    fn marks_prompt(&self) -> bool {
+        matches!(
+            self,
+            Event::UserPromptSubmit { .. }
+                | Event::FileChanged { .. }
+                | Event::Stop
+                | Event::StopFailure { .. }
+        )
     }
 
     fn clears_wait(&self) -> bool {

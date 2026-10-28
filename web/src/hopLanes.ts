@@ -105,7 +105,8 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
     const xb = at.get(`${i}:${order[i].target.id}`)!;
     return { l: Math.min(xa, xb), r: Math.max(xa, xb) };
   };
-  const boxes = [...rooms].filter(([id, q]) => q.t < rects.get(id)!.t).map(([id, q]) => ({ q, card: rects.get(id)!.t - LABEL_GAP - room }));
+  const boxes = [...rooms].filter(([id, q]) => q.t < rects.get(id)!.t).map(([id, q]) => ({ q, card: rects.get(id)!.t - LABEL_GAP - room }))
+    .sort((a, b) => b.q.t - a.q.t);
   const lanes: number[] = [];
   order.forEach((p, i) => {
     const x = reach(i);

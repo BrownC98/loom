@@ -548,6 +548,31 @@ a { color: var(--accent); }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
+.inbox-tabs { flex: none; display: grid; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.inbox-tabs .choice { display: flex; justify-self: stretch; }
+.inbox-tabs .choice button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 14px; border: 0; border-right: 1px solid var(--line); background: none; color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.inbox-tabs .choice button:last-child { border-right: 0; }
+.inbox-tabs .choice button:hover { background: var(--surface-hover); }
+.inbox-tabs .choice button[aria-selected="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.inbox-tabs .choice button:focus-visible { outline-offset: -2px; }
+.inbox-tabs .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--notice); color: var(--notice-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.history-row { display: grid; grid-template-columns: minmax(0, 1fr); padding: 8px 8px 10px; }
+.history-row + .history-row { border-top: 1px solid var(--line); }
+.history-row .top { flex-wrap: wrap; row-gap: 2px; }
+.history-row .kind { flex: none; }
+.history-row .node { flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; cursor: pointer; }
+.history-row .node:hover { text-decoration-color: currentColor; }
+.history-row .node.gone { color: var(--ink-3); font-weight: 400; text-decoration: none; cursor: default; }
+.history-row .choice { cursor: default; }
+.history-row .choice[data-unchosen] { opacity: 0.55; }
+.history-row .choice[data-chosen] { border: 2px solid var(--ink); padding: 2px 9px; font-weight: 600; }
+.history-row .choice .chosen { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; color: var(--ink); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.history-row .choice .chosen svg { width: 12px; height: 12px; align-self: center; }
+.history-row .closed { margin: 0; color: var(--ink-2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-row .closed b { color: var(--ink); font-weight: 600; }
+.history-row .closed time { font-variant-numeric: tabular-nums; }
+.history-row .closed .said::before { content: ' · '; }
+.history-more { display: grid; justify-items: center; padding: 8px; }
 .wait-node { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 4px 0; }
 .wait-node + .wait-node { border-top: 1px solid var(--line); }
 .wait-node > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer; }
@@ -961,3 +986,6 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .doc-bar .btn.send { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); font-weight: 600; }
 .doc-bar .btn.send:hover:not(:disabled) { background: color-mix(in oklch, var(--warn) 85%, var(--bg)); }
 .doc-bar a.btn { color: var(--ink-2); text-decoration: none; }
+.doc-bar .feedback { flex: 1 1 100%; min-width: 0; max-height: 30vh; padding: 5px 8px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
+.doc-bar .feedback::placeholder { color: var(--ink-3); }
+.doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }

@@ -42,6 +42,7 @@ import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
 import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
 import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
+import { InboxTabs } from './InboxHistory';
 import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
@@ -592,7 +593,7 @@ export function App() {
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} graphRepos={shown.map((r) => r.id)} onRepo={selectRepo} highlight={highlight} onHighlight={setHighlight} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
               {shownTab === 'docs' && <DocList />}
-              {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}
+              {shownTab === 'questions' && <InboxTabs waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}

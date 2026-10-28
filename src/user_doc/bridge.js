@@ -16,10 +16,14 @@
 .decision .opt[data-loom-picked] { border: 2px solid var(--warn, #9a7b16); padding: 4px 9px; }
 .decision .opt[data-loom-picked]::after { content: attr(data-loom-picked); margin-left: auto; padding-left: 8px; color: var(--warn, #9a7b16); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .decision[data-loom-locked] .opt:not([data-loom-picked]) { opacity: 0.55; }
-.decision .loom-write { width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong, #ccc); border-radius: 6px; background: var(--surface, #fff); color: inherit; font: inherit; font-size: 13px; }
+.decision .loom-write { display: block; width: 100%; min-height: 30px; padding: 5px 8px; line-height: 18px; resize: vertical; border: 1px solid var(--line-strong, #ccc); border-radius: 6px; background: var(--surface, #fff); color: inherit; font: inherit; font-size: 13px; }
 .decision .loom-write:focus-visible { outline: none; border-color: var(--warn, #9a7b16); }
 .decision .loom-write:disabled { opacity: 0.7; }`;
   document.head.append(style);
+  const fit = (field) => {
+    field.style.height = 'auto';
+    field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+  };
   const show = ({ mode, picks, labels }) => {
     for (const box of boxes) {
       const pick = picks[box.id] ?? {};
@@ -42,15 +46,23 @@
         continue;
       }
       if (!field) {
-        field = document.createElement('input');
+        field = document.createElement('textarea');
         field.className = 'loom-write';
-        field.addEventListener('input', () => post({ kind: 'write', id: box.id, text: field.value }));
+        field.rows = 1;
+        field.addEventListener('input', () => {
+          fit(field);
+          post({ kind: 'write', id: box.id, text: field.value });
+        });
+        field.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) e.preventDefault();
+        });
         (box.querySelector(':scope > .opts') ?? box.lastElementChild).after(field);
       }
       field.placeholder = labels.write;
       field.setAttribute('aria-label', `${box.id}: ${labels.write}`);
       field.disabled = mode === 'locked';
       if (document.activeElement !== field) field.value = pick.text ?? '';
+      fit(field);
     }
   };
   const pickAt = (target) => {

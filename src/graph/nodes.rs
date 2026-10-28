@@ -226,6 +226,7 @@ impl Graph {
             },
             None,
         )?;
+        waits::drop_on_removal(&tx, id)?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
         self.publish_nodes();
@@ -928,6 +929,7 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
         None,
     )?;
     tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
+    waits::drop_on_removal(tx, id)?;
     tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
     Ok(Some(Removal {
         children,

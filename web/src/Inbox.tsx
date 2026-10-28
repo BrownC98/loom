@@ -257,13 +257,13 @@ function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) 
   );
 }
 
-function Published(props: { wait: ScreenWait }) {
+export function Published(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
   const at = props.wait.since * 1000;
   return <time className="published" dateTime={new Date(at).toISOString()}>{t('inbox.published', { time: dateAndTime(at) })}</time>;
 }
 
-function Instruction(props: { text: string }) {
+export function Instruction(props: { text: string }) {
   const { t } = useTranslation();
   return <p className="instruction">{t('inbox.instruction', { text: props.text })}</p>;
 }

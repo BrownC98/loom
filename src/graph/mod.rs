@@ -1,4 +1,5 @@
 mod agent_state;
+mod closed;
 mod deploys;
 mod events;
 mod gate;
@@ -23,6 +24,7 @@ use tokio::sync::{Notify, broadcast, mpsc};
 use ts_rs::TS;
 
 pub use agent_state::{AgentChange, AgentEvent, AgentState};
+pub use closed::ClosedPage;
 pub use deploys::Deploy;
 pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,

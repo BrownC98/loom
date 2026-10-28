@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::agent_state::{self, AgentEvent};
+use super::closed::{self, Closed, Open};
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
 use crate::choices::{Choice, choices, offers_choices_without_tail};
@@ -327,13 +328,16 @@ impl Graph {
             Err(e) => return Err(e),
         };
         let tx = db.transaction()?;
-        if matches!(what, MessageKind::Answer { .. }) {
+        let text = text.to_owned();
+        let (open, how) = if matches!(what, MessageKind::Answer { .. }) {
             tx.execute("INSERT OR IGNORE INTO answers (id) VALUES (?1)", [wait.0])?;
-        }
+            (Open::Question, Closed::Answered { text: text.clone() })
+        } else {
+            (Open::Done, Closed::Instructed { text: text.clone() })
+        };
         mailbox::enqueue_human(&tx, node, &what, &body)?;
-        tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
-        tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
-        let entry = record(events::who(&tx, node)?, wait, text.to_owned(), count);
+        closed::close(&tx, open, wait, &how)?;
+        let entry = record(events::who(&tx, node)?, wait, text, count);
         events::write(&tx, &entry, None)?;
         tx.commit()?;
         self.publish_nodes();
@@ -392,7 +396,14 @@ impl Graph {
         };
         let tx = db.transaction()?;
         for q in &closing {
-            tx.execute("DELETE FROM questions WHERE id = ?1", [q.0])?;
+            closed::close(
+                &tx,
+                Open::Question,
+                *q,
+                &Closed::Unanswered {
+                    by: ClosedBy::Agent,
+                },
+            )?;
             unanswered(&tx, id, *q, ClosedBy::Agent)?;
         }
         tx.commit()?;
@@ -470,15 +481,16 @@ impl Graph {
     pub fn dismiss(&self, wait: WaitId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let node: Option<u32> = tx
-            .query_row(
-                "DELETE FROM questions WHERE id = ?1 RETURNING node",
-                [wait.0],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let node = closed::close(
+            &tx,
+            Open::Question,
+            wait,
+            &Closed::Unanswered {
+                by: ClosedBy::Human,
+            },
+        )?;
         let asked = node.is_some();
-        match node.map(NodeId) {
+        match node {
             Some(node) => {
                 mailbox::enqueue_human(
                     &tx,
@@ -490,7 +502,7 @@ impl Graph {
             }
             None => match done_node(&tx, wait) {
                 Ok(node) => {
-                    tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
+                    closed::close(&tx, Open::Done, wait, &Closed::Confirmed)?;
                     let entry = Entry::Confirmed {
                         node: events::who(&tx, node)?,
                         wait,
@@ -581,13 +593,16 @@ pub(super) fn put_done(
 }
 
 pub(super) fn drop_questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
-    let closed = db
-        .prepare("DELETE FROM questions WHERE node = ?1 RETURNING id")?
-        .query_map([id.0], |row| row.get(0).map(WaitId))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for wait in &closed {
-        unanswered(db, id, *wait, ClosedBy::Exit)?;
+    let how = Closed::Unanswered { by: ClosedBy::Exit };
+    for wait in closed::close_all(db, Open::Question, id, &how)? {
+        unanswered(db, id, wait, ClosedBy::Exit)?;
     }
+    Ok(())
+}
+
+pub(super) fn drop_on_removal(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
+    closed::close_all(db, Open::Question, id, &Closed::NodeRemoved)?;
+    closed::close_all(db, Open::Done, id, &Closed::NodeRemoved)?;
     Ok(())
 }
 

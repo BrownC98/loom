@@ -38,6 +38,7 @@ import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
 import type { PhoneView } from './gen/PhoneView';
 import type { Served } from './gen/Served';
+import type { ClosedPage } from './gen/ClosedPage';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
@@ -87,6 +88,7 @@ export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 export const setCardView = (id: NodeId, view: CardView) => call<null>('PUT', `/api/nodes/${id}/card-view`, view);
 export const clearCardView = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/card-view`);
+export const getClosedWaits = (before?: number) => call<ClosedPage>('GET', `/api/waits/closed${before === undefined ? '' : `?before=${before}`}`);
 export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);
 export const answerWait = (wait: WaitId, text: string, images: string[]) =>
   call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);

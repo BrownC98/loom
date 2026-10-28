@@ -3,11 +3,12 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 use super::runtime::bearer;
 use super::*;
-use crate::graph::DocQuestion;
+use crate::graph::{ClosedPage, DocQuestion};
 use crate::protocol::ChoiceRequest;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
+        .route("/api/waits/closed", get(closed_waits))
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/choose", post(choose_wait))
@@ -52,6 +53,21 @@ pub struct TypeText {
     #[serde(default)]
     #[ts(optional, type = "number")]
     pub option: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct ClosedBefore {
+    before: Option<u32>,
+}
+
+async fn closed_waits(
+    State(app): State<Arc<App>>,
+    Query(at): Query<ClosedBefore>,
+) -> Result<Json<ClosedPage>, Problem> {
+    app.graph
+        .closed_waits(at.before)
+        .map(Json)
+        .map_err(internal)
 }
 
 async fn dismiss_wait(

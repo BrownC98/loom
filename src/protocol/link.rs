@@ -37,6 +37,8 @@ pub struct TakeRequest {
     pub prompt: Option<String>,
     #[serde(default)]
     pub turn: Option<String>,
+    #[serde(default)]
+    pub prompt_id: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -55,6 +57,21 @@ pub struct IdleRequest {
     pub turn_end: Option<EndedTurn>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ListenRequest {
+    #[serde(flatten)]
+    pub idle: IdleRequest,
+    pub at: ListenAt,
+    pub reports: Vec<Report>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ListenAt {
+    Start,
+    End { prompt_id: Option<String> },
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EndedTurn {
@@ -71,8 +88,20 @@ pub enum IdleReply {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WakeReply {
+    Mail(Vec<Delivery>),
+    Finish { finish: String, handoff: Handoff },
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Handoff(pub u64);
+
+#[derive(Serialize, Deserialize)]
 pub struct AckRequest {
     pub ids: Vec<MessageId>,
+    #[serde(default)]
+    pub handoff: Option<Handoff>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -1,20 +1,23 @@
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use super::idle::Wait;
-use super::relaunch::profile_of;
+use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, Hold, IdleEnd, NodeId, WaitSource};
+use crate::graph::{AgentEvent, AgentState, Entry, GraphEvent, Hold, IdleEnd, NodeId, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
 use crate::protocol::{
-    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, MessageId, Refusal, Report, Session,
-    TakeRequest, Taken,
+    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
+    MessageId, Refusal, Report, Session, TakeRequest, Taken, WakeReply,
 };
 use axum::http::StatusCode;
+
+const WATCH_START: Duration = Duration::from_secs(2);
 
 impl App {
     pub(super) fn take_now(
@@ -23,6 +26,10 @@ impl App {
         token: &str,
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
+        self.heard(node);
+        if let Some(prompt) = req.prompt_id.as_deref() {
+            self.wakes.submitted(&self.wakes.order(), node, prompt);
+        }
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
@@ -111,6 +118,163 @@ impl App {
         Ok(nudge.map(str::to_owned))
     }
 
+    fn opening(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: IdleRequest,
+    ) -> Result<Opening, Refusal> {
+        self.keep_session(token, req.session.as_ref())?;
+        let after_turn = req.turn_end.is_some();
+        if let Some(ended) = req.turn_end
+            && let Some(nudge) = self.turn_ended(node, ended)?
+        {
+            return Ok(Opening::Nudge(nudge));
+        }
+        Ok(Opening::Open(Open {
+            after_turn,
+            rate_limited: req.rate_limited,
+        }))
+    }
+
+    fn opened(self: &Arc<Self>, node: NodeId, open: Open) {
+        if open.rate_limited
+            && let Some(provider) = self.provider(node)
+        {
+            self.rate_limited(node, provider);
+        }
+        if !open.after_turn {
+            self.run_at_turn_end(node, None);
+        }
+    }
+
+    pub(super) fn listen_open(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: ListenRequest,
+    ) -> Result<IdleReply, Refusal> {
+        let order = self.wakes.order();
+        match req.at {
+            ListenAt::End { prompt_id }
+                if self.wakes.ended_before(&order, node, prompt_id.as_deref()) =>
+            {
+                return Ok(IdleReply::Mail(Vec::new()));
+            }
+            ListenAt::End { .. } => {}
+            ListenAt::Start => {
+                self.wakes.forget(node);
+                let graph = self.graph.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(WATCH_START).await;
+                    graph.wake_mail();
+                });
+            }
+        }
+        self.heard(node);
+        for report in req.reports {
+            self.report(node, token, report);
+        }
+        let open = match self.opening(node, token, req.idle)? {
+            Opening::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
+            Opening::Open(open) => open,
+        };
+        self.feed(
+            node,
+            match open.after_turn {
+                true => AgentEvent::TurnEndedWaitOpened,
+                false => AgentEvent::WaitOpened,
+            },
+        );
+        self.opened(node, open);
+        drop(order);
+        self.graph.wake_mail();
+        Ok(IdleReply::Mail(Vec::new()))
+    }
+
+    pub(super) fn take_woken(
+        self: &Arc<Self>,
+        node: NodeId,
+        token: &str,
+        req: TakeRequest,
+    ) -> Result<WakeReply, Refusal> {
+        self.keep_session(token, req.session.as_ref())?;
+        if self.first_inputs.pending(node) {
+            return Ok(WakeReply::Mail(Vec::new()));
+        }
+        let order = self.wakes.order();
+        let messages =
+            self.graph
+                .take_waking(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
+        if !messages.is_empty() {
+            self.idle.turn_started(node, req.step);
+            self.wakes.woken(&order, node, req.prompt_id);
+            return Ok(WakeReply::Mail(messages));
+        }
+        drop(order);
+        if !self.awaits_turn_end(node) {
+            return Ok(WakeReply::Mail(messages));
+        }
+        Ok(
+            match self.wakes.finish_handed(node, self.agent_state(node)) {
+                Some(handoff) => WakeReply::Finish {
+                    finish: FINISH_TURN.to_owned(),
+                    handoff,
+                },
+                None => WakeReply::Mail(messages),
+            },
+        )
+    }
+
+    pub(super) fn ack(&self, node: NodeId, req: AckRequest) -> Result<(), Refusal> {
+        self.graph.ack(node, &req.ids)?;
+        if let Some(handoff) = req.handoff {
+            self.wakes.finish_shown(node, handoff);
+        }
+        Ok(())
+    }
+
+    fn heard(&self, node: NodeId) {
+        if self.wakes.heard(node) {
+            self.graph.wake_mail();
+        }
+    }
+
+    async fn wakes(&self, node: NodeId, on: &mut (dyn FnMut() + Send)) -> Refusal {
+        let hold = self.hold_in_turn(node);
+        let mut states = self.graph.changes();
+        loop {
+            let mut mail = pin!(self.graph.mail_changed());
+            mail.as_mut().enable();
+            match self.wake(node, hold) {
+                Ok(Some(Wake::Mail)) => on(),
+                Ok(Some(Wake::TurnEnd(state))) => {
+                    if self.wakes.ask_finish(node, state) {
+                        on();
+                    }
+                }
+                Ok(None) => self.wakes.finish_done(node),
+                Err(e) => return e.into(),
+            }
+            tokio::select! {
+                () = mail => {}
+                () = state_changed(&mut states, node) => {}
+            }
+        }
+    }
+
+    fn wake(&self, node: NodeId, hold: Hold) -> rusqlite::Result<Option<Wake>> {
+        if self.first_inputs.pending(node) {
+            return Ok(None);
+        }
+        if self.graph.has_waking(node, Kind::ALL, hold)? {
+            return Ok(Some(Wake::Mail));
+        }
+        Ok(self
+            .awaits_turn_end(node)
+            .then(|| Wake::TurnEnd(self.agent_state(node))))
+    }
+
     pub(super) async fn wait_idle(
         self: &Arc<Self>,
         node: NodeId,
@@ -130,17 +294,11 @@ impl App {
         req: IdleRequest,
         arrival: Option<super::arrival::Arrival>,
     ) -> Result<Opened<'_>, AgentError> {
-        self.keep_session(token, req.session.as_ref())
-            .map_err(for_agent)?;
-        let after_turn = req.turn_end.is_some();
-        if let Some(ended) = req.turn_end
-            && let Some(nudge) = self
-                .turn_ended(node, ended)
-                .map_err(|e| for_agent(Refusal::from(e)))?
-        {
-            return Ok(Opened::Nudge(nudge));
-        }
-        let wait = match after_turn {
+        let open = match self.opening(node, token, req).map_err(for_agent)? {
+            Opening::Nudge(nudge) => return Ok(Opened::Nudge(nudge)),
+            Opening::Open(open) => open,
+        };
+        let wait = match open.after_turn {
             true => self.idle.open_after_turn(node),
             false => self.idle.open(node),
         }
@@ -164,14 +322,7 @@ impl App {
             );
             return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
         }
-        if req.rate_limited
-            && let Some(provider) = self.provider(node)
-        {
-            self.rate_limited(node, provider);
-        }
-        if !after_turn {
-            self.run_at_turn_end(node, None);
-        }
+        self.opened(node, open);
         Ok(Opened::Wait(wait))
     }
 
@@ -310,9 +461,41 @@ impl App {
     }
 }
 
+async fn state_changed(changes: &mut broadcast::Receiver<GraphEvent>, node: NodeId) {
+    loop {
+        match changes.recv().await {
+            Ok(GraphEvent::Recorded { record }) => {
+                if let Entry::AgentStateChanged { node: who, .. } = &record.entry
+                    && who.id == Some(node)
+                {
+                    return;
+                }
+            }
+            Ok(_) => {}
+            Err(broadcast::error::RecvError::Lagged(_)) => return,
+            Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+        }
+    }
+}
+
 enum Opened<'a> {
     Nudge(String),
     Wait(Wait<'a>),
+}
+
+enum Opening {
+    Nudge(String),
+    Open(Open),
+}
+
+struct Open {
+    after_turn: bool,
+    rate_limited: bool,
+}
+
+enum Wake {
+    Mail,
+    TurnEnd(Option<AgentState>),
 }
 
 pub(super) struct AgentPort {
@@ -408,6 +591,16 @@ impl Port for AgentPort {
             let node = self.bound().await;
             tokio::select! {
                 taken = self.app.take_in_turn(node, kinds) => taken,
+                () = self.until_ended() => std::future::pending().await,
+            }
+        })
+    }
+
+    fn wakes<'a>(&'a self, on: &'a mut (dyn FnMut() + Send)) -> BoxFuture<'a, Refusal> {
+        Box::pin(async move {
+            let node = self.bound().await;
+            tokio::select! {
+                refused = self.app.wakes(node, on) => refused,
                 () = self.until_ended() => std::future::pending().await,
             }
         })

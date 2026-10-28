@@ -359,6 +359,7 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
+            app.wakes.forget(id);
             if exit != Exit::Lost
                 && let Some(distro) = distro
             {
@@ -538,6 +539,7 @@ impl App {
             env: &env,
             plugin: &plugin,
             plugin_here: &plugin_here,
+            run_dir: &self.run_dir,
             skills: &skills,
             task,
             launch,
@@ -641,7 +643,7 @@ impl App {
             .map(|b| format!("{b:02x}"))
             .collect();
         match inside {
-            Some(inside) => Some(format!("{}/.loom/run/{hash}.sock", inside.home())),
+            Some(inside) => Some(format!("{}/{hash}.sock", inside.run_dir())),
             None if cfg!(windows) => Some(format!(r"\\.\pipe\loom-{hash}")),
             None => Some(
                 self.run_dir

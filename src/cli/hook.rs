@@ -11,7 +11,8 @@ use crate::profile::{
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, IdleReply, IdleRequest, MessageId, PromptKey, TakeRequest, Taken,
+    AckRequest, EndedTurn, Handoff, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
+    MessageId, PromptKey, TakeRequest, Taken, WakeReply,
 };
 use crate::wsl::REWAKE_EXIT;
 
@@ -60,9 +61,15 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
         let waits = waits.clone();
         std::thread::spawn(move || {
             let served = match request.served() {
-                Served::Ack(ids) => call::<()>("ack", &AckRequest { ids: ids.to_vec() }, None)
-                    .map_err(String::from)
-                    .and_then(|()| send(request.acked())),
+                Served::Ack(ids) => {
+                    let ack = AckRequest {
+                        ids: ids.to_vec(),
+                        handoff: None,
+                    };
+                    call::<()>("ack", &ack, None)
+                        .map_err(String::from)
+                        .and_then(|()| send(request.acked()))
+                }
                 Served::Close(of) => {
                     if let Some(close) = waits.lock().unwrap().remove(&of) {
                         close.close();
@@ -148,28 +155,60 @@ enum Step {
     Skip,
     Take(TakeRequest),
     Idle(IdleRequest),
+    Listen(ListenRequest),
+    Woken(TakeRequest),
 }
 
-fn step(signals: &Signals) -> Step {
+fn step(signals: &mut Signals) -> Step {
     match signals.take {
         None => Step::Skip,
-        Some(Take::WhenIdle) => Step::Idle(IdleRequest {
-            session: signals.session.clone(),
-            rate_limited: signals.rate_limited,
-            turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
-                reply,
-                turn: signals.turn.clone().or_else(ended_turn),
-            }),
+        Some(Take::WhenIdle) => Step::Idle(idle_request(signals)),
+        Some(Take::ListenStart) => Step::Listen(listen_request(signals, ListenAt::Start)),
+        Some(Take::ListenEnd) => {
+            let prompt_id = signals.prompt_id.clone();
+            Step::Listen(listen_request(signals, ListenAt::End { prompt_id }))
+        }
+        Some(Take::Now(kinds)) => Step::Take(take_request(signals, kinds)),
+        Some(Take::Woken) => Step::Woken(take_request(signals, Kind::ALL)),
+    }
+}
+
+fn idle_request(signals: &Signals) -> IdleRequest {
+    IdleRequest {
+        session: signals.session.clone(),
+        rate_limited: signals.rate_limited,
+        turn_end: signals.turn_end.clone().map(|reply| EndedTurn {
+            reply,
+            turn: signals.turn.clone().or_else(ended_turn),
         }),
-        Some(Take::Now(kinds)) => Step::Take(TakeRequest {
-            step: signals.step.clone(),
-            kinds: kinds.to_vec(),
-            limit_bytes: BATCH_LIMIT_BYTES,
-            session: signals.session.clone(),
-            human_input: signals.human_input,
-            prompt: signals.prompt.clone(),
-            turn: signals.turn.clone(),
-        }),
+    }
+}
+
+fn listen_request(signals: &mut Signals, at: ListenAt) -> ListenRequest {
+    ListenRequest {
+        idle: idle_request(signals),
+        at,
+        reports: std::mem::take(&mut signals.reports),
+    }
+}
+
+fn take_request(signals: &Signals, kinds: &[Kind]) -> TakeRequest {
+    TakeRequest {
+        step: signals.step.clone(),
+        kinds: kinds.to_vec(),
+        limit_bytes: BATCH_LIMIT_BYTES,
+        session: signals.session.clone(),
+        human_input: signals.human_input,
+        prompt: signals.prompt.clone(),
+        turn: signals.turn.clone(),
+        prompt_id: signals.prompt_id.clone(),
+    }
+}
+
+fn handed(reply: IdleReply) -> Handed {
+    match reply {
+        IdleReply::Nudge { nudge } => Handed::Nudge(nudge),
+        IdleReply::Mail(messages) => Handed::Mail(messages),
     }
 }
 
@@ -179,15 +218,20 @@ fn ended_turn() -> Option<String> {
 
 struct Unacked {
     ids: Vec<MessageId>,
+    handoff: Option<Handoff>,
     limit: Option<Duration>,
 }
 
 impl Unacked {
     fn acknowledge(self) {
-        if self.ids.is_empty() {
+        if self.ids.is_empty() && self.handoff.is_none() {
             return;
         }
-        if let Err(e) = call::<()>("ack", &AckRequest { ids: self.ids }, self.limit) {
+        let ack = AckRequest {
+            ids: self.ids,
+            handoff: self.handoff,
+        };
+        if let Err(e) = call::<()>("ack", &ack, self.limit) {
             eprintln!("loom: could not acknowledge: {e}");
         }
     }
@@ -198,12 +242,14 @@ fn run(
     write: impl FnOnce(Shown) -> Result<(), String>,
 ) -> Result<(bool, Unacked), String> {
     let mut signals = event.signals();
+    let step = step(&mut signals);
     for report in std::mem::take(&mut signals.reports) {
         if let Err(e) = call::<()>("report", &report, Some(CALL_LIMIT)) {
             eprintln!("loom: could not report to loom: {e}");
         }
     }
-    let (handed, ack_limit) = match step(&signals) {
+    let mut handoff = None;
+    let (handed, ack_limit) = match step {
         Step::Skip => {
             let handed = match signals.asks_interrupt && interrupt_pending() {
                 true => Handed::Interrupted,
@@ -214,12 +260,23 @@ fn run(
             };
             (handed, Some(CALL_LIMIT))
         }
-        Step::Idle(request) => {
-            let handed = match wait_until_mail(request)? {
-                IdleReply::Nudge { nudge } => Handed::Nudge(nudge),
-                IdleReply::Mail(messages) => Handed::Mail(messages),
+        Step::Idle(request) => (handed(wait_until_mail(request)?), None),
+        Step::Listen(request) => {
+            let reply = call("listen", &request, Some(CALL_LIMIT)).unwrap_or_else(|e| {
+                eprintln!("loom: could not report the idle state to loom: {e}");
+                IdleReply::Mail(Vec::new())
+            });
+            (handed(reply), Some(CALL_LIMIT))
+        }
+        Step::Woken(request) => {
+            let handed = match call("wake", &request, Some(CALL_LIMIT))? {
+                WakeReply::Mail(messages) => Handed::Mail(messages),
+                WakeReply::Finish { finish, handoff: h } => {
+                    handoff = Some(h);
+                    Handed::Nudge(finish)
+                }
             };
-            (handed, None)
+            (handed, Some(CALL_LIMIT))
         }
         Step::Take(request) => {
             let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
@@ -231,6 +288,7 @@ fn run(
     write(shown)?;
     let unacked = Unacked {
         ids: handed.messages().iter().map(|d| d.id).collect(),
+        handoff,
         limit: ack_limit,
     };
     Ok((rewake, unacked))

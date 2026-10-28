@@ -611,6 +611,10 @@ impl Inside {
         &self.home
     }
 
+    pub fn run_dir(&self) -> String {
+        format!("{}/.loom/run", self.home)
+    }
+
     pub fn local(&self, linux: &str) -> PathBuf {
         PathBuf::from(format!(
             r"\\{}\{}{}",

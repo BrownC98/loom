@@ -456,6 +456,7 @@ fn take_request(step: &str, human_input: bool) -> TakeRequest {
         human_input,
         prompt: None,
         turn: None,
+        prompt_id: None,
     }
 }
 

@@ -33,6 +33,7 @@ const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in t
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
      Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
+pub(super) const FINISH_TURN: &str = "loom relaunches you when this turn ends. If you have no work in progress, end this turn now; otherwise continue.";
 const STOPPED_LINE_CHARS: usize = 200;
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -110,6 +111,10 @@ impl App {
 
     pub(super) fn relaunching(&self, node: NodeId) -> bool {
         self.pending(node).is_some_and(Phase::started)
+    }
+
+    pub(super) fn awaits_turn_end(&self, node: NodeId) -> bool {
+        self.pending(node) == Some(Phase::AtTurnEnd) && self.busy(node)
     }
 
     fn pending(&self, node: NodeId) -> Option<Phase> {
@@ -369,7 +374,11 @@ impl App {
 
     pub(super) fn run_unless_busy(self: &Arc<Self>, node: NodeId) -> bool {
         let claimed = plan_written(node, self.graph.claim_idle_turn_end(node));
-        self.run_claimed(node, None, claimed)
+        let ran = self.run_claimed(node, None, claimed);
+        if !ran {
+            self.graph.wake_mail();
+        }
+        ran
     }
 
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {

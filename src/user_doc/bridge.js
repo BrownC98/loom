@@ -54,9 +54,7 @@
           post({ kind: 'write', id: box.id, text: field.value });
         });
         field.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-          e.preventDefault();
-          post({ kind: 'send' });
+          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) e.preventDefault();
         });
         (box.querySelector(':scope > .opts') ?? box.lastElementChild).after(field);
       }

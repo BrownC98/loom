@@ -9,7 +9,7 @@ import { dateAndTime } from './i18n';
 type Decision = { id: string; keys: string[]; recommended: string | null };
 type Pick = { key?: string; text?: string };
 type Picks = Record<string, Pick>;
-type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { kind: 'pick'; id: string; key: string } | { kind: 'write'; id: string; text: string } | { kind: 'send' });
+type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { kind: 'pick'; id: string; key: string } | { kind: 'write'; id: string; text: string });
 
 const ANSWER_JOIN = ', ';
 const FEEDBACK_JOIN = '\n\n';
@@ -51,7 +51,6 @@ export function DocPage({ id }: { id: string }) {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [feedback, setFeedback] = useState('');
-  const submit = useRef(() => {});
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -66,7 +65,6 @@ export function DocPage({ id }: { id: string }) {
       if (e.source !== frame.current?.contentWindow || e.data?.loom !== 'doc') return;
       const data = e.data;
       if (data.kind === 'decisions') return setDecisions(data.list);
-      if (data.kind === 'send') return submit.current();
       if (data.kind === 'pick') setPicks((now) => ({ ...now, [data.id]: now[data.id]?.key === data.key ? {} : { key: data.key } }));
       if (data.kind === 'write') setPicks((now) => ({ ...now, [data.id]: data.text ? { text: data.text } : {} }));
       setConfirming(false);
@@ -100,7 +98,7 @@ export function DocPage({ id }: { id: string }) {
   };
 
   const ready = decisions.length > 0 || feedback.trim() !== '';
-  submit.current = () => {
+  const submit = () => {
     if (question?.kind !== 'open' || busy || !ready) return;
     if (unpicked.length > 0 && !confirming) setConfirming(true);
     else send(question.wait);
@@ -108,7 +106,7 @@ export function DocPage({ id }: { id: string }) {
   const onFeedbackKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
-    submit.current();
+    submit();
   };
 
   const download = (
@@ -148,7 +146,7 @@ export function DocPage({ id }: { id: string }) {
                     </span>
                   );
                 })}
-                <button type="button" className="btn send" disabled={busy || !ready} onClick={() => submit.current()}>
+                <button type="button" className="btn send" disabled={busy || !ready} onClick={submit}>
                   {t('docPage.send')}
                 </button>
               </>

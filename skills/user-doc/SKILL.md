@@ -54,11 +54,12 @@ In a report:
 
 - Put each open decision in its own decision box. The box is amber, the color of the loom question notice. Explanation callouts stay red. Do not put a decision, an option or a recommendation in a callout or a note.
 - Copy the markup and the `.decision` styles from [style.html](style.html):
-  `<section class="decision" id="D1"><h3><span class="did">D1</span>question</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">option<span class="mark">권장</span><span class="sub">now → after · cost · risk · undo</span></span></div>…</div><ul class="why"><li>reason</li></ul></section>`.
+  `<section class="decision" id="D1" data-for="2 3"><h3><span class="did">D1</span>question</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">option<span class="mark">권장</span><span class="sub">now → after · cost · risk · undo</span></span></div>…</div><ul class="why"><li>reason</li></ul></section>`.
   The option buttons and the recommended mark have the look of the inbox question options.
+- Target: in a mockup, `data-for` gives the numbers of the boxes that the decision is about. [callouts.js](callouts/callouts.js) writes the line `대상: <section title> · 2, 3번` below the question and puts the decision ID next to the number of each of those callouts. Do not write that line yourself.
 - Give two to four `.opt`. Exactly one has `data-recommended` and `<span class="mark">권장</span>`. Give at most three reasons in `.why`.
 - IDs: decisions are `D1`, `D2`, …; `id` and `.did` have the same text. Callouts are numbers (see "Mockup callouts"). No ID is used twice in a document. Name items by ID in the document, in chat and in questions (`D2`, `7번`).
-- Check: `show.sh` fails a document with an option or recommendation outside a decision box (in a mockup: the text `권장`, `정할 것` or `Recommended` outside a box, the lead, the head line and the screen drawings), a decision without exactly one recommended option, a missing ID or an ID used twice.
+- Check: `show.sh` fails a document with an option or recommendation outside a decision box (in a mockup: the text `권장`, `정할 것` or `Recommended` outside a box, the lead, the head line and the screen drawings), a decision without exactly one recommended option, a missing ID or an ID used twice. In a document with callouts, it also fails a decision without `data-for` or with a number that no box has.
 
 ## Display
 

@@ -50,6 +50,11 @@ const IDS = mockup => {
     const opts = d.querySelectorAll('.opt').length, rec = d.querySelectorAll('.opt[data-recommended]');
     if (opts < 2 || opts > 4) bad.push(`decision ${k} has ${opts} options (needs 2 to 4 .opt)`);
     if (rec.length !== 1 || !rec[0].querySelector('.mark')?.textContent.trim()) bad.push(`decision ${k} needs one recommended option (.opt[data-recommended] with text in .mark)`);
+    if (document.querySelector('.calls')) {
+      const ns = d.dataset.for?.match(/\d+/g) ?? [];
+      if (!ns.length) bad.push(`decision ${k} has no target: give it data-for="<box numbers>"`);
+      for (const n of ns) if (!document.querySelector(`.mk[data-n="${n}"]`)) bad.push(`decision ${k} target ${n} is not a box number in this document`);
+    }
   }
   for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
   for (const c of document.querySelectorAll('.calls > div')) {

@@ -721,6 +721,26 @@ impl Graph {
         self.take_child(tx, parent, child, name, limits).map(Some)
     }
 
+    pub fn remove_accepted_child(
+        &self,
+        parent: NodeId,
+        child: NodeId,
+        name: &str,
+        limits: TreeLimits,
+    ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let accepted = accepted_in(&tx, child)?.is_some_and(|(by, _)| by == parent);
+        if !accepted
+            || !spent_in(&tx, parent, &[])?
+                .iter()
+                .any(|(id, _)| *id == child)
+        {
+            return Ok(None);
+        }
+        self.take_child(tx, parent, child, name, limits).map(Some)
+    }
+
     fn take_child(
         &self,
         tx: rusqlite::Transaction,
@@ -1103,14 +1123,13 @@ impl Graph {
     pub fn accept_done(&self, parent: NodeId, keep: &[mailbox::Kept]) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        let settled = settled_in(&tx, parent, keep)?;
         let done = tx
-            .prepare("SELECT id, name FROM nodes WHERE parent = ?1 AND state ->> 'kind' = 'done'")?
-            .query_map([parent.0], |row| {
-                Ok((NodeId(row.get(0)?), row.get::<_, String>(1)?))
-            })?
+            .prepare("SELECT id FROM nodes WHERE parent = ?1 AND state ->> 'kind' = 'done'")?
+            .query_map([parent.0], |row| Ok(NodeId(row.get(0)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (id, name) in done {
-            let accepted = !keep.iter().any(|k| k.name == name);
+        for id in done {
+            let accepted = settled.iter().any(|(s, _)| *s == id);
             tx.execute(
                 "UPDATE nodes SET state = ?2 WHERE id = ?1",
                 params![id.0, to_json(&Work::Done { accepted })],
@@ -1131,36 +1150,57 @@ impl Graph {
     }
 
     pub fn accepted_by(&self, child: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
-        self.lock()
-            .query_row(
-                "SELECT parent, name FROM nodes
-                 WHERE id = ?1 AND parent IS NOT NULL AND state ->> 'accepted'",
-                [child.0],
-                |row| Ok((NodeId(row.get(0)?), row.get(1)?)),
-            )
-            .optional()
+        accepted_in(&self.lock(), child)
     }
 }
+
+fn accepted_in(db: &Connection, child: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
+    db.query_row(
+        "SELECT parent, name FROM nodes
+         WHERE id = ?1 AND parent IS NOT NULL AND state ->> 'accepted'",
+        [child.0],
+        |row| Ok((NodeId(row.get(0)?), row.get(1)?)),
+    )
+    .optional()
+}
+
+const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.role IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
+     AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
+     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
+         AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
+     AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
+         AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))"#;
+
+const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
+     WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))";
 
 fn spent_in(
     db: &Connection,
     node: NodeId,
     keep: &[mailbox::Kept],
 ) -> rusqlite::Result<Vec<(NodeId, String)>> {
+    children_where(db, node, keep, &format!("{SETTLED} AND {IDLE}"))
+}
+
+fn settled_in(
+    db: &Connection,
+    node: NodeId,
+    keep: &[mailbox::Kept],
+) -> rusqlite::Result<Vec<(NodeId, String)>> {
+    children_where(db, node, keep, SETTLED)
+}
+
+fn children_where(
+    db: &Connection,
+    node: NodeId,
+    keep: &[mailbox::Kept],
+    rule: &str,
+) -> rusqlite::Result<Vec<(NodeId, String)>> {
     Ok(db
-        .prepare(
-            r#"SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1
-             AND c.state ->> 'kind' = 'done' AND c.role IS NOT NULL
-             AND (c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
-                 WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))
-             AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
-             AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
-             AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
-                 AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
-             AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
-                 AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))
-             ORDER BY c.id"#,
-        )?
+        .prepare(&format!(
+            "SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1 AND {rule} ORDER BY c.id"
+        ))?
         .query_map([node.0], |row| {
             Ok((NodeId(row.get(0)?), row.get::<_, String>(1)?))
         })?

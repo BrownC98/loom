@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::App;
 use crate::graph::{Kept, NodeId};
+use crate::protocol::{Refusal, TreeLimits};
 use crate::worktree::merge::{delete_local_merged, still_merged};
 use crate::worktree::{self, RepoProblem, Worktree};
 
@@ -50,7 +51,11 @@ impl App {
                 break;
             }
             for (child, name) in spent {
-                match self.sweep_one(parent, child, &name, keep, &mut swept).await {
+                let remove = |limits| {
+                    self.graph
+                        .remove_spent_child(parent, child, &name, keep, limits)
+                };
+                match self.sweep_one(child, &name, remove, &mut swept).await {
                     Ok(true) => swept.removed.push(name),
                     Ok(false) => failed.push(child),
                     Err(e) => {
@@ -86,30 +91,36 @@ impl App {
         tokio::spawn(async move {
             let (parent, name) = accepted;
             let mut swept = Swept::default();
-            if let Err(e) = app.sweep_one(parent, child, &name, &[], &mut swept).await {
-                swept.kept.push(format!("loom could not remove it: {e}"));
+            let remove = |limits| {
+                app.graph
+                    .remove_accepted_child(parent, child, &name, limits)
+            };
+            if let Err(e) = app.sweep_one(child, &name, remove, &mut swept).await {
+                eprintln!(
+                    "loom: 턴이 끝난 노드 {} ({name})를 지우지 못했다: {e}",
+                    child.0
+                );
             }
             for kept in swept.kept {
-                eprintln!("loom: 턴이 끝난 노드 {} ({name}): {kept}", child.0);
+                let body =
+                    format!("loom removed your finished child {name} when its turn ended. {kept}");
+                if let Err(e) = app.graph.note_from_loom(parent, &body) {
+                    eprintln!("loom: 노드 {}에 회수 알림을 보내지 못했다: {e}", parent.0);
+                }
             }
         });
     }
 
     async fn sweep_one(
         self: &Arc<Self>,
-        parent: NodeId,
         child: NodeId,
         name: &str,
-        keep: &[Kept],
+        remove: impl FnOnce(TreeLimits) -> Result<Option<Vec<(NodeId, String)>>, Refusal>,
         swept: &mut Swept,
     ) -> Result<bool, String> {
         let left = self.left(child).await?;
         let limits = self.settings.get().map_err(|e| e.to_string())?.tree_limits;
-        let Some(moved) = self
-            .graph
-            .remove_spent_child(parent, child, name, keep, limits)
-            .map_err(|e| e.to_string())?
-        else {
+        let Some(moved) = remove(limits).map_err(|e| e.to_string())? else {
             return Ok(false);
         };
         self.host.kill(child);

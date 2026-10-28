@@ -95,6 +95,7 @@ export const typeText = (wait: WaitId, prompt: Prompt, text: string, option?: nu
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;
+export const docPageUrl = (id: string) => `/docs/${encodeURIComponent(id)}`;
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 

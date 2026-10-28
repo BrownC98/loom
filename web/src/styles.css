@@ -941,3 +941,23 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .edit .field input:disabled { opacity: 0.5; }
 .edit .acts { display: flex; justify-content: flex-end; gap: 8px; }
 .err-text { font-size: 12px; color: var(--err); }
+
+.doc-page { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font-size: 13px; }
+.doc-page > iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.doc-page > .refusal { position: static; margin: 0; padding: 6px 16px; color: var(--err); font-size: 12px; }
+.doc-bar { flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+.doc-bar[data-state="answered"] { border-bottom-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+.doc-bar:is([data-state="none"], [data-state="closed"]) { border-bottom-color: var(--line); background: var(--panel); }
+.doc-bar .spacer { flex: 1; }
+.doc-bar .bar-title { font-weight: 600; white-space: nowrap; }
+.doc-bar .bar-title.muted { font-weight: 400; color: var(--ink-2); }
+.doc-bar .qid.plain { border-color: var(--line-strong); background: var(--surface); }
+.doc-bar .pick { display: inline-flex; align-items: center; height: 24px; max-width: 320px; padding: 0 8px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.doc-bar .pick[data-empty] { border-style: dashed; color: var(--ink-3); }
+.doc-bar .unpicked { font-weight: 600; }
+.doc-bar .ok { flex: none; width: 16px; height: 16px; color: var(--ok); }
+.doc-bar .sent { min-width: 0; overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.doc-bar .btn svg { width: 14px; height: 14px; }
+.doc-bar .btn.send { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); font-weight: 600; }
+.doc-bar .btn.send:hover:not(:disabled) { background: color-mix(in oklch, var(--warn) 85%, var(--bg)); }
+.doc-bar a.btn { color: var(--ink-2); text-decoration: none; }

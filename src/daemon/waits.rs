@@ -1,3 +1,6 @@
+use axum::http::HeaderValue;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+
 use super::runtime::bearer;
 use super::*;
 use crate::protocol::ChoiceRequest;
@@ -14,7 +17,8 @@ pub(super) fn routes() -> Router<Arc<App>> {
             post(open_doc).layer(axum::middleware::from_fn(origin::from_page)),
         )
         .route("/api/docs/{id}/", get(doc))
-        .route("/api/docs/{id}/{*file}", get(doc_sibling))
+        .route("/api/docs/{id}/download", get(download_doc))
+        .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
 }
 
@@ -165,27 +169,51 @@ async fn open_doc(
     Path(id): Path<String>,
 ) -> Result<Json<()>, DocProblem> {
     doc_file(&id)?;
-    open::open_url(&format!("http://127.0.0.1:{}/api/docs/{id}/", app.port)).map_err(internal)?;
+    open::open_url(&format!("http://127.0.0.1:{}/docs/{id}", app.port)).map_err(internal)?;
     Ok(Json(()))
 }
 
-async fn doc(
-    Path(id): Path<String>,
-    request: axum::extract::Request,
-) -> Result<Response, DocProblem> {
-    let doc = doc_file(&id)?;
-    Ok(serve_file(&doc.path, request).await?)
+async fn doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
+    let shared = shared_doc(id).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, HTML_TYPE),
+            (header::CONTENT_SECURITY_POLICY, DOC_SANDBOX),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        user_doc::with_bridge(&shared.html),
+    )
+        .into_response())
 }
 
-async fn doc_sibling(
-    Path((id, file)): Path<(String, String)>,
-    request: axum::extract::Request,
-) -> Result<Response, DocProblem> {
+async fn download_doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
+    let shared = shared_doc(id).await?;
+    let name = utf8_percent_encode(&shared.name, NON_ALPHANUMERIC);
+    Ok((
+        [
+            (header::CONTENT_TYPE, HTML_TYPE.to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename*=UTF-8''{name}"),
+            ),
+        ],
+        shared.html,
+    )
+        .into_response())
+}
+
+async fn shared_doc(id: String) -> Result<user_doc::Shared, DocProblem> {
     let doc = doc_file(&id)?;
-    match doc.folder.and_then(|dir| passes::inside(&dir, &file)) {
-        Some(path) => Ok(serve_file(&path, request).await?),
-        None => Ok(StatusCode::NOT_FOUND.into_response()),
-    }
+    tokio::task::spawn_blocking(move || {
+        user_doc::shareable(&doc.path, &id, |file| {
+            doc.folder
+                .as_deref()
+                .and_then(|dir| passes::inside(dir, file))
+        })
+    })
+    .await
+    .map_err(internal)?
+    .map_err(DocProblem::Missing)
 }
 
 pub enum DocProblem {
@@ -227,16 +255,24 @@ async fn done_image_file(
 }
 
 const TEXT_TYPE: &str = "text/plain; charset=utf-8";
+const HTML_TYPE: &str = "text/html; charset=utf-8";
+const DOC_SANDBOX: &str =
+    "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads";
 
 pub(super) async fn serve_file(
     path: &std::path::Path,
     request: axum::extract::Request,
 ) -> Result<Response, Problem> {
-    Ok(tower_http::services::ServeFile::new(path)
+    let mut response = tower_http::services::ServeFile::new(path)
         .try_call(request)
         .await
         .map_err(internal)?
-        .into_response())
+        .into_response();
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(DOC_SANDBOX),
+    );
+    Ok(response)
 }
 
 #[derive(Default)]

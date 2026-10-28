@@ -146,7 +146,7 @@ async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismat
     join_all(reads).await.into_iter().flatten().collect()
 }
 
-async fn index(State(app): State<Arc<App>>) -> Result<Html<String>, Problem> {
+pub(super) async fn index(State(app): State<Arc<App>>) -> Result<Html<String>, Problem> {
     let settings = app.settings.get().map_err(internal)?;
     let page = super::Assets::get("index.html")
         .ok_or_else(|| internal("web/dist has no index.html. Run `npm run build`."))?;

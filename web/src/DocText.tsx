@@ -1,7 +1,7 @@
 import { ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isTauri } from '@tauri-apps/api/core';
-import { docPass, docUrl, openDoc } from './api';
+import { docPageUrl, docPass, openDoc } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { TextPart } from './gen/TextPart';
 import type { WaitDoc } from './gen/WaitDoc';
@@ -57,7 +57,7 @@ export function DocLink(props: { doc: WaitDoc; label: string; onRefusal: (messag
       <ExternalLink aria-hidden="true" />
     </button>
   ) : (
-    <a className="doc-link" href={docUrl(doc.id)} target="_blank" rel="noopener" title={t('inbox.openDocTabLabel', { id: doc.id, title: doc.title })}>
+    <a className="doc-link" href={docPageUrl(doc.id)} target="_blank" rel="noopener" title={t('inbox.openDocTabLabel', { id: doc.id, title: doc.title })}>
       {props.label}
       <ExternalLink aria-hidden="true" />
     </a>

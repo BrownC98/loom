@@ -42,7 +42,7 @@ const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .rea
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 const REPO_Z = -1;
 const RAISED_EDGE_Z = 1;
-const HOP_Z = RAISED_EDGE_Z + 1;
+const MESSAGE_Z = RAISED_EDGE_Z + 1;
 const EDGE_TYPES = { hop: HopEdge, bend: BendEdge };
 const ARROW = 12;
 const arrowHead = (color: string): EdgeMarker => ({ type: MarkerType.ArrowClosed, color, width: ARROW, height: ARROW, markerUnits: 'userSpaceOnUse' });
@@ -937,7 +937,7 @@ export function Graph(props: {
         style: paint,
         labelBgStyle: paint,
         className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, pulse && `to-${pulse.last}`, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
-        zIndex: chosen || pulse ? RAISED_EDGE_Z : undefined,
+        zIndex: pulse ? MESSAGE_Z : chosen ? RAISED_EDGE_Z : undefined,
         label: pulse ? receivers.map(([toward, id]) => t(`graph.messageTo.${heading(toward)}`, { name: props.views.get(id)?.name ?? `#${id}`, n: pulse.counts[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
@@ -1003,7 +1003,7 @@ export function Graph(props: {
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
         className: ['live', 'hop', hop.last === 'target' ? 'to-child' : 'to-parent', lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
-        zIndex: HOP_Z,
+        zIndex: MESSAGE_Z,
         label: !route ? text : route.label === null ? undefined : route.label.short ? hopShort(hop, route.turned) : text,
         labelBgBorderRadius: 10,
         focusable: false,

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::App;
 use crate::graph::{Kept, NodeId};
+use crate::protocol::{Refusal, TreeLimits};
 use crate::worktree::merge::{delete_local_merged, still_merged};
 use crate::worktree::{self, RepoProblem, Worktree};
 
@@ -27,6 +28,11 @@ impl App {
     pub(super) async fn sweep(self: &Arc<Self>, parent: NodeId, keep: &[Kept]) -> Swept {
         let mut swept = Swept::default();
         let mut failed = Vec::new();
+        if let Err(e) = self.graph.accept_done(parent, keep) {
+            swept
+                .kept
+                .push(format!("loom could not mark finished children: {e}"));
+        }
         loop {
             let spent = match self.graph.spent_children(parent, keep) {
                 Ok(spent) => spent,
@@ -45,7 +51,11 @@ impl App {
                 break;
             }
             for (child, name) in spent {
-                match self.sweep_one(parent, child, &name, keep, &mut swept).await {
+                let remove = |limits| {
+                    self.graph
+                        .remove_spent_child(parent, child, &name, keep, limits)
+                };
+                match self.sweep_one(child, &name, remove, &mut swept).await {
                     Ok(true) => swept.removed.push(name),
                     Ok(false) => failed.push(child),
                     Err(e) => {
@@ -57,24 +67,60 @@ impl App {
                 }
             }
         }
+        match self.graph.accepted_in_turn(parent) {
+            Ok(names) => swept.kept.extend(names.into_iter().map(|name| {
+                format!("{name}: its turn is still running. loom removes it when the turn ends.")
+            })),
+            Err(e) => swept
+                .kept
+                .push(format!("loom could not list children in a turn: {e}")),
+        }
         swept
+    }
+
+    pub(super) fn remove_accepted(self: &Arc<Self>, child: NodeId) {
+        let accepted = match self.graph.accepted_by(child) {
+            Ok(Some(accepted)) => accepted,
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 완료 수락을 읽지 못했다: {e}", child.0);
+                return;
+            }
+        };
+        let app = self.clone();
+        tokio::spawn(async move {
+            let (parent, name) = accepted;
+            let mut swept = Swept::default();
+            let remove = |limits| {
+                app.graph
+                    .remove_accepted_child(parent, child, &name, limits)
+            };
+            if let Err(e) = app.sweep_one(child, &name, remove, &mut swept).await {
+                eprintln!(
+                    "loom: 턴이 끝난 노드 {} ({name})를 지우지 못했다: {e}",
+                    child.0
+                );
+            }
+            for kept in swept.kept {
+                let body =
+                    format!("loom removed your finished child {name} when its turn ended. {kept}");
+                if let Err(e) = app.graph.note_from_loom(parent, &body) {
+                    eprintln!("loom: 노드 {}에 회수 알림을 보내지 못했다: {e}", parent.0);
+                }
+            }
+        });
     }
 
     async fn sweep_one(
         self: &Arc<Self>,
-        parent: NodeId,
         child: NodeId,
         name: &str,
-        keep: &[Kept],
+        remove: impl FnOnce(TreeLimits) -> Result<Option<Vec<(NodeId, String)>>, Refusal>,
         swept: &mut Swept,
     ) -> Result<bool, String> {
         let left = self.left(child).await?;
         let limits = self.settings.get().map_err(|e| e.to_string())?.tree_limits;
-        let Some(moved) = self
-            .graph
-            .remove_spent_child(parent, child, name, keep, limits)
-            .map_err(|e| e.to_string())?
-        else {
+        let Some(moved) = remove(limits).map_err(|e| e.to_string())? else {
             return Ok(false);
         };
         self.host.kill(child);

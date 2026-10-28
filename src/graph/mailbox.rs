@@ -522,7 +522,7 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_work(&tx, node, &Work::Done)?;
+        set_work(&tx, node, &Work::Done { accepted: false })?;
         match asked {
             Some(asked) if parent.is_none() => {
                 waits::put_done(&tx, node, asked, summary, images, doc)?
@@ -549,6 +549,19 @@ impl Graph {
 }
 
 impl Graph {
+    pub fn note_from_loom(&self, to: NodeId, body: &str) -> rusqlite::Result<()> {
+        enqueue_from_loom(
+            &self.lock(),
+            to,
+            Kind::Queue,
+            &MessageKind::Note,
+            body,
+            None,
+        )?;
+        self.publish_nodes();
+        self.mail.notify_waiters();
+        Ok(())
+    }
     pub fn human_typed(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
         let mut db = self.lock();
         let Some(parent) = parent_of(&db, node)? else {

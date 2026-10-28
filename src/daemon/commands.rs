@@ -186,6 +186,10 @@ pub struct DoneRequest {
 #[derive(Serialize, Deserialize)]
 pub struct Reported {
     pub warning: Option<String>,
+    #[serde(default)]
+    pub removed: Vec<String>,
+    #[serde(default)]
+    pub kept: Vec<String>,
 }
 
 async fn agent_task(

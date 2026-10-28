@@ -509,7 +509,6 @@ impl Graph {
         let bare = bare_link(summary);
         let mut db = self.lock();
         let parent = parent_of(&db, node)?;
-        super::nodes::check_spent(&db, node, report.keep)?;
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
         if parent.is_none() && asked.is_none() {
             return Err(Refusal::NoAsked);

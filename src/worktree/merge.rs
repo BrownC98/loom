@@ -275,19 +275,9 @@ pub async fn delete_merged(
     branch: &str,
     target: &str,
 ) -> Result<Option<String>, String> {
-    let listed = super::worktrees(dir).await;
-    let local = format!("refs/heads/{branch}");
-    if listed.iter().any(|w| w.branch.as_deref() == Some(branch))
-        || git::run(dir, &["rev-parse", "--verify", "--quiet", &local])
-            .await
-            .is_err()
-    {
+    let Some(at) = deletable_at(dir, branch, target).await else {
         return Ok(None);
-    }
-    let at = listed
-        .iter()
-        .find(|w| w.branch.as_deref() == Some(target))
-        .map_or_else(|| dir.to_path_buf(), |w| PathBuf::from(&w.path));
+    };
     let remote = format!("refs/remotes/origin/{branch}");
     let pushed = git::run(dir, &["rev-parse", "--verify", "--quiet", &remote])
         .await
@@ -314,4 +304,29 @@ pub async fn delete_merged(
     }
     git::run(&at, &["branch", "-d", "--", branch]).await?;
     Ok(kept)
+}
+
+pub async fn delete_local_merged(dir: &Path, branch: &str, target: &str) -> Result<(), String> {
+    if let Some(at) = deletable_at(dir, branch, target).await {
+        git::run(&at, &["branch", "-d", "--", branch]).await?;
+    }
+    Ok(())
+}
+
+async fn deletable_at(dir: &Path, branch: &str, target: &str) -> Option<PathBuf> {
+    let listed = super::worktrees(dir).await;
+    let local = format!("refs/heads/{branch}");
+    if listed.iter().any(|w| w.branch.as_deref() == Some(branch))
+        || git::run(dir, &["rev-parse", "--verify", "--quiet", &local])
+            .await
+            .is_err()
+    {
+        return None;
+    }
+    Some(
+        listed
+            .iter()
+            .find(|w| w.branch.as_deref() == Some(target))
+            .map_or_else(|| dir.to_path_buf(), |w| PathBuf::from(&w.path)),
+    )
 }

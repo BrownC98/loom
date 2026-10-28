@@ -627,7 +627,6 @@ const en = {
       noRepo: 'This repository is not in the list. Add it again.',
       emptyQuestion: 'Write the question as one line.',
       noAsked: 'A node with no parent reports done with the human\'s instruction in --asked.',
-      spentChildren: '{{children}}: these children finished and their processes ended. Save their results and remove each with `loom rm`, or keep it with `loom done --keep <name>=<reason>`. Their children become children of this node.',
       notAsk: 'Message #{{value}} is not a question that this node received. loom answer answers only questions.',
       docHasParent: 'This node has a parent, and the parent reads paths. Send the file path to the parent. Only nodes that the human started attach a document.',
       badRoleSetting: 'The role setting is not valid: {{value}}',

@@ -21,6 +21,7 @@ mod runtime;
 mod sessions;
 mod settings;
 mod sleep;
+mod spent;
 pub use crate::graph::NewAgent;
 pub use relaunch::Relaunched;
 mod switch;

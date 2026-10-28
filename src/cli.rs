@@ -428,6 +428,15 @@ pub fn done(
             "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
         );
     }
+    if !reported.removed.is_empty() {
+        println!(
+            "loom removed your finished children: {}. Their task folders stay.",
+            reported.removed.join(", ")
+        );
+    }
+    for kept in reported.kept {
+        println!("Kept: {kept}");
+    }
     Ok(())
 }
 

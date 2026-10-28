@@ -103,6 +103,10 @@ impl Adapter for Claude {
         cmd.args(args(at.plugin, at.launch));
     }
 
+    fn launch_settings(&self) -> Option<String> {
+        Some(settings().to_string())
+    }
+
     fn launch<'a>(
         &'a self,
         at: &'a LaunchAt<'_>,
@@ -324,6 +328,17 @@ fn background_job(json: &[u8], session: &str) -> Option<String> {
 }
 
 fn args(plugin: &Path, launch: Launch) -> Vec<String> {
+    vec![
+        "--append-system-prompt".into(),
+        usage(launch),
+        "--settings".into(),
+        settings().to_string(),
+        "--plugin-dir".into(),
+        plugin.to_string_lossy().into_owned(),
+    ]
+}
+
+fn settings() -> Value {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": HOOK,
@@ -338,7 +353,7 @@ fn args(plugin: &Path, launch: Launch) -> Vec<String> {
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
     let human = HUMAN_NOTIFICATIONS.map(|(name, _)| name).join("|");
-    let settings = json!({
+    json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
             "SessionStart": hook,
@@ -349,17 +364,10 @@ fn args(plugin: &Path, launch: Launch) -> Vec<String> {
             "Stop": rewake,
             "StopFailure": hook,
             "FileChanged": rewake,
+            "CwdChanged": hook,
             "Notification": [{ "matcher": human, "hooks": hook[0]["hooks"] }],
         },
-    });
-    vec![
-        "--append-system-prompt".into(),
-        usage(launch),
-        "--settings".into(),
-        settings.to_string(),
-        "--plugin-dir".into(),
-        plugin.to_string_lossy().into_owned(),
-    ]
+    })
 }
 
 pub const PROMPT: Grammar = Grammar {
@@ -467,10 +475,10 @@ impl HookEvent for Hook {
     fn show(&self, handed: &Handed) -> Shown {
         let shown = self.shown(handed);
         match (&self.event, std::env::var(WAKE_ENV)) {
-            (Event::SessionStart { .. }, Ok(wake)) => Shown {
+            (Event::SessionStart { .. } | Event::CwdChanged, Ok(wake)) => Shown {
                 out: Some(
                     json!({ "hookSpecificOutput": {
-                        "hookEventName": "SessionStart",
+                        "hookEventName": self.event.name(),
                         "watchPaths": [wake],
                     } })
                     .to_string(),
@@ -552,6 +560,7 @@ pub enum Event {
     FileChanged {
         file_path: PathBuf,
     },
+    CwdChanged,
 }
 
 const NOTIFICATION_TAG: &str = "<task-notification>";
@@ -570,6 +579,7 @@ impl Event {
             Event::StopFailure { .. } => "StopFailure",
             Event::Notification { .. } => "Notification",
             Event::FileChanged { .. } => "FileChanged",
+            Event::CwdChanged => "CwdChanged",
         }
     }
 
@@ -584,7 +594,10 @@ impl Event {
     }
 
     fn clears_wait(&self) -> bool {
-        !matches!(self, Event::FileChanged { .. } | Event::Notification { .. })
+        !matches!(
+            self,
+            Event::FileChanged { .. } | Event::Notification { .. } | Event::CwdChanged
+        )
     }
 
     pub fn take(&self) -> Option<Take> {
@@ -595,7 +608,9 @@ impl Event {
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::FileChanged { file_path } if is_wake_file(file_path) => Take::Woken,
-            Event::FileChanged { .. } | Event::Notification { .. } => return None,
+            Event::FileChanged { .. } | Event::Notification { .. } | Event::CwdChanged => {
+                return None;
+            }
         })
     }
 
@@ -668,7 +683,8 @@ impl Event {
             | Event::Stop
             | Event::StopFailure { .. }
             | Event::Notification { .. }
-            | Event::FileChanged { .. } => None,
+            | Event::FileChanged { .. }
+            | Event::CwdChanged => None,
             Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),

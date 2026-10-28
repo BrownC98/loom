@@ -710,7 +710,13 @@ fn current_digest(part: &str) -> Option<String> {
 }
 
 fn usage_digest(profile: Profile) -> String {
-    crate::skills::digest(&[COMMUNICATION_USAGE, adapter(profile).facts().waiting])
+    let adapter = adapter(profile);
+    let settings = adapter.launch_settings();
+    let parts: Vec<&str> = [COMMUNICATION_USAGE, adapter.facts().waiting]
+        .into_iter()
+        .chain(settings.as_deref())
+        .collect();
+    crate::skills::digest(&parts)
 }
 
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {

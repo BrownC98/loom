@@ -139,6 +139,9 @@ pub trait Adapter: Sync {
         Ok(())
     }
     fn command(&self, _: &mut CommandBuilder, _: Command<'_>) {}
+    fn launch_settings(&self) -> Option<String> {
+        None
+    }
     fn launch<'a>(
         &'a self,
         _: &'a LaunchAt<'_>,

@@ -121,6 +121,10 @@ fn keep(db: &Connection, rows: &[(NodeId, String)], how: &Closed) -> rusqlite::R
             params![node.0, name_of(db, *node)?, wait, to_json(how)],
         )?;
     }
+    prune(db)
+}
+
+fn prune(db: &Connection) -> rusqlite::Result<()> {
     db.execute(
         "DELETE FROM closed_waits WHERE closed_at < unixepoch() - ?1",
         [KEEP_SECS],
@@ -131,6 +135,7 @@ fn keep(db: &Connection, rows: &[(NodeId, String)], how: &Closed) -> rusqlite::R
 impl Graph {
     pub fn closed_waits(&self, before: Option<u32>) -> rusqlite::Result<ClosedPage> {
         let db = self.lock();
+        prune(&db)?;
         let mut waits = db
             .prepare(
                 "SELECT c.seq, c.node, c.name, c.wait, c.closed_at, c.how,

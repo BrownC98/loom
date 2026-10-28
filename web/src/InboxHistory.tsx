@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getClosedWaits } from './api';
 import { useShowNodes } from './camera';
@@ -43,14 +43,21 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
   const [list, setList] = useState<ClosedWait[] | null>(null);
   const [more, setMore] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const loaded = useRef(false);
   useEffect(() => {
+    let live = true;
     getClosedWaits().then(
       (page) => {
-        setList(page.waits);
-        setMore(page.more);
+        if (!live) return;
+        setList((now) => [...page.waits.filter((w) => w.seq > (now?.[0]?.seq ?? 0)), ...(now ?? [])]);
+        if (!loaded.current) setMore(page.more);
+        loaded.current = true;
       },
-      (err: Error) => setRefusal(err.message),
+      (err: Error) => live && setRefusal(err.message),
     );
+    return () => {
+      live = false;
+    };
   }, [props.open]);
   const loadMore = () => {
     const last = list?.at(-1);

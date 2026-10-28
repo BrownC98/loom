@@ -23,7 +23,7 @@ function answerText(decisions: readonly Decision[], picks: Picks, unpicked: stri
   const picked = decisions
     .map((d) => {
       const pick = picks[d.id];
-      if (pick?.text?.trim()) return `${d.id}: ${pick.text.trim()}`;
+      if (pick?.text?.trim()) return `${d.id}: ${pick.text.trim().replace(/\s*\n\s*/g, ' ')}`;
       if (pick?.key) return `${d.id}: ${pick.key}`;
       return d.recommended && `${d.id}: ${d.recommended}(${unpicked})`;
     })

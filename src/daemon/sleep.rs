@@ -18,7 +18,7 @@ use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 
-type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
+type Recovery = (Active, Plan, Guard, fn(&Arc<App>, NodeId));
 
 #[derive(Default)]
 pub struct Sleeps {
@@ -277,7 +277,7 @@ impl App {
             );
             return Ok(None);
         }
-        let (plan, kept): (Plan, fn(&App, NodeId)) = match self.graph.claim_deaf(id)? {
+        let (plan, kept): (Plan, fn(&Arc<App>, NodeId)) = match self.graph.claim_deaf(id)? {
             None => return Ok(None),
             Some(DeafClaim::Fresh) => (Plan::Resume, App::kept_running),
             Some(DeafClaim::Queued(plan)) => (plan, App::kept_at_turn_end),

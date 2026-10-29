@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::verbs::{role_refusal, spawn};
 use super::{AgentError, App, Problem, SpawnRequest, SpawnRun, for_agent};
 use crate::graph::{GateChoice, NodeId, Round, Via};
-use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, Refusal, SHIP_SCRIPT};
+use crate::protocol::{self, GateState, GateVerb, Judgment, Refusal};
 use crate::roles::REVIEWER_ROLES;
 use crate::worktree;
 use crate::worktree::RepoId;
@@ -54,13 +54,10 @@ pub fn via(headers: &HeaderMap, route: &str) -> Via {
 }
 
 impl App {
-    pub(super) fn kind_word(&self, node: NodeId, body: &str) -> Result<(), Refusal> {
+    pub(super) fn kind_word(&self, body: &str) -> Result<(), Refusal> {
         let Some(found) = protocol::kind_word(body) else {
             return Ok(());
         };
-        if found.gated_only && !self.gated_repo(node)? {
-            return Ok(());
-        }
         Err(Refusal::KindWord {
             word: found.word.to_owned(),
             verb: found.verb.to_owned(),
@@ -79,11 +76,6 @@ impl App {
             self.graph.ready_sent(node, branch, head)
         })
         .await
-    }
-
-    pub(super) fn gated_repo(&self, node: NodeId) -> Result<bool, Refusal> {
-        let repo = self.repo_of(node)?;
-        Ok(repo.join(CHECK_SCRIPT).is_file() && repo.join(SHIP_SCRIPT).is_file())
     }
 
     fn traced<T>(
@@ -147,9 +139,8 @@ impl App {
             GateChoice::Parent { worktree, .. } => Some(worktree),
             GateChoice::Owner => None,
         };
-        let gated = gate_worktree.is_none() && self.gated_repo(owner)?;
         for (repo, branch) in rounds {
-            if gated {
+            if gate_worktree.is_none() {
                 let problems = match self.unseated_roles(owner, &branch) {
                     Ok(roles) => self.seat_reviewers(owner, &branch, roles).await,
                     Err(e) => vec![e.to_string()],
@@ -259,14 +250,6 @@ impl App {
             worktree: &worktree,
             head: &mine.head,
         };
-        if !self.gated_repo(node)? {
-            let gate = self.graph.announce_ready(node, &round, gate, Some(via))?;
-            return Ok(Readied {
-                gate,
-                target,
-                unseated: Vec::new(),
-            });
-        }
         let roles = match gate == node {
             true => self.unseated_roles(gate, branch)?,
             false => Vec::new(),

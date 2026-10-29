@@ -257,43 +257,6 @@ impl Graph {
         Ok(name_of(&self.lock(), row.gate)?)
     }
 
-    pub fn announce_ready(
-        &self,
-        owner: NodeId,
-        round: &Round,
-        gate: NodeId,
-        via: Option<&Via>,
-    ) -> Result<String, Refusal> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let what = MessageKind::Ready {
-            branch: round.branch.to_owned(),
-            head: round.head.to_owned(),
-            worktree: round.worktree.to_owned(),
-            target: round.target.to_owned(),
-        };
-        let stamp = Stamp {
-            via: via.cloned(),
-            gate: Some(trace(
-                &tx,
-                Caller::Node(owner),
-                GateVerb::Ready,
-                round.branch,
-                None,
-                None,
-                Vec::new(),
-            )?),
-        };
-        let body = format!(
-            "Next: review the branch, merge it into {} by hand, then report with `loom done`. This repository has no gate scripts, so loom verdict and the merge queue do not work here.",
-            round.target
-        );
-        mailbox::enqueue(&tx, owner, Some(gate), Kind::Queue, &what, &body, stamp)?;
-        tx.commit()?;
-        self.publish_sent(&db, owner, gate)?;
-        Ok(name_of(&db, gate)?)
-    }
-
     pub fn ready_sent(&self, owner: NodeId, branch: &str, head: &str) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 AND what ->> 'kind' = 'ready'

@@ -79,11 +79,7 @@ fn nudge_text(check: TurnCheck) -> &'static str {
 
 impl App {
     pub(super) fn turn_end(&self, node: NodeId) -> rusqlite::Result<Option<&'static str>> {
-        let gated_repo = self.gated_repo(node).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
-            false
-        });
-        let nudge = self.graph.end_turn(node, gated_repo)?;
+        let nudge = self.graph.end_turn(node)?;
         let Some(check) = nudge.filter(|_| !self.relaunch_planned(node)) else {
             return Ok(None);
         };

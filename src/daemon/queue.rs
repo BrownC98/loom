@@ -448,6 +448,9 @@ impl Batch<'_> {
         let (code, out) = script(&self.dir, PUBLISH, &args).await?;
         let log = Lines::read(&out).log;
         match code {
+            0 if !self.dir.join(protocol::SHIP_SCRIPT).is_file() => {
+                self.merged(members, base, tip, None, &Dest::Base).await
+            }
             0 => {
                 let owners: Vec<_> = members.iter().map(|m| m.owner).collect();
                 let deploy = self

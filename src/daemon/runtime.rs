@@ -218,6 +218,7 @@ impl App {
                 false => self.graph.lost(node.id)?,
             }
             self.sweep_above(node.id);
+            self.sweep_later(node.id);
             if gone && let Some(distro) = distro {
                 end_leftovers(
                     &tokio::runtime::Handle::current(),

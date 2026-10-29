@@ -148,6 +148,7 @@ impl App {
             );
         }
         self.sweep_above(node);
+        self.sweep_later(node);
     }
 
     pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {

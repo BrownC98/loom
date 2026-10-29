@@ -5,7 +5,7 @@ use super::App;
 use super::gate::target_of;
 use crate::git;
 use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Outcome, Queued};
-use crate::protocol::{self, Finding, Refusal};
+use crate::protocol::{self, Deploy, Finding, Refusal};
 use crate::worktree::merge::{
     self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
     base_branch, bringing_merge, merge_commit, script,
@@ -277,6 +277,10 @@ impl Batch<'_> {
             format!("batch-{}-{step}", self.id.0),
             self.lock.to_owned(),
             base.to_owned(),
+            match trial.first().map(|m| m.deploy) {
+                Some(Deploy::Skip) => format!(" {}", Deploy::SKIP_MARK),
+                _ => String::new(),
+            },
         ];
         for m in trial {
             args.push(m.branch.clone());
@@ -549,6 +553,12 @@ impl Batch<'_> {
             }
             let mut lines = self.lines();
             lines.extend(deploy.clone());
+            if into_base && m.deploy == Deploy::Skip {
+                lines.push(format!(
+                    "ci: the merge commit carries {}; the remote CI and its deploy do not run for it",
+                    Deploy::SKIP_MARK
+                ));
+            }
             self.settle(
                 m,
                 Ended {

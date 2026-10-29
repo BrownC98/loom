@@ -28,8 +28,8 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 
 pub const STACK: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3
-shift 3
+wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3 mark=$4
+shift 4
 mkdir -p "$common/loom-logs" "$common/loom-batches"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
     echo "== $1 $2 is already in the batch"
   else
     echo "== merge $1 $2"
-    git -C "$wt" merge --no-ff -m "Merge branch '$1'" "$2" || { git -C "$wt" merge --abort; echo "conflict $i" >&3; exit 10; }
+    git -C "$wt" merge --no-ff -m "Merge branch '$1'$mark" "$2" || { git -C "$wt" merge --abort; echo "conflict $i" >&3; exit 10; }
   fi
   i=$((i + 1))
   shift 2

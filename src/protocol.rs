@@ -88,6 +88,18 @@ pub enum GateState {
     Failed,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Deploy {
+    #[default]
+    Run,
+    Skip,
+}
+
+impl Deploy {
+    pub const SKIP_MARK: &str = "[skip ci]";
+}
+
 /// 검토 판정.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, clap::ValueEnum, TS)]
 #[ts(export)]
@@ -661,7 +673,7 @@ macro_rules! message_usage {
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports. It removes each child that is done, whose turn or process ended, that has no child at work, no unread mail either way and no open gate round, with its clean worktree and merged branch. A child that is done but still in its turn goes when that turn ends, unless new work reaches it first. Add --keep <name>=<reason> to keep one.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work. If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. loom verdict <branch> <head> pass|block [--findings <file>] (give the head from the round message that loom sends; loom refuses another head; into the original checkout: only the branch's reviewers, never the owner: at `loom ready`, loom spawns one per reviewer role as children of the gate and sends them each next round; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks (scripts/gate/check.sh, if the repository has it), merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
+- loom ready <branch> [--no-deploy] (branch owner, all committed) sends the branch to its gate. --no-deploy: the merge commit carries [skip ci], so the remote CI and its deploy do not run. loom verdict <branch> <head> pass|block [--findings <file>] (give the head from the round message that loom sends; loom refuses another head; into the original checkout: only the branch's reviewers, never the owner: at `loom ready`, loom spawns one per reviewer role as children of the gate and sends them each next round; a branch made from its parent's branch has no reviewer: that parent checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks (scripts/gate/check.sh, if the repository has it), merges and sends merged, rework or failed). A new loom ready with a new commit replaces an open round until the queue takes the branch. The gate is your parent when your branch was made from its branch, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }

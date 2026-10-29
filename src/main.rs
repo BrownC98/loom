@@ -177,7 +177,12 @@ enum Cli {
     /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없어야 한다.
     /// 병합 큐가 가져가기 전의 열린 차례는 새 커밋의 `loom ready`가 갈음한다. 앉은 검토자는 새 차례를 받는다.
     /// 관문은 loom이 고른다: 부모 워크트리가 원래 체크아웃의 브랜치가 아닌 브랜치에 있으면 부모(대상은 그 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
-    Ready { branch: String },
+    Ready {
+        branch: String,
+        /// 이 브랜치의 병합 커밋 메시지에 `[skip ci]`를 붙여 원격 CI(배포 포함)를 건너뛴다. 큐는 이 브랜치를 배포하는 브랜치와 한 묶음에 넣지 않는다. `scripts/gate/ship.sh`는 그대로 돈다.
+        #[arg(long)]
+        no_deploy: bool,
+    },
     /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 그 브랜치의 검토자만 부른다. 데몬이 `loom ready` 때 검토자 역할마다 하나씩 관문의 자식으로 띄운다. 부모 브랜치에서 만든 브랜치는 검토자 없이 부모가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
     /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, 저장소에 `scripts/gate/check.sh`가 있으면 그것으로 검사하고, 병합(main이면 push)하고, merged·rework·failed로 알린다. main이고 `scripts/gate/ship.sh`가 있으면 그 뒤 그것이 따로 배포를 확인하고 실패만 루트에 알린다.
     Verdict {
@@ -319,7 +324,13 @@ fn main() -> ExitCode {
         ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),
-        Cli::Ready { branch } => cli::ready(branch),
+        Cli::Ready { branch, no_deploy } => cli::ready(
+            branch,
+            match no_deploy {
+                true => protocol::Deploy::Skip,
+                false => protocol::Deploy::Run,
+            },
+        ),
         Cli::Verdict {
             branch,
             head,

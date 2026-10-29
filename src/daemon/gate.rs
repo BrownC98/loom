@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::verbs::{role_refusal, spawn};
 use super::{AgentError, App, Problem, SpawnRequest, SpawnRun, for_agent};
 use crate::graph::{GateChoice, NodeId, Round, Via};
-use crate::protocol::{self, GateState, GateVerb, Judgment, Refusal};
+use crate::protocol::{self, Deploy, GateState, GateVerb, Judgment, Refusal};
 use crate::roles::REVIEWER_ROLES;
 use crate::worktree;
 use crate::worktree::RepoId;
@@ -22,6 +22,8 @@ pub const VERSION_HEADER: &str = "loom-version";
 pub struct ReadyRequest {
     pub branch: String,
     pub cwd: String,
+    #[serde(default)]
+    pub deploy: Deploy,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -221,6 +223,7 @@ impl App {
         self: &Arc<Self>,
         node: NodeId,
         branch: &str,
+        deploy: Deploy,
         cwd: &str,
         via: &Via,
     ) -> Result<Readied, Refusal> {
@@ -249,6 +252,7 @@ impl App {
             target: &target,
             worktree: &worktree,
             head: &mine.head,
+            deploy,
         };
         let roles = match gate == node {
             true => self.unseated_roles(gate, branch)?,
@@ -343,7 +347,9 @@ pub(super) async fn agent_ready(
 ) -> Result<Json<Readied>, AgentError> {
     let node = app.caller(&headers)?;
     let via = via(&headers, "/api/agent/ready");
-    let result = app.ready(node, &req.branch, &req.cwd, &via).await;
+    let result = app
+        .ready(node, &req.branch, req.deploy, &req.cwd, &via)
+        .await;
     app.traced(node, GateVerb::Ready, &req.branch, &via, result)
 }
 

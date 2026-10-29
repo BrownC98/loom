@@ -440,11 +440,12 @@ pub fn done(
     Ok(())
 }
 
-pub fn ready(branch: String) -> Result<(), String> {
+pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), String> {
     let readied: Readied = call(
         "ready",
         &ReadyRequest {
             branch: branch.clone(),
+            deploy,
             cwd: crate::wsl::cwd_for_daemon(std::env::current_dir().map_err(|e| e.to_string())?)
                 .display()
                 .to_string(),

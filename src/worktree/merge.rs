@@ -49,13 +49,17 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 tip=$(git -C "$wt" rev-parse HEAD)
-exec 9>>"$lock"
-flock 9
-start=$(date +%s)
-(cd "$wt" && CARGO_TARGET_DIR="$common/loom-batch-target" bash scripts/gate/check.sh 9>&-)
-code=$?
-echo "check $(($(date +%s) - start))" >&3
-[ "$code" -eq 0 ] || exit 14
+if [ -f "$wt/scripts/gate/check.sh" ]; then
+  exec 9>>"$lock"
+  flock 9
+  start=$(date +%s)
+  (cd "$wt" && CARGO_TARGET_DIR="$common/loom-batch-target" bash scripts/gate/check.sh 9>&-)
+  code=$?
+  echo "check $(($(date +%s) - start))" >&3
+  [ "$code" -eq 0 ] || exit 14
+else
+  echo "== no scripts/gate/check.sh"
+fi
 echo "tip $tip" >&3
 "#;
 

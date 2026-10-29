@@ -123,7 +123,7 @@ impl Graph {
         )
     }
 
-    pub fn end_turn(&self, node: NodeId, gated_repo: bool) -> rusqlite::Result<Option<TurnCheck>> {
+    pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<TurnCheck>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let (flags, reply): (u8, Option<String>) = tx
@@ -140,9 +140,9 @@ impl Graph {
             Some(TurnCheck::QuestionBox)
         } else if !has(Bit::Called)
             && !has(Bit::KindNudged)
-            && reply.as_deref().is_some_and(|text| {
-                kind_line(text, |found| !found.gated_only || gated_repo).is_some()
-            })
+            && reply
+                .as_deref()
+                .is_some_and(|text| kind_line(text).is_some())
         {
             Some(TurnCheck::KindLine)
         } else if has(Bit::Human) && reply.is_some() && unreported_root(&tx, node)? {

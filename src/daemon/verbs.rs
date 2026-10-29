@@ -232,7 +232,7 @@ fn refusal_of(problem: &Problem) -> Option<Refusal> {
 }
 
 fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
-    app.kind_word(from, &req.body)?;
+    app.kind_word(&req.body)?;
     if req.mode != Kind::Queue {
         let (to, agent) = app.graph.agent_at(from, &req.to)?;
         let target = format!("#{}", to.0);
@@ -271,7 +271,7 @@ pub(super) async fn agent_answer(
 ) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
     let via = gate::via(&headers, "/api/agent/answer");
-    let sent = app.kind_word(from, &req.body).and_then(|()| {
+    let sent = app.kind_word(&req.body).and_then(|()| {
         app.graph
             .answer_ask(from, req.message, &req.body, Some(&via))
     });
@@ -314,7 +314,7 @@ pub(super) async fn agent_done(
             return recorded::<Reported>(&app, node, PARENT, Kind::Queue, what, &via, Err(refused));
         }
     };
-    let word = app.kind_word(node, &req.summary);
+    let word = app.kind_word(&req.summary);
     let warning = if word.is_ok() {
         app.unreadied(node).await.unwrap_or_else(|e| {
             eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);

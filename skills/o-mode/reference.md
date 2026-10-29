@@ -14,7 +14,6 @@ Procedures from [o-mode](SKILL.md) for rare tasks. Read this file when you do on
 A `--worktree` child runs the repository setup script on the parent's committed `HEAD`. Thus commit a `HEAD` on which the setup (with the build) passes, then spawn. A `setup-failed` message has the fields `node` and `code`, and its body is the end of the output. On it, the parent finds the cause in that output, fixes it and commits. Then it removes the failed child with `loom rm`. It removes the worktree and branch with `git worktree remove` and `git branch -d`. Then it spawns the child again with the same name.
 
 - The node that starts a release or APK run (`.github/workflows/release.yml`) watches it to the end.
-- In a repository without `scripts/gate/check.sh`, still call `loom ready`. The gate merges by hand and reports with `loom done`.
 
 ## Mockup approval
 

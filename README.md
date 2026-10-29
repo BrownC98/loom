@@ -134,7 +134,7 @@ When an agent asks you a question or reports a result, a notice shows in the que
 
 Nodes are grouped by git worktree. `loom spawn --worktree <branch>` makes a new worktree and a new group. You can also make and delete worktrees in the left sidebar.
 
-In a repository that has `scripts/gate/check.sh` and `scripts/gate/ship.sh`, the owner of a branch runs `loom ready <branch>`. loom starts reviewers, and their `loom verdict` sends the branch to the merge queue or back for rework. The queue merges the passed branches, runs the check once and pushes the result.
+The owner of a branch runs `loom ready <branch>`. loom starts reviewers, and their `loom verdict` sends the branch to the merge queue or back for rework. The queue merges the passed branches, runs `scripts/gate/check.sh` once if the repository has it, and pushes the result. If the repository has `scripts/gate/ship.sh`, loom runs it after the push to confirm the deploy.
 
 ### Built-in skills
 

@@ -522,7 +522,12 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_work(&tx, node, &Work::Done { kept: None })?;
+        let kept = tx.query_row(
+            "SELECT state ->> 'kept' FROM nodes WHERE id = ?1",
+            [node.0],
+            |row| row.get(0),
+        )?;
+        set_work(&tx, node, &Work::Done { kept })?;
         let mut unkept = Vec::new();
         for kept in report.keep {
             let done = tx

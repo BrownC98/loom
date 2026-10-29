@@ -146,8 +146,8 @@ impl App {
                 "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
                 node.0
             );
-            self.sweep_above(node);
         }
+        self.sweep_above(node);
     }
 
     pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {

@@ -217,6 +217,7 @@ impl App {
                 false if gone => self.graph.host_gone(node.id)?,
                 false => self.graph.lost(node.id)?,
             }
+            self.sweep_above(node.id);
             if gone && let Some(distro) = distro {
                 end_leftovers(
                     &tokio::runtime::Handle::current(),
@@ -359,6 +360,7 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
+            let _entered = runtime.enter();
             app.wakes.forget(id);
             if exit != Exit::Lost
                 && let Some(distro) = distro

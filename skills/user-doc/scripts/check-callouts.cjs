@@ -1,12 +1,17 @@
 const path = require('path'), fs = require('fs'), os = require('os'), { pathToFileURL } = require('url');
 let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homedir(), '.npm/_npx'); for (const n of fs.readdirSync(c)) { const m = path.join(c, n, 'node_modules/playwright'); if (fs.existsSync(m)) { pw = require(m); break; } } }
 
-const RUNS = [{ w: 1920 }, { w: 1440 }, { w: 1280 }, { w: 1100 }, { w: 960 }, { w: 1440, slow: 1500 }, { w: 1440, resizeTo: 1000 }];
-const HEIGHT = 900, SETTLE_MS = 600;
+const MAIN = { w: 1440 };
+const RUNS = [MAIN, { w: 1920 }, { w: 1280 }, { w: 1100 }, { w: 960 }, { w: 1440, slow: 1500 }, { w: 1440, resizeTo: 1000 }];
+const HEIGHT = 900, SETTLE_MS = 600, LOAD_MS = 60000;
 const LEADER_MAX = 120;
+const RENDER = { width: 1440, height: 2400 };
 
-const doc = path.resolve(process.argv[2]);
+const quick = process.argv.includes('--quick');
+const doc = path.resolve(process.argv.slice(2).find(a => a !== '--quick'));
 const html = fs.readFileSync(doc, 'utf8');
+const runs = quick ? [MAIN] : RUNS.filter(r => !r.slow || /<img\b/i.test(html));
+const render = path.join(process.env.TMPDIR || os.tmpdir(), `show-${path.basename(doc, path.extname(doc))}.png`);
 
 async function openSlow(page, delay) {
   const imgs = [];
@@ -278,26 +283,50 @@ async function checkRun(page) {
   return res;
 }
 
-(async () => {
-  const b = await pw.chromium.launch();
-  const out = { bubbles: 0, badges: 0, overlaps: [] };
-  for (const run of RUNS) {
-    const label = `[${run.w}${run.slow ? ' slow images' : ''}${run.resizeTo ? '->' + run.resizeTo : ''}] `;
-    const page = await b.newPage({ viewport: { width: run.w, height: HEIGHT } });
-    if (run.slow) await openSlow(page, run.slow);
-    else await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
-    if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(LOCAL_REFS)));
-    if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc))));
+async function checkPage(ctx, run) {
+  const label = `[${run.w}${run.slow ? ' slow images' : ''}${run.resizeTo ? '->' + run.resizeTo : ''}] `;
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(LOAD_MS);
+  try {
+    await page.setViewportSize({ width: run.w, height: HEIGHT });
+    try {
+      if (run.slow) await openSlow(page, run.slow);
+      else await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
+    } catch (e) {
+      return { bad: [label + `page did not load in ${LOAD_MS / 1000} s (callouts.js layout or a web font): ${e.message.split('\n')[0]}`] };
+    }
+    const bad = [];
+    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }
     const res = await checkRun(page);
-    if (run === RUNS[1]) { out.bubbles = res.bubbles; out.badges = res.badges.length; }
-    out.overlaps.push(...res.bad.map(x => label + x));
-    await page.close();
-  }
-  await b.close();
-  out.overlaps = [...new Set(out.overlaps)];
-  console.log(JSON.stringify(out));
-  process.exitCode = out.overlaps.length ? 1 : 0;
+    bad.push(...res.bad.map(x => label + x));
+    return { bad, bubbles: res.bubbles, badges: res.badges.length };
+  } finally { await page.close(); }
+}
+
+async function renderPage(ctx) {
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(LOAD_MS);
+  try {
+    await page.setViewportSize(RENDER);
+    await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(SETTLE_MS);
+    await page.screenshot({ path: render, animations: 'disabled' });
+    console.error(`show: render ${render}`);
+  } catch (e) { console.error(`show: render failed (continuing): ${e.message.split('\n')[0]}`); } finally { await page.close(); }
+}
+
+(async () => {
+  const b = await pw.chromium.launch();
+  try {
+    const ctx = await b.newContext();
+    const [all] = await Promise.all([Promise.all(runs.map(run => checkPage(ctx, run))), renderPage(ctx)]);
+    const main = all[runs.indexOf(MAIN)];
+    const out = { bubbles: main.bubbles ?? 0, badges: main.badges ?? 0, overlaps: [...new Set(all.flatMap(r => r.bad))] };
+    console.log(JSON.stringify(out));
+    process.exitCode = out.overlaps.length ? 1 : 0;
+  } finally { await b.close(); }
 })().catch(e => { console.error(e); process.exitCode = 2; });

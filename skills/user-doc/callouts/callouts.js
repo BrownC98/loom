@@ -46,7 +46,12 @@
   const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
     const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
     fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
-    for (let x = 20; place(fig, src) && x <= 1200; x += 20) fig.style.paddingBottom = base + x + 'px';
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
   } };
   const place = (fig, src) => {
     fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());

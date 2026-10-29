@@ -5,7 +5,7 @@ use super::App;
 use super::gate::target_of;
 use crate::git;
 use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Merge, Outcome, Queued};
-use crate::protocol::{self, Finding, Refusal};
+use crate::protocol::{self, Deploy, Finding, Refusal};
 use crate::worktree::merge::{
     self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
     base_branch, bringing_merge, merge_commit, script,
@@ -230,7 +230,7 @@ impl Batch<'_> {
                 false => suspects.len(),
             };
             let trial: Vec<Queued> = prefix.iter().chain(&suspects[..half]).cloned().collect();
-            match self.trial(&trial, base, step).await? {
+            match self.trial(&trial, base, step, into).await? {
                 Trial::Conflict { index, log } => {
                     let member = trial[index].clone();
                     self.settle(&member, self.rework(self.conflict_cause(), log));
@@ -272,11 +272,21 @@ impl Batch<'_> {
         }
     }
 
-    async fn trial(&self, trial: &[Queued], base: &str, step: u32) -> Result<Trial, Refusal> {
+    async fn trial(
+        &self,
+        trial: &[Queued],
+        base: &str,
+        step: u32,
+        into: &Dest,
+    ) -> Result<Trial, Refusal> {
         let mut args = vec![
             format!("batch-{}-{step}", self.id.0),
             self.lock.to_owned(),
             base.to_owned(),
+            match (into, trial.first().map(|m| m.deploy)) {
+                (Dest::Base, Some(Deploy::Skip)) => format!(" {}", Deploy::SKIP_MARK),
+                _ => String::new(),
+            },
         ];
         for m in trial {
             args.push(m.branch.clone());
@@ -549,6 +559,12 @@ impl Batch<'_> {
             }
             let mut lines = self.lines();
             lines.extend(deploy.clone());
+            if into_base && m.deploy == Deploy::Skip {
+                lines.push(format!(
+                    "ci: the merge commit carries {}; the remote CI and its deploy do not run for it",
+                    Deploy::SKIP_MARK
+                ));
+            }
             self.settle(
                 m,
                 Ended {

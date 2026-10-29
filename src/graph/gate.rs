@@ -6,7 +6,7 @@ use super::events::{self, Entry, GateTrace, Via};
 use super::mailbox::{self, Stamp};
 use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{
-    self, AgentId, Finding, GateState, GateVerb, Judgment, Kind, MessageKind, Refusal,
+    self, AgentId, Deploy, Finding, GateState, GateVerb, Judgment, Kind, MessageKind, Refusal,
 };
 use crate::roles::REVIEWER_ROLES;
 use crate::task;
@@ -20,6 +20,7 @@ pub struct Round<'a> {
     pub target: &'a str,
     pub worktree: &'a str,
     pub head: &'a str,
+    pub deploy: Deploy,
 }
 
 #[derive(Debug, PartialEq)]
@@ -36,6 +37,7 @@ pub struct Queued {
     pub worktree: String,
     pub since: i64,
     pub waited: u64,
+    pub deploy: Deploy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,6 +167,7 @@ struct Row {
     worktree: String,
     state: GateState,
     head: String,
+    deploy: Deploy,
 }
 
 impl Row {
@@ -230,21 +233,23 @@ impl Graph {
                 if let Some(open) = load(tx, repo, round.branch)?
                     && matches!(open.state, GateState::Ready | GateState::Passed)
                     && open.head == round.head
+                    && open.deploy == round.deploy
                 {
                     return Err(Refusal::SameHead(round.branch.to_owned()));
                 }
                 tx.execute(
-                    "INSERT INTO gates (repo, branch, owner, worktree, state, head, opened)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch())
+                    "INSERT INTO gates (repo, branch, owner, worktree, state, head, deploy, opened)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, unixepoch())
                      ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, worktree = ?4,
-                        state = ?5, head = ?6, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch()",
+                        state = ?5, head = ?6, deploy = ?7, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch()",
                     params![
                         repo.0,
                         round.branch,
                         owner.0,
                         round.worktree,
                         to_json(&row.state),
-                        round.head
+                        round.head,
+                        to_json(&round.deploy)
                     ],
                 )?;
                 tx.execute(
@@ -431,9 +436,13 @@ impl Graph {
             ))?
             .query_map(params![repo.0, gate_worktree], read_queued)?
             .collect::<rusqlite::Result<_>>()?;
-        if queue.is_empty() {
+        let Some(first) = queue.first().map(|m| m.deploy) else {
             return Ok(None);
-        }
+        };
+        let queue: Vec<Queued> = queue
+            .into_iter()
+            .take_while(|m| m.deploy == first)
+            .collect();
         tx.execute(
             "INSERT INTO batches (repo, target) VALUES (?1, ?2)",
             params![repo.0, target],
@@ -848,6 +857,7 @@ impl Graph {
                 worktree: String::new(),
                 state: to,
                 head: String::new(),
+                deploy: Deploy::Run,
             },
         };
         write(&tx, &row)?;
@@ -1464,7 +1474,7 @@ fn gate_of(owner: &str) -> String {
     format!("coalesce({}, {owner})", parent_gate(owner, "id"))
 }
 
-const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0), worktree FROM gates";
+const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0), worktree, deploy FROM gates";
 
 fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
     Ok(Queued {
@@ -1474,13 +1484,14 @@ fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
         worktree: r.get(5)?,
         since: r.get(3)?,
         waited: r.get::<_, i64>(4)?.unsigned_abs(),
+        deploy: from_json(r, 6)?,
     })
 }
 
 fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Row>> {
     db.query_row(
         &format!(
-            "SELECT owner, {}, worktree, CASE WHEN batch IS NULL THEN state ELSE '\"merging\"' END, head
+            "SELECT owner, {}, worktree, CASE WHEN batch IS NULL THEN state ELSE '\"merging\"' END, head, deploy
              FROM gates WHERE repo = ?1 AND branch = ?2",
             gate_of("gates.owner")
         ),
@@ -1492,6 +1503,7 @@ fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<
                 worktree: row.get(2)?,
                 state: from_json(row, 3)?,
                 head: row.get(4)?,
+                deploy: from_json(row, 5)?,
             })
         },
     )

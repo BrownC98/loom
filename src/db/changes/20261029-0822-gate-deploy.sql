@@ -1,0 +1,1 @@
+ALTER TABLE gates ADD COLUMN deploy TEXT NOT NULL DEFAULT '"run"';

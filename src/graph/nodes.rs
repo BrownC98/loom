@@ -521,6 +521,10 @@ impl Graph {
         name_of(&self.lock(), node)
     }
 
+    pub fn parent(&self, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
+        parent_of(&self.lock(), node)
+    }
+
     pub fn has_parent(&self, node: NodeId) -> Result<bool, Refusal> {
         Ok(parent_of(&self.lock(), node)?.is_some())
     }
@@ -707,35 +711,11 @@ impl Graph {
         parent: NodeId,
         child: NodeId,
         name: &str,
-        keep: &[mailbox::Kept],
         limits: TreeLimits,
     ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        if !spent_in(&tx, parent, keep)?
-            .iter()
-            .any(|(id, _)| *id == child)
-        {
-            return Ok(None);
-        }
-        self.take_child(tx, parent, child, name, limits).map(Some)
-    }
-
-    pub fn remove_accepted_child(
-        &self,
-        parent: NodeId,
-        child: NodeId,
-        name: &str,
-        limits: TreeLimits,
-    ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let accepted = accepted_in(&tx, child)?.is_some_and(|(by, _)| by == parent);
-        if !accepted
-            || !spent_in(&tx, parent, &[])?
-                .iter()
-                .any(|(id, _)| *id == child)
-        {
+        if !spent_in(&tx, parent)?.iter().any(|(id, _)| *id == child) {
             return Ok(None);
         }
         self.take_child(tx, parent, child, name, limits).map(Some)
@@ -1112,59 +1092,21 @@ fn adopt_in(
 }
 
 impl Graph {
-    pub fn spent_children(
-        &self,
-        node: NodeId,
-        keep: &[mailbox::Kept],
-    ) -> rusqlite::Result<Vec<(NodeId, String)>> {
-        spent_in(&self.lock(), node, keep)
+    pub fn spent_children(&self, node: NodeId) -> rusqlite::Result<Vec<(NodeId, String)>> {
+        spent_in(&self.lock(), node)
     }
 
-    pub fn accept_done(&self, parent: NodeId, keep: &[mailbox::Kept]) -> rusqlite::Result<()> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let settled = settled_in(&tx, parent, keep)?;
-        let done = tx
-            .prepare("SELECT id FROM nodes WHERE parent = ?1 AND state ->> 'kind' = 'done'")?
-            .query_map([parent.0], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for id in done {
-            let accepted = settled.iter().any(|(s, _)| *s == id);
-            tx.execute(
-                "UPDATE nodes SET state = ?2 WHERE id = ?1",
-                params![id.0, to_json(&Work::Done { accepted })],
-            )?;
-        }
-        tx.commit()
-    }
-
-    pub fn accepted_in_turn(&self, parent: NodeId) -> rusqlite::Result<Vec<String>> {
-        self.lock()
-            .prepare(
-                "SELECT c.name FROM nodes c JOIN agent_states s ON s.node = c.id
-                 WHERE c.parent = ?1 AND c.state ->> 'accepted' AND s.state ->> 'kind' = 'turn'
-                 ORDER BY c.id",
-            )?
-            .query_map([parent.0], |row| row.get(0))?
-            .collect()
-    }
-
-    pub fn accepted_by(&self, child: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
-        accepted_in(&self.lock(), child)
+    pub fn finishing_children(&self, node: NodeId) -> rusqlite::Result<Vec<String>> {
+        Ok(
+            children_where(&self.lock(), node, &format!("{SETTLED} AND NOT {IDLE}"))?
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect(),
+        )
     }
 }
 
-fn accepted_in(db: &Connection, child: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
-    db.query_row(
-        "SELECT parent, name FROM nodes
-         WHERE id = ?1 AND parent IS NOT NULL AND state ->> 'accepted'",
-        [child.0],
-        |row| Ok((NodeId(row.get(0)?), row.get(1)?)),
-    )
-    .optional()
-}
-
-const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.role IS NOT NULL
+const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS NULL AND c.role IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
      AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
      AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
@@ -1175,39 +1117,24 @@ const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.role IS NOT NULL
 const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
      WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))";
 
-fn spent_in(
-    db: &Connection,
-    node: NodeId,
-    keep: &[mailbox::Kept],
-) -> rusqlite::Result<Vec<(NodeId, String)>> {
-    children_where(db, node, keep, &format!("{SETTLED} AND {IDLE}"))
-}
+const FREE: &str = "EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' = 'done'
+     OR NOT EXISTS (SELECT 1 FROM agent_states s WHERE s.node = p.id
+         AND coalesce(s.state ->> '$.before.kind', s.state ->> 'kind') IN ('turn', 'starting', 'mismatch'))))";
 
-fn settled_in(
-    db: &Connection,
-    node: NodeId,
-    keep: &[mailbox::Kept],
-) -> rusqlite::Result<Vec<(NodeId, String)>> {
-    children_where(db, node, keep, SETTLED)
+fn spent_in(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<(NodeId, String)>> {
+    children_where(db, node, &format!("{SETTLED} AND {IDLE} AND {FREE}"))
 }
 
 fn children_where(
     db: &Connection,
     node: NodeId,
-    keep: &[mailbox::Kept],
     rule: &str,
 ) -> rusqlite::Result<Vec<(NodeId, String)>> {
-    Ok(db
-        .prepare(&format!(
-            "SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1 AND {rule} ORDER BY c.id"
-        ))?
-        .query_map([node.0], |row| {
-            Ok((NodeId(row.get(0)?), row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|(_, name)| !keep.iter().any(|k| &k.name == name))
-        .collect())
+    db.prepare(&format!(
+        "SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1 AND {rule} ORDER BY c.id"
+    ))?
+    .query_map([node.0], |row| Ok((NodeId(row.get(0)?), row.get(1)?)))?
+    .collect()
 }
 
 fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {

@@ -340,12 +340,22 @@ pub(super) async fn agent_done(
         )
     });
     let done = match done {
-        Ok(()) => {
-            let swept = app.sweep(node, &req.keep).await;
+        Ok(unkept) => {
+            let swept = app.sweep(node).await;
+            let mut kept: Vec<String> = unkept
+                .into_iter()
+                .map(|name| {
+                    format!(
+                        "{name}: it is not a done child of yours, so loom stored no --keep for it."
+                    )
+                })
+                .collect();
+            kept.extend(swept.kept);
+            kept.extend(swept.problems);
             Ok(Reported {
                 warning: warning.clone(),
                 removed: swept.removed,
-                kept: swept.kept,
+                kept,
             })
         }
         Err(refused) => Err(refused),

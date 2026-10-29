@@ -143,11 +143,11 @@ impl App {
         {
             self.rate_limited(node, provider);
         }
-        if open.after_turn {
-            self.remove_accepted(node);
-        } else {
+        if !open.after_turn {
             self.run_at_turn_end(node, None);
         }
+        self.sweep_above(node);
+        self.sweep_later(node);
     }
 
     pub(super) fn listen_open(

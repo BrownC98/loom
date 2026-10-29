@@ -39,7 +39,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 
 - Merge only with `loom ready` and `loom verdict`. Do not merge or push to main by hand.
 - The owner commits, does the checks, keeps their output in `logs/` of its task folder for the reviewers and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
-- If the brief says the change must not deploy, call `loom ready <branch> --no-deploy`. The queue merges it in a batch of its own with `[skip ci]` in the merge commits, so the remote CI and its deploy do not run. A coordinator that merges such workers gives the flag on its own `loom ready`.
+- If the brief says the change must not deploy, call `loom ready <branch> --no-deploy`. The queue merges it in a batch of its own with `[skip ci]` in the merge commits, so the remote CI and its deploy do not run. The flag acts only on a merge into the original checkout. A coordinator that merges such workers gives the flag on its own `loom ready`.
 - To change a branch before the queue takes it, commit and call `loom ready` again. The new round replaces the open round, and its reviewers get it.
 - A verdict names the head that the reviewer judged: `loom verdict <branch> <head> pass|block`. Copy the head from the round message that loom sends. loom refuses a verdict for another head.
 - A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review. A block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.

@@ -230,7 +230,7 @@ impl Batch<'_> {
                 false => suspects.len(),
             };
             let trial: Vec<Queued> = prefix.iter().chain(&suspects[..half]).cloned().collect();
-            match self.trial(&trial, base, step).await? {
+            match self.trial(&trial, base, step, into).await? {
                 Trial::Conflict { index, log } => {
                     let member = trial[index].clone();
                     self.settle(&member, self.rework(self.conflict_cause(), log));
@@ -272,13 +272,19 @@ impl Batch<'_> {
         }
     }
 
-    async fn trial(&self, trial: &[Queued], base: &str, step: u32) -> Result<Trial, Refusal> {
+    async fn trial(
+        &self,
+        trial: &[Queued],
+        base: &str,
+        step: u32,
+        into: &Dest,
+    ) -> Result<Trial, Refusal> {
         let mut args = vec![
             format!("batch-{}-{step}", self.id.0),
             self.lock.to_owned(),
             base.to_owned(),
-            match trial.first().map(|m| m.deploy) {
-                Some(Deploy::Skip) => format!(" {}", Deploy::SKIP_MARK),
+            match (into, trial.first().map(|m| m.deploy)) {
+                (Dest::Base, Some(Deploy::Skip)) => format!(" {}", Deploy::SKIP_MARK),
                 _ => String::new(),
             },
         ];

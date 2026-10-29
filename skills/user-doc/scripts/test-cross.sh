@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -eu
-here=$(dirname "$(realpath "$0")"); tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+here=$(dirname "$(realpath "$0")"); tmp=$(mktemp -d); export TMPDIR=$tmp; trap 'rm -rf "$tmp"' EXIT
 page() { cat <<HTML
 <!doctype html><html><head><meta charset="utf-8"><style>
 body { margin: 20px; font: 14px sans-serif }

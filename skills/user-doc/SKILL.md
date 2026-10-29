@@ -49,6 +49,7 @@ In a report:
   - Explanations: after the screen frame, `<div class="calls"><div><b>1</b><span>explanation</span></div>…</div>`. Item `<b>n</b>` is the callout of the box with `data-n="n"`. Numbers continue through the whole document: if section ① ends at 3, section ② starts at 4.
   - Give the product's control classes (for example `.abtn`, `.seg`) in `<body data-ui=".abtn, .seg">`. The layout and the check both keep clear of them.
 - Check: `show.sh` runs [scripts/check-callouts.cjs](scripts/check-callouts.cjs) at all window widths. It counts violations of the one-file rule and all rules above, except the developer-note rule. One violation is a failure.
+- While you draw, check with `show.sh --quick <file>`. It checks only at 1440px. It does not call `loom show` and does not record a pass, so `loom ask --doc` refuses the file. Run `show.sh <file>` (all widths) once when the drawing is done.
 
 ## Decisions and IDs
 

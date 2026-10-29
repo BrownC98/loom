@@ -75,8 +75,8 @@ pub enum NodeState {
 enum Work {
     Running,
     Done {
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        accepted: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kept: Option<String>,
     },
 }
 

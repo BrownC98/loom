@@ -130,21 +130,25 @@ impl App {
         }
     }
 
-    fn drop_plan(&self, node: NodeId) {
+    fn drop_plan(self: &Arc<Self>, node: NodeId) {
         plan_written(node, self.graph.drop_relaunch(node));
+        self.sweep_above(node);
     }
 
-    fn finish_plan(&self, node: NodeId) {
+    fn finish_plan(self: &Arc<Self>, node: NodeId) {
         plan_written(node, self.graph.finish_relaunch(node));
+        self.sweep_above(node);
     }
 
-    pub(super) fn process_ended(&self, node: NodeId) {
+    pub(super) fn process_ended(self: &Arc<Self>, node: NodeId) {
         if plan_written(node, self.graph.drop_turn_end(node)) {
             eprintln!(
                 "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
                 node.0
             );
         }
+        self.sweep_above(node);
+        self.sweep_later(node);
     }
 
     pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {
@@ -428,7 +432,7 @@ impl App {
         true
     }
 
-    pub(super) fn kept_running(&self, node: NodeId) {
+    pub(super) fn kept_running(self: &Arc<Self>, node: NodeId) {
         self.drop_plan(node);
         self.idle.release(node);
         self.graph.wake_mail();
@@ -438,7 +442,7 @@ impl App {
         );
     }
 
-    pub(super) fn kept_at_turn_end(&self, node: NodeId) {
+    pub(super) fn kept_at_turn_end(self: &Arc<Self>, node: NodeId) {
         plan_written(node, self.graph.defer_relaunch(node));
         self.graph.wake_mail();
         eprintln!(

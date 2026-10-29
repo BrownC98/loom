@@ -501,7 +501,7 @@ impl Graph {
         images: &[PathBuf],
         doc: Option<WaitDoc>,
         via: Option<&Via>,
-    ) -> Result<(), Refusal> {
+    ) -> Result<Vec<String>, Refusal> {
         let summary = &with_kept(report.summary, report.keep);
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
@@ -522,7 +522,33 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        set_work(&tx, node, &Work::Done { accepted: false })?;
+        let kept = tx.query_row(
+            "SELECT state ->> 'kept' FROM nodes WHERE id = ?1",
+            [node.0],
+            |row| row.get(0),
+        )?;
+        set_work(&tx, node, &Work::Done { kept })?;
+        let mut unkept = Vec::new();
+        for kept in report.keep {
+            let done = tx
+                .query_row(
+                    "SELECT id FROM nodes
+                     WHERE parent = ?1 AND name = ?2 AND state ->> 'kind' = 'done'",
+                    params![node.0, kept.name],
+                    |row| Ok(NodeId(row.get(0)?)),
+                )
+                .optional()?;
+            match done {
+                Some(child) => set_work(
+                    &tx,
+                    child,
+                    &Work::Done {
+                        kept: Some(kept.reason.clone()),
+                    },
+                )?,
+                None => unkept.push(kept.name.clone()),
+            }
+        }
         match asked {
             Some(asked) if parent.is_none() => {
                 waits::put_done(&tx, node, asked, summary, images, doc)?
@@ -544,7 +570,7 @@ impl Graph {
         if parent.is_some() {
             self.publish_message(node, Toward::Parent);
         }
-        Ok(())
+        Ok(unkept)
     }
 }
 

@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::App;
-use crate::graph::{Kept, NodeId};
-use crate::protocol::{Refusal, TreeLimits};
+use crate::graph::NodeId;
 use crate::worktree::merge::{delete_local_merged, still_merged};
 use crate::worktree::{self, RepoProblem, Worktree};
 
@@ -11,6 +10,7 @@ use crate::worktree::{self, RepoProblem, Worktree};
 pub(super) struct Swept {
     pub removed: Vec<String>,
     pub kept: Vec<String>,
+    pub problems: Vec<String>,
 }
 
 enum Left {
@@ -25,16 +25,11 @@ enum Left {
 }
 
 impl App {
-    pub(super) async fn sweep(self: &Arc<Self>, parent: NodeId, keep: &[Kept]) -> Swept {
+    pub(super) async fn sweep(self: &Arc<Self>, parent: NodeId) -> Swept {
         let mut swept = Swept::default();
         let mut failed = Vec::new();
-        if let Err(e) = self.graph.accept_done(parent, keep) {
-            swept
-                .kept
-                .push(format!("loom could not mark finished children: {e}"));
-        }
         loop {
-            let spent = match self.graph.spent_children(parent, keep) {
+            let spent = match self.graph.spent_children(parent) {
                 Ok(spent) => spent,
                 Err(e) => {
                     swept
@@ -51,11 +46,7 @@ impl App {
                 break;
             }
             for (child, name) in spent {
-                let remove = |limits| {
-                    self.graph
-                        .remove_spent_child(parent, child, &name, keep, limits)
-                };
-                match self.sweep_one(child, &name, remove, &mut swept).await {
+                match self.sweep_one(parent, child, &name, &mut swept).await {
                     Ok(true) => swept.removed.push(name),
                     Ok(false) => failed.push(child),
                     Err(e) => {
@@ -67,7 +58,7 @@ impl App {
                 }
             }
         }
-        match self.graph.accepted_in_turn(parent) {
+        match self.graph.finishing_children(parent) {
             Ok(names) => swept.kept.extend(names.into_iter().map(|name| {
                 format!("{name}: its turn is still running. loom removes it when the turn ends.")
             })),
@@ -75,35 +66,25 @@ impl App {
                 .kept
                 .push(format!("loom could not list children in a turn: {e}")),
         }
+        if !swept.removed.is_empty() {
+            self.sweep_above(parent);
+        }
         swept
     }
 
-    pub(super) fn remove_accepted(self: &Arc<Self>, child: NodeId) {
-        let accepted = match self.graph.accepted_by(child) {
-            Ok(Some(accepted)) => accepted,
-            Ok(None) => return,
-            Err(e) => {
-                eprintln!("loom: 노드 {}의 완료 수락을 읽지 못했다: {e}", child.0);
-                return;
-            }
-        };
+    pub(super) fn sweep_above(self: &Arc<Self>, node: NodeId) {
+        match self.graph.parent(node) {
+            Ok(Some(parent)) => self.sweep_later(parent),
+            Ok(None) => {}
+            Err(e) => eprintln!("loom: 노드 {}의 부모를 읽지 못했다: {e}", node.0),
+        }
+    }
+
+    pub(super) fn sweep_later(self: &Arc<Self>, parent: NodeId) {
         let app = self.clone();
         tokio::spawn(async move {
-            let (parent, name) = accepted;
-            let mut swept = Swept::default();
-            let remove = |limits| {
-                app.graph
-                    .remove_accepted_child(parent, child, &name, limits)
-            };
-            if let Err(e) = app.sweep_one(child, &name, remove, &mut swept).await {
-                eprintln!(
-                    "loom: 턴이 끝난 노드 {} ({name})를 지우지 못했다: {e}",
-                    child.0
-                );
-            }
-            for kept in swept.kept {
-                let body =
-                    format!("loom removed your finished child {name} when its turn ended. {kept}");
+            for problem in app.sweep(parent).await.problems {
+                let body = format!("loom removed a finished child of yours. {problem}");
                 if let Err(e) = app.graph.note_from_loom(parent, &body) {
                     eprintln!("loom: 노드 {}에 회수 알림을 보내지 못했다: {e}", parent.0);
                 }
@@ -113,40 +94,45 @@ impl App {
 
     async fn sweep_one(
         self: &Arc<Self>,
+        parent: NodeId,
         child: NodeId,
         name: &str,
-        remove: impl FnOnce(TreeLimits) -> Result<Option<Vec<(NodeId, String)>>, Refusal>,
         swept: &mut Swept,
     ) -> Result<bool, String> {
         let left = self.left(child).await?;
+        if let Left::Work(why) = left {
+            swept.kept.push(format!("{name}: {why}"));
+            return Ok(false);
+        }
         let limits = self.settings.get().map_err(|e| e.to_string())?.tree_limits;
-        let Some(moved) = remove(limits).map_err(|e| e.to_string())? else {
+        let Some(moved) = self
+            .graph
+            .remove_spent_child(parent, child, name, limits)
+            .map_err(|e| e.to_string())?
+        else {
             return Ok(false);
         };
         self.host.kill(child);
         let moved: Vec<NodeId> = moved.into_iter().map(|(id, _)| id).collect();
         self.parent_changed(&moved);
-        match left {
-            Left::Nothing => {}
-            Left::Work(why) => swept.kept.push(format!("{name}: {why}")),
-            Left::Clean {
-                dir,
-                own,
-                branch,
-                target,
-            } => {
-                if let Err(e) = worktree::remove_clean(&dir, &own).await {
-                    swept.kept.push(format!(
-                        "{name}: git did not remove the worktree {}: {e}. loom kept it and the branch {branch}.",
-                        own.path
-                    ));
-                    return Ok(true);
-                }
-                if let Err(e) = delete_local_merged(&dir, &branch, &target).await {
-                    swept.kept.push(format!(
-                        "{name}: git did not delete the branch {branch}: {e}. loom kept it."
-                    ));
-                }
+        if let Left::Clean {
+            dir,
+            own,
+            branch,
+            target,
+        } = left
+        {
+            if let Err(e) = worktree::remove_clean(&dir, &own).await {
+                swept.problems.push(format!(
+                    "{name}: git did not remove the worktree {}: {e}. loom kept it and the branch {branch}.",
+                    own.path
+                ));
+                return Ok(true);
+            }
+            if let Err(e) = delete_local_merged(&dir, &branch, &target).await {
+                swept.problems.push(format!(
+                    "{name}: git did not delete the branch {branch}: {e}. loom kept it."
+                ));
             }
         }
         Ok(true)
@@ -178,25 +164,25 @@ impl App {
             .map_err(|e| e.to_string())?
         {
             return Ok(Left::Work(format!(
-                "the worktree {path} has uncommitted changes. loom kept it and its branch."
+                "the worktree {path} has uncommitted changes. loom keeps the node, the worktree and its branch."
             )));
         }
         let Some(branch) = own.branch.clone() else {
             return Ok(Left::Work(format!(
-                "the worktree {path} has a detached HEAD. loom kept it."
+                "the worktree {path} has a detached HEAD. loom keeps the node and the worktree."
             )));
         };
         let target = match self.gate_of(child, &dir).await {
             Ok((_, target)) => target,
             Err(e) => {
                 return Ok(Left::Work(format!(
-                    "loom did not find the target of {branch} ({e}). loom kept the worktree {path} and the branch."
+                    "loom did not find the target of {branch} ({e}). loom keeps the node, the worktree {path} and the branch."
                 )));
             }
         };
         if !still_merged(&dir, Some(Some(&branch)), &branch, &target).await? {
             return Ok(Left::Work(format!(
-                "the branch {branch} has commits that {target} does not have. loom kept the worktree {path} and the branch."
+                "the branch {branch} has commits that {target} does not have. loom keeps the node, the worktree {path} and the branch until they are merged."
             )));
         }
         Ok(Left::Clean {

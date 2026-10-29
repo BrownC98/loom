@@ -48,7 +48,7 @@ The usage text gives the commands, the waits and the size limits. These rules ar
 
 - Do not clean up unsaved changes or work that waits for a check, approval or merge. Also keep user nodes in use and the base checkout.
 - Before cleanup, run `git status --short` in that worktree. Look for uncommitted changes and untracked files. If review evidence is only in that folder, save it first. Do not clean up a worktree that a different task uses.
-- Your `loom done` removes your finished children ([o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup)). Use `loom rm` for other nodes.
+- loom removes your finished children at your turn end and at your `loom done` ([o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup)). Use `loom rm` for other nodes.
 - Remove a node with `loom rm <name or number>`. The process of that node stops too.
 - If the removed node had children, they become your children. Save their results, then remove them with `loom rm` too.
 - Remove an unmerged worktree from the base checkout with `git worktree remove <path>` after you remove its node. The daemon deletes merged branches. Do not force a deletion.

@@ -35,7 +35,7 @@
   {"id": "cursor", "label": "Cursor", "cmd": "cursor-agent", "prompt": "argv", "profile": "cursor", "bypass": ["--force"], "homepage": "https://cursor.com/cli"},
   {"id": "droid", "label": "Droid", "cmd": "droid", "prompt": "argv", "homepage": "https://docs.factory.ai/cli/getting-started/quickstart"},
   {"id": "kimi", "label": "Kimi", "cmd": "kimi", "aliases": ["kimi-code"], "prompt": "none", "homepage": "https://www.kimi.com/code/docs/en/kimi-code-cli/getting-started.html"},
-  {"id": "mistral-vibe", "label": "Mistral Vibe", "cmd": "vibe", "aliases": ["mistral-vibe"], "prompt": "none", "homepage": "https://github.com/mistralai/mistral-vibe"},
+  {"id": "mistral-vibe", "label": "Mistral Vibe", "cmd": "vibe", "aliases": ["mistral-vibe"], "prompt": "argv", "profile": "vibe", "bypass": ["--auto-approve"], "homepage": "https://github.com/mistralai/mistral-vibe"},
   {"id": "qwen-code", "label": "Qwen Code", "cmd": "qwen", "bypass": ["--yolo"], "prompt": {"flag": "--prompt-interactive"}, "profile": "qwenCode", "homepage": "https://github.com/QwenLM/qwen-code"},
   {"id": "rovo", "label": "Rovo Dev", "cmd": "acli", "args": ["rovodev", "run"], "prompt": "none", "homepage": "https://support.atlassian.com/rovo/docs/install-and-run-rovo-dev-cli-on-your-device/"},
   {"id": "hermes", "label": "Hermes", "cmd": "hermes", "args": ["chat", "--cli"], "prompt": {"flag": "-q"}, "profile": "hermes", "bypass": ["--yolo"], "homepage": "https://hermes-agent.nousresearch.com/docs/"},

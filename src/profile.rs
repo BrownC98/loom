@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod claude;
 pub mod codex;
 pub mod copilot;
+pub mod crush;
 pub mod cursor;
 pub mod dsh;
 pub mod hermes;
@@ -55,6 +56,7 @@ pub enum Profile {
     Pi,
     Omp,
     Dsh,
+    Crush,
     Hermes,
 }
 
@@ -123,6 +125,7 @@ pub enum HookEntry {
     Pi,
     Omp,
     Dsh,
+    Crush,
     Hermes,
 }
 
@@ -156,6 +159,7 @@ pub struct Unserved {
 
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
+        HookEntry::Crush => Hook::Once(|input| Ok(Box::new(crush::Hook::deserialize(input)?))),
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
         HookEntry::Qwen => Hook::Once(|input| Ok(Box::new(qwen::Hook::deserialize(input)?))),
         HookEntry::Copilot => Hook::Lines(|line| lines::request(line, "Copilot extension")),
@@ -220,6 +224,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
+        Profile::Crush => &crush::Crush,
         Profile::Hermes => &hermes::Hermes,
     }
 }

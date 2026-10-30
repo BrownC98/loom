@@ -1,10 +1,11 @@
 import { ArrowUp } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useDraft } from './drafts';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
 
-export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => void }) {
+export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => void }) {
   const { prompt } = props;
   const id = useId();
   return (
@@ -27,8 +28,8 @@ export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (opti
           )}
         </div>
       )}
-      {prompt.options.map((o, index) => o.writes && <FieldForm key={index} id={`${id}-${index}`} secret={false} label={o.label} busy={props.busy} onType={(text) => props.onType(text, index)} />)}
-      {prompt.field && <FieldForm secret={prompt.field === 'secret'} busy={props.busy} onType={(text) => props.onType(text)} />}
+      {prompt.options.map((o, index) => o.writes && <FieldForm key={index} id={`${id}-${index}`} draft={`${props.draft}:${index}`} secret={false} label={o.label} busy={props.busy} onType={(text) => props.onType(text, index)} />)}
+      {prompt.field && <FieldForm draft={prompt.field === 'secret' ? null : `${props.draft}:field`} secret={prompt.field === 'secret'} busy={props.busy} onType={(text) => props.onType(text)} />}
     </>
   );
 }
@@ -52,9 +53,11 @@ export function keyLabel(key: PromptKey, index: number): string {
   }
 }
 
-function FieldForm(props: { id?: string; secret: boolean; label?: string; busy: boolean; onType: (text: string) => void }) {
+function FieldForm(props: { id?: string; draft: string | null; secret: boolean; label?: string; busy: boolean; onType: (text: string) => void }) {
   const { t } = useTranslation();
-  const [text, setText] = useState('');
+  const own = useState('');
+  const kept = useDraft(props.draft ?? '');
+  const [text, setText] = props.draft === null ? own : kept;
   const label = props.label ?? t(props.secret ? 'inbox.secretLabel' : 'inbox.textLabel');
   return (
     <form

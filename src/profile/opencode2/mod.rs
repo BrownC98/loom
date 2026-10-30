@@ -91,7 +91,7 @@ impl super::adapter::Adapter for OpenCode {
         if self.api != Api::V2 {
             cmd.env(
                 self.api.config_env(),
-                serde_json::json!({ "model": at.choice.model, "effort": at.choice.effort, "brief": at.brief }).to_string(),
+                serde_json::json!({ "brief": at.brief }).to_string(),
             );
         }
     }
@@ -373,14 +373,9 @@ impl Node {
         let config = match adapter.api {
             Api::V2 => serde_json::json!({ "skills": [at.skills] }).to_string(),
             _ => {
-                let choice: ModelChoice = cmd
-                    .get_env(adapter.api.config_env())
-                    .and_then(|s| s.to_str())
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
                 model = Model {
-                    model: choice.model,
-                    effort: choice.effort,
+                    model: at.choice.model.clone(),
+                    effort: at.choice.effort.clone(),
                 };
                 v1::config(at, &model, bypass)
             }

@@ -85,8 +85,40 @@ impl Snapshot {
         child_on_path(&self.parents, root, pid).is_some()
     }
 
-    pub fn child_on_path(&self, root: u32, pid: u32) -> Option<u32> {
-        child_on_path(&self.parents, root, pid)
+    pub fn guarded_shell(&self, root: u32, caller: u32) -> Option<Identity> {
+        let first = child_on_path(&self.parents, root, caller)?;
+        let mut at = caller;
+        let mut shell = None;
+        for _ in 0..self.parents.len() {
+            let Some(&parent) = self.parents.get(&at) else {
+                break;
+            };
+            if parent == root {
+                break;
+            }
+            if let Some(process) = self.system.process(Pid::from_u32(parent)) {
+                let name = process.name().to_string_lossy();
+                let name = name.strip_suffix(".exe").unwrap_or(&name);
+                if [
+                    "sh",
+                    "bash",
+                    "dash",
+                    "zsh",
+                    "ksh",
+                    "fish",
+                    "cmd",
+                    "powershell",
+                    "pwsh",
+                ]
+                .iter()
+                .any(|candidate| name.eq_ignore_ascii_case(candidate))
+                {
+                    shell = Some(parent);
+                }
+            }
+            at = parent;
+        }
+        self.identity(shell.unwrap_or(first))
     }
 
     pub fn session_leaders_under(&self, root: u32) -> Vec<u32> {

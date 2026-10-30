@@ -84,6 +84,13 @@ pub enum Codex {
 }
 
 impl Codex {
+    fn pinned_version(self) -> &'static str {
+        match self {
+            Self::OpenAi => PINNED_VERSION,
+            Self::Trae => "0.212.1",
+        }
+    }
+
     fn program(self) -> &'static str {
         match self {
             Self::OpenAi => CMD,
@@ -135,10 +142,7 @@ impl super::adapter::Adapter for Codex {
             };
             let task = at.task.ok_or_else(|| helper("작업 폴더가 없다".into()))?;
             let trust = trust_args(at);
-            let sandbox = match self {
-                Self::OpenAi => sandbox_args(at.version, at.node_ip),
-                Self::Trae => Vec::new(),
-            };
+            let sandbox = sandbox_args(at.version, self.pinned_version(), at.node_ip);
             let config: Vec<String> = sandbox
                 .into_iter()
                 .chain(server_args(at.launch))
@@ -231,11 +235,8 @@ impl super::adapter::Adapter for Codex {
     }
 
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
-        let installed = version_output.split_whitespace().last()?;
-        let pinned = match self {
-            Self::OpenAi => PINNED_VERSION,
-            Self::Trae => "0.212.1",
-        };
+        let installed = installed_version(version_output)?;
+        let pinned = self.pinned_version();
         (installed != pinned).then(|| VersionMismatch {
             installed: installed.to_owned(),
             pinned: pinned.to_owned(),
@@ -338,11 +339,19 @@ fn resume_params(thread: &Session, bypass: &[String]) -> Value {
     })
 }
 
-fn sandbox_args(version_output: Option<&str>, daemon: Option<IpAddr>) -> Vec<String> {
+fn installed_version(version_output: &str) -> Option<&str> {
+    version_output.lines().next()?.split_whitespace().last()
+}
+
+fn sandbox_args(
+    version_output: Option<&str>,
+    pinned_version: &str,
+    daemon: Option<IpAddr>,
+) -> Vec<String> {
     let (Some(version_output), Some(daemon)) = (version_output, daemon) else {
         return Vec::new();
     };
-    if cfg!(windows) || version_output.split_whitespace().last() != Some(PINNED_VERSION) {
+    if cfg!(windows) || installed_version(version_output) != Some(pinned_version) {
         return Vec::new();
     }
     [

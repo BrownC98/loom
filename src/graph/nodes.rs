@@ -595,6 +595,13 @@ impl Graph {
         caller_in(&self.lock(), token)
     }
 
+    pub fn agent_of(&self, id: NodeId) -> rusqlite::Result<Option<AgentId>> {
+        self.lock()
+            .query_row("SELECT agent FROM nodes WHERE id = ?1", [id.0], |r| {
+                from_json(r, 0)
+            })
+    }
+
     pub fn set_model(&self, id: NodeId, model: &Model) -> rusqlite::Result<()> {
         let db = self.lock();
         let changed = db.execute(

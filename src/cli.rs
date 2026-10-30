@@ -8,9 +8,10 @@ use crate::daemon::gate::{Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, Ve
 use crate::daemon::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
     DoneRequest, GuardRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched, RemoveRequest,
-    Reported, SpawnRequest, SpawnRun, WaitRequest,
+    Reported, ShowRequest, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
+use crate::protocol::WaitDoc;
 use crate::protocol::{
     AckRequest, AgentId, ChoiceRequest, Delivery, GateState, IdleReply, IdleRequest, Judgment,
     Kind, MessageId, ModelChoice, NODE_CALLS, NODE_CALLS_HEADER, Report, WaitId,
@@ -18,6 +19,7 @@ use crate::protocol::{
 use crate::roles::{Roles, SetRole};
 use crate::task;
 use crate::tunnel::ENDPOINT_ENV;
+use crate::user_doc::DocStep;
 
 mod endpoint;
 mod hook;
@@ -50,12 +52,31 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
         brief,
         worktree,
     };
-    let spawn = Daemon::Http {
-        url: env_var("LOOM_SPAWN_URL")?,
-        proxy: None,
+    let made: Result<NodeId, CallError> = match crate::wsl::to_windows_daemon() {
+        true => at_endpoint("spawn", &request),
+        false => {
+            let spawn = Daemon::Http {
+                url: env_var("LOOM_SPAWN_URL")?,
+                proxy: None,
+            };
+            post(&spawn, "spawn", &request, None, None)
+        }
     };
-    let _: NodeId = post(&spawn, "spawn", &request, None, None)?;
+    match made {
+        Err(CallError::Misdirected) => std::process::exit(crate::wsl::SPAWN_AT_DAEMON_EXIT),
+        made => made?,
+    };
     println!("Created node: {}", request.run.name());
+    Ok(())
+}
+
+pub fn show(file: PathBuf, step: DocStep) -> Result<(), String> {
+    let request = ShowRequest {
+        file: crate::wsl::for_daemon(absolute(&file)?),
+        step,
+    };
+    let doc: WaitDoc = at_endpoint("show", &request)?;
+    crate::user_doc::told(&doc, step, &file);
     Ok(())
 }
 
@@ -598,6 +619,19 @@ fn call_within<T: DeserializeOwned>(
     )
 }
 
+fn at_endpoint<T: DeserializeOwned>(action: &str, body: &impl Serialize) -> Result<T, CallError> {
+    let token = env_var("LOOM_TOKEN").map_err(CallError::Refused)?;
+    let at = env_var(ENDPOINT_ENV).map_err(CallError::Refused)?;
+    post_as(
+        &Daemon::Endpoint(at.into(), None),
+        &token,
+        action,
+        body,
+        None,
+        None,
+    )
+}
+
 fn reach<T: DeserializeOwned>(
     endpoint: Option<PathBuf>,
     http: impl FnOnce() -> Result<Daemon, CallError>,
@@ -688,6 +722,7 @@ enum CallError {
     Unreachable(String),
     Failed(String),
     Refused(String),
+    Misdirected,
     FellBack(Box<CallError>),
 }
 
@@ -707,6 +742,9 @@ impl std::fmt::Display for CallError {
             | CallError::Unreachable(e)
             | CallError::Failed(e)
             | CallError::Refused(e) => f.write_str(e),
+            CallError::Misdirected => {
+                f.write_str("The daemon takes this request only at its address.")
+            }
             CallError::FellBack(e) => e.fmt(f),
         }
     }
@@ -775,6 +813,9 @@ fn post_as<T: DeserializeOwned>(
         return Err(CallError::Failed(format!(
             "The daemon could not answer ({status}): {text}"
         )));
+    }
+    if status == ureq::http::StatusCode::MISDIRECTED_REQUEST {
+        return Err(CallError::Misdirected);
     }
     if !status.is_success() {
         return Err(CallError::Refused(text));

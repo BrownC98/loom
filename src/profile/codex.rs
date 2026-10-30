@@ -80,6 +80,10 @@ const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 pub struct Codex;
 
 impl super::adapter::Adapter for Codex {
+    fn spawns_at_daemon(&self) -> bool {
+        true
+    }
+
     fn facts(&self) -> Facts {
         Facts {
             logins: Logins::Many(&CLI, &Codex),

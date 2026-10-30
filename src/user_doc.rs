@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::link_text::DOC_LINK;
@@ -14,31 +14,53 @@ pub use share::{Shared, shareable, with_bridge};
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
-pub fn show(path: &Path) -> Result<(), String> {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DocStep {
+    Stamp,
+    Pass,
+}
+
+pub fn take_step(path: &Path, step: DocStep) -> Result<WaitDoc, String> {
     let store = Store::here()?;
-    let doc = stamp_in(&store, path)?;
-    println!("show: 문서 ID {} ({})", doc.id, doc.title);
-    if bashless() {
-        pass_in(&store, path)?;
-        println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
-        println!(
-            "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
-            path.display()
-        );
-    } else {
-        println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+    match step {
+        DocStep::Stamp => stamp_in(&store, path),
+        DocStep::Pass => pass_in(&store, path),
+    }
+}
+
+pub fn show(path: &Path, step: DocStep) -> Result<(), String> {
+    let doc = take_step(path, step)?;
+    match (step, bashless()) {
+        (DocStep::Stamp, true) => {
+            println!("show: 문서 ID {} ({})", doc.id, doc.title);
+            take_step(path, DocStep::Pass)?;
+            println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
+            print_ask(path);
+        }
+        _ => told(&doc, step, path),
     }
     Ok(())
 }
 
-pub fn record_checked(path: &Path) -> Result<(), String> {
-    let doc = pass_in(&Store::here()?, path)?;
-    println!("show: 문서 ID {} 통과", doc.id);
+pub fn told(doc: &WaitDoc, step: DocStep, path: &Path) {
+    match step {
+        DocStep::Stamp => {
+            println!("show: 문서 ID {} ({})", doc.id, doc.title);
+            println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+        }
+        DocStep::Pass => {
+            println!("show: 문서 ID {} 통과", doc.id);
+            print_ask(path);
+        }
+    }
+}
+
+fn print_ask(path: &Path) {
     println!(
         "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
         path.display()
     );
-    Ok(())
 }
 
 fn bashless() -> bool {

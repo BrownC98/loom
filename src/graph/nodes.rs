@@ -15,6 +15,12 @@ use crate::protocol::{
     StartDigests, TreeLimits,
 };
 
+#[derive(Clone, Copy)]
+pub enum ParentWork {
+    Merged,
+    Unmerged,
+}
+
 pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
@@ -711,11 +717,17 @@ impl Graph {
         parent: NodeId,
         child: NodeId,
         name: &str,
+        parent_work: ParentWork,
         limits: TreeLimits,
     ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         if !spent_in(&tx, parent)?.iter().any(|(id, _)| *id == child) {
+            return Ok(None);
+        }
+        if let ParentWork::Unmerged = parent_work
+            && held(&tx, child)?
+        {
             return Ok(None);
         }
         self.take_child(tx, parent, child, name, limits).map(Some)
@@ -1097,15 +1109,7 @@ impl Graph {
     }
 
     pub fn parent_holds(&self, child: NodeId) -> rusqlite::Result<bool> {
-        self.lock().query_row(
-            &format!(
-                r#"SELECT EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' != 'done'
-                     OR {BUSY} OR EXISTS (SELECT 1 FROM gates g WHERE g.owner = p.id AND g.state != '"merged"')))
-                 FROM nodes c WHERE c.id = ?1"#
-            ),
-            [child.0],
-            |row| row.get(0),
-        )
+        held(&self.lock(), child)
     }
 
     pub fn finishing_children(&self, node: NodeId) -> rusqlite::Result<Vec<String>> {
@@ -1131,6 +1135,18 @@ const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states
 
 const BUSY: &str = "EXISTS (SELECT 1 FROM agent_states s WHERE s.node = p.id
      AND coalesce(s.state ->> '$.before.kind', s.state ->> 'kind') IN ('turn', 'starting', 'mismatch'))";
+
+fn held(db: &Connection, child: NodeId) -> rusqlite::Result<bool> {
+    db.query_row(
+        &format!(
+            r#"SELECT EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' != 'done'
+                 OR {BUSY} OR EXISTS (SELECT 1 FROM gates g WHERE g.owner = p.id AND g.state != '"merged"')))
+             FROM nodes c WHERE c.id = ?1"#
+        ),
+        [child.0],
+        |row| row.get(0),
+    )
+}
 
 fn spent_in(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<(NodeId, String)>> {
     children_where(

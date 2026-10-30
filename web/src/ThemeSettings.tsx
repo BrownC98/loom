@@ -17,6 +17,8 @@ import { requestNotifyPermission } from './osNotify';
 import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
 import { FLOAT_SIZES } from './floatPlace';
+import type { FloatSize } from './gen/FloatSize';
+import { SizePreview, type SizeField } from './SizePreview';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -202,22 +204,24 @@ export function GraphTab({ settings, onSettings }: TabProps) {
   );
 }
 
-function SizeChoice({ id, field, settings, onSettings }: TabProps & { id: string; field: 'pillSize' | 'composerSize' }) {
+function SizeChoice({ id, field, settings, onSettings }: TabProps & { id: string; field: SizeField }) {
   const { t } = useTranslation();
+  const [hovered, setHovered] = useState<FloatSize | null>(null);
   return (
     <section>
       <h4>
         <span id={id}>{t(`floatSize.${field}`)}</span>
         <FieldReset path={[field]} />
       </h4>
-      <div className="choice" role="radiogroup" aria-labelledby={id}>
+      <div className="choice" role="radiogroup" aria-labelledby={id} onMouseLeave={() => setHovered(null)}>
         {FLOAT_SIZES.map((v) => (
-          <label key={v}>
+          <label key={v} onMouseEnter={() => setHovered(v)}>
             <input type="radio" name={field} checked={settings[field] === v} onChange={() => onSettings({ ...settings, [field]: v })} />
             {t(`floatSize.${v}`)}
           </label>
         ))}
       </div>
+      <SizePreview field={field} size={hovered ?? settings[field]} />
       <span className="hint">{t(`floatSize.${field}Hint`)}</span>
     </section>
   );

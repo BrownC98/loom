@@ -202,6 +202,10 @@ impl Site {
         Some(self.run(self.find(command)?, args, &[]))
     }
 
+    pub fn program_command(&self, program: &str, args: &[&str]) -> std::process::Command {
+        self.run(program.into(), args, &[])
+    }
+
     fn run(
         &self,
         program: OsString,

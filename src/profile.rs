@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod claude;
 pub mod codex;
+pub mod crush;
 pub mod cursor;
 pub mod dsh;
 mod lines;
@@ -44,6 +45,7 @@ pub enum Profile {
     Pi,
     Omp,
     Dsh,
+    Crush,
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,6 +111,7 @@ pub enum HookEntry {
     Pi,
     Omp,
     Dsh,
+    Crush,
 }
 
 pub enum Hook {
@@ -141,6 +144,7 @@ pub struct Unserved {
 
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
+        HookEntry::Crush => Hook::Once(|input| Ok(Box::new(crush::Hook::deserialize(input)?))),
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
@@ -196,6 +200,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
+        Profile::Crush => &crush::Crush,
     }
 }
 
@@ -245,6 +250,7 @@ enum Prompt {
     ArgvAfter(String),
     Flag(String),
     None,
+    AdapterDelivered,
 }
 
 #[derive(Deserialize)]
@@ -640,7 +646,7 @@ async fn agent_command(
     }
     let typed = brief.trim_end();
     let prompt = match (&agent.prompt, typed.is_empty()) {
-        (_, true) => Vec::new(),
+        (_, true) | (Prompt::AdapterDelivered, false) => Vec::new(),
         (Prompt::Argv, false) => vec![typed],
         (Prompt::ArgvAfter(sep) | Prompt::Flag(sep), false) => vec![sep.as_str(), typed],
         (Prompt::None, false) => return Err(LaunchError::NoBrief(agent.label.clone())),

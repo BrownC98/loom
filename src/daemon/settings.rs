@@ -116,9 +116,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     let mut agents = profile::agents(&wsl);
     agents.sort_by_cached_key(|a| a.label.to_lowercase());
     for agent in &mut agents {
-        let Some(profile) = agent.profile else {
-            continue;
-        };
+        let profile = agent.profile;
         for (i, place) in agent.places.iter_mut().enumerate() {
             let warnings = match i {
                 0 => &pc,

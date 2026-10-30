@@ -6,9 +6,9 @@ import type { Profile } from "./Profile";
 import type { Provider } from "./Provider";
 
 /**
- * 설정 화면과 새 노드 창이 보는 카탈로그 한 줄.
+ * 설정 화면과 새 노드 창이 보는 카탈로그 한 줄. 메시지 연동이 있는 에이전트만 보인다.
  */
-export type AgentView = { id: AgentId, label: string, homepage: string, profile: Profile | null, 
+export type AgentView = { id: AgentId, label: string, homepage: string, profile: Profile, 
 /**
  * 계정을 고르는 공급자. 프로필이 있어도 없을 수 있다(OpenCode 2).
  */

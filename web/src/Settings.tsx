@@ -284,8 +284,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
     const rest = settings.bypassOff.filter((id) => id !== agent.id);
     props.onSettings({ ...settings, bypassOff: on ? rest : [...rest, agent.id] });
   };
-  const usage = (a: AgentView) => (a.profile ? t('settings.messaging') : t('settings.terminalOnly'));
-  const versionText = (a: AgentView, at: AgentAt) => a.profile && at.versionWarning && t(`settings.versionWarning.${a.profile}`, at.versionWarning);
+  const versionText = (a: AgentView, at: AgentAt) => at.versionWarning && t(`settings.versionWarning.${a.profile}`, at.versionWarning);
   const heading = multi
     ? `${t('settings.installedHead')} ${places.map((d, i) => t('settings.installedAt', { place: shortPlaceName(d), n: agents.filter((a) => a.places[i].path !== null).length })).join(' · ')}`
     : t('settings.installed', { n: installed.length });
@@ -314,7 +313,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                       <Fragment key={at.distro ?? ''}>
                         <span className="meta" translate="no">
                           <span className="where">{shortPlaceName(at.distro)}</span>
-                          {at.path === null ? <span className="none">{t('newNode.notInstalled')}</span> : `${at.path} · ${usage(a)}`}
+                          {at.path === null ? <span className="none">{t('newNode.notInstalled')}</span> : `${at.path} · ${t('settings.messaging')}`}
                         </span>
                         {versionText(a, at) && (
                           <span className="meta warnline" translate="no">
@@ -328,7 +327,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                     <>
                       {versionText(a, a.places[0]) && <span className="badge warn">{versionText(a, a.places[0])}</span>}
                       <span className="meta" translate="no">
-                        {a.places[0].path} · {usage(a)}
+                        {a.places[0].path} · {t('settings.messaging')}
                       </span>
                     </>
                   )}

@@ -73,22 +73,28 @@ type Align = 'start' | 'end';
 function PopAt(props: { at: XYPosition; align: Align; opener?: RefObject<HTMLElement | null>; onClose: () => void; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   useOutsidePress(box, props.onClose, props.opener);
-  const [shift, setShift] = useState(0);
+  const [shift, setShift] = useState<XYPosition>({ x: 0, y: 0 });
   const transform = useStore((s) => s.transform);
   useLayoutEffect(() => {
     const pop = box.current?.firstElementChild;
     const pane = box.current?.closest('.react-flow');
     if (!pop || !pane) return;
     const zoom = transform[2];
-    const rect = pop.getBoundingClientRect();
-    const room = pane.getBoundingClientRect();
-    const left = rect.left - shift * zoom;
-    const right = rect.right - shift * zoom;
-    const next = Math.max((room.left + POPOVER_EDGE - left) / zoom, Math.min(0, (room.right - POPOVER_EDGE - right) / zoom));
-    if (Math.abs(next - shift) > 0.5) setShift(next);
-  }, [props.at.x, props.at.y, transform, shift]);
+    const fit = (start: number, end: number, low: number, high: number) => Math.max((low + POPOVER_EDGE - start) / zoom, Math.min(0, (high - POPOVER_EDGE - end) / zoom));
+    const place = () =>
+      setShift((prev) => {
+        const rect = pop.getBoundingClientRect();
+        const room = pane.getBoundingClientRect();
+        const next = { x: fit(rect.left - prev.x * zoom, rect.right - prev.x * zoom, room.left, room.right), y: fit(rect.top - prev.y * zoom, rect.bottom - prev.y * zoom, room.top, room.bottom) };
+        return Math.abs(next.x - prev.x) > 0.5 || Math.abs(next.y - prev.y) > 0.5 ? next : prev;
+      });
+    place();
+    const sizes = new ResizeObserver(place);
+    sizes.observe(pop);
+    return () => sizes.disconnect();
+  }, [props.at.x, props.at.y, transform]);
   return (
-    <div ref={box} className={`pop-${props.align}`} style={{ position: 'absolute', transform: `translate(${props.at.x + shift}px, ${props.at.y}px)` }}>
+    <div ref={box} className={`pop-${props.align}`} style={{ position: 'absolute', transformOrigin: '0 0', transform: `translate(${props.at.x + shift.x}px, ${props.at.y + shift.y}px) scale(var(--unzoom, 1))` }}>
       {props.children}
     </div>
   );

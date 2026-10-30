@@ -25,4 +25,6 @@ export function offerInput(node: NodeId, input: NodeInput): () => void {
   };
 }
 
-export const useNodeInput = (node: NodeId | null): NodeInput | null => useSyncExternalStore(listen, () => (node === null ? null : (inputs.get(node)?.[0] ?? null)));
+export const nodeInput = (node: NodeId): NodeInput | null => inputs.get(node)?.[0] ?? null;
+
+export const useNodeInput = (node: NodeId | null): NodeInput | null => useSyncExternalStore(listen, () => (node === null ? null : nodeInput(node)));

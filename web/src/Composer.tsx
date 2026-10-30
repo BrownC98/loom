@@ -1,12 +1,12 @@
 import { ArrowUp, Image as ImageIcon, Paperclip, SquareTerminal } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { savePastedFile } from './api';
 import { droppedFiles, ImageList, isImage, quotePath, tooBig, useImages } from './attachments';
 import { IME_KEY_CODE, watchComposition, type Composition } from './composition';
-import { useDraft } from './drafts';
+import { editDraft, readDraft, useDraft } from './drafts';
 import type { NodeId } from './gen/NodeId';
-import { useNodeInput, type NodeInput } from './nodeInputs';
+import { nodeInput, useNodeInput, type NodeInput } from './nodeInputs';
 
 export type ComposerKeys = { sends: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean; escape: (() => void) | null; blank: ((input: NodeInput) => void) | null };
 
@@ -21,6 +21,28 @@ export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blan
 const COMPOSER_ROOM = '--composer-room';
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
+
+const uploads = new Map<string, ReadonlySet<Promise<unknown>>>();
+const heardUploads = new Set<() => void>();
+
+const listenUploads = (heed: () => void) => {
+  heardUploads.add(heed);
+  return () => void heardUploads.delete(heed);
+};
+const setUploads = (key: string, next: ReadonlySet<Promise<unknown>>) => {
+  if (next.size > 0) uploads.set(key, next);
+  else uploads.delete(key);
+  heardUploads.forEach((heed) => heed());
+};
+
+function holdUpload(key: string, upload: Promise<unknown>) {
+  setUploads(key, new Set([...(uploads.get(key) ?? []), upload]));
+  void upload.finally(() => setUploads(key, new Set([...(uploads.get(key) ?? [])].filter((u) => u !== upload))));
+}
+
+const uploadsDone = (key: string) => Promise.all([...(uploads.get(key) ?? [])]);
+
+const useUploads = (key: string) => useSyncExternalStore(listenUploads, () => uploads.get(key)?.size ?? 0);
 
 export function CanvasComposer(props: ComposerProps) {
   const input = useNodeInput(props.node);
@@ -48,12 +70,12 @@ export function CanvasComposer(props: ComposerProps) {
 
 export function Composer(props: ComposerProps) {
   const { t } = useTranslation();
-  const input = useNodeInput(props.node);
-  const [text, setText] = useDraft(`composer:${props.node}`);
+  const key = `composer:${props.node}`;
+  const [text, setText] = useDraft(key);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const images = useImages(`composer:${props.node}`, props.node, setRefusal);
+  const images = useImages(key, props.node, setRefusal);
   const area = useRef<HTMLTextAreaElement>(null);
   const composition = useRef<Composition | null>(null);
   useEffect(() => {
@@ -71,44 +93,31 @@ export function Composer(props: ComposerProps) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, [text]);
-  const [filing, setFiling] = useState(0);
-  const uploads = useRef(new Set<Promise<unknown>>());
-  const latest = useRef({ text, input });
-  latest.current = { text, input };
-  const write = (next: string) => {
-    latest.current.text = next;
-    setText(next);
-  };
+  const filing = useUploads(key);
   const ready = text.trim() !== '' || images.list.length > 0 || filing > 0 || props.keys.blank !== null;
 
   const insertPath = (path: string) => {
     const el = area.current;
-    const now = latest.current.text;
-    const at = el && el.value === now ? el.selectionStart : now.length;
-    const typed = `${at > 0 && !/\s/.test(now[at - 1]) ? ' ' : ''}${quotePath(path)} `;
-    write(now.slice(0, at) + typed + now.slice(at));
-    requestAnimationFrame(() => el?.setSelectionRange(at + typed.length, at + typed.length));
+    let caret: number | null = null;
+    editDraft(key, (now) => {
+      const at = el?.isConnected && el.value === now ? el.selectionStart : now.length;
+      const typed = `${at > 0 && !/\s/.test(now[at - 1]) ? ' ' : ''}${quotePath(path)} `;
+      caret = at + typed.length;
+      return now.slice(0, at) + typed + now.slice(at);
+    });
+    requestAnimationFrame(() => caret !== null && el?.isConnected && el.setSelectionRange(caret, caret));
   };
   const take = (files: File[]) => {
     setRefusal(null);
     images.attach(files.filter(isImage));
     for (const file of files.filter((f) => !isImage(f))) {
       const big = tooBig(file);
-      if (big) {
-        setRefusal(big);
-        continue;
-      }
-      const upload = savePastedFile(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message));
-      uploads.current.add(upload);
-      setFiling((n) => n + 1);
-      void upload.finally(() => {
-        uploads.current.delete(upload);
-        setFiling((n) => n - 1);
-      });
+      if (big) setRefusal(big);
+      else holdUpload(key, savePastedFile(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message)));
     }
   };
   const deliverable = (): NodeInput => {
-    const input = latest.current.input;
+    const input = nodeInput(props.node);
     const state = input?.state() ?? 'gone';
     if (!input || state !== 'open') throw new Error(state === 'offline' ? t('composer.offline') : t('composer.gone'));
     return input;
@@ -117,18 +126,19 @@ export function Composer(props: ComposerProps) {
   const send = () => {
     setRefusal(null);
     setSending(true);
-    Promise.all([images.paths(), Promise.all([...uploads.current])])
+    const attached = images.list.length;
+    Promise.all([images.paths(), uploadsDone(key)])
       .then(([saved]) => {
-        const body = latest.current.text.trimEnd();
+        const body = readDraft(key).trimEnd();
         const input = deliverable();
         if (body.trim() === '' && saved.paths.length === 0) {
-          if (images.list.length > 0) throw new Error(t('composer.nothingSaved'));
+          if (attached > 0) throw new Error(t('composer.nothingSaved'));
           props.keys.blank?.(input);
           return;
         }
         input.paste([body, saved.paths.map(quotePath).join(' ')].filter((part) => part !== '').join('\n'));
         input.enter();
-        write('');
+        editDraft(key, (now) => (now.trimEnd() === body ? '' : now));
         images.forget(saved.ids);
       })
       .catch((err: Error) => setRefusal(err.message))
@@ -221,7 +231,7 @@ export function Composer(props: ComposerProps) {
           value={text}
           readOnly={sending}
           onChange={(e) => {
-            if (!props.onTyped?.(text, e.target.value)) write(e.target.value);
+            if (!props.onTyped?.(text, e.target.value)) setText(e.target.value);
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}

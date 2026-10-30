@@ -38,7 +38,7 @@ const HELPER_SHELLS: [&str; 1] = [HOOK];
 const RUNNING_STATUS: &str = "esc to interrupt";
 const TRANSCRIPT_DEPTH: usize = 3;
 const CLI_WAIT: Duration = Duration::from_secs(20);
-const NO_RECORD: &str = "이어 갈 Claude 세션 기록이 없다";
+const NO_RECORD: &str = "이어 갈 세션 기록이 없다";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
@@ -74,12 +74,18 @@ const ALLOWED: [&str; 20] = [
     "Bash(loom verdict:*)",
 ];
 
-pub struct Claude;
+pub enum Claude {
+    Code,
+    Open,
+}
 
 impl Adapter for Claude {
     fn facts(&self) -> Facts {
         Facts {
-            logins: Logins::Many(&accounts::CLI, &Claude),
+            logins: match self {
+                Self::Code => Logins::Many(&accounts::CLI, &Claude::Code),
+                Self::Open => Logins::None,
+            },
             sleeps: true,
             listens_at_start: true,
             turn_take: TurnTake::CanOpenTurn,
@@ -100,6 +106,9 @@ impl Adapter for Claude {
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
+        if let Self::Open = self {
+            cmd.env("OPENCLAUDE_DISABLE_HEAP_RELAUNCH", "1");
+        }
         cmd.args(args(at.plugin, at.launch));
     }
 
@@ -173,7 +182,20 @@ impl Adapter for Claude {
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
-        Some((&[PROMPT, PLAN], &DIALOGS))
+        let grammars: &'static [Grammar] = match self {
+            Self::Code => &[PROMPT, PLAN],
+            Self::Open => &[
+                Grammar {
+                    writes: &["No, and tell OpenClaude"],
+                    ..PROMPT
+                },
+                Grammar {
+                    writes: &["Tell OpenClaude what to change"],
+                    ..PLAN
+                },
+            ],
+        };
+        Some((grammars, &DIALOGS))
     }
 
     fn input_seen(&self, screen: &Screen) -> Option<InputSeen> {
@@ -198,6 +220,9 @@ impl Adapter for Claude {
             }
             Ok(meta) if meta.is_file() => {}
             _ => return Err(NO_RECORD.to_owned().into()),
+        }
+        if let Self::Open = self {
+            return Ok(());
         }
         let new_root = site
             .login_dir(&accounts::CLI, to.to)
@@ -226,6 +251,9 @@ impl Adapter for Claude {
         site: &'a Site,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
+            if let Self::Open = self {
+                return Ok(());
+            }
             let (Some(session), account) = (&rec.session, rec.account.as_ref()) else {
                 return Ok(());
             };
@@ -274,11 +302,11 @@ async fn wake_on_mail(file: PathBuf, port: Arc<dyn Port>) {
     let mut on = || {
         times += 1;
         if let Err(e) = touch(&file, times) {
-            eprintln!("loom: Claude를 깨우지 못했다: {e}");
+            eprintln!("loom: 에이전트를 깨우지 못했다: {e}");
         }
     };
     tokio::select! {
-        refused = port.wakes(&mut on) => eprintln!("loom: Claude 깨움을 멈췄다: {refused}"),
+        refused = port.wakes(&mut on) => eprintln!("loom: 에이전트 깨움을 멈췄다: {refused}"),
         () = port.ended() => {}
     }
     if let Err(e) = std::fs::remove_file(&file) {

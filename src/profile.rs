@@ -43,6 +43,7 @@ pub enum Profile {
     OpenClaude,
     QwenCode,
     Codex,
+    Trae,
     #[serde(rename = "opencode2")]
     OpenCode2,
     Cursor,
@@ -202,7 +203,8 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Claude => &claude::Claude::Code,
         Profile::OpenClaude => &claude::Claude::Open,
         Profile::QwenCode => &qwen::Qwen,
-        Profile::Codex => &codex::Codex,
+        Profile::Codex => &codex::Codex::OpenAi,
+        Profile::Trae => &codex::Codex::Trae,
         Profile::OpenCode2 => &opencode2::OpenCode2,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,

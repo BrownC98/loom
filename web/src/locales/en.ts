@@ -225,6 +225,7 @@ const en = {
       claude: 'claude {{installed}} · pinned {{pinned}}',
       openclaude: 'openclaude {{installed}} · pinned {{pinned}}',
       codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',
+      trae: 'traecli {{installed}} · pinned {{pinned}}',
       opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',
       cursor: 'cursor-agent {{installed}} · pinned {{pinned}}',
       pi: 'pi {{installed}} · pinned {{pinned}}',

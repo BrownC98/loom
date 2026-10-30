@@ -55,6 +55,7 @@ function useAppUpdates(): Updates {
     try {
       const offered = await check();
       const found = offered && newer(offered.version, VERSION) ? offered : null;
+      if (offered && !found) offered.close().catch(() => {});
       setRelease(found);
       setStep(found && { kind: 'available' });
       next.current = setTimeout(find, CHECK_EVERY_MS);

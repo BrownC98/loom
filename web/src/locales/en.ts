@@ -432,7 +432,7 @@ const en = {
     unpicked: '{{ids}}: not picked. The recommended option goes for them.',
     see: 'See {{id}}',
     picked: '✓ Picked',
-    write: 'Write your own (sent instead of the pick)',
+    write: 'Write your own (sent with the pick)',
     unpickedAnswer: 'recommended, not picked',
     frame: 'Document {{id}}',
   },

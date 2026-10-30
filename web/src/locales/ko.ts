@@ -433,7 +433,7 @@ const ko: typeof en = {
     unpicked: '{{ids}}는 고르지 않았습니다. 권장안으로 보냅니다.',
     see: '{{id}} 보기',
     picked: '✓ 고름',
-    write: '직접 쓰기 (고른 것 대신 보냅니다)',
+    write: '직접 쓰기 (고른 것과 함께 보냅니다)',
     unpickedAnswer: '권장, 고르지 않음',
     feedback: '자유 의견(선택). Enter로 보내기, Shift+Enter로 줄 바꾸기',
     frame: '문서 {{id}}',

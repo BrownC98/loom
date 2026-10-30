@@ -14,6 +14,7 @@ import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './camera';
+import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId } from './notice';
 import { PinchImage } from './PinchImage';
@@ -316,16 +317,19 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
-    answerWait(
+    const sent = answerWait(
       wait.id,
       text,
       images.list.map((i) => i.path),
-    ).catch((err: Error) => setRefusal(err.message));
+    );
+    sent.catch((err: Error) => setRefusal(err.message));
+    return sent;
   };
   const answerPrompt = (sent: Promise<null>) => {
     setRefusal(null);
     setChoosing(true);
     sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
+    return sent;
   };
   const drop: DOMAttributes<HTMLDivElement> = wait.answerable
     ? {
@@ -360,6 +364,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
       {prompt && (
         <PromptBody
           prompt={prompt}
+          draft={String(wait.id)}
           busy={choosing}
           onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
           onType={(text, option) => answerPrompt(typeText(wait.id, prompt, text, option))}
@@ -386,6 +391,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
             </ul>
           )}
           <AnswerForm
+            wait={wait.id}
             qid={qid}
             placeholder={t(done ? 'inbox.followUpPlaceholder' : 'inbox.answerPlaceholder')}
             hasImages={images.list.length > 0}
@@ -467,9 +473,10 @@ function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void
   );
 }
 
-function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => void; onPasteImages: (files: File[]) => void }) {
+function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => Promise<null>; onPasteImages: (files: File[]) => void }) {
   const { t } = useTranslation();
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(String(props.wait));
+  const send = () => props.onSend(text).then(() => setText(''), () => {});
   const box = useRef<HTMLTextAreaElement>(null);
   const ready = text.trim() !== '' || props.hasImages;
   useLayoutEffect(() => {
@@ -490,7 +497,7 @@ function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolea
       className="answer"
       onSubmit={(e) => {
         e.preventDefault();
-        if (ready) props.onSend(text);
+        if (ready) send();
       }}
     >
       <textarea
@@ -501,7 +508,7 @@ function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolea
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
           e.preventDefault();
-          if (ready) props.onSend(text);
+          if (ready) send();
         }}
         onPaste={(e) => {
           const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));

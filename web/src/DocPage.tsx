@@ -13,6 +13,7 @@ type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { ki
 
 const ANSWER_JOIN = ', ';
 const FEEDBACK_JOIN = '\n\n';
+const NOTE_JOIN = ' — ';
 
 export function docPageId(): string | null {
   const match = /^\/docs\/([^/]+)$/.exec(location.pathname);
@@ -22,14 +23,17 @@ export function docPageId(): string | null {
 function answerText(decisions: readonly Decision[], picks: Picks, unpicked: string, feedback: string): string {
   const picked = decisions
     .map((d) => {
-      const pick = picks[d.id];
-      if (pick?.text?.trim()) return `${d.id}: ${pick.text.trim().replace(/\s*\n\s*/g, ' ')}`;
-      if (pick?.key) return `${d.id}: ${pick.key}`;
+      const value = pickText(picks[d.id]);
+      if (value) return `${d.id}: ${value.replace(/\s*\n\s*/g, ' ')}`;
       return d.recommended && `${d.id}: ${d.recommended}(${unpicked})`;
     })
     .filter(Boolean)
     .join(ANSWER_JOIN);
   return [picked, feedback.trim()].filter(Boolean).join(FEEDBACK_JOIN);
+}
+
+function pickText(pick: Pick | undefined): string {
+  return [pick?.key, pick?.text?.trim()].filter(Boolean).join(NOTE_JOIN);
 }
 
 function picksOf(text: string, decisions: readonly Decision[]): Picks {
@@ -38,8 +42,10 @@ function picksOf(text: string, decisions: readonly Decision[]): Picks {
     const [id, value] = [part.slice(0, part.indexOf(': ')), part.slice(part.indexOf(': ') + 2)];
     const decision = decisions.find((d) => d.id === id);
     if (!decision) continue;
-    const key = decision.keys.find((k) => value === k || value.startsWith(`${k}(`));
-    picks[id] = key ? { key } : { text: value };
+    const key = decision.keys.find((k) => value === k || value.startsWith(`${k}(`) || value.startsWith(`${k}${NOTE_JOIN}`));
+    if (!key) picks[id] = { text: value };
+    else if (value.startsWith(`${key}${NOTE_JOIN}`)) picks[id] = { key, text: value.slice(key.length + NOTE_JOIN.length) };
+    else picks[id] = { key };
   }
   return picks;
 }
@@ -65,8 +71,8 @@ export function DocPage({ id }: { id: string }) {
       if (e.source !== frame.current?.contentWindow || e.data?.loom !== 'doc') return;
       const data = e.data;
       if (data.kind === 'decisions') return setDecisions(data.list);
-      if (data.kind === 'pick') setPicks((now) => ({ ...now, [data.id]: now[data.id]?.key === data.key ? {} : { key: data.key } }));
-      if (data.kind === 'write') setPicks((now) => ({ ...now, [data.id]: data.text ? { text: data.text } : {} }));
+      if (data.kind === 'pick') setPicks((now) => ({ ...now, [data.id]: { ...now[data.id], key: now[data.id]?.key === data.key ? undefined : data.key } }));
+      if (data.kind === 'write') setPicks((now) => ({ ...now, [data.id]: { ...now[data.id], text: data.text } }));
       setConfirming(false);
     };
     window.addEventListener('message', heard);
@@ -138,10 +144,9 @@ export function DocPage({ id }: { id: string }) {
             ) : (
               <>
                 {decisions.map((d) => {
-                  const pick = picks[d.id];
-                  const value = pick?.text?.trim() || pick?.key;
+                  const value = pickText(picks[d.id]) || null;
                   return (
-                    <span key={d.id} className="pick" data-empty={!value || undefined} title={value}>
+                    <span key={d.id} className="pick" data-empty={!value || undefined} title={value ?? undefined}>
                       {d.id}: {value ?? '—'}
                     </span>
                   );

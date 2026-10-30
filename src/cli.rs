@@ -52,19 +52,20 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
         brief,
         worktree,
     };
-    let made: Result<NodeId, CallError> = match crate::wsl::to_windows_daemon() {
-        true => at_endpoint("spawn", &request),
+    let _: NodeId = match crate::wsl::to_windows_daemon() {
+        true => match at_endpoint("spawn", &request) {
+            Err(CallError::Misdirected | CallError::NotConnected(_)) => {
+                std::process::exit(crate::wsl::SPAWN_AT_DAEMON_EXIT)
+            }
+            made => made?,
+        },
         false => {
             let spawn = Daemon::Http {
                 url: env_var("LOOM_SPAWN_URL")?,
                 proxy: None,
             };
-            post(&spawn, "spawn", &request, None, None)
+            post(&spawn, "spawn", &request, None, None)?
         }
-    };
-    match made {
-        Err(CallError::Misdirected) => std::process::exit(crate::wsl::SPAWN_AT_DAEMON_EXIT),
-        made => made?,
     };
     println!("Created node: {}", request.run.name());
     Ok(())

@@ -258,15 +258,21 @@ impl Server {
                 let messages = self
                     .call("GET", &format!("/session/{session}/message"), None)
                     .await?;
-                if messages.as_array().is_some_and(|messages| {
-                    messages.iter().any(|m| {
-                        m["info"]["id"]
-                            .as_str()
-                            .is_some_and(|i| i.ends_with(suffix))
-                    })
+                let messages = messages
+                    .as_array()
+                    .ok_or_else(|| "session messages: expected array".to_owned())?;
+                if messages.iter().any(|m| {
+                    m["info"]["id"]
+                        .as_str()
+                        .is_some_and(|i| i.ends_with(suffix))
                 }) {
                     return Ok(());
                 }
+                let current = messages
+                    .iter()
+                    .rev()
+                    .find_map(|m| super::v1::message_model(&m["info"]));
+                let model = current.as_ref().unwrap_or(model);
                 let id = super::v1::message_id(self.api, id)?;
                 let mut body =
                     json!({ "messageID": id, "parts": [{ "type": "text", "text": text }] });

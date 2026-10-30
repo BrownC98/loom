@@ -133,7 +133,6 @@ impl super::adapter::Adapter for OpenCode {
             let record = node.server.process().record(State {
                 url: node.server.url().to_owned(),
                 password: node.server.password().to_owned(),
-                model: node.model.borrow().clone(),
             });
             let session = Session(node.session.clone());
             let node = Arc::new(node);
@@ -160,7 +159,7 @@ impl super::adapter::Adapter for OpenCode {
                 return Err("OpenCode 2 세션이 없어 서버에 다시 붙지 않는다".into());
             };
             let server = Server::connect(self.api, state.url, state.password, served);
-            let (node, turns) = Node::follow(server, session.0.clone(), state.model).await?;
+            let (node, turns) = Node::follow(server, session.0.clone(), Model::default()).await?;
             tokio::spawn(drive(Arc::new(node), turns, port));
             Ok(())
         })
@@ -529,8 +528,6 @@ async fn open_permission(server: &Server, session: &str) -> Result<Option<Permis
 struct State {
     url: String,
     password: String,
-    #[serde(default)]
-    model: Model,
 }
 
 fn password() -> Result<String, String> {

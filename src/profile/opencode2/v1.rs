@@ -24,8 +24,14 @@ pub fn config(at: &LaunchAt<'_>, model: &Model, bypass: &[String]) -> String {
 
 pub fn selected_model(event: &Value, session: &str) -> Option<Model> {
     let info = &event["properties"]["info"];
-    if event["type"] != "message.updated" || info["sessionID"] != session || info["role"] != "user"
-    {
+    if event["type"] != "message.updated" || info["sessionID"] != session {
+        return None;
+    }
+    message_model(info)
+}
+
+pub fn message_model(info: &Value) -> Option<Model> {
+    if info["role"] != "user" {
         return None;
     }
     Some(Model {

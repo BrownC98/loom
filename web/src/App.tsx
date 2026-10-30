@@ -36,6 +36,7 @@ import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { cardViewOf } from './cardView';
 import { ArrangeButton } from './ArrangeButton';
+import { keepSame } from './keepSame';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
 import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
@@ -386,7 +387,13 @@ export function App() {
       reading = true;
       getNodes()
         .then(
-          (views) => again || setNodes(new Map(views.map((view) => [view.id, view]))),
+          (views) =>
+            again ||
+            setNodes((old) => {
+              const before = [...old.values()];
+              const kept = keepSame(before, views);
+              return kept === before ? old : new Map(kept.map((view) => [view.id, view]));
+            }),
           () => again || graph.reopen(),
         )
         .finally(() => {

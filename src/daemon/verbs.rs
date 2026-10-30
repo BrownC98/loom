@@ -6,10 +6,43 @@ pub(super) async fn agent_spawn(
     Json(req): Json<SpawnRequest>,
 ) -> Result<Json<NodeId>, AgentError> {
     let parent = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/spawn");
+    spawn_traced(&app, &headers, parent, req).await
+}
+
+pub(super) async fn endpoint_spawn(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<SpawnRequest>,
+) -> Result<Json<NodeId>, AgentError> {
+    let parent = app.caller(&headers)?;
+    let agent = app
+        .graph
+        .agent_of(parent)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    if agent
+        .as_ref()
+        .and_then(profile::profile_of)
+        .is_some_and(|p| profile::adapter(p).spawns_at_daemon())
+    {
+        return Err((
+            StatusCode::MISDIRECTED_REQUEST,
+            "This node spawns at the daemon address, with approval to run outside its sandbox."
+                .into(),
+        ));
+    }
+    spawn_traced(&app, &headers, parent, req).await
+}
+
+async fn spawn_traced(
+    app: &Arc<App>,
+    headers: &HeaderMap,
+    parent: NodeId,
+    req: SpawnRequest,
+) -> Result<Json<NodeId>, AgentError> {
+    let via = gate::via(headers, "/api/agent/spawn");
     let name = req.run.name();
-    let spawned = spawn(&app, parent, req).await;
-    traced(&app, parent, Attempt::verb(&name), &via, spawned)
+    let spawned = spawn(app, parent, req).await;
+    traced(app, parent, Attempt::verb(&name), &via, spawned)
 }
 
 pub(super) async fn spawn(

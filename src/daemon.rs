@@ -33,8 +33,8 @@ mod waits;
 
 pub use commands::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
-    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, SpawnRequest,
-    SpawnRun, WaitRequest,
+    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, ShowRequest,
+    SpawnRequest, SpawnRun, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -92,7 +92,7 @@ use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Wo
 use crate::wsl;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
-    agent_note, agent_remove, agent_set_role, agent_spawn, traced,
+    agent_note, agent_remove, agent_set_role, agent_spawn, endpoint_spawn, traced,
 };
 
 #[derive(Embed)]
@@ -329,6 +329,7 @@ fn endpoint_routes(
     app: &Arc<App>,
 ) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, arrival::Caller> {
     commands::node_routes()
+        .merge(commands::endpoint_only_routes())
         .layer(axum::middleware::from_fn(origin::same_site))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),

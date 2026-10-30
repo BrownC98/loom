@@ -105,6 +105,10 @@ fn daemon_distro() -> Option<String> {
     std::env::var("WSL_DISTRO_NAME").ok()
 }
 
+pub fn to_windows_daemon() -> bool {
+    daemon_distro().is_some()
+}
+
 fn linux(path: &Path) -> Option<&str> {
     path.to_str()
         .filter(|p| p.starts_with('/') && !p.starts_with("//"))
@@ -435,9 +439,8 @@ const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
 pub const LINUX_LOOM: &str = "loom-linux";
-pub const WINDOWS_VERBS: &[&str] = &[
-    "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host",
-];
+pub const WINDOWS_VERBS: &[&str] = &["serve", "start", "open", "stop", "carry", "pty-host"];
+pub const SPAWN_AT_DAEMON_EXIT: i32 = 4;
 const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
@@ -706,7 +709,10 @@ pub fn write_shim(dir: &Path, exe: &Path, linux: Option<&Path>) -> std::io::Resu
     let shim = dir.join("loom");
     let through_endpoint = match linux {
         Some(linux) => format!(
-            r#"case $1 in {windows}) ;; *)
+            r#"case $1 in {windows}) ;;
+spawn)
+  [ -n "${ENDPOINT_ENV}" ] && {{ env {WINDOWS_DAEMON_ENV}=1 "$(wslpath -u '{linux}')" "$@"; code=$?; [ "$code" = {SPAWN_AT_DAEMON_EXIT} ] || exit "$code"; }} ;;
+*)
   [ -n "${ENDPOINT_ENV}" ] && exec env {WINDOWS_DAEMON_ENV}=1 "$(wslpath -u '{linux}')" "$@" ;;
 esac
 "#,

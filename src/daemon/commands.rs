@@ -1,6 +1,7 @@
 use super::runtime::bearer;
 use super::*;
 use crate::process_tree::Identity;
+use crate::user_doc::{self, DocStep};
 
 pub(super) fn node_routes() -> Router<Arc<App>> {
     Router::new()
@@ -49,6 +50,29 @@ pub(super) const IDLE_PATH: &str = "/api/agent/idle";
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new().route("/api/agent/spawn", post(agent_spawn))
+}
+
+pub(super) fn endpoint_only_routes() -> Router<Arc<App>> {
+    Router::new()
+        .route("/api/agent/spawn", post(endpoint_spawn))
+        .route("/api/agent/show", post(agent_show))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ShowRequest {
+    pub file: PathBuf,
+    pub step: DocStep,
+}
+
+async fn agent_show(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<ShowRequest>,
+) -> Result<Json<WaitDoc>, AgentError> {
+    app.caller(&headers)?;
+    user_doc::take_step(&req.file, req.step)
+        .map(Json)
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))
 }
 
 #[derive(Serialize, Deserialize)]

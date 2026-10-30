@@ -135,6 +135,7 @@ struct App {
     door: lan::Door,
     passes: passes::Passes,
     choices: waits::Choices,
+    doc_titles: user_doc::Titles,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -225,6 +226,10 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         links,
     )?);
     tokio::spawn(app.clone().carry_links(linked, doors));
+    tokio::task::spawn_blocking({
+        let app = app.clone();
+        move || user_doc::docs(&app.doc_titles)
+    });
     match app
         .repos
         .add(&std::env::current_dir()?.to_string_lossy())
@@ -419,6 +424,7 @@ impl App {
             ),
             passes: passes::Passes::default(),
             choices: waits::Choices::default(),
+            doc_titles: user_doc::Titles::default(),
             spots: Spots::new(database.clone()),
             database,
             accounts_root: db_path.with_file_name("accounts"),

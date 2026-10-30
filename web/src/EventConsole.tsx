@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactElement } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';
@@ -25,6 +25,8 @@ import { stateLabel } from './NodeCard';
 import { refusalWithoutName } from './problem';
 
 type Category = 'node' | 'message' | 'notice';
+
+type NodeNames = ReadonlyMap<NodeId, string>;
 
 const CATEGORIES: Category[] = ['node', 'message', 'notice'];
 
@@ -323,10 +325,10 @@ function KindLabel({ how }: { how: Kind }) {
   return <span className="kind">{t(`events.how.${how}`)}</span>;
 }
 
-function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFacts | null; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }): ReactElement | null {
+function What({ entry, facts, names, agents }: { entry: Entry; facts: MessageFacts | null; names: NodeNames; agents: AgentView[] }): ReactElement | null {
   const { t } = useTranslation();
   const name = (w: Who) => (
-    <span className={w.id !== null && views.has(w.id) ? 'who' : 'gone'} translate="no">
+    <span className={w.id !== null && names.has(w.id) ? 'who' : 'gone'} translate="no">
       {w.name}
     </span>
   );
@@ -420,7 +422,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
       return (
         <>
           {entry.what ? <span className="kind k-fail">{kindLabel(entry.what, entry.how, t)}</span> : <KindLabel how={entry.how} />}
-          {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
+          {name(entry.from)}→{name({ id: [...names].find(([, n]) => n === entry.to)?.[0] ?? null, name: entry.to })}
           <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
         </>
       );
@@ -517,7 +519,7 @@ function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
   );
 }
 
-function Row(props: { record: EventRecord; current: boolean; onClick: () => void; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
+const Row = memo(function Row(props: { record: EventRecord; current: boolean; onPick: (record: EventRecord) => void; names: NodeNames; agents: AgentView[] }) {
   const { record, current } = props;
   const { entry } = record;
   const { t } = useTranslation();
@@ -532,10 +534,10 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
   const expandable = body !== null || doc !== null || typed;
   return (
     <li data-family={familyOf(entry)}>
-      <button className="ev" aria-current={current || undefined} aria-expanded={expandable ? current : undefined} onClick={props.onClick}>
+      <button className="ev" aria-current={current || undefined} aria-expanded={expandable ? current : undefined} onClick={() => props.onPick(record)}>
         <time dateTime={new Date(record.at * 1000).toISOString()}>{clockTime(record.at * 1000)}</time>
         <span className="what">
-          <What entry={entry} facts={record.message} views={props.views} agents={props.agents} />
+          <What entry={entry} facts={record.message} names={props.names} agents={props.agents} />
         </span>
         {!current && preview !== null && preview !== '' && <span className="body">{preview}</span>}
       </button>
@@ -580,7 +582,7 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
       )}
     </li>
   );
-}
+});
 
 export function EventConsole(props: {
   records: EventRecord[] | null;
@@ -618,6 +620,11 @@ export function EventConsole(props: {
     props.onRepo(repo);
     show(ids.filter((id) => repoOf(id) === repo));
   };
+  const latestPick = useRef(pick);
+  latestPick.current = pick;
+  const onPick = useCallback((record: EventRecord) => latestPick.current(record), []);
+  const nameKey = [...props.views.values()].map((v) => `${v.id}:${v.name}`).join('\n');
+  const names: NodeNames = useMemo(() => new Map([...props.views.values()].map((v) => [v.id, v.name])), [nameKey]);
   const toggle = (c: Category) =>
     setHidden((prev) => {
       const next = new Set(prev);
@@ -649,7 +656,7 @@ export function EventConsole(props: {
       ) : (
         <ol className="events" aria-live="polite" aria-label={t('events.list')}>
           {shown.map((r) => (
-            <Row key={r.id} record={r} current={highlight?.id === r.id} onClick={() => pick(r)} views={props.views} agents={props.agents} />
+            <Row key={r.id} record={r} current={highlight?.id === r.id} onPick={onPick} names={names} agents={props.agents} />
           ))}
         </ol>
       )}

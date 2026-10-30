@@ -192,6 +192,7 @@ const ko: typeof en = {
     installedAt: '설치됨 {{n}} · {{place}}',
     shell: '기본 셸',
     recent: '최근',
+    terminalOnly: '터미널만',
     notInstalled: '설치 안 됨',
     loading: '프로필 불러오는 중…',
     noMatch: '일치하는 프로필 없음',

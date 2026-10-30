@@ -190,6 +190,7 @@ const en = {
     installedAt: 'Installed {{n}} · {{place}}',
     shell: 'Default shell',
     recent: 'Recent',
+    terminalOnly: 'Terminal only',
     notInstalled: 'Not installed',
     loading: 'Loading profiles…',
     noMatch: 'No matching profile',

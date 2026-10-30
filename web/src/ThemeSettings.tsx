@@ -16,6 +16,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { requestNotifyPermission } from './osNotify';
 import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
+import { FLOAT_SIZES } from './floatPlace';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -170,6 +171,14 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('questionPill.hint')}</span>
       </section>
+      <SizeChoice id="t-pill-size" field="pillSize" settings={settings} onSettings={onSettings} />
+      <section>
+        <h4>
+          {t('questionPill.place')}
+          <FieldReset path={['pillPlace']} />
+        </h4>
+        <span className="hint">{t('questionPill.placeHint')}</span>
+      </section>
       <section>
         <h4>
           {t('composer.heading')}
@@ -181,14 +190,36 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </label>
         <span className="hint">{t('composer.hint')}</span>
       </section>
+      <SizeChoice id="t-composer-size" field="composerSize" settings={settings} onSettings={onSettings} />
       <section>
         <h4>
-          {t('questionPill.place')}
-          <FieldReset path={['pillPlace']} />
+          {t('composer.place')}
+          <FieldReset path={['composerPlace']} />
         </h4>
-        <span className="hint">{t('questionPill.placeHint')}</span>
+        <span className="hint">{t('composer.placeHint')}</span>
       </section>
     </>
+  );
+}
+
+function SizeChoice({ id, field, settings, onSettings }: TabProps & { id: string; field: 'pillSize' | 'composerSize' }) {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <h4>
+        <span id={id}>{t(`floatSize.${field}`)}</span>
+        <FieldReset path={[field]} />
+      </h4>
+      <div className="choice" role="radiogroup" aria-labelledby={id}>
+        {FLOAT_SIZES.map((v) => (
+          <label key={v}>
+            <input type="radio" name={field} checked={settings[field] === v} onChange={() => onSettings({ ...settings, [field]: v })} />
+            {t(`floatSize.${v}`)}
+          </label>
+        ))}
+      </div>
+      <span className="hint">{t(`floatSize.${field}Hint`)}</span>
+    </section>
   );
 }
 

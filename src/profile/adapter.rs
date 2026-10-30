@@ -136,6 +136,9 @@ pub trait Port: Send + Sync {
 
 pub trait Adapter: Sync {
     fn facts(&self) -> Facts;
+    fn idle_holds_input(&self) -> bool {
+        false
+    }
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String>;
     fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())

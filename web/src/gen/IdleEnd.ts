@@ -3,4 +3,4 @@
 /**
  * 쉬는 대기가 끝난 까닭.
  */
-export type IdleEnd = { "kind": "mail" } | { "kind": "newWait" } | { "kind": "turn", step: string, } | { "kind": "relaunch" } | { "kind": "exit" } | { "kind": "sleep" } | { "kind": "gone" } | { "kind": "error" };
+export type IdleEnd = { "kind": "mail" } | { "kind": "newWait" } | { "kind": "typed" } | { "kind": "turn", step: string, } | { "kind": "relaunch" } | { "kind": "exit" } | { "kind": "sleep" } | { "kind": "gone" } | { "kind": "error" };

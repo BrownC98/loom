@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod antigravity;
 pub mod claude;
 pub mod codex;
 pub mod copilot;
@@ -57,6 +58,7 @@ pub enum Profile {
     Pi,
     Omp,
     Dsh,
+    Antigravity,
     Crush,
     Hermes,
     Vibe,
@@ -127,6 +129,9 @@ pub enum HookEntry {
     Pi,
     Omp,
     Dsh,
+    AntigravityPreInvocation,
+    AntigravityPreToolUse,
+    AntigravityStop,
     Crush,
     Hermes,
     VibeBridge,
@@ -170,6 +175,9 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
         HookEntry::Dsh => Hook::Lines(dsh::request),
+        HookEntry::AntigravityPreInvocation => Hook::Once(antigravity::pre_invocation),
+        HookEntry::AntigravityPreToolUse => Hook::Once(antigravity::pre_tool_use),
+        HookEntry::AntigravityStop => Hook::Once(antigravity::stop),
         HookEntry::Hermes => Hook::Lines(hermes::request),
         HookEntry::VibeBridge => Hook::Lines(vibe::request),
     }
@@ -228,6 +236,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
+        Profile::Antigravity => &antigravity::Antigravity,
         Profile::Crush => &crush::Crush,
         Profile::Hermes => &hermes::Hermes,
         Profile::Vibe => &vibe::Vibe,
@@ -270,6 +279,10 @@ impl Profile {
 
     pub fn listens_at_start(self) -> bool {
         adapter(self).facts().listens_at_start
+    }
+
+    pub fn idle_holds_input(self) -> bool {
+        adapter(self).idle_holds_input()
     }
 }
 

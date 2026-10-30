@@ -99,7 +99,7 @@ Each agent is a node card with its real terminal. Click a card to type into it. 
 
 ### Many agent CLIs in one team
 
-Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes, Crush and Mistral Vibe have a message link: they can start children, send messages and report results. Settings and the new-node dialog show only these agents. A plain shell runs as a terminal-only node; start other CLIs from it. Each card head shows the agent and the model.
+Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes, Crush, Mistral Vibe and Antigravity have a message link: they can start children, send messages and report results. Settings and the new-node dialog show only these agents. A plain shell runs as a terminal-only node; start other CLIs from it. Each card head shows the agent and the model.
 
 In **Settings › Agents › o-mode roles**, you give each role an agent, a model and an effort. The default roles are 총괄 (lead), 코디 (coordinator), 워커 (worker), 고위험 워커 (high-risk worker), 검토자 (reviewer) and 보조 검토자 (second reviewer), and you can rename them or add more. An agent starts a child with `--role <role>`, and loom starts it with the settings of that role.
 

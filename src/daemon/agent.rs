@@ -325,6 +325,14 @@ impl App {
             return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
         }
         self.opened(node, open);
+        if self.profile(node).is_some_and(Profile::idle_holds_input)
+            && self
+                .graph
+                .input_submitted(node)
+                .map_err(|e| for_agent(Refusal::from(e)))?
+        {
+            self.idle.end(node, IdleEnd::Typed);
+        }
         Ok(Opened::Wait(wait))
     }
 
@@ -453,7 +461,7 @@ impl App {
         self.profile(node).and_then(Profile::provider)
     }
 
-    fn profile(&self, node: NodeId) -> Option<Profile> {
+    pub(super) fn profile(&self, node: NodeId) -> Option<Profile> {
         let nodes = self
             .graph
             .active()

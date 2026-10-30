@@ -12,6 +12,7 @@ pub mod opencode2;
 pub mod pi;
 pub mod process;
 mod qwen;
+pub mod vibe;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,6 +59,7 @@ pub enum Profile {
     Dsh,
     Crush,
     Hermes,
+    Vibe,
 }
 
 #[derive(Debug, PartialEq)]
@@ -127,6 +129,7 @@ pub enum HookEntry {
     Dsh,
     Crush,
     Hermes,
+    VibeBridge,
 }
 
 pub enum Hook {
@@ -168,6 +171,7 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
         HookEntry::Dsh => Hook::Lines(dsh::request),
         HookEntry::Hermes => Hook::Lines(hermes::request),
+        HookEntry::VibeBridge => Hook::Lines(vibe::request),
     }
 }
 
@@ -226,6 +230,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Dsh => &dsh::Dsh,
         Profile::Crush => &crush::Crush,
         Profile::Hermes => &hermes::Hermes,
+        Profile::Vibe => &vibe::Vibe,
     }
 }
 

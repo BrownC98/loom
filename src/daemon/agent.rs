@@ -325,6 +325,9 @@ impl App {
             return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
         }
         self.opened(node, open);
+        if self.profile(node).is_some_and(Profile::idle_holds_input) {
+            self.idle.release_submitted(node);
+        }
         Ok(Opened::Wait(wait))
     }
 
@@ -453,7 +456,7 @@ impl App {
         self.profile(node).and_then(Profile::provider)
     }
 
-    fn profile(&self, node: NodeId) -> Option<Profile> {
+    pub(super) fn profile(&self, node: NodeId) -> Option<Profile> {
         let nodes = self
             .graph
             .active()
@@ -558,7 +561,19 @@ impl AgentPort {
     }
 }
 
+const ADAPTER_BIND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Port for AgentPort {
+    fn ready(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            tokio::select! {
+                biased;
+                () = self.until_ended() => Err("node launch ended before adapter input".to_owned()),
+                bound = tokio::time::timeout(ADAPTER_BIND_TIMEOUT, self.bound()) => bound
+                    .map(drop).map_err(|_| "node registration timed out before adapter input".to_owned()),
+            }
+        })
+    }
     fn take(&self, req: TakeRequest) -> Result<Taken, Refusal> {
         match *self.node.borrow() {
             Some(node) => self.app.take_now(node, &self.token, req),

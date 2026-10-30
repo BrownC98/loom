@@ -535,7 +535,12 @@ impl App {
             ),
             None => (plugin_here.clone(), self.plugin.skills(launch.skills)),
         };
+        let default_choice = crate::protocol::ModelChoice::default();
         let at = LaunchAt {
+            choice: match start {
+                Start::Agent { choice, .. } => choice,
+                Start::Command { .. } => &default_choice,
+            },
             cwd,
             site: &site,
             inside,

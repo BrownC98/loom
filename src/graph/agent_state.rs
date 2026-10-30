@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::events::{self, Entry, IdleEnd};
+use super::turns::SUBMITTED_INPUT;
 use super::{Graph, NodeId, mailbox, optional_json, to_json};
 
 /// 노드 에이전트가 지금 무엇을 하는지. 모든 에이전트 경로의 공통 사건(`AgentEvent`)이 `next` 하나로 바꾼다. 데몬 DB에 있어 데몬을 다시 띄워도 남는다.
@@ -98,7 +99,7 @@ impl AgentState {
             (
                 _,
                 E::WaitClosed {
-                    by: IdleEnd::Mail | IdleEnd::Turn { .. },
+                    by: IdleEnd::Mail | IdleEnd::Turn { .. } | IdleEnd::Typed,
                 },
             ) => S::Turn,
             (S::Listening, E::WaitClosed { .. }) => S::Deaf,
@@ -158,10 +159,15 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         event,
         AgentEvent::Relaunched | AgentEvent::Exited | AgentEvent::Slept
     );
-    if turn_began || replaced {
+    if replaced {
         db.execute(
-            "UPDATE nodes SET drafted = 0 WHERE id = ?1 AND drafted = 1",
-            [node.0],
+            "UPDATE nodes SET drafted = 0, turn_flags = turn_flags & ~?2 WHERE id = ?1",
+            params![node.0, SUBMITTED_INPUT],
+        )?;
+    } else if turn_began {
+        db.execute(
+            "UPDATE nodes SET drafted = 0 WHERE id = ?1 AND drafted = 1 AND (turn_flags & ?2) = 0",
+            params![node.0, SUBMITTED_INPUT],
         )?;
     }
     if to == now {

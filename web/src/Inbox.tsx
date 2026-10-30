@@ -1,9 +1,10 @@
 import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, RotateCcw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PillPlace } from './gen/PillPlace';
+import type { FloatPlace } from './gen/FloatPlace';
+import type { FloatSize } from './gen/FloatSize';
 import type { QuestionPill } from './gen/QuestionPill';
-import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
+import { FLOAT_MARGIN, floatZoom, PILL_HOME, placeOf, popLeft, popSpace, useFloatDrag, useSize, type Size } from './floatPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
 import { ImageList, MB, useImages, ZoomImage } from './attachments';
 import { DocText } from './DocText';
@@ -27,7 +28,7 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
 
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: PillPlace | null; onPlace: (place: PillPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -46,19 +47,20 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const toList = () => setOpen(!open);
   const paneRef = useRef<HTMLDivElement>(null);
   const pane = useSize(paneRef);
+  const group = useRef<HTMLDivElement>(null);
   const box = useSize(pill);
-  const drag = usePillDrag(pill, pane, box, props.onPlace);
+  const drag = useFloatDrag(group, pane, box, props.onPlace);
 
   useEffect(() => {
     if (n === 0 || !shown) setOpen(false);
   }, [n, shown]);
 
-  const at = drag.at ?? (pane && box ? placeOf(props.place, pane, box) : null);
+  const at = drag.at ?? (pane && box ? placeOf(props.place ?? PILL_HOME, pane, box) : null);
   return (
     <div className="inbox" ref={paneRef}>
       {first && shown && (
-        <div className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
+        <div ref={group} className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
+          <div ref={pill} className="inbox-pill" style={{ zoom: floatZoom(props.size) }} data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
             <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
             {!line && (
               <div className="pill-row">
@@ -85,70 +87,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
 }
 
 const POP_WIDTH = 520;
-const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * PILL_MARGIN));
-
-function useSize(ref: RefObject<HTMLElement | null>): Size | null {
-  const [size, setSize] = useState<Size | null>(null);
-  const watched = useRef<{ el: HTMLElement; watch: ResizeObserver } | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (watched.current?.el === el) return;
-    watched.current?.watch.disconnect();
-    watched.current = null;
-    if (!el) {
-      setSize(null);
-      return;
-    }
-    const read = () => setSize((was) => (was && was.w === el.offsetWidth && was.h === el.offsetHeight ? was : { w: el.offsetWidth, h: el.offsetHeight }));
-    read();
-    const watch = new ResizeObserver(read);
-    watch.observe(el);
-    watched.current = { el, watch };
-  });
-  useEffect(() => () => watched.current?.watch.disconnect(), []);
-  return size;
-}
-
-function usePillDrag(pill: RefObject<HTMLElement | null>, pane: Size | null, box: Size | null, onPlace: (place: PillPlace) => void) {
-  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
-  const moved = useRef(false);
-  const start = (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0 || !pane || !box || !(e.target instanceof Element) || e.target.closest('input, textarea, a, label, .pill-reset, .pill-close')) return;
-    const group = pill.current?.parentElement;
-    if (!group) return;
-    const from = { x: e.clientX, y: e.clientY, left: group.offsetLeft, top: group.offsetTop };
-    const dragged = (ev: PointerEvent) => ({ left: from.left + ev.clientX - from.x, top: from.top + ev.clientY - from.y, far: Math.hypot(ev.clientX - from.x, ev.clientY - from.y) > DRAG_SLOP });
-    const place = (ev: PointerEvent) => {
-      const d = dragged(ev);
-      return placeFrom(d.left, d.top, pane, box);
-    };
-    const move = (ev: PointerEvent) => {
-      const d = dragged(ev);
-      if (!d.far && !moved.current) return;
-      moved.current = true;
-      setAt(placeOf(place(ev), pane, box));
-    };
-    const end = (ev: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
-      if (moved.current) {
-        onPlace(place(ev));
-        setAt(null);
-        setTimeout(() => (moved.current = false));
-      }
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
-  };
-  const swallowClick = (e: { stopPropagation: () => void; preventDefault: () => void }) => {
-    if (!moved.current) return;
-    e.stopPropagation();
-    e.preventDefault();
-  };
-  return { at, start, swallowClick };
-}
+const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * FLOAT_MARGIN));
 
 function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
@@ -174,7 +113,7 @@ function PillHead(props: { node: NodeView; wait: ScreenWait; waits: readonly Scr
         {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
       </button>
       {props.onReset && (
-        <button type="button" className="pill-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
+        <button type="button" className="float-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
           <RotateCcw aria-hidden="true" />
         </button>
       )}

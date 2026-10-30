@@ -5,11 +5,12 @@ import type { ArrangeDirection } from "./ArrangeDirection";
 import type { ClosedPanes } from "./ClosedPanes";
 import type { DefaultCardView } from "./DefaultCardView";
 import type { EdgeStyle } from "./EdgeStyle";
+import type { FloatPlace } from "./FloatPlace";
+import type { FloatSize } from "./FloatSize";
 import type { GraphScope } from "./GraphScope";
 import type { InUse } from "./InUse";
 import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
-import type { PillPlace } from "./PillPlace";
 import type { QuestionPill } from "./QuestionPill";
 import type { RepoId } from "./RepoId";
 import type { Roles } from "./Roles";
@@ -110,7 +111,19 @@ repo: RepoId | null, paneWidths: PaneWidths,
 /**
  * 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
  */
-pillPlace: PillPlace | null, closedPanes: ClosedPanes, 
+pillPlace: FloatPlace | null, 
+/**
+ * 사람이 끌어 옮긴 입력 창의 자리. 없으면 그래프 칸 아래 가운데다. 근거: 목업 docs/mockups/composer-place.html M50 v1, 2026-10-30 사람 승인 Q1861.
+ */
+composerPlace: FloatPlace | null, 
+/**
+ * 질문 알약과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
+ */
+pillSize: FloatSize, 
+/**
+ * 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
+ */
+composerSize: FloatSize, closedPanes: ClosedPanes, 
 /**
  * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
  */

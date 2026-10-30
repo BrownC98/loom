@@ -80,7 +80,13 @@ pub struct SettingsView {
     pub repo: Option<RepoId>,
     pub pane_widths: PaneWidths,
     /// 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
-    pub pill_place: Option<PillPlace>,
+    pub pill_place: Option<FloatPlace>,
+    /// 사람이 끌어 옮긴 입력 창의 자리. 없으면 그래프 칸 아래 가운데다. 근거: 목업 docs/mockups/composer-place.html M50 v1, 2026-10-30 사람 승인 Q1861.
+    pub composer_place: Option<FloatPlace>,
+    /// 질문 알약과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
+    pub pill_size: FloatSize,
+    /// 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
+    pub composer_size: FloatSize,
     pub closed_panes: ClosedPanes,
     /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
     pub closed_switch_notice: Option<u32>,
@@ -132,21 +138,33 @@ pub struct PaneWidths {
     pub dock: Option<u16>,
 }
 
-/// 질문 알약의 자리. 알약이 그래프 칸 안에서 움직일 수 있는 폭·높이 중 얼마만큼 왔는지(0~1)다.
-/// 창이나 칸 크기가 바뀌어도 알약은 칸 안에 남는다.
+/// 그래프 칸에 떠 있는 판(질문 알약, 입력 창)의 자리. 판이 그래프 칸 안에서 움직일 수 있는 폭·높이 중 얼마만큼 왔는지(0~1)다.
+/// 창이나 칸 크기가 바뀌어도 판은 칸 안에 남는다.
 #[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]
-pub struct PillPlace {
+pub struct FloatPlace {
     pub x: f32,
     pub y: f32,
 }
 
-impl PillPlace {
-    fn problem(self) -> Option<String> {
+impl FloatPlace {
+    fn problem(self, field: &str) -> Option<String> {
         let ok = |v: f32| (0.0..=1.0).contains(&v);
-        (!(ok(self.x) && ok(self.y))).then(|| "pillPlace must be numbers from 0 to 1".to_string())
+        (!(ok(self.x) && ok(self.y))).then(|| format!("{field} must be numbers from 0 to 1"))
     }
+}
+
+/// 그래프 칸에 떠 있는 판과 그 글자의 크기. 배율은 화면(`web/src/floatPlace.ts`)에만 있다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum FloatSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+    Huge,
 }
 
 /// 접은 칸(사이드바, 오른쪽 칸)과 절(북마크). 처음에는 모두 펼침이다.
@@ -441,7 +459,8 @@ fn checked(value: &serde_json::Value, check: ChoiceCheck) -> Result<SettingsView
     let problem = view
         .roles
         .launch_problem(check)
-        .or_else(|| view.pill_place.and_then(|p| p.problem()));
+        .or_else(|| view.pill_place.and_then(|p| p.problem("pillPlace")))
+        .or_else(|| view.composer_place.and_then(|p| p.problem("composerPlace")));
     match problem {
         Some(problem) => Err(problem),
         None => Ok(view),

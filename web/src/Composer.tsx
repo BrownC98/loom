@@ -1,11 +1,15 @@
-import { ArrowUp, Image as ImageIcon, Paperclip, SquareTerminal } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { ArrowUp, Image as ImageIcon, Paperclip, RotateCcw, SquareTerminal } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { savePastedFile } from './api';
 import { droppedFiles, ImageList, isImage, quotePath, tooBig, useImages } from './attachments';
 import { IME_KEY_CODE, watchComposition, type Composition } from './composition';
+import { useShowNodes } from './camera';
 import { editDraft, readDraft, useDraft } from './drafts';
+import type { FloatPlace } from './gen/FloatPlace';
+import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
+import { COMPOSER_HOME, floatZoom, placeOf, useFloatDrag, useSize } from './floatPlace';
 import { nodeInput, useNodeInput, type NodeInput } from './nodeInputs';
 
 export type ComposerKeys = { sends: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean; escape: (() => void) | null; blank: ((input: NodeInput) => void) | null };
@@ -21,6 +25,7 @@ export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blan
 const COMPOSER_ROOM = '--composer-room';
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
+type FloatHead = { onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onName: () => void };
 
 function keyed<T>(none: T) {
   const values = new Map<string, T>();
@@ -51,31 +56,34 @@ function holdUpload(key: string, upload: Promise<unknown>) {
   });
 }
 
-export function CanvasComposer(props: ComposerProps) {
+export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void }) {
   const input = useNodeInput(props.node);
-  const box = useRef<HTMLDivElement>(null);
+  const layer = useRef<HTMLDivElement>(null);
+  const float = useRef<HTMLDivElement>(null);
+  const pane = useSize(layer);
+  const box = useSize(float);
+  const drag = useFloatDrag(float, pane, box, props.onPlace);
+  const show = useShowNodes();
+  const home = props.place === null;
   useLayoutEffect(() => {
-    const el = box.current;
-    const canvas = el?.parentElement;
-    if (!el || !canvas) return;
-    const room = () => canvas.style.setProperty(COMPOSER_ROOM, `${el.offsetHeight + 14}px`);
-    room();
-    const watch = new ResizeObserver(room);
-    watch.observe(el);
-    return () => {
-      watch.disconnect();
-      canvas.style.removeProperty(COMPOSER_ROOM);
-    };
-  }, [input !== null]);
+    const canvas = layer.current?.parentElement;
+    if (!canvas || !box || !home) return;
+    canvas.style.setProperty(COMPOSER_ROOM, `${box.h + 14}px`);
+    return () => void canvas.style.removeProperty(COMPOSER_ROOM);
+  }, [box?.h, home]);
   if (!input) return null;
+  const at = drag.at ?? (pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null);
+  const zoom = { '--float-zoom': floatZoom(props.size) } as CSSProperties;
   return (
-    <div ref={box} className="composer-float">
-      <Composer {...props} />
+    <div ref={layer} className="composer-layer">
+      <div ref={float} className="composer-float" data-dragging={drag.at ? true : undefined} style={at ? { ...zoom, left: at.left, top: at.top } : { ...zoom, visibility: 'hidden' }} onClickCapture={drag.swallowClick}>
+        <Composer {...props} float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null), onName: () => show([props.node]) }} />
+      </div>
     </div>
   );
 }
 
-export function Composer(props: ComposerProps) {
+export function Composer(props: ComposerProps & { float?: FloatHead }) {
   const { t } = useTranslation();
   const key = `composer:${props.node}`;
   const [text, setText] = useDraft(key);
@@ -213,13 +221,24 @@ export function Composer(props: ComposerProps) {
       }}
       onDrop={onDrop}
     >
-      <div className="composer-to">
+      <div className="composer-to" onPointerDown={props.float?.onDragStart}>
         <span className="target">
           <SquareTerminal aria-hidden="true" />
-          <b>{props.name}</b>
+          {props.float ? (
+            <button type="button" className="node-name" title={t('composer.showNode')} onClick={props.float.onName}>
+              <b>{props.name}</b>
+            </button>
+          ) : (
+            <b>{props.name}</b>
+          )}
           {t('composer.to')}
         </span>
         <span className="keys">{t('composer.keys')}</span>
+        {props.float?.onReset && (
+          <button type="button" className="float-reset" aria-label={t('composer.resetPlace')} title={t('composer.resetPlace')} onClick={props.float.onReset}>
+            <RotateCcw aria-hidden="true" />
+          </button>
+        )}
       </div>
       <ImageList images={images.list} onRemove={images.remove} />
       {filing > 0 && <p className="filing">{t('composer.filing', { count: filing })}</p>}

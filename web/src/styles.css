@@ -539,9 +539,9 @@ a { color: var(--accent); }
 .inbox-pill .head { cursor: grab; touch-action: none; }
 .inbox-pill[data-dragging] .head { cursor: grabbing; }
 .inbox-pill[data-dragging] { user-select: none; }
-.inbox-pill :is(.pill-reset, .pill-close) { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.inbox-pill :is(.pill-reset, .pill-close):hover { background: var(--surface-hover); color: var(--ink); }
-.inbox-pill :is(.pill-reset, .pill-close) svg { width: 14px; height: 14px; }
+.inbox-pill :is(.float-reset, .pill-close) { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.inbox-pill :is(.float-reset, .pill-close):hover { background: var(--surface-hover); color: var(--ink); }
+.inbox-pill :is(.float-reset, .pill-close) svg { width: 14px; height: 14px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
 .wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
@@ -987,7 +987,16 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
 
 .canvas .react-flow__panel.bottom { margin-bottom: calc(15px + var(--composer-room, 0px)); }
-.composer-float { position: absolute; left: 50%; bottom: 14px; z-index: 9; width: min(600px, calc(100% - 32px)); transform: translateX(-50%); }
+.composer-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.composer-float { position: absolute; width: min(calc(600px * var(--float-zoom)), calc(100% - 24px)); pointer-events: auto; }
+.composer-float > .composer { zoom: var(--float-zoom); }
+.composer-float .composer-to { cursor: grab; touch-action: none; }
+.composer-float[data-dragging] .composer-to { cursor: grabbing; }
+.composer-float[data-dragging] { user-select: none; }
+.composer-to .float-reset { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: -3px 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.composer-to .node-name { min-width: 0; padding: 0; border: 0; background: none; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.composer-to .node-name:hover b { text-decoration: underline; }
+.composer-to .float-reset:hover { background: var(--surface-hover); color: var(--ink); }
 .composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 8px 8px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
 .composer:focus-within, .composer[data-dragging] { border-color: var(--accent); }
 .composer-to { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; }

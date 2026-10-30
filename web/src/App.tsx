@@ -99,6 +99,9 @@ const EMPTY_SETTINGS: SettingsView = {
   repo: null,
   paneWidths: { side: null, dock: null },
   pillPlace: null,
+  composerPlace: null,
+  pillSize: 'normal',
+  composerSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
   closedPill: null,
@@ -554,7 +557,7 @@ export function App() {
                 <PlaceTag wsl={shown[0].wsl} />
               </h1>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -578,7 +581,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} />}
           </main>
           {dockOpen ? (
             <Dock

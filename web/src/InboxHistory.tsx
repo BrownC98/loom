@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getClosedWaits } from './api';
 import { useShowNodes } from './camera';
@@ -74,12 +75,15 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
     show([id]);
     props.onSelect(id);
   };
+  const latestGo = useRef(go);
+  latestGo.current = go;
+  const onGo = useCallback((id: NodeId) => latestGo.current(id), []);
   if (list === null) return refusal ? <p className="inbox-empty refusal">{refusal}</p> : null;
   if (list.length === 0) return <p className="inbox-empty">{t('inbox.historyEmpty')}</p>;
   return (
     <ul className="wait-list history">
       {list.map((w) => (
-        <HistoryRow key={w.seq} closed={w} onGo={go} onRefusal={setRefusal} />
+        <HistoryRow key={w.seq} closed={w} onGo={onGo} onRefusal={setRefusal} t={t} />
       ))}
       {more && (
         <li className="history-more">
@@ -97,8 +101,8 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
   );
 }
 
-function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onRefusal: (message: string) => void }) {
-  const { t } = useTranslation();
+const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onRefusal: (message: string) => void; t: TFunction }) {
+  const { t } = props;
   const { wait, node, chosen } = props.closed;
   const Icon = ICON[wait.tone];
   const choices = wait.choices ?? [];
@@ -144,15 +148,15 @@ function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onR
               ))}
             </div>
           )}
-          <ClosedLine closed={props.closed} />
+          <ClosedLine closed={props.closed} t={t} />
         </div>
       </div>
     </li>
   );
-}
+});
 
-function ClosedLine(props: { closed: ClosedWait }) {
-  const { t } = useTranslation();
+function ClosedLine(props: { closed: ClosedWait; t: TFunction }) {
+  const { t } = props;
   const { how, chosen, closedAt } = props.closed;
   const said = 'text' in how && how.text !== chosen ? how.text : null;
   return (

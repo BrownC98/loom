@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -48,6 +51,8 @@ fn bashless() -> bool {
             .and_then(|dir| crate::wsl::of(&dir))
             .is_none()
 }
+
+const ROWS_PER_THREAD: usize = 16;
 
 const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
 
@@ -278,8 +283,40 @@ pub enum DocGroup {
     Report,
 }
 
-pub fn docs() -> Result<Vec<DocRow>, String> {
-    Ok(Store::here()?.docs())
+pub fn docs(titles: &Titles) -> Result<Vec<DocRow>, String> {
+    Ok(Store::here()?.docs(titles))
+}
+
+#[derive(Default)]
+pub struct Titles(Mutex<HashMap<PathBuf, ReadTitle>>);
+
+struct ReadTitle {
+    modified: SystemTime,
+    len: u64,
+    title: Option<String>,
+}
+
+impl Titles {
+    fn of(&self, path: &Path) -> Option<String> {
+        let meta = fs::metadata(path).ok()?;
+        let (modified, len) = (meta.modified().ok()?, meta.len());
+        if let Some(read) = self.0.lock().unwrap().get(path)
+            && (read.modified, read.len) == (modified, len)
+        {
+            return read.title.clone();
+        }
+        let text = fs::read_to_string(path).ok()?;
+        let title = title(&text).map(|t| bare_title(t).to_owned());
+        self.0.lock().unwrap().insert(
+            path.to_path_buf(),
+            ReadTitle {
+                modified,
+                len,
+                title: title.clone(),
+            },
+        );
+        title
+    }
 }
 
 struct Store {
@@ -351,23 +388,37 @@ impl Store {
         })
     }
 
-    fn docs(&self) -> Vec<DocRow> {
+    fn docs(&self, titles: &Titles) -> Vec<DocRow> {
         let rows = self.rows();
         let mut seen = std::collections::HashSet::new();
-        let mut docs: Vec<DocRow> = table_rows(&rows)
+        let listed: Vec<(&str, &str)> = table_rows(&rows)
             .filter(|(path, id)| html(Path::new(path)) && seen.insert(*id))
-            .map(|(path, id)| self.row(id, Path::new(path)))
             .collect();
+        let mut docs: Vec<DocRow> = std::thread::scope(|scope| {
+            let parts: Vec<_> = listed
+                .chunks(ROWS_PER_THREAD)
+                .map(|part| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .map(|(path, id)| self.row(id, Path::new(path), titles))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            parts
+                .into_iter()
+                .flat_map(|part| part.join().unwrap())
+                .collect()
+        });
         docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
         docs
     }
 
-    fn row(&self, id: &str, source: &Path) -> DocRow {
+    fn row(&self, id: &str, source: &Path, titles: &Titles) -> DocRow {
         let copy = self.snapshot(id, source).filter(|c| c.is_file());
         let live = source.is_file();
         let shown = if live { Some(source) } else { copy.as_deref() };
-        let text = shown.and_then(|p| fs::read_to_string(p).ok());
-        let title = text.and_then(|text| title(&text).map(|t| bare_title(t).to_owned()));
+        let title = shown.and_then(|p| titles.of(p));
         let file_name = || {
             source
                 .file_name()

@@ -178,8 +178,11 @@ async fn answer_dialog(
     Ok(())
 }
 
-async fn list_docs() -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
-    Ok(Json(user_doc::docs().map_err(internal)?))
+async fn list_docs(State(app): State<Arc<App>>) -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
+    let docs = tokio::task::spawn_blocking(move || user_doc::docs(&app.doc_titles))
+        .await
+        .map_err(internal)?;
+    Ok(Json(docs.map_err(internal)?))
 }
 
 async fn open_doc(

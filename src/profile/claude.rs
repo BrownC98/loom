@@ -568,7 +568,7 @@ const RATE_LIMIT_ERROR: &str = "rate_limit";
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 
 impl Event {
-    fn name(&self) -> &'static str {
+    pub(super) fn name(&self) -> &'static str {
         match self {
             Event::SessionStart { .. } => "SessionStart",
             Event::UserPromptSubmit { .. } => "UserPromptSubmit",
@@ -659,7 +659,7 @@ impl Event {
     pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Option<Value> {
         let text = super::hook_text(taken, note);
         if let Event::PreToolUse { tool_name, .. } = self
-            && tool_name == ASK_TOOL
+            && [ASK_TOOL, "ask_user_question"].contains(&tool_name.as_str())
         {
             let parts: Vec<String> = [ASK_REDIRECT.to_owned()].into_iter().chain(text).collect();
             return Some(deny(parts.join("\n\n")));
@@ -759,7 +759,10 @@ fn context(event: &str, text: String) -> Value {
 }
 
 fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
-    if tool_name != "Bash" || input["run_in_background"] == true {
+    if !["Bash", "run_shell_command"].contains(&tool_name)
+        || input["run_in_background"] == true
+        || input["is_background"] == true
+    {
         return None;
     }
     let command = input["command"].as_str()?;

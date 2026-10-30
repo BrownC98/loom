@@ -36,7 +36,7 @@
   {"id": "droid", "label": "Droid", "cmd": "droid", "prompt": "argv", "homepage": "https://docs.factory.ai/cli/getting-started/quickstart"},
   {"id": "kimi", "label": "Kimi", "cmd": "kimi", "aliases": ["kimi-code"], "prompt": "none", "homepage": "https://www.kimi.com/code/docs/en/kimi-code-cli/getting-started.html"},
   {"id": "mistral-vibe", "label": "Mistral Vibe", "cmd": "vibe", "aliases": ["mistral-vibe"], "prompt": "none", "homepage": "https://github.com/mistralai/mistral-vibe"},
-  {"id": "qwen-code", "label": "Qwen Code", "cmd": "qwen", "prompt": "none", "homepage": "https://github.com/QwenLM/qwen-code"},
+  {"id": "qwen-code", "label": "Qwen Code", "cmd": "qwen", "bypass": ["--yolo"], "prompt": {"flag": "--prompt-interactive"}, "profile": "qwenCode", "homepage": "https://github.com/QwenLM/qwen-code"},
   {"id": "rovo", "label": "Rovo Dev", "cmd": "acli", "args": ["rovodev", "run"], "prompt": "none", "homepage": "https://support.atlassian.com/rovo/docs/install-and-run-rovo-dev-cli-on-your-device/"},
   {"id": "hermes", "label": "Hermes", "cmd": "hermes", "args": ["--tui"], "prompt": "none", "homepage": "https://hermes-agent.nousresearch.com/docs/"},
   {"id": "devin", "label": "Devin", "cmd": "devin", "prompt": "none", "homepage": "https://devin.ai/cli"},

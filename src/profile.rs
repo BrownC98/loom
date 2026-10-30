@@ -8,6 +8,7 @@ pub mod omp;
 pub mod opencode2;
 pub mod pi;
 pub mod process;
+mod qwen;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,6 +38,7 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 #[ts(export)]
 pub enum Profile {
     Claude,
+    QwenCode,
     Codex,
     #[serde(rename = "opencode2")]
     OpenCode2,
@@ -104,6 +106,7 @@ pub trait HookEvent {
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum HookEntry {
     Claude,
+    Qwen,
     Cursor,
     CursorRules,
     Pi,
@@ -142,6 +145,7 @@ pub struct Unserved {
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Qwen => Hook::Once(|input| Ok(Box::new(qwen::Hook::deserialize(input)?))),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
@@ -190,6 +194,7 @@ fn file_name(program: &str) -> &str {
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
+        Profile::QwenCode => &qwen::Qwen,
         Profile::Codex => &codex::Codex,
         Profile::OpenCode2 => &opencode2::OpenCode2,
         Profile::Cursor => &cursor::Cursor,

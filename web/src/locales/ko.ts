@@ -230,6 +230,7 @@ const ko: typeof en = {
       cursor: 'cursor-agent {{installed}} · 고정 {{pinned}}',
       pi: 'pi {{installed}} · 고정 {{pinned}}',
       omp: 'omp {{installed}} · 고정 {{pinned}}',
+      qwenCode: 'qwen {{installed}} · 고정 {{pinned}}',
       dsh: 'dsh-tui {{installed}} · 고정 {{pinned}}',
     },
     messaging: '메시지 연동',

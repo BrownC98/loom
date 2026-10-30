@@ -56,11 +56,12 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   }, [n, shown]);
 
   const at = drag.at ?? (pane && box ? placeOf(props.place ?? PILL_HOME, pane, box) : null);
+  const zoom = floatZoom(props.size);
   return (
     <div className="inbox" ref={paneRef}>
       {first && shown && (
         <div ref={group} className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <div ref={pill} className="inbox-pill" style={{ zoom: floatZoom(props.size) }} data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
+          <div ref={pill} className="inbox-pill" style={{ zoom }} data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
             <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
             {!line && (
               <div className="pill-row">
@@ -69,7 +70,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
             )}
           </div>
           {open && n > 0 && at && pane && box && (
-            <InboxPop label={t('inbox.title', { count: n })} pill={pill} left={popLeft(at.left, box.w, popWidth(pane), pane.w)} width={popWidth(pane)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
+            <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={popLeft(at.left, box.w, popWidth(pane, zoom), pane.w)} width={popWidth(pane, zoom)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
               <WaitList
                 waiting={props.waiting}
                 onGo={go}
@@ -87,12 +88,12 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
 }
 
 const POP_WIDTH = 520;
-const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * FLOAT_MARGIN));
+const popWidth = (pane: Size, zoom: number) => Math.min(POP_WIDTH * zoom, Math.max(0, pane.w - 2 * FLOAT_MARGIN));
 
-function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; zoom: number; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
   return (
-    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ left: props.left, width: props.width, maxHeight: props.room }} role="dialog" aria-label={props.label}>
+    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ zoom: props.zoom, left: props.left / props.zoom, width: props.width / props.zoom, maxHeight: props.room / props.zoom }} role="dialog" aria-label={props.label}>
       <h2>{props.label}</h2>
       {props.children}
     </div>

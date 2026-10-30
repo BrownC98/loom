@@ -14,8 +14,8 @@ const ROW_HEIGHT = 22;
 const CURVE_RADIUS = 5;
 const CIRCLE_RADIUS = 4;
 const REFRESH_MS = 3000;
-const PAGE = 500;
-const LOAD_AHEAD = 200;
+const PAGE = 100;
+const LOAD_AHEAD = 20;
 const OVERSCAN = 10;
 
 type Loaded = { version: string; worktrees: Worktree[]; rows: Row[]; end: LaneState; lanes: number; done: boolean };

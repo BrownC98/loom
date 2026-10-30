@@ -564,9 +564,10 @@ impl Port for AgentPort {
     fn ready(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             tokio::select! {
+                biased;
+                () = self.until_ended() => Err("node launch ended before adapter input".to_owned()),
                 bound = tokio::time::timeout(ADAPTER_BIND_TIMEOUT, self.bound()) => bound
                     .map(drop).map_err(|_| "node registration timed out before adapter input".to_owned()),
-                () = self.until_ended() => Err("node launch ended before adapter input".to_owned()),
             }
         })
     }

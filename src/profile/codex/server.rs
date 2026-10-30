@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,14 +21,13 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use super::Status;
 use super::protocol::{
     CodexErrorInfo, CommandExecutionRequestApprovalParams, ErrorNotification,
     FileChangeRequestApprovalParams, GetAccountParams, GetAccountResponse, RequestId,
     ServerRequestResolvedNotification, ThreadActiveFlag, ThreadBackgroundTerminalsCleanParams,
-    ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification, ThreadStatus,
-    ThreadStatusChangedNotification, Turn,
+    ThreadItem, ThreadReadParams, ThreadStatus, ThreadStatusChangedNotification, Turn,
 };
+use super::{Codex, Status};
 use crate::process_tree::{Listen, Snapshot};
 use crate::profile::adapter::Chosen;
 use crate::profile::process::Served;
@@ -123,7 +125,7 @@ struct Listener {
 }
 
 #[cfg(unix)]
-fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
+fn socket_listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
     let socket = task.local.join(format!("{name}.sock"));
     Ok(Listener {
         at: Listen::Socket(socket.clone()),
@@ -133,13 +135,19 @@ fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
     })
 }
 
-#[cfg(windows)]
-fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
+fn websocket_listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
     let port = crate::process_tree::free_port()?;
     let token = crate::pake::random_token();
     let file = format!("{name}.token");
     let secret = task.local.join(&file);
-    std::fs::write(&secret, &token).map_err(|e| format!("{}: {e}", secret.display()))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options
+        .open(&secret)
+        .and_then(|mut file| file.write_all(token.as_bytes()))
+        .map_err(|e| format!("{}: {e}", secret.display()))?;
     Ok(Listener {
         at: Listen::Port(port),
         address: Address::Ws {
@@ -154,6 +162,22 @@ fn listener(task: &TaskDir, name: &str) -> Result<Listener, String> {
         ],
         secret: Some(secret),
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadInfo {
+    pub id: String,
+    pub ephemeral: bool,
+    pub status: ThreadStatus,
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ThreadRead {
+    pub thread: ThreadInfo,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -257,6 +281,7 @@ pub struct CodexServer {
 
 impl CodexServer {
     pub async fn start(
+        agent: Codex,
         cwd: &Path,
         inside: Option<&Inside>,
         node_env: &[(&'static str, OsString)],
@@ -266,7 +291,11 @@ impl CodexServer {
         std::fs::create_dir_all(&task.local)
             .map_err(|e| format!("{}: {e}", task.local.display()))?;
         let name = format!("codex-{}", &crate::pake::random_token()[..NAME_CHARS]);
-        let listener = listener(task, &name)?;
+        let listener = match agent {
+            #[cfg(unix)]
+            Codex::OpenAi => socket_listener(task, &name)?,
+            _ => websocket_listener(task, &name)?,
+        };
         let mut args = config.to_vec();
         let path = match inside {
             Some(inside) => Some(inside.node_path()),
@@ -287,8 +316,8 @@ impl CodexServer {
             listener.address.url(),
         ]);
         args.extend(listener.args);
-        let argv = [&["codex".to_owned()], &args[..]].concat();
-        let failed = |e| format!("`codex app-server`: {e}");
+        let argv = [&[agent.program().to_owned()], &args[..]].concat();
+        let failed = |e| format!("`{} app-server`: {e}", agent.program());
         let started =
             Served::start(&argv, cwd, inside, node_env, &listener.at, REPLY_TIMEOUT).await;
         if let Some(secret) = &listener.secret
@@ -322,7 +351,7 @@ impl CodexServer {
             .read(&id)
             .await
             .map(|read| read.thread.status)
-            .inspect_err(|e| eprintln!("loom: Codex 스레드 {id}의 상태를 읽지 못했다: {e}"))
+            .inspect_err(|e| eprintln!("loom: app-server 스레드 {id}의 상태를 읽지 못했다: {e}"))
             .unwrap_or(ThreadStatus::Idle);
         if let Some(tx) = self.thread_tx.upgrade() {
             tx.send_replace(Some(Thread::new(id, &status)));
@@ -380,7 +409,7 @@ impl CodexServer {
                 }),
             Err(e) => {
                 eprintln!(
-                    "loom: Codex 스레드 {}의 진행 중인 턴을 읽지 못했다: {e}",
+                    "loom: app-server 스레드 {}의 진행 중인 턴을 읽지 못했다: {e}",
                     asked.thread_id
                 );
                 None
@@ -440,7 +469,7 @@ impl CodexServer {
         }
     }
 
-    async fn read(&self, thread: &str) -> Result<ThreadReadResponse, String> {
+    async fn read(&self, thread: &str) -> Result<ThreadRead, String> {
         let params = ThreadReadParams {
             thread_id: thread.to_owned(),
             include_turns: Some(false),
@@ -623,7 +652,7 @@ fn receive(
     }
     match msg["method"].as_str() {
         Some("thread/started") => {
-            let Ok(started) = serde_json::from_value::<ThreadStartedNotification>(params) else {
+            let Ok(started) = serde_json::from_value::<ThreadRead>(params) else {
                 return;
             };
             if !started.thread.ephemeral {

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,6 +63,7 @@ impl Server {
         for event in ["PreToolUse", "PostToolUse", "PostToolUseFailure"] {
             settings["hooks"][event] = json!([{"command": HOOK, "timeout": 10}]);
         }
+        settings["options"]["skills_paths"] = json!([at.skills]);
         std::fs::write(&config, settings.to_string()).map_err(|e| e.to_string())?;
         let port = process_tree::free_port()?;
         let host = format!("tcp://127.0.0.1:{port}");
@@ -104,7 +104,6 @@ impl Server {
                 "yolo": !bypass.is_empty(),
                 "env": at.env.iter().map(|(k,v)| format!("{k}={}", v.to_string_lossy())).collect::<Vec<_>>(),
         });
-        let skills = at.skills.to_owned();
         let choice = ModelChoice {
             model: start.model.clone(),
             effort: start.effort.clone(),
@@ -114,20 +113,15 @@ impl Server {
             Some(_) => {
                 let mut initializing = server.clone();
                 started.before_start = Some(Box::pin(async move {
-                    initializing.initialize(workspace, skills, choice).await
+                    initializing.initialize(workspace, choice).await
                 }));
             }
-            None => server.initialize(workspace, skills, choice).await?,
+            None => server.initialize(workspace, choice).await?,
         }
         Ok((server, started))
     }
 
-    async fn initialize(
-        &mut self,
-        workspace: Value,
-        skills: PathBuf,
-        choice: ModelChoice,
-    ) -> Result<(), String> {
+    async fn initialize(&mut self, workspace: Value, choice: ModelChoice) -> Result<(), String> {
         let initialized = async {
             let workspace = self.call("POST", "/workspaces", Some(workspace)).await?;
             self.workspace = field(&workspace, "id")?;
@@ -144,14 +138,6 @@ impl Server {
                 "/config/set",
                 Some(json!({
                     "scope": 1, "key": "options.context_paths", "value": context,
-                })),
-            )
-            .await?;
-            self.workspace(
-                "POST",
-                "/config/set",
-                Some(json!({
-                    "scope": 1, "key": "options.skills_paths", "value": [skills],
                 })),
             )
             .await?;

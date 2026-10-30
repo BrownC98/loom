@@ -38,6 +38,7 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 pub enum Profile {
     Claude,
     Codex,
+    Trae,
     #[serde(rename = "opencode2")]
     OpenCode2,
     Cursor,
@@ -190,7 +191,8 @@ fn file_name(program: &str) -> &str {
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
-        Profile::Codex => &codex::Codex,
+        Profile::Codex => &codex::Codex::OpenAi,
+        Profile::Trae => &codex::Codex::Trae,
         Profile::OpenCode2 => &opencode2::OpenCode2,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,

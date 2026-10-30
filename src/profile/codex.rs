@@ -23,7 +23,7 @@ use crate::protocol::{
 };
 use crate::screen::{Dialog, Grammar, Options, Top};
 use crate::skills::Launch;
-use server::{Address, Approval, Asked, CodexServer};
+use server::{Address, Approval, Asked, CodexServer, ThreadInfo, ThreadRead};
 
 pub mod server;
 mod stdio;
@@ -35,12 +35,12 @@ pub mod protocol {
 }
 
 use protocol::{
-    AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, Thread, ThreadItem,
-    ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse,
-    TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
+    AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, ThreadItem, ThreadReadParams,
+    ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams, TurnItemsView,
+    TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
-const LOGIN_TEXT: &str = "Codex에 로그인하지 않았습니다. 노드 터미널에서 로그인하십시오.";
+const LOGIN_TEXT: &str = "에이전트에 로그인하지 않았습니다. 노드 터미널에서 로그인하십시오.";
 
 pub const PROMPT: Grammar = Grammar {
     top: Top::Line("Would you like to"),
@@ -77,18 +77,37 @@ const CARRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const DATE_DIRS: usize = 3;
 const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 
-pub struct Codex;
+#[derive(Clone, Copy)]
+pub enum Codex {
+    OpenAi,
+    Trae,
+}
+
+impl Codex {
+    fn program(self) -> &'static str {
+        match self {
+            Self::OpenAi => CMD,
+            Self::Trae => "traecli",
+        }
+    }
+}
 
 impl super::adapter::Adapter for Codex {
     fn facts(&self) -> Facts {
         Facts {
-            logins: Logins::Many(&CLI, &Codex),
+            logins: match self {
+                Self::OpenAi => Logins::Many(&CLI, &Codex::OpenAi),
+                Self::Trae => Logins::None,
+            },
             sleeps: true,
             listens_at_start: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
-            pinned: Some(CMD),
-            usage_part: "usage/codex",
+            pinned: Some(self.program()),
+            usage_part: match self {
+                Self::OpenAi => "usage/codex",
+                Self::Trae => "usage/trae",
+            },
             waiting: WAITING,
             helper_shells: &[],
         }
@@ -111,24 +130,30 @@ impl super::adapter::Adapter for Codex {
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
         Box::pin(async move {
             let helper = |cause| LaunchError::Helper {
-                program: "codex app-server".into(),
+                program: format!("{} app-server", self.program()),
                 cause,
             };
             let task = at.task.ok_or_else(|| helper("작업 폴더가 없다".into()))?;
             let trust = trust_args(at);
-            let config: Vec<String> = sandbox_args(at.version, at.node_ip)
+            let sandbox = match self {
+                Self::OpenAi => sandbox_args(at.version, at.node_ip),
+                Self::Trae => Vec::new(),
+            };
+            let config: Vec<String> = sandbox
                 .into_iter()
                 .chain(server_args(at.launch))
                 .chain(trust.iter().cloned())
                 .collect();
             #[cfg(unix)]
-            make_home(at.env).map_err(helper)?;
-            let server = CodexServer::start(at.cwd, at.inside, at.env, &config, task)
+            if let Self::OpenAi = self {
+                make_home(at.env).map_err(helper)?;
+            }
+            let server = CodexServer::start(*self, at.cwd, at.inside, at.env, &config, task)
                 .await
                 .map_err(helper)?;
             let call = |method, params| server.call(method, params);
             if let Err(e) = add_skills(call, at.skills).await {
-                eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
+                eprintln!("loom: app-server에 내장 스킬을 더하지 못했다: {e}");
             }
             server.address().tui(cmd);
             cmd.args(trust);
@@ -207,13 +232,20 @@ impl super::adapter::Adapter for Codex {
 
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
         let installed = version_output.split_whitespace().last()?;
-        (installed != PINNED_VERSION).then(|| VersionMismatch {
+        let pinned = match self {
+            Self::OpenAi => PINNED_VERSION,
+            Self::Trae => "0.212.1",
+        };
+        (installed != pinned).then(|| VersionMismatch {
             installed: installed.to_owned(),
-            pinned: PINNED_VERSION.to_owned(),
+            pinned: pinned.to_owned(),
         })
     }
 
     fn carry(&self, thread: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
+        if let Self::Trae = self {
+            return Ok(());
+        }
         let root = |account| {
             to.site
                 .login_dir(&CLI, account)
@@ -258,7 +290,7 @@ fn rollout(at: &Carry<'_>, thread: &str) -> Result<PathBuf, ResumeError> {
                 stdio::Failure::NoReply => "`codex app-server`: thread/read에 답이 없다".to_owned(),
             }
         })?;
-    let path = serde_json::from_value::<ThreadReadResponse>(read)
+    let path = serde_json::from_value::<ThreadRead>(read)
         .ok()
         .and_then(|read| read.thread.path)
         .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
@@ -333,7 +365,7 @@ where
         thread_id: thread.to_owned(),
         include_turns: Some(false),
     };
-    let read: ThreadReadResponse = rpc.send("thread/read", &params).await?;
+    let read: ThreadRead = rpc.send("thread/read", &params).await?;
     Ok(thread_model(&read.thread))
 }
 
@@ -349,10 +381,10 @@ where
     call("skills/extraRoots/set", params).await.map(drop)
 }
 
-fn thread_model(thread: &Thread) -> Model {
+fn thread_model(thread: &ThreadInfo) -> Model {
     Model {
         model: thread.model.clone(),
-        effort: thread.reasoning_effort.as_deref().cloned(),
+        effort: thread.reasoning_effort.clone(),
     }
 }
 
@@ -446,7 +478,7 @@ async fn human_wait(
     match server.logged_out().await {
         Ok(true) => return Some((WaitKind::Auth, LOGIN_TEXT.to_owned(), None)),
         Ok(false) => {}
-        Err(e) => eprintln!("loom: Codex 로그인 상태를 읽지 못했다: {e}"),
+        Err(e) => eprintln!("loom: app-server 로그인 상태를 읽지 못했다: {e}"),
     }
     let now = thread?;
     match approvals.iter().find(|a| a.thread() == now.id) {
@@ -507,7 +539,9 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
             if now.status == Status::Busy && subscribed.as_ref() != Some(&now.id) {
                 match server.subscribe(&now.id).await {
                     Ok(()) => subscribed = Some(now.id.clone()),
-                    Err(e) => eprintln!("loom: Codex 스레드 {}를 구독하지 못했다: {e}", now.id),
+                    Err(e) => {
+                        eprintln!("loom: app-server 스레드 {}를 구독하지 못했다: {e}", now.id)
+                    }
                 }
             }
             port.report(Report::Session(Session(now.id.clone())));
@@ -516,8 +550,11 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
             let before = status.replace(now.status);
             match now.status {
                 Status::Busy => {
-                    if before == Some(Status::Idle) && !ours {
-                        human_input(&server, &*port, &now.id, &mut idle).await;
+                    if before == Some(Status::Idle) {
+                        match ours {
+                            true => idle = None,
+                            false => human_input(&server, &*port, &now.id, &mut idle).await,
+                        }
                     }
                     if before != Some(Status::Busy) {
                         port.report(Report::Busy);
@@ -581,10 +618,10 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                         let call = |method, params| server.call(method, params);
                         match start_turn(call, &id, &nudge).await {
                             Ok(()) => ours = true,
-                            Err(e) => eprintln!("loom: Codex 스레드 {id}를 다시 일하게 하지 못했다: {e}"),
+                            Err(e) => eprintln!("loom: app-server 스레드 {id}를 다시 일하게 하지 못했다: {e}"),
                         }
                     }
-                    Err(e) => eprintln!("loom: Codex 스레드 {id}의 쉬는 대기가 끝났다: {e}"),
+                    Err(e) => eprintln!("loom: app-server 스레드 {id}의 쉬는 대기가 끝났다: {e}"),
                 }
             }
             mail = pending(&mut busy) => {
@@ -599,7 +636,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                             busy = Some(port.next_mail(BUSY_KINDS));
                         }
                     }
-                    Err(e) => eprintln!("loom: Codex 스레드 {id}의 메일함을 읽지 못했다: {e}"),
+                    Err(e) => eprintln!("loom: app-server 스레드 {id}의 메일함을 읽지 못했다: {e}"),
                 }
             }
         }
@@ -621,7 +658,7 @@ fn read_model(
         let call = |method, params| server.call(method, params);
         match model(call, &thread).await {
             Ok(model) => drop(read.send((asked, model))),
-            Err(e) => eprintln!("loom: Codex 스레드 {thread}의 모델을 읽지 못했다: {e}"),
+            Err(e) => eprintln!("loom: app-server 스레드 {thread}의 모델을 읽지 못했다: {e}"),
         }
     });
 }
@@ -645,7 +682,7 @@ async fn human_input(
     let note = match port.take(req) {
         Ok(taken) => taken.note,
         Err(e) => {
-            eprintln!("loom: Codex 스레드 {thread}의 사람 입력을 처리하지 못했다: {e}");
+            eprintln!("loom: app-server 스레드 {thread}의 사람 입력을 처리하지 못했다: {e}");
             return;
         }
     };
@@ -656,7 +693,7 @@ async fn human_input(
         }
         Some(Ok(IdleReply::Nudge { nudge })) => {
             if let Err(e) = steer(call, thread, &nudge).await {
-                eprintln!("loom: Codex 스레드 {thread}를 다시 일하게 하지 못했다: {e}");
+                eprintln!("loom: app-server 스레드 {thread}를 다시 일하게 하지 못했다: {e}");
             }
         }
         _ => {}
@@ -664,7 +701,7 @@ async fn human_input(
     if let Some(note) = note
         && let Err(e) = steer(call, thread, &note).await
     {
-        eprintln!("loom: Codex 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
+        eprintln!("loom: app-server 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
     }
 }
 
@@ -672,7 +709,7 @@ async fn ended_turn(server: &CodexServer, thread: &str) -> EndedTurn {
     let call = |method, params| server.call(method, params);
     let reply = last_reply(call, thread)
         .await
-        .inspect_err(|e| eprintln!("loom: Codex 스레드 {thread}의 답 글을 읽지 못했다: {e}"))
+        .inspect_err(|e| eprintln!("loom: app-server 스레드 {thread}의 답 글을 읽지 못했다: {e}"))
         .ok()
         .flatten();
     EndedTurn { reply, turn: None }
@@ -698,14 +735,14 @@ async fn hand(
     match delivered {
         Ok(()) => {
             if let Err(e) = port.ack(&ids) {
-                eprintln!("loom: Codex 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
+                eprintln!("loom: app-server 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
             }
             true
         }
         Err(cause) => {
-            eprintln!("loom: Codex 스레드 {thread}에 메시지를 넘기지 못했다: {cause}");
+            eprintln!("loom: app-server 스레드 {thread}에 메시지를 넘기지 못했다: {cause}");
             if let Err(e) = port.release(&ids) {
-                eprintln!("loom: Codex 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}");
+                eprintln!("loom: app-server 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}");
             }
             false
         }
@@ -719,7 +756,7 @@ async fn stop_turn(server: &CodexServer, thread: &str) -> Result<(), String> {
     let Err(e) = interrupted.and(cleaned) else {
         return Ok(());
     };
-    eprintln!("loom: Codex 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
+    eprintln!("loom: app-server 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
     server
         .kill_shells()
         .map_err(|killed| format!("턴을 끊지 못했다({e}). 셸도 끝내지 못했다: {killed}"))

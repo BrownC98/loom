@@ -226,6 +226,7 @@ const ko: typeof en = {
     versionWarning: {
       claude: 'claude {{installed}} · 고정 {{pinned}}',
       codex: 'codex {{installed}} · 고정 {{pinned}} · loom 명령마다 승인 필요',
+      trae: 'traecli {{installed}} · 고정 {{pinned}}',
       opencode2: 'opencode2 {{installed}} · 고정 {{pinned}}',
       cursor: 'cursor-agent {{installed}} · 고정 {{pinned}}',
       pi: 'pi {{installed}} · 고정 {{pinned}}',

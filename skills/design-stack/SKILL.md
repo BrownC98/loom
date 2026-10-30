@@ -34,7 +34,9 @@ Each skill that this file calls is in a folder next to this `SKILL.md`. Paths in
 
 Read each skill's `SKILL.md` as a file. Its relative links start in its own folder.
 
-Impeccable launcher: `sh <ds>/impeccable/scripts/impeccable <verb>`. The script does not have the execute bit, so call it with `sh` (with `node` it gives a SyntaxError). On a Windows shell without `sh`, call `<ds>/impeccable/scripts/impeccable.cmd <verb>`. On the first run the launcher downloads its engine into `~/.impeccable` (network necessary).
+loom rules and the project rules win over steps in these skills. Do not open the human's browser (also not a live server that "presents the browser"). Do not run `impeccable hooks`, `update` or `pin`: they write into the plugin folder, and the daemon deletes and writes that folder again at each start.
+
+Impeccable launcher: `sh <ds>/impeccable/scripts/impeccable <verb>`. The script does not have the execute bit, so call it with `sh` (with `node` it gives a SyntaxError). On a Windows shell without `sh`, call `<ds>/impeccable/scripts/impeccable.cmd <verb>`. On the first run the launcher downloads its engine into `~/.impeccable` (network necessary). The download has no time limit. Thus give each launcher call a time limit of 120 seconds (your shell tool's timeout, or `timeout 120` where it exists). If the call does not end in that time, stop its process and use Impeccable's "Launcher unavailable" fallback.
 
 The web-design-guidelines rules come from a URL. If your runtime has no WebFetch tool (Cursor, Codex and others), get them with `curl -fsSL <URL>`.
 

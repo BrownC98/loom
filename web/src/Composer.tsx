@@ -22,27 +22,34 @@ const COMPOSER_ROOM = '--composer-room';
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
 
-const uploads = new Map<string, ReadonlySet<Promise<unknown>>>();
-const heardUploads = new Set<() => void>();
-
-const listenUploads = (heed: () => void) => {
-  heardUploads.add(heed);
-  return () => void heardUploads.delete(heed);
-};
-const setUploads = (key: string, next: ReadonlySet<Promise<unknown>>) => {
-  if (next.size > 0) uploads.set(key, next);
-  else uploads.delete(key);
-  heardUploads.forEach((heed) => heed());
-};
-
-function holdUpload(key: string, upload: Promise<unknown>) {
-  setUploads(key, new Set([...(uploads.get(key) ?? []), upload]));
-  void upload.finally(() => setUploads(key, new Set([...(uploads.get(key) ?? [])].filter((u) => u !== upload))));
+function keyed<T>(none: T) {
+  const values = new Map<string, T>();
+  const heard = new Set<() => void>();
+  const listen = (heed: () => void) => {
+    heard.add(heed);
+    return () => void heard.delete(heed);
+  };
+  const get = (key: string) => values.get(key) ?? none;
+  const set = (key: string, next: T) => {
+    if (next === none) values.delete(key);
+    else values.set(key, next);
+    heard.forEach((heed) => heed());
+  };
+  return { get, set, use: (key: string) => useSyncExternalStore(listen, () => get(key)) };
 }
 
-const uploadsDone = (key: string) => Promise.all([...(uploads.get(key) ?? [])]);
+const NO_UPLOADS: readonly Promise<unknown>[] = [];
+const uploads = keyed(NO_UPLOADS);
+const sendings = keyed(false);
+const refusals = keyed<string | null>(null);
 
-const useUploads = (key: string) => useSyncExternalStore(listenUploads, () => uploads.get(key)?.size ?? 0);
+function holdUpload(key: string, upload: Promise<unknown>) {
+  uploads.set(key, [...uploads.get(key), upload]);
+  void upload.finally(() => {
+    const rest = uploads.get(key).filter((u) => u !== upload);
+    uploads.set(key, rest.length > 0 ? rest : NO_UPLOADS);
+  });
+}
 
 export function CanvasComposer(props: ComposerProps) {
   const input = useNodeInput(props.node);
@@ -72,8 +79,8 @@ export function Composer(props: ComposerProps) {
   const { t } = useTranslation();
   const key = `composer:${props.node}`;
   const [text, setText] = useDraft(key);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  const refusal = refusals.use(key);
+  const setRefusal = (message: string | null) => refusals.set(key, message);
   const [dragging, setDragging] = useState(false);
   const images = useImages(key, props.node, setRefusal);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -93,7 +100,8 @@ export function Composer(props: ComposerProps) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, [text]);
-  const filing = useUploads(key);
+  const filing = uploads.use(key).length;
+  const sending = sendings.use(key);
   const ready = text.trim() !== '' || images.list.length > 0 || filing > 0 || props.keys.blank !== null;
 
   const insertPath = (path: string) => {
@@ -108,6 +116,7 @@ export function Composer(props: ComposerProps) {
     requestAnimationFrame(() => caret !== null && el?.isConnected && el.setSelectionRange(caret, caret));
   };
   const take = (files: File[]) => {
+    if (sendings.get(key)) return;
     setRefusal(null);
     images.attach(files.filter(isImage));
     for (const file of files.filter((f) => !isImage(f))) {
@@ -125,9 +134,10 @@ export function Composer(props: ComposerProps) {
 
   const send = () => {
     setRefusal(null);
-    setSending(true);
+    if (sendings.get(key)) return;
+    sendings.set(key, true);
     const attached = images.list.length;
-    Promise.all([images.paths(), uploadsDone(key)])
+    Promise.all([images.paths(), Promise.all(uploads.get(key))])
       .then(([saved]) => {
         const body = readDraft(key).trimEnd();
         const input = deliverable();
@@ -142,7 +152,7 @@ export function Composer(props: ComposerProps) {
         images.forget(saved.ids);
       })
       .catch((err: Error) => setRefusal(err.message))
-      .finally(() => setSending(false));
+      .finally(() => sendings.set(key, false));
   };
   const submit = () => {
     if (!composition.current?.afterText(send)) send();

@@ -157,10 +157,7 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         );
     let replaced = matches!(
         event,
-        AgentEvent::RelaunchStarted
-            | AgentEvent::Relaunched
-            | AgentEvent::Exited
-            | AgentEvent::Slept
+        AgentEvent::Relaunched | AgentEvent::Exited | AgentEvent::Slept
     );
     if replaced {
         db.execute(

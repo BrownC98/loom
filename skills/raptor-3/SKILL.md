@@ -59,7 +59,7 @@ For each audit unit, also find these on screens:
 
 1. Collect evidence.
    - On the preview server, capture the screens at desktop width. Do not examine mobile screens.
-   - If a design check skill (for example `design-stack`) is available, do its review procedure for existing screens one time.
+   - For a screen, do the review procedure of the built-in skill `design-stack` for existing screens one time.
    - Use the captures again as the "current" screens in the mockup.
 2. Set the requirements. The mockup that the user approved is the requirement for a screen.
    - Do not list an element of the approved mockup as a candidate for deletion.

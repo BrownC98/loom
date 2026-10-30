@@ -27,7 +27,12 @@ impl Plugin {
                 }
                 keep.insert(path);
             }
-            prune(&skills, &keep)?;
+            if let Err(e) = prune(&skills, &keep) {
+                eprintln!(
+                    "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
+                    skills.display()
+                );
+            }
         }
         Ok(plugin)
     }

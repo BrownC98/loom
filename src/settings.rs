@@ -40,6 +40,7 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
     #[serde(default)]
     pub question_pill: QuestionPill,
+    pub composer_off: bool,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,

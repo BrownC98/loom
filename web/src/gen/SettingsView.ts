@@ -49,7 +49,7 @@ edgeStyle: EdgeStyle,
 /**
  * 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
  */
-questionPill: QuestionPill, 
+questionPill: QuestionPill, composerOff: boolean, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */

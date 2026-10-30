@@ -172,6 +172,17 @@ export function GraphTab({ settings, onSettings }: TabProps) {
       </section>
       <section>
         <h4>
+          {t('composer.heading')}
+          <FieldReset path={['composerOff']} />
+        </h4>
+        <label className="switch">
+          <input type="checkbox" checked={!settings.composerOff} onChange={(e) => onSettings({ ...settings, composerOff: !e.target.checked })} />
+          {t('composer.show')}
+        </label>
+        <span className="hint">{t('composer.hint')}</span>
+      </section>
+      <section>
+        <h4>
           {t('questionPill.place')}
           <FieldReset path={['pillPlace']} />
         </h4>

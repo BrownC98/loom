@@ -5,7 +5,7 @@ import { useDraft } from './drafts';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
 
-export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => void }) {
+export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => Promise<null> }) {
   const { prompt } = props;
   const id = useId();
   return (
@@ -53,7 +53,7 @@ export function keyLabel(key: PromptKey, index: number): string {
   }
 }
 
-function FieldForm(props: { id?: string; draft: string | null; secret: boolean; label?: string; busy: boolean; onType: (text: string) => void }) {
+function FieldForm(props: { id?: string; draft: string | null; secret: boolean; label?: string; busy: boolean; onType: (text: string) => Promise<null> }) {
   const { t } = useTranslation();
   const own = useState('');
   const kept = useDraft(props.draft ?? '');
@@ -64,8 +64,7 @@ function FieldForm(props: { id?: string; draft: string | null; secret: boolean; 
       className="answer"
       onSubmit={(e) => {
         e.preventDefault();
-        props.onType(text);
-        setText('');
+        props.onType(text).then(() => setText(''), () => {});
       }}
     >
       <input id={props.id} className="field" type={props.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} aria-label={label} />

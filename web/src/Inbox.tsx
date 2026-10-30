@@ -329,6 +329,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
     setRefusal(null);
     setChoosing(true);
     sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
+    return sent;
   };
   const drop: DOMAttributes<HTMLDivElement> = wait.answerable
     ? {

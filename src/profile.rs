@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
 pub mod cursor;
 pub mod dsh;
 mod lines;
@@ -38,6 +39,7 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 pub enum Profile {
     Claude,
     Codex,
+    Copilot,
     #[serde(rename = "opencode2")]
     OpenCode2,
     Cursor,
@@ -104,6 +106,7 @@ pub trait HookEvent {
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum HookEntry {
     Claude,
+    Copilot,
     Cursor,
     CursorRules,
     Pi,
@@ -142,6 +145,7 @@ pub struct Unserved {
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Copilot => Hook::Lines(|line| lines::request(line, "Copilot extension")),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
@@ -191,6 +195,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
         Profile::Codex => &codex::Codex,
+        Profile::Copilot => &copilot::Copilot,
         Profile::OpenCode2 => &opencode2::OpenCode2,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,

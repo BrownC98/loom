@@ -12,6 +12,7 @@ enum Bit {
     Asked,
     QuestionBox,
     Replied,
+    SubmittedInput,
 }
 
 impl Bit {
@@ -20,9 +21,9 @@ impl Bit {
     }
 }
 
-const _: () = match Bit::Replied {
-    Bit::Human | Bit::Called | Bit::KindNudged | Bit::Asked | Bit::QuestionBox => {}
-    last @ Bit::Replied => assert!((last as u32) < u8::BITS),
+const _: () = match Bit::SubmittedInput {
+    Bit::Human | Bit::Called | Bit::KindNudged | Bit::Asked | Bit::QuestionBox | Bit::Replied => {}
+    last @ Bit::SubmittedInput => assert!((last as u32) < u8::BITS),
 };
 
 #[derive(Clone, Copy)]
@@ -46,6 +47,7 @@ impl TurnMark {
 }
 
 const REPLIED: u8 = Bit::Replied.mask();
+pub(super) const SUBMITTED_INPUT: u8 = Bit::SubmittedInput.mask();
 
 fn set_flags(db: &Connection, node: NodeId, set: u8, clear: u8) -> rusqlite::Result<()> {
     db.execute(
@@ -68,6 +70,51 @@ fn late(db: &Connection, node: NodeId, turn: &str) -> rusqlite::Result<bool> {
 }
 
 impl Graph {
+    pub fn drafted(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock()
+            .query_row(
+                "SELECT drafted = 1 FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|drafted| drafted.unwrap_or(false))
+    }
+
+    pub fn begin_draft(&self, id: NodeId) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE nodes SET drafted = 1 WHERE id = ?1 AND drafted = 0",
+            [id.0],
+        )?;
+        Ok(())
+    }
+
+    pub fn submit_draft(&self, id: NodeId) -> rusqlite::Result<bool> {
+        Ok(self.lock().execute(
+            "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1 AND drafted = 1",
+            params![id.0, SUBMITTED_INPUT],
+        )? > 0)
+    }
+
+    pub fn input_submitted(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock()
+            .query_row(
+                "SELECT (turn_flags & ?2) != 0 FROM nodes WHERE id = ?1",
+                params![id.0, SUBMITTED_INPUT],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|submitted| submitted.unwrap_or(false))
+    }
+
+    pub fn end_draft(&self, id: NodeId) -> rusqlite::Result<bool> {
+        Ok(self.lock().execute(
+            "UPDATE nodes SET drafted = 0, turn_flags = turn_flags & ~?2
+             WHERE id = ?1 AND (drafted = 1 OR (turn_flags & ?2) != 0)",
+            params![id.0, SUBMITTED_INPUT],
+        )? > 0)
+    }
+
     pub fn mark_turn(&self, node: NodeId, mark: TurnMark) -> rusqlite::Result<()> {
         set_flags(&self.lock(), node, mark.mask(), 0)
     }
@@ -162,7 +209,7 @@ impl Graph {
         };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept],
+            params![node.0, kept | (flags & SUBMITTED_INPUT)],
         )?;
         tx.commit()?;
         Ok(check)

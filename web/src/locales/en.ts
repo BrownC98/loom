@@ -229,6 +229,7 @@ const en = {
       pi: 'pi {{installed}} · pinned {{pinned}}',
       omp: 'omp {{installed}} · pinned {{pinned}}',
       dsh: 'dsh-tui {{installed}} · pinned {{pinned}}',
+      antigravity: 'agy {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',
     docs: 'Docs',

@@ -6,7 +6,7 @@ const PROFILE_FILE: &str = "src/profile.rs";
 
 const ADAPTER_IMPL: &str = "Adapter for ";
 
-const SHOWN_AS: [(&str, &str); 2] = [("Omp", "OMP"), ("OpenCode2", "OpenCode")];
+const SHOWN_AS: [(&str, &str); 1] = [("Omp", "OMP")];
 
 const DATA: [(&str, &str); 6] = [
     (

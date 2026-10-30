@@ -5,18 +5,67 @@ use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{Value, json};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use crate::process_tree::{self, Snapshot};
 use crate::profile::process::Served;
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
+const V1_START_TIMEOUT: Duration = Duration::from_secs(60);
 const READY_POLL: Duration = Duration::from_millis(50);
-const USER: &str = "opencode";
 const SSE_DATA: &str = "data: ";
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Api {
+    V2,
+    MiMo,
+    Kilo,
+}
+
+impl Api {
+    pub fn password_env(self) -> &'static str {
+        match self {
+            Self::V2 => super::PASSWORD_ENV,
+            Self::MiMo => "MIMOCODE_SERVER_PASSWORD",
+            Self::Kilo => "KILO_SERVER_PASSWORD",
+        }
+    }
+
+    pub(super) fn username_env(self) -> Option<&'static str> {
+        match self {
+            Self::V2 => None,
+            Self::MiMo => Some("MIMOCODE_SERVER_USERNAME"),
+            Self::Kilo => Some("KILO_SERVER_USERNAME"),
+        }
+    }
+
+    pub fn config_env(self) -> &'static str {
+        match self {
+            Self::V2 => super::CONFIG_ENV,
+            Self::MiMo => "MIMOCODE_CONFIG_CONTENT",
+            Self::Kilo => "KILO_CONFIG_CONTENT",
+        }
+    }
+
+    pub(super) fn user(self) -> &'static str {
+        match self {
+            Self::V2 => "opencode",
+            Self::MiMo => "mimocode",
+            Self::Kilo => "kilo",
+        }
+    }
+
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::V2 => "/api",
+            Self::MiMo | Self::Kilo => "",
+        }
+    }
+}
+
 pub struct Server {
+    api: Api,
     url: String,
     password: String,
     auth: String,
@@ -26,6 +75,7 @@ pub struct Server {
 
 impl Server {
     pub async fn start(
+        api: Api,
         program: &str,
         cwd: &Path,
         inside: Option<&Inside>,
@@ -44,10 +94,17 @@ impl Server {
         ]
         .map(str::to_owned);
         let mut env = node_env.to_vec();
-        env.push((super::PASSWORD_ENV, password.clone().into()));
+        env.push((api.password_env(), password.clone().into()));
+        if let Some(key) = api.username_env() {
+            env.push((key, api.user().into()));
+        }
         let at = process_tree::Listen::Port(port);
-        let process = Served::start(&argv, cwd, inside, &env, &at, REPLY_TIMEOUT).await?;
-        let server = Self::connect(format!("http://127.0.0.1:{port}"), password, process);
+        let limit = match api {
+            Api::V2 => REPLY_TIMEOUT,
+            Api::MiMo | Api::Kilo => V1_START_TIMEOUT,
+        };
+        let process = Served::start(&argv, cwd, inside, &env, &at, limit).await?;
+        let server = Self::connect(api, format!("http://127.0.0.1:{port}"), password, process);
         if let Err(e) = server.ready().await {
             server.stop();
             return Err(e);
@@ -56,7 +113,10 @@ impl Server {
     }
 
     async fn ready(&self) -> Result<(), String> {
-        let info = format!("{}/api/info", self.url);
+        let info = match self.api {
+            Api::V2 => format!("{}/api/info", self.url),
+            Api::MiMo | Api::Kilo => format!("{}/global/health", self.url),
+        };
         let deadline = tokio::time::Instant::now() + REPLY_TIMEOUT;
         loop {
             let url = info.clone();
@@ -77,15 +137,21 @@ impl Server {
         }
     }
 
-    pub fn connect(url: String, password: String, process: Served) -> Self {
-        let basic = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{password}"));
+    pub fn connect(api: Api, url: String, password: String, process: Served) -> Self {
+        let basic =
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{password}", api.user()));
         Self {
+            api,
             url,
             password,
             auth: format!("Basic {basic}"),
             process,
             stopped: Arc::new(watch::channel(false).0),
         }
+    }
+
+    pub fn api(&self) -> Api {
+        self.api
     }
 
     pub fn process(&self) -> &Served {
@@ -104,16 +170,27 @@ impl Server {
         self.stopped.subscribe()
     }
 
-    pub fn follow_events(&self, mut on_event: impl FnMut(Value) + Send + 'static) {
-        let url = format!("{}/api/event", self.url);
+    pub async fn follow_events(
+        &self,
+        mut on_event: impl FnMut(Value) + Send + 'static,
+    ) -> Result<(), String> {
+        let (ready, started) = oneshot::channel();
+        let url = format!("{}{}/event", self.url, self.api.prefix());
         let auth = self.auth.clone();
         let stopped = self.stopped.clone();
         std::thread::spawn(move || {
             let _ended = Ended(stopped);
-            let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_connect(Some(REPLY_TIMEOUT))
+                .timeout_recv_response(Some(REPLY_TIMEOUT))
+                .build()
+                .into();
             let Ok(mut res) = agent.get(&url).header("authorization", &auth).call() else {
                 return;
             };
+            if ready.send(()).is_err() {
+                return;
+            }
             let lines =
                 std::io::BufRead::lines(std::io::BufReader::new(res.body_mut().as_reader()));
             for line in lines.map_while(Result::ok) {
@@ -122,19 +199,30 @@ impl Server {
                 }
             }
         });
+        tokio::time::timeout(REPLY_TIMEOUT, started)
+            .await
+            .map_err(|_| "event subscription timed out".to_owned())?
+            .map_err(|_| "event subscription failed".to_owned())
     }
 
     pub async fn create_session(&self, cwd: &Path) -> Result<String, String> {
-        let body = json!({ "location": { "directory": cwd } });
-        let reply = self.call("POST", "/api/session", Some(body)).await?;
-        reply["data"]["id"]
+        let body = match self.api {
+            Api::V2 => json!({ "location": { "directory": cwd } }),
+            Api::MiMo | Api::Kilo => json!({}),
+        };
+        let reply = self.call("POST", "/session", Some(body)).await?;
+        let data = match self.api {
+            Api::V2 => &reply["data"],
+            Api::MiMo | Api::Kilo => &reply,
+        };
+        data["id"]
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| format!("session create: unknown reply: {reply}"))
     }
 
     pub async fn set_permissions(&self, session: &str, rules: &[Value]) -> Result<(), String> {
-        let path = format!("/api/session/{session}");
+        let path = format!("/session/{session}");
         self.call("PATCH", &path, Some(json!({ "permissions": rules })))
             .await
             .map(drop)
@@ -146,7 +234,7 @@ impl Server {
         key: &str,
         value: &str,
     ) -> Result<(), String> {
-        let path = format!("/api/experimental/session/{session}/instructions/entries/{key}");
+        let path = format!("/experimental/session/{session}/instructions/entries/{key}");
         self.call("PUT", &path, Some(json!({ "value": value })))
             .await
             .map(drop)
@@ -158,15 +246,50 @@ impl Server {
         id: &str,
         text: &str,
         delivery: &str,
+        model: &crate::protocol::Model,
     ) -> Result<(), String> {
-        let body = json!({ "id": id, "text": text, "delivery": delivery });
-        let path = format!("/api/session/{session}/prompt");
+        let (path, body) = match self.api {
+            Api::V2 => (
+                format!("/session/{session}/prompt"),
+                json!({ "id": id, "text": text, "delivery": delivery }),
+            ),
+            Api::MiMo | Api::Kilo => {
+                let suffix = id.strip_prefix("msg_").unwrap_or(id);
+                let messages = self
+                    .call("GET", &format!("/session/{session}/message"), None)
+                    .await?;
+                if messages.as_array().is_some_and(|messages| {
+                    messages.iter().any(|m| {
+                        m["info"]["id"]
+                            .as_str()
+                            .is_some_and(|i| i.ends_with(suffix))
+                    })
+                }) {
+                    return Ok(());
+                }
+                let id = super::v1::message_id(self.api, id)?;
+                let mut body =
+                    json!({ "messageID": id, "parts": [{ "type": "text", "text": text }] });
+                if let Some((provider, name)) =
+                    model.model.as_deref().and_then(|m| m.split_once('/'))
+                {
+                    body["model"] = json!({ "providerID": provider, "modelID": name });
+                }
+                if let Some(variant) = &model.effort {
+                    body["variant"] = json!(variant);
+                }
+                (format!("/session/{session}/prompt_async"), body)
+            }
+        };
         self.call("POST", &path, Some(body)).await.map(drop)
     }
 
     pub async fn permissions(&self, session: &str) -> Result<Value, String> {
-        self.call("GET", &format!("/api/session/{session}/permission"), None)
-            .await
+        let path = match self.api {
+            Api::V2 => format!("/session/{session}/permission"),
+            Api::MiMo | Api::Kilo => "/permission".to_owned(),
+        };
+        self.call("GET", &path, None).await
     }
 
     pub async fn reply_permission(
@@ -175,22 +298,36 @@ impl Server {
         request: &str,
         reply: super::PermissionReply,
     ) -> Result<(), String> {
-        let path = format!("/api/session/{session}/permission/{request}/reply");
-        self.call("POST", &path, Some(json!({ "decision": reply })))
-            .await
-            .map(drop)
+        let (path, body) = match self.api {
+            Api::V2 => (
+                format!("/session/{session}/permission/{request}/reply"),
+                json!({ "decision": reply }),
+            ),
+            Api::MiMo | Api::Kilo => (
+                format!("/permission/{request}/reply"),
+                json!({ "reply": reply }),
+            ),
+        };
+        self.call("POST", &path, Some(body)).await.map(drop)
     }
 
     pub async fn interrupt(&self, session: &str) -> Result<(), String> {
-        let path = format!("/api/session/{session}/interrupt");
+        let action = match self.api {
+            Api::V2 => "interrupt",
+            Api::MiMo | Api::Kilo => "abort",
+        };
+        let path = format!("/session/{session}/{action}");
         self.call("POST", &path, None).await.map(drop)
     }
 
     pub async fn stop_shells(&self, session: &str) {
+        if self.api != Api::V2 {
+            return;
+        }
         let Some(root) = self.process.here() else {
             return;
         };
-        let shells = match self.call("GET", "/api/shell", None).await {
+        let shells = match self.call("GET", "/shell", None).await {
             Ok(reply) => reply,
             Err(e) => return eprintln!("loom: OpenCode 2 셸 목록을 읽지 못했다: {e}"),
         };
@@ -215,7 +352,7 @@ impl Server {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, String> {
-        let url = format!("{}{path}", self.url);
+        let url = format!("{}{prefix}{path}", self.url, prefix = self.api.prefix());
         let auth = self.auth.clone();
         let what = format!("{method} {path}");
         let reply = tokio::task::spawn_blocking(move || request(method, &url, &auth, body))

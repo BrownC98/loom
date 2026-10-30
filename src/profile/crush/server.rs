@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{Conversation, HOOK, Start};
+use super::{Conversation, HOOK};
 use crate::process_tree::{self, Listen};
 use crate::profile::adapter::{LaunchAt, Port, Record, Started};
 use crate::profile::process::Served;
@@ -38,7 +38,7 @@ impl Server {
         at: &LaunchAt<'_>,
         program: &[String],
         resume: Option<Conversation>,
-        start: &Start,
+        rules: &str,
         bypass: &[String],
     ) -> Result<(Self, Started), String> {
         let data = match &resume {
@@ -53,7 +53,7 @@ impl Server {
         };
         let local = at.site.local(&data);
         std::fs::create_dir_all(&local).map_err(|e| e.to_string())?;
-        std::fs::write(local.join("loom.md"), &start.rules).map_err(|e| e.to_string())?;
+        std::fs::write(local.join("loom.md"), rules).map_err(|e| e.to_string())?;
         let config = local.join("crush.json");
         let mut settings: Value = match std::fs::read_to_string(&config) {
             Ok(text) => serde_json::from_str(&text).map_err(|e| e.to_string())?,
@@ -104,10 +104,7 @@ impl Server {
                 "yolo": !bypass.is_empty(),
                 "env": at.env.iter().map(|(k,v)| format!("{k}={}", v.to_string_lossy())).collect::<Vec<_>>(),
         });
-        let choice = ModelChoice {
-            model: start.model.clone(),
-            effort: start.effort.clone(),
-        };
+        let choice = at.choice.clone();
         let mut started = Started::default();
         match resume {
             Some(_) => {

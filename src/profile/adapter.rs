@@ -56,6 +56,7 @@ pub struct Command<'a> {
 }
 
 pub struct LaunchAt<'a> {
+    pub choice: &'a ModelChoice,
     pub cwd: &'a Path,
     pub site: &'a Site,
     pub inside: Option<&'a Inside>,

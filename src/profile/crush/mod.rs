@@ -23,8 +23,6 @@ pub struct Crush;
 struct Start {
     brief: String,
     rules: String,
-    model: Option<String>,
-    effort: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -60,8 +58,6 @@ impl Adapter for Crush {
                 super::COMMUNICATION_USAGE,
                 crate::skills::always_on(at.launch)
             ),
-            model: at.choice.model.clone(),
-            effort: at.choice.effort.clone(),
         };
         cmd.env(
             START_ENV,
@@ -96,7 +92,7 @@ impl Adapter for Crush {
                 .map(|s| s.to_string_lossy().into_owned())
                 .collect();
             let (server, mut started) =
-                server::Server::start(at, &program, conversation, &start, bypass)
+                server::Server::start(at, &program, conversation, &start.rules, bypass)
                     .await
                     .map_err(failed)?;
             let conversation = server.conversation();

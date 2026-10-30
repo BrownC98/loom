@@ -26,10 +26,36 @@ pub(super) const INITIAL_SIZE_VIEW: super::PtySize = super::PtySize {
 };
 const CURSOR_QUERY: &[u8] = b"\x1b[6n";
 const CURSOR_AT_ORIGIN: &[u8] = b"\x1b[1;1R";
-const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(1);
+pub(super) const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(1);
 const EXIT_KEEP: Duration = Duration::from_secs(600);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+struct ChildIdentity {
+    pid: u32,
+    start_time: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl ChildIdentity {
+    fn read(pid: u32) -> Option<Self> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (_, fields) = stat.rsplit_once(") ")?;
+        const START_TIME_IN_STAT_TAIL: usize = 19;
+        let start_time = fields
+            .split_whitespace()
+            .nth(START_TIME_IN_STAT_TAIL)?
+            .parse()
+            .ok()?;
+        Some(Self { pid, start_time })
+    }
+
+    fn current(self) -> bool {
+        Self::read(self.pid).is_some_and(|now| now.start_time == self.start_time)
+    }
+}
 
 struct Host {
     process: Mutex<Process>,
@@ -44,6 +70,8 @@ struct Host {
 struct Process {
     killer: Box<dyn ChildKiller + Send + Sync>,
     killed: bool,
+    #[cfg(target_os = "linux")]
+    identity: Option<ChildIdentity>,
 }
 
 #[derive(Default)]
@@ -158,6 +186,8 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         process: Mutex::new(Process {
             killer: child.clone_killer(),
             killed: false,
+            #[cfg(target_os = "linux")]
+            identity: child.process_id().and_then(ChildIdentity::read),
         }),
         master: Mutex::new(pair.master),
         input: Mutex::new(input),
@@ -286,6 +316,10 @@ impl Host {
         *master = pair.master;
         drop(master);
         process.killer = child.clone_killer();
+        #[cfg(target_os = "linux")]
+        {
+            process.identity = child.process_id().and_then(ChildIdentity::read);
+        }
         *self.pid.lock().unwrap() = child.process_id();
         if let Some(pid) = child.process_id() {
             self.state.lock().unwrap().send(&Frame::Pid(pid));
@@ -296,8 +330,34 @@ impl Host {
 
     fn kill(&self) {
         let mut process = self.process.lock().unwrap();
-        process.killed = true;
-        let _ = process.killer.kill();
+        if std::mem::replace(&mut process.killed, true) {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let Some(child) = process.identity.filter(|child| child.current()) else {
+                return;
+            };
+            let _ = process.killer.kill();
+            std::thread::spawn(move || {
+                for (grace, signal) in [
+                    (super::HANGUP_GRACE, libc::SIGTERM),
+                    (super::TERMINATE_GRACE, libc::SIGKILL),
+                ] {
+                    std::thread::sleep(grace);
+                    if !child.current() {
+                        return;
+                    }
+                    unsafe {
+                        libc::kill(child.pid as i32, signal);
+                    }
+                }
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = process.killer.kill();
+        }
     }
 
     fn note(&self, text: &str) {

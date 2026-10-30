@@ -22,6 +22,19 @@ use wire::Frame;
 
 pub use host::run;
 
+const HANGUP_GRACE: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const TERMINATE_GRACE: Duration = Duration::from_secs(1);
+#[cfg(target_os = "linux")]
+const STOP_REPORT_GRACE: Duration = Duration::from_secs(1);
+#[cfg(target_os = "linux")]
+pub const STOP_WAIT: Duration = HANGUP_GRACE
+    .saturating_add(TERMINATE_GRACE)
+    .saturating_add(host::DRAIN_AFTER_EXIT)
+    .saturating_add(STOP_REPORT_GRACE);
+#[cfg(not(target_os = "linux"))]
+pub const STOP_WAIT: Duration = HANGUP_GRACE;
+
 pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
 
 pub enum Linked {
@@ -549,7 +562,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     pub fn guarded_shell(&self, id: K, caller: u32) -> Option<Identity> {
         let root = self.pid(id)?;
         let snapshot = Snapshot::now();
-        snapshot.identity(snapshot.child_on_path(root, caller)?)
+        snapshot.guarded_shell(root, caller)
     }
 
     pub fn stop_guarded(&self, id: K, shells: &[Identity]) -> bool {

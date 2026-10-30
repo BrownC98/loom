@@ -24,7 +24,7 @@ use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 
-pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
+pub(super) const EXIT_WAIT: Duration = crate::node_host::STOP_WAIT;
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
 const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session. \

@@ -30,7 +30,7 @@ enum Kind {
     Unchecked,
 }
 
-const UNCHECKED_DIRS: &[&str] = &["docs/", "web/src/gen/"];
+const UNCHECKED_DIRS: &[&str] = &["docs/", "web/src/gen/", "skills/design-stack/"];
 
 const UNCHECKED_NAMES: &[&str] = &["LICENSE", "Cargo.lock", "package-lock.json"];
 

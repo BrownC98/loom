@@ -56,6 +56,7 @@ pub struct Command<'a> {
 }
 
 pub struct LaunchAt<'a> {
+    pub choice: &'a ModelChoice,
     pub cwd: &'a Path,
     pub site: &'a Site,
     pub inside: Option<&'a Inside>,
@@ -122,6 +123,7 @@ pub enum Chosen {
 }
 
 pub trait Port: Send + Sync {
+    fn ready(&self) -> BoxFuture<'_, Result<(), String>>;
     fn take(&self, req: TakeRequest) -> Result<Taken, Refusal>;
     fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>>;
     fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>>;

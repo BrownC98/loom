@@ -18,7 +18,7 @@ import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
 import { FLOAT_SIZES } from './floatPlace';
 import type { FloatSize } from './gen/FloatSize';
-import { SizePreview, type SizeField } from './SizePreview';
+import { ComposerPreview, PillPreview, type SizePreview } from './SizePreview';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -173,7 +173,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('questionPill.hint')}</span>
       </section>
-      <SizeChoice id="t-pill-size" field="pillSize" settings={settings} onSettings={onSettings} />
+      <SizeChoice id="t-pill-size" field="pillSize" Preview={PillPreview} settings={settings} onSettings={onSettings} />
       <section>
         <h4>
           {t('questionPill.place')}
@@ -192,7 +192,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </label>
         <span className="hint">{t('composer.hint')}</span>
       </section>
-      <SizeChoice id="t-composer-size" field="composerSize" settings={settings} onSettings={onSettings} />
+      <SizeChoice id="t-composer-size" field="composerSize" Preview={ComposerPreview} settings={settings} onSettings={onSettings} />
       <section>
         <h4>
           {t('composer.place')}
@@ -204,7 +204,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
   );
 }
 
-function SizeChoice({ id, field, settings, onSettings }: TabProps & { id: string; field: SizeField }) {
+function SizeChoice({ id, field, Preview, settings, onSettings }: TabProps & { id: string; field: 'pillSize' | 'composerSize'; Preview: SizePreview }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState<FloatSize | null>(null);
   return (
@@ -221,7 +221,7 @@ function SizeChoice({ id, field, settings, onSettings }: TabProps & { id: string
           </label>
         ))}
       </div>
-      <SizePreview field={field} size={hovered ?? settings[field]} />
+      <Preview size={hovered ?? settings[field]} />
       <span className="hint">{t(`floatSize.${field}Hint`)}</span>
     </section>
   );

@@ -1,16 +1,20 @@
 import { ArrowUp, Image as ImageIcon, Paperclip, SquareTerminal, X } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FLOAT_SIZES, floatZoom } from './floatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import { ICON } from './notice';
 
-export type SizeField = 'pillSize' | 'composerSize';
+export type SizePreview = (props: { size: FloatSize }) => ReactNode;
 
 const LARGEST = FLOAT_SIZES[FLOAT_SIZES.length - 1];
 
-export function SizePreview(props: { field: SizeField; size: FloatSize }) {
+export const PillPreview: SizePreview = ({ size }) => <PreviewBox size={size} Sample={PillSample} />;
+export const ComposerPreview: SizePreview = ({ size }) => <PreviewBox size={size} Sample={ComposerSample} />;
+
+function PreviewBox(props: { size: FloatSize; Sample: SizePreview }) {
   const { t } = useTranslation();
-  const Sample = props.field === 'pillSize' ? PillSample : ComposerSample;
+  const { Sample } = props;
   return (
     <div className="size-prev" inert>
       <span className="cap">{t('floatSize.preview', { size: t(`floatSize.${props.size}`) })}</span>

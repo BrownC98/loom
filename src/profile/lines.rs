@@ -68,6 +68,10 @@ enum Event {
         #[serde(flatten)]
         state: State,
     },
+    InTurn {
+        #[serde(flatten)]
+        state: State,
+    },
     ToolCall {
         #[serde(flatten)]
         state: State,
@@ -87,6 +91,10 @@ enum Event {
         state: State,
     },
     Interrupt {
+        #[serde(flatten)]
+        state: State,
+    },
+    InterruptPending {
         #[serde(flatten)]
         state: State,
     },
@@ -139,11 +147,13 @@ impl Event {
             Event::SessionStart { state }
             | Event::Idle { state }
             | Event::Prompt { state, .. }
+            | Event::InTurn { state }
             | Event::ToolCall { state }
             | Event::ToolResult { state }
             | Event::Settled { state, .. }
             | Event::Ack { state, .. }
             | Event::Interrupt { state }
+            | Event::InterruptPending { state }
             | Event::Approval { state, .. }
             | Event::Close { state, .. } => state,
         }
@@ -154,11 +164,13 @@ impl Event {
             Event::SessionStart { .. } => "session_start",
             Event::Idle { .. } => "idle",
             Event::Prompt { .. } => "prompt",
+            Event::InTurn { .. } => "in_turn",
             Event::ToolCall { .. } => "tool_call",
             Event::ToolResult { .. } => "tool_result",
             Event::Settled { .. } => "settled",
             Event::Ack { .. } => "ack",
             Event::Interrupt { .. } => "interrupt",
+            Event::InterruptPending { .. } => "interrupt_pending",
             Event::Approval { .. } => "approval",
             Event::Close { .. } => "close",
         }
@@ -169,10 +181,12 @@ impl Event {
             Event::SessionStart { .. }
             | Event::Ack { .. }
             | Event::Interrupt { .. }
+            | Event::InterruptPending { .. }
             | Event::Approval { .. }
             | Event::Close { .. } => return None,
             Event::Idle { .. } | Event::Settled { .. } => Take::WhenIdle,
             Event::Prompt { .. } | Event::ToolResult { .. } => Take::Now(Kind::ALL),
+            Event::InTurn { .. } => Take::Now(&[Kind::Queue, Kind::Steer]),
             Event::ToolCall { .. } => Take::Now(&[Kind::Interrupt]),
         })
     }
@@ -292,6 +306,7 @@ impl HookEvent for Request {
             human_input: event.prompt().is_some(),
             turn_end: event.turn_ends(),
             reports: event.model().map(Report::Model).into_iter().collect(),
+            asks_interrupt: matches!(event, Event::InterruptPending { .. }),
             ..Signals::default()
         }
     }
@@ -301,7 +316,10 @@ impl HookEvent for Request {
             Handed::Taken { messages, note } => reply(self.id, messages, note.as_deref()),
             Handed::Mail(messages) => reply(self.id, messages, None),
             Handed::Nudge(text) => nudge(self.id, text.clone()),
-            Handed::Interrupted => reply(self.id, &[], None),
+            Handed::Interrupted => Reply {
+                interrupted: true,
+                ..acked(self.id)
+            },
         };
         Shown {
             out: Some(reply.line()),

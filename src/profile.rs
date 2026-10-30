@@ -2,13 +2,18 @@ pub mod adapter;
 pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
+pub mod crush;
 pub mod cursor;
 pub mod dsh;
+pub mod hermes;
 mod lines;
 pub mod omp;
 pub mod opencode2;
 pub mod pi;
 pub mod process;
+mod qwen;
+pub mod vibe;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -38,14 +43,25 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 #[ts(export)]
 pub enum Profile {
     Claude,
+    #[serde(rename = "openclaude")]
+    OpenClaude,
+    QwenCode,
     Codex,
+    Copilot,
+    Trae,
     #[serde(rename = "opencode2")]
     OpenCode2,
+    #[serde(rename = "mimo-code")]
+    MiMoCode,
+    Kilo,
     Cursor,
     Pi,
     Omp,
     Dsh,
     Antigravity,
+    Crush,
+    Hermes,
+    Vibe,
 }
 
 #[derive(Debug, PartialEq)]
@@ -106,6 +122,8 @@ pub trait HookEvent {
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum HookEntry {
     Claude,
+    Qwen,
+    Copilot,
     Cursor,
     CursorRules,
     Pi,
@@ -114,6 +132,9 @@ pub enum HookEntry {
     AntigravityPreInvocation,
     AntigravityPreToolUse,
     AntigravityStop,
+    Crush,
+    Hermes,
+    VibeBridge,
 }
 
 pub enum Hook {
@@ -146,7 +167,10 @@ pub struct Unserved {
 
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
+        HookEntry::Crush => Hook::Once(|input| Ok(Box::new(crush::Hook::deserialize(input)?))),
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Qwen => Hook::Once(|input| Ok(Box::new(qwen::Hook::deserialize(input)?))),
+        HookEntry::Copilot => Hook::Lines(|line| lines::request(line, "Copilot extension")),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
@@ -154,6 +178,8 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::AntigravityPreInvocation => Hook::Once(antigravity::pre_invocation),
         HookEntry::AntigravityPreToolUse => Hook::Once(antigravity::pre_tool_use),
         HookEntry::AntigravityStop => Hook::Once(antigravity::stop),
+        HookEntry::Hermes => Hook::Lines(hermes::request),
+        HookEntry::VibeBridge => Hook::Lines(vibe::request),
     }
 }
 
@@ -197,14 +223,23 @@ fn file_name(program: &str) -> &str {
 
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
-        Profile::Claude => &claude::Claude,
-        Profile::Codex => &codex::Codex,
-        Profile::OpenCode2 => &opencode2::OpenCode2,
+        Profile::Claude => &claude::Claude::Code,
+        Profile::OpenClaude => &claude::Claude::Open,
+        Profile::QwenCode => &qwen::Qwen,
+        Profile::Codex => &codex::Codex::OpenAi,
+        Profile::Trae => &codex::Codex::Trae,
+        Profile::Copilot => &copilot::Copilot,
+        Profile::OpenCode2 => &opencode2::OPENCODE2,
+        Profile::MiMoCode => &opencode2::MIMO,
+        Profile::Kilo => &opencode2::KILO,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
         Profile::Antigravity => &antigravity::Antigravity,
+        Profile::Crush => &crush::Crush,
+        Profile::Hermes => &hermes::Hermes,
+        Profile::Vibe => &vibe::Vibe,
     }
 }
 
@@ -258,6 +293,7 @@ enum Prompt {
     ArgvAfter(String),
     Flag(String),
     None,
+    AdapterDelivered,
 }
 
 #[derive(Deserialize)]
@@ -657,6 +693,7 @@ async fn agent_command(
         (Prompt::Argv, false) => vec![typed],
         (Prompt::ArgvAfter(sep) | Prompt::Flag(sep), false) => vec![sep.as_str(), typed],
         (Prompt::None, false) => return Err(LaunchError::NoBrief(agent.label.clone())),
+        (Prompt::AdapterDelivered, false) => Vec::new(),
     };
     let mut cmd = CommandBuilder::from_argv(argv);
     let bypass: &[String] = if bypass_off.contains(id) {

@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
 pub mod cursor;
 pub mod dsh;
 pub mod hermes;
@@ -41,6 +42,7 @@ pub enum Profile {
     #[serde(rename = "openclaude")]
     OpenClaude,
     Codex,
+    Copilot,
     Trae,
     #[serde(rename = "opencode2")]
     OpenCode2,
@@ -109,6 +111,7 @@ pub trait HookEvent {
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum HookEntry {
     Claude,
+    Copilot,
     Cursor,
     CursorRules,
     Pi,
@@ -148,6 +151,7 @@ pub struct Unserved {
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Copilot => Hook::Lines(|line| lines::request(line, "Copilot extension")),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
@@ -200,6 +204,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::OpenClaude => &claude::Claude::Open,
         Profile::Codex => &codex::Codex::OpenAi,
         Profile::Trae => &codex::Codex::Trae,
+        Profile::Copilot => &copilot::Copilot,
         Profile::OpenCode2 => &opencode2::OpenCode2,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,

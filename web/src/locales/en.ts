@@ -231,6 +231,7 @@ const en = {
       pi: 'pi {{installed}} · pinned {{pinned}}',
       omp: 'omp {{installed}} · pinned {{pinned}}',
       dsh: 'dsh-tui {{installed}} · pinned {{pinned}}',
+      copilot: 'copilot {{installed}} · pinned {{pinned}}',
       hermes: 'hermes {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',

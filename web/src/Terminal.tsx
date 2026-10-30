@@ -2,8 +2,10 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { withoutColorReplies } from './colorReplies';
-import { watchComposition } from './composition';
+import { IME_KEY_CODE, watchComposition } from './composition';
 import { attachPty, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import { droppedFiles, MB, quotePath } from './attachments';
+import { offerInput } from './nodeInputs';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
 import type { Resize } from './gen/Resize';
@@ -23,7 +25,6 @@ function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
 function isPlainEnter(e: KeyboardEvent): boolean {
   return e.key === 'Enter' && e.keyCode !== IME_KEY_CODE && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
-const IME_KEY_CODE = 229;
 
 function plainCommand(e: KeyboardEvent, code: string): boolean {
   return commandKey(e) && !e.shiftKey && !e.altKey && e.code === code;
@@ -62,25 +63,10 @@ function unscaleMouse(xterm: XTerm) {
   mouse.getMouseReportCoords = (event, element) => getMouseReportCoords.call(mouse, unscale(event, element), element);
 }
 
-const MB = 1024 * 1024;
-
-function quotePath(path: string): string {
-  return `'${path.replaceAll("'", "'\\''")}'`;
-}
-
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files');
 
 async function pasteDropped(xterm: XTerm, data: DataTransfer, node: NodeId | null) {
-  const files: File[] = [];
-  const errors: string[] = [];
-  for (const item of [...data.items]) {
-    const file = item.kind === 'file' ? item.getAsFile() : null;
-    if (!file) continue;
-    if (item.webkitGetAsEntry()?.isDirectory) errors.push(i18next.t('terminal.folder', { name: file.name }));
-    else if (file.size > PASTE_LIMIT_BYTES)
-      errors.push(i18next.t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
-    else files.push(file);
-  }
+  const { files, errors } = droppedFiles(data);
   const saved = await Promise.allSettled(files.map((file) => savePastedFile(file, node)));
   const paths = saved.flatMap((r) => (r.status === 'fulfilled' ? [quotePath(r.value)] : []));
   errors.push(...saved.flatMap((r) => (r.status === 'rejected' ? [(r.reason as Error).message] : [])));
@@ -114,7 +100,6 @@ type TerminalProps = {
   onFocus: () => void;
   onNavigate: (dir: Direction) => void;
   onSender?: (send: ((data: string) => void) | null) => void;
-  onPaster?: (paste: ((text: string) => void) | null) => void;
   draw?: Draw;
   hold?: SizeHold;
 };
@@ -324,7 +309,17 @@ export function SizingTerminal(props: TerminalProps) {
         claim();
         link.sendInput(data);
       });
-      latest.current.onPaster?.((text) => xterm.paste(text));
+      const node = latest.current.node;
+      const unoffer =
+        node === null
+          ? () => {}
+          : offerInput(node, {
+              paste: (text) => xterm.paste(text),
+              enter: () => {
+                claim();
+                link.sendInput('\r');
+              },
+            });
       const detachTouch = attachTouchGestures(xterm, el, (at) => {
         const box = el.getBoundingClientRect();
         setPicked({ x: at.x - box.left, y: at.y - box.top });
@@ -355,7 +350,7 @@ export function SizingTerminal(props: TerminalProps) {
         unpick.dispose();
         detachTouch();
         latest.current.onSender?.(null);
-        latest.current.onPaster?.(null);
+        unoffer();
         link.close();
         xterm.dispose();
         term.current = null;

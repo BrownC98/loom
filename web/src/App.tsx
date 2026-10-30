@@ -55,6 +55,7 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
+import { CanvasComposer, deskKeys } from './Composer';
 import { PlaceTag } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -83,6 +84,7 @@ const EMPTY_SETTINGS: SettingsView = {
   graphScope: 'repo',
   edgeStyle: 'step',
   questionPill: 'line',
+  composerOff: false,
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   wslWorkspaceDirs: {},
@@ -296,6 +298,7 @@ export function App() {
     if (key !== null) setSelected(null);
   };
   const [focusAsk, setFocusAsk] = useState(0);
+  const composerView = selected === null ? undefined : nodes.get(selected);
   const focusNode = (id: NodeId) => {
     selectNode(id);
     setFocusAsk((n) => n + 1);
@@ -575,6 +578,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} />}
           </main>
           {dockOpen ? (
             <Dock

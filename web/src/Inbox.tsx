@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import type { PillPlace } from './gen/PillPlace';
 import type { QuestionPill } from './gen/QuestionPill';
 import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
-import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile, typeText } from './api';
+import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
+import { ImageList, MB, useImages, ZoomImage } from './attachments';
 import { DocText } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
@@ -17,9 +18,7 @@ import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId } from './notice';
-import { PinchImage } from './PinchImage';
 import { PromptBody } from './PromptBody';
-import { Modal } from './Modal';
 import { useDismiss } from './popover';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
@@ -269,23 +268,6 @@ export function Instruction(props: { text: string }) {
   return <p className="instruction">{t('inbox.instruction', { text: props.text })}</p>;
 }
 
-function ZoomImage(props: { src: string; name: string; title: string }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className="zoom" title={props.title} aria-label={t('inbox.zoomImage', { name: props.name })} onClick={() => setOpen(true)}>
-        <img src={props.src} alt={props.name} />
-      </button>
-      {open && (
-        <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
-          <PinchImage src={props.src} alt={props.name} onTap={() => setOpen(false)} />
-        </Modal>
-      )}
-    </>
-  );
-}
-
 function ConfirmButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -313,16 +295,12 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const images = useImages(props.node, setRefusal);
+  const images = useImages(`wait:${wait.id}`, props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
-    const sent = answerWait(
-      wait.id,
-      text,
-      images.list.map((i) => i.path),
-    );
-    sent.catch((err: Error) => setRefusal(err.message));
+    const sent = images.paths().then((paths) => answerWait(wait.id, text, paths));
+    sent.then(images.clear, (err: Error) => setRefusal(err.message));
     return sent;
   };
   const answerPrompt = (sent: Promise<null>) => {
@@ -378,18 +356,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
       {wait.answerable ? (
         <>
           {!done && <Choices list={wait.choices ?? []} onPick={send} />}
-          {images.list.length > 0 && (
-            <ul className="answer-images">
-              {images.list.map((image) => (
-                <li key={image.path}>
-                  <ZoomImage src={image.url} name={image.name} title={image.name} />
-                  <button type="button" aria-label={t('inbox.removeImage')} title={t('inbox.removeImage')} onClick={() => images.remove(image)}>
-                    <X aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ImageList images={images.list} onRemove={images.remove} />
           <AnswerForm
             wait={wait.id}
             qid={qid}
@@ -419,39 +386,6 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
       )}
     </div>
   );
-}
-
-const MB = 1024 * 1024;
-
-type AttachedImage = { path: string; url: string; name: string };
-
-function useImages(node: NodeId, onError: (message: string) => void) {
-  const { t } = useTranslation();
-  const [list, setList] = useState<AttachedImage[]>([]);
-  const shown = useRef<AttachedImage[]>([]);
-  shown.current = list;
-  useEffect(() => () => shown.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
-  const attach = (files: File[]) => {
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) {
-        onError(t('inbox.notImage', { name: file.name }));
-        continue;
-      }
-      if (file.size > PASTE_LIMIT_BYTES) {
-        onError(t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
-        continue;
-      }
-      savePastedFile(file, node).then(
-        (path) => setList((now) => [...now, { path, url: URL.createObjectURL(file), name: file.name }]),
-        (err: Error) => onError(err.message),
-      );
-    }
-  };
-  const remove = (image: AttachedImage) => {
-    URL.revokeObjectURL(image.url);
-    setList((now) => now.filter((i) => i !== image));
-  };
-  return { list, attach, remove };
 }
 
 function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {

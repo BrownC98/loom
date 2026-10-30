@@ -47,6 +47,7 @@ const RESET_TAB = {
   graphScope: 'graph',
   edgeStyle: 'graph',
   questionPill: 'graph',
+  composerOff: 'graph',
   pillPlace: 'graph',
   terminalTheme: 'terminal',
   terminalFont: 'terminal',

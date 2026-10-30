@@ -1,3 +1,5 @@
+export const IME_KEY_CODE = 229;
+
 export type Composition = {
   afterText: (run: () => void) => boolean;
   dispose: () => void;

@@ -195,6 +195,7 @@ export async function newBuildServed(): Promise<boolean> {
 export interface PtyLink {
   sendInput(data: string | Uint8Array): void;
   sendRequest(request: PtyRequest): void;
+  connected(): boolean;
   close(): void;
 }
 
@@ -231,6 +232,7 @@ export function attachPty(
   return {
     sendInput: (data) => link.send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),
     sendRequest: (request) => link.send(JSON.stringify(request)),
+    connected: link.connected,
     close: link.close,
   };
 }

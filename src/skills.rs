@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use rust_embed::Embed;
+use rust_embed::{Embed, EmbeddedFile};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
@@ -17,11 +17,24 @@ impl Plugin {
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
         for on in AlwaysOn::all() {
-            let dir = plugin.dir(on);
-            let _ = std::fs::remove_dir_all(&dir);
-            for name in Files::iter().filter(|name| on.has(skill_of(name))) {
-                let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-                write(&dir.join("skills").join(name.as_ref()), &file.data)?;
+            let skills = plugin.skills(on);
+            let keep: BTreeMap<PathBuf, EmbeddedFile> = Files::iter()
+                .filter(|name| on.has(skill_of(name)))
+                .map(|name| {
+                    let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+                    (skills.join(name.as_ref()), file)
+                })
+                .collect();
+            if let Err(e) = prune(&skills, &keep) {
+                eprintln!(
+                    "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
+                    skills.display()
+                );
+            }
+            for (path, file) in &keep {
+                if std::fs::read(path).ok().as_deref() != Some(file.data.as_ref()) {
+                    write(path, &file.data)?;
+                }
             }
         }
         Ok(plugin)
@@ -75,6 +88,26 @@ pub fn names(on: AlwaysOn) -> impl Iterator<Item = &'static str> {
 
 fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
+}
+
+fn prune(dir: &Path, keep: &BTreeMap<PathBuf, EmbeddedFile>) -> io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        entries => entries?,
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            prune(&path, keep)?;
+            if std::fs::read_dir(&path)?.next().is_none() {
+                std::fs::remove_dir(&path)?;
+            }
+        } else if !keep.contains_key(&path) {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }
 
 fn write(path: &Path, data: &[u8]) -> io::Result<()> {

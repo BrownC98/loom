@@ -37,6 +37,7 @@ import { realignTerminals, SizingTerminal, XtermFont, type Draw } from './Termin
 import type { Direction } from './keys';
 import { flowId, MOVE_MS } from './camera';
 import { SLOP_PX } from './touchTerminal';
+import { keepSame } from './keepSame';
 
 const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .react-flow__resize-control, [data-selected] .term';
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -1136,6 +1137,8 @@ export function Graph(props: {
   });
 
   const lastFlow = useRef(flowState);
+  const shownNodes = useRef<FlowNode[]>([]);
+  const shownEdges = useRef<Edge[]>([]);
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const next = new Map(applyNodeChanges(changes, nodes.map((n) => lastFlow.current.get(n.id) ?? n)).map((n) => [n.id, n]));
     lastFlow.current = next;
@@ -1175,8 +1178,8 @@ export function Graph(props: {
     <>
       <ReactFlow
         ref={pane}
-        nodes={nodes}
-        edges={[...edges, ...hopEdges]}
+        nodes={(shownNodes.current = keepSame(shownNodes.current, nodes))}
+        edges={(shownEdges.current = keepSame(shownEdges.current, [...edges, ...hopEdges]))}
         edgeTypes={EDGE_TYPES}
         nodeTypes={nodeTypes}
         onNodesChange={onChange}
@@ -1191,9 +1194,11 @@ export function Graph(props: {
           if (node.type === 'card' || node.type === 'simple') return isControl(event.target) ? undefined : setSelected(Number(node.id));
           setChosenBox(node.id);
         }}
-        onMoveStart={(event) => {
+        onMoveStart={() => {
           cameraMoving.current = true;
-          document.documentElement.classList.toggle('panning', event?.type === 'mousedown');
+        }}
+        onMove={(event) => {
+          if (event?.type === 'mousemove') document.documentElement.classList.add('panning');
         }}
         onMoveEnd={() => {
           cameraMoving.current = false;

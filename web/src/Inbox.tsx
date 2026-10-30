@@ -1,10 +1,12 @@
 import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, RotateCcw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PillPlace } from './gen/PillPlace';
+import type { FloatPlace } from './gen/FloatPlace';
+import type { FloatSize } from './gen/FloatSize';
 import type { QuestionPill } from './gen/QuestionPill';
-import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
-import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile, typeText } from './api';
+import { FLOAT_MARGIN, floatZoom, PILL_HOME, placeOf, popLeft, popSpace, useFloatDrag, useSize, type Size } from './floatPlace';
+import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
+import { ImageList, MB, useImages, ZoomImage } from './attachments';
 import { DocText } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
@@ -17,9 +19,7 @@ import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId } from './notice';
-import { PinchImage } from './PinchImage';
 import { PromptBody } from './PromptBody';
-import { Modal } from './Modal';
 import { useDismiss } from './popover';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
@@ -28,7 +28,7 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
 
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: PillPlace | null; onPlace: (place: PillPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -47,19 +47,21 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const toList = () => setOpen(!open);
   const paneRef = useRef<HTMLDivElement>(null);
   const pane = useSize(paneRef);
+  const group = useRef<HTMLDivElement>(null);
   const box = useSize(pill);
-  const drag = usePillDrag(pill, pane, box, props.onPlace);
+  const drag = useFloatDrag(group, pane, box, props.onPlace);
 
   useEffect(() => {
     if (n === 0 || !shown) setOpen(false);
   }, [n, shown]);
 
-  const at = drag.at ?? (pane && box ? placeOf(props.place, pane, box) : null);
+  const at = drag.at ?? (pane && box ? placeOf(props.place ?? PILL_HOME, pane, box) : null);
+  const zoom = floatZoom(props.size);
   return (
     <div className="inbox" ref={paneRef}>
       {first && shown && (
-        <div className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
+        <div ref={group} className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
+          <div ref={pill} className="inbox-pill" style={{ zoom }} data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
             <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
             {!line && (
               <div className="pill-row">
@@ -68,7 +70,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
             )}
           </div>
           {open && n > 0 && at && pane && box && (
-            <InboxPop label={t('inbox.title', { count: n })} pill={pill} left={popLeft(at.left, box.w, popWidth(pane), pane.w)} width={popWidth(pane)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
+            <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={popLeft(at.left, box.w, popWidth(pane, zoom), pane.w)} width={popWidth(pane, zoom)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
               <WaitList
                 waiting={props.waiting}
                 onGo={go}
@@ -86,75 +88,12 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
 }
 
 const POP_WIDTH = 520;
-const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * PILL_MARGIN));
+const popWidth = (pane: Size, zoom: number) => Math.min(POP_WIDTH * zoom, Math.max(0, pane.w - 2 * FLOAT_MARGIN));
 
-function useSize(ref: RefObject<HTMLElement | null>): Size | null {
-  const [size, setSize] = useState<Size | null>(null);
-  const watched = useRef<{ el: HTMLElement; watch: ResizeObserver } | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (watched.current?.el === el) return;
-    watched.current?.watch.disconnect();
-    watched.current = null;
-    if (!el) {
-      setSize(null);
-      return;
-    }
-    const read = () => setSize((was) => (was && was.w === el.offsetWidth && was.h === el.offsetHeight ? was : { w: el.offsetWidth, h: el.offsetHeight }));
-    read();
-    const watch = new ResizeObserver(read);
-    watch.observe(el);
-    watched.current = { el, watch };
-  });
-  useEffect(() => () => watched.current?.watch.disconnect(), []);
-  return size;
-}
-
-function usePillDrag(pill: RefObject<HTMLElement | null>, pane: Size | null, box: Size | null, onPlace: (place: PillPlace) => void) {
-  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
-  const moved = useRef(false);
-  const start = (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0 || !pane || !box || !(e.target instanceof Element) || e.target.closest('input, textarea, a, label, .pill-reset, .pill-close')) return;
-    const group = pill.current?.parentElement;
-    if (!group) return;
-    const from = { x: e.clientX, y: e.clientY, left: group.offsetLeft, top: group.offsetTop };
-    const dragged = (ev: PointerEvent) => ({ left: from.left + ev.clientX - from.x, top: from.top + ev.clientY - from.y, far: Math.hypot(ev.clientX - from.x, ev.clientY - from.y) > DRAG_SLOP });
-    const place = (ev: PointerEvent) => {
-      const d = dragged(ev);
-      return placeFrom(d.left, d.top, pane, box);
-    };
-    const move = (ev: PointerEvent) => {
-      const d = dragged(ev);
-      if (!d.far && !moved.current) return;
-      moved.current = true;
-      setAt(placeOf(place(ev), pane, box));
-    };
-    const end = (ev: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
-      if (moved.current) {
-        onPlace(place(ev));
-        setAt(null);
-        setTimeout(() => (moved.current = false));
-      }
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
-  };
-  const swallowClick = (e: { stopPropagation: () => void; preventDefault: () => void }) => {
-    if (!moved.current) return;
-    e.stopPropagation();
-    e.preventDefault();
-  };
-  return { at, start, swallowClick };
-}
-
-function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; zoom: number; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
   return (
-    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ left: props.left, width: props.width, maxHeight: props.room }} role="dialog" aria-label={props.label}>
+    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ zoom: props.zoom, left: props.left / props.zoom, width: props.width / props.zoom, maxHeight: props.room / props.zoom }} role="dialog" aria-label={props.label}>
       <h2>{props.label}</h2>
       {props.children}
     </div>
@@ -175,7 +114,7 @@ function PillHead(props: { node: NodeView; wait: ScreenWait; waits: readonly Scr
         {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
       </button>
       {props.onReset && (
-        <button type="button" className="pill-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
+        <button type="button" className="float-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
           <RotateCcw aria-hidden="true" />
         </button>
       )}
@@ -269,23 +208,6 @@ export function Instruction(props: { text: string }) {
   return <p className="instruction">{t('inbox.instruction', { text: props.text })}</p>;
 }
 
-function ZoomImage(props: { src: string; name: string; title: string }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className="zoom" title={props.title} aria-label={t('inbox.zoomImage', { name: props.name })} onClick={() => setOpen(true)}>
-        <img src={props.src} alt={props.name} />
-      </button>
-      {open && (
-        <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
-          <PinchImage src={props.src} alt={props.name} onTap={() => setOpen(false)} />
-        </Modal>
-      )}
-    </>
-  );
-}
-
 function ConfirmButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -313,17 +235,13 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const images = useImages(props.node, setRefusal);
+  const images = useImages(`wait:${wait.id}`, props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
-    const sent = answerWait(
-      wait.id,
-      text,
-      images.list.map((i) => i.path),
-    );
+    const sent = images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids)));
     sent.catch((err: Error) => setRefusal(err.message));
-    return sent;
+    return sent.then(() => null);
   };
   const answerPrompt = (sent: Promise<null>) => {
     setRefusal(null);
@@ -378,18 +296,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
       {wait.answerable ? (
         <>
           {!done && <Choices list={wait.choices ?? []} onPick={send} />}
-          {images.list.length > 0 && (
-            <ul className="answer-images">
-              {images.list.map((image) => (
-                <li key={image.path}>
-                  <ZoomImage src={image.url} name={image.name} title={image.name} />
-                  <button type="button" aria-label={t('inbox.removeImage')} title={t('inbox.removeImage')} onClick={() => images.remove(image)}>
-                    <X aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ImageList images={images.list} onRemove={images.remove} />
           <AnswerForm
             wait={wait.id}
             qid={qid}
@@ -419,39 +326,6 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
       )}
     </div>
   );
-}
-
-const MB = 1024 * 1024;
-
-type AttachedImage = { path: string; url: string; name: string };
-
-function useImages(node: NodeId, onError: (message: string) => void) {
-  const { t } = useTranslation();
-  const [list, setList] = useState<AttachedImage[]>([]);
-  const shown = useRef<AttachedImage[]>([]);
-  shown.current = list;
-  useEffect(() => () => shown.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
-  const attach = (files: File[]) => {
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) {
-        onError(t('inbox.notImage', { name: file.name }));
-        continue;
-      }
-      if (file.size > PASTE_LIMIT_BYTES) {
-        onError(t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
-        continue;
-      }
-      savePastedFile(file, node).then(
-        (path) => setList((now) => [...now, { path, url: URL.createObjectURL(file), name: file.name }]),
-        (err: Error) => onError(err.message),
-      );
-    }
-  };
-  const remove = (image: AttachedImage) => {
-    URL.revokeObjectURL(image.url);
-    setList((now) => now.filter((i) => i !== image));
-  };
-  return { list, attach, remove };
 }
 
 function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {

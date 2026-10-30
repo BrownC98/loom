@@ -346,14 +346,16 @@ fn main() -> ExitCode {
             model,
             effort,
         } => cli::relaunch(name, agent, ModelChoice { model, effort }),
-        Cli::Show {
-            file,
-            checked: false,
-        } => user_doc::show(&wsl::from_caller(file)),
-        Cli::Show {
-            file,
-            checked: true,
-        } => user_doc::record_checked(&wsl::from_caller(file)),
+        Cli::Show { file, checked } => {
+            let step = match checked {
+                false => user_doc::DocStep::Stamp,
+                true => user_doc::DocStep::Pass,
+            };
+            match wsl::to_windows_daemon() {
+                true => cli::show(file, step),
+                false => user_doc::show(&wsl::from_caller(file), step),
+            }
+        }
         Cli::PtyHost => node_host::run(),
         Cli::DistroHost { inner: false } => distro::outer(),
         Cli::DistroHost { inner: true } => distro::inner(node_host::start_in_distro),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listDocs } from './api';
 import { DocLink } from './DocText';
@@ -9,7 +9,7 @@ import { shownDocs } from './shownDocs';
 
 const GROUPS: DocGroup[] = ['mockup', 'report'];
 
-export function DocList() {
+export const DocList = memo(function DocList() {
   const { t } = useTranslation();
   const [docs, setDocs] = useState<DocRow[] | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export function DocList() {
       )}
     </>
   );
-}
+});
 
 function DocItem({ doc, onRefusal }: { doc: DocRow; onRefusal: (message: string) => void }) {
   const { t } = useTranslation();

@@ -147,6 +147,9 @@ pub trait Adapter: Sync {
     fn launch_settings(&self) -> Option<String> {
         None
     }
+    fn spawns_at_daemon(&self) -> bool {
+        false
+    }
     fn launch<'a>(
         &'a self,
         _: &'a LaunchAt<'_>,

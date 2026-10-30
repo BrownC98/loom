@@ -36,6 +36,7 @@ import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { cardViewOf } from './cardView';
 import { ArrangeButton } from './ArrangeButton';
+import { keepSame } from './keepSame';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
 import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
@@ -55,6 +56,7 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
+import { CanvasComposer, deskKeys } from './Composer';
 import { PlaceTag } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -83,6 +85,7 @@ const EMPTY_SETTINGS: SettingsView = {
   graphScope: 'repo',
   edgeStyle: 'step',
   questionPill: 'line',
+  composerOff: false,
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   wslWorkspaceDirs: {},
@@ -97,6 +100,9 @@ const EMPTY_SETTINGS: SettingsView = {
   repo: null,
   paneWidths: { side: null, dock: null },
   pillPlace: null,
+  composerPlace: null,
+  pillSize: 'normal',
+  composerSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
   closedPill: null,
@@ -296,6 +302,7 @@ export function App() {
     if (key !== null) setSelected(null);
   };
   const [focusAsk, setFocusAsk] = useState(0);
+  const composerView = selected === null ? undefined : nodes.get(selected);
   const focusNode = (id: NodeId) => {
     selectNode(id);
     setFocusAsk((n) => n + 1);
@@ -386,7 +393,13 @@ export function App() {
       reading = true;
       getNodes()
         .then(
-          (views) => again || setNodes(new Map(views.map((view) => [view.id, view]))),
+          (views) =>
+            again ||
+            setNodes((old) => {
+              const before = [...old.values()];
+              const kept = keepSame(before, views);
+              return kept === before ? old : new Map(kept.map((view) => [view.id, view]));
+            }),
           () => again || graph.reopen(),
         )
         .finally(() => {
@@ -551,7 +564,7 @@ export function App() {
                 <PlaceTag wsl={shown[0].wsl} />
               </h1>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -575,6 +588,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} />}
           </main>
           {dockOpen ? (
             <Dock

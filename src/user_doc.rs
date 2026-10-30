@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::link_text::DOC_LINK;
@@ -14,31 +17,53 @@ pub use share::{Shared, shareable, with_bridge};
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
-pub fn show(path: &Path) -> Result<(), String> {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DocStep {
+    Stamp,
+    Pass,
+}
+
+pub fn take_step(path: &Path, step: DocStep) -> Result<WaitDoc, String> {
     let store = Store::here()?;
-    let doc = stamp_in(&store, path)?;
-    println!("show: 문서 ID {} ({})", doc.id, doc.title);
-    if bashless() {
-        pass_in(&store, path)?;
-        println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
-        println!(
-            "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
-            path.display()
-        );
-    } else {
-        println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+    match step {
+        DocStep::Stamp => stamp_in(&store, path),
+        DocStep::Pass => pass_in(&store, path),
+    }
+}
+
+pub fn show(path: &Path, step: DocStep) -> Result<(), String> {
+    let doc = take_step(path, step)?;
+    match (step, bashless()) {
+        (DocStep::Stamp, true) => {
+            println!("show: 문서 ID {} ({})", doc.id, doc.title);
+            take_step(path, DocStep::Pass)?;
+            println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
+            print_ask(path);
+        }
+        _ => told(&doc, step, path),
     }
     Ok(())
 }
 
-pub fn record_checked(path: &Path) -> Result<(), String> {
-    let doc = pass_in(&Store::here()?, path)?;
-    println!("show: 문서 ID {} 통과", doc.id);
+pub fn told(doc: &WaitDoc, step: DocStep, path: &Path) {
+    match step {
+        DocStep::Stamp => {
+            println!("show: 문서 ID {} ({})", doc.id, doc.title);
+            println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+        }
+        DocStep::Pass => {
+            println!("show: 문서 ID {} 통과", doc.id);
+            print_ask(path);
+        }
+    }
+}
+
+fn print_ask(path: &Path) {
     println!(
         "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
         path.display()
     );
-    Ok(())
 }
 
 fn bashless() -> bool {
@@ -48,6 +73,8 @@ fn bashless() -> bool {
             .and_then(|dir| crate::wsl::of(&dir))
             .is_none()
 }
+
+const ROWS_PER_THREAD: usize = 16;
 
 const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
 
@@ -278,8 +305,40 @@ pub enum DocGroup {
     Report,
 }
 
-pub fn docs() -> Result<Vec<DocRow>, String> {
-    Ok(Store::here()?.docs())
+pub fn docs(titles: &Titles) -> Result<Vec<DocRow>, String> {
+    Ok(Store::here()?.docs(titles))
+}
+
+#[derive(Default)]
+pub struct Titles(Mutex<HashMap<PathBuf, ReadTitle>>);
+
+struct ReadTitle {
+    modified: SystemTime,
+    len: u64,
+    title: Option<String>,
+}
+
+impl Titles {
+    fn of(&self, path: &Path) -> Option<String> {
+        let meta = fs::metadata(path).ok()?;
+        let (modified, len) = (meta.modified().ok()?, meta.len());
+        if let Some(read) = self.0.lock().unwrap().get(path)
+            && (read.modified, read.len) == (modified, len)
+        {
+            return read.title.clone();
+        }
+        let text = fs::read_to_string(path).ok()?;
+        let title = title(&text).map(|t| bare_title(t).to_owned());
+        self.0.lock().unwrap().insert(
+            path.to_path_buf(),
+            ReadTitle {
+                modified,
+                len,
+                title: title.clone(),
+            },
+        );
+        title
+    }
 }
 
 struct Store {
@@ -351,23 +410,37 @@ impl Store {
         })
     }
 
-    fn docs(&self) -> Vec<DocRow> {
+    fn docs(&self, titles: &Titles) -> Vec<DocRow> {
         let rows = self.rows();
         let mut seen = std::collections::HashSet::new();
-        let mut docs: Vec<DocRow> = table_rows(&rows)
+        let listed: Vec<(&str, &str)> = table_rows(&rows)
             .filter(|(path, id)| html(Path::new(path)) && seen.insert(*id))
-            .map(|(path, id)| self.row(id, Path::new(path)))
             .collect();
+        let mut docs: Vec<DocRow> = std::thread::scope(|scope| {
+            let parts: Vec<_> = listed
+                .chunks(ROWS_PER_THREAD)
+                .map(|part| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .map(|(path, id)| self.row(id, Path::new(path), titles))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            parts
+                .into_iter()
+                .flat_map(|part| part.join().unwrap())
+                .collect()
+        });
         docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
         docs
     }
 
-    fn row(&self, id: &str, source: &Path) -> DocRow {
+    fn row(&self, id: &str, source: &Path, titles: &Titles) -> DocRow {
         let copy = self.snapshot(id, source).filter(|c| c.is_file());
         let live = source.is_file();
         let shown = if live { Some(source) } else { copy.as_deref() };
-        let text = shown.and_then(|p| fs::read_to_string(p).ok());
-        let title = text.and_then(|text| title(&text).map(|t| bare_title(t).to_owned()));
+        let title = shown.and_then(|p| titles.of(p));
         let file_name = || {
             source
                 .file_name()

@@ -33,8 +33,8 @@ mod waits;
 
 pub use commands::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
-    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, SpawnRequest,
-    SpawnRun, WaitRequest,
+    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, ShowRequest,
+    SpawnRequest, SpawnRun, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -92,7 +92,7 @@ use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Wo
 use crate::wsl;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
-    agent_note, agent_remove, agent_set_role, agent_spawn, traced,
+    agent_note, agent_remove, agent_set_role, agent_spawn, endpoint_spawn, traced,
 };
 
 #[derive(Embed)]
@@ -135,6 +135,7 @@ struct App {
     door: lan::Door,
     passes: passes::Passes,
     choices: waits::Choices,
+    doc_titles: user_doc::Titles,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -225,6 +226,10 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         links,
     )?);
     tokio::spawn(app.clone().carry_links(linked, doors));
+    tokio::task::spawn_blocking({
+        let app = app.clone();
+        move || user_doc::docs(&app.doc_titles)
+    });
     match app
         .repos
         .add(&std::env::current_dir()?.to_string_lossy())
@@ -324,6 +329,7 @@ fn endpoint_routes(
     app: &Arc<App>,
 ) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, arrival::Caller> {
     commands::node_routes()
+        .merge(commands::endpoint_only_routes())
         .layer(axum::middleware::from_fn(origin::same_site))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -419,6 +425,7 @@ impl App {
             ),
             passes: passes::Passes::default(),
             choices: waits::Choices::default(),
+            doc_titles: user_doc::Titles::default(),
             spots: Spots::new(database.clone()),
             database,
             accounts_root: db_path.with_file_name("accounts"),

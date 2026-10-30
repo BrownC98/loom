@@ -100,6 +100,10 @@ impl Codex {
 }
 
 impl super::adapter::Adapter for Codex {
+    fn spawns_at_daemon(&self) -> bool {
+        true
+    }
+
     fn facts(&self) -> Facts {
         Facts {
             logins: match self {

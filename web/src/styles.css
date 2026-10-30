@@ -316,7 +316,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .repo-head .sub { min-width: 0; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-head, .group-head, .pop { pointer-events: all; }
 .react-flow__viewport-portal { z-index: 2000; pointer-events: none; }
-.panning * { cursor: grabbing !important; }
+.panning::after { content: ''; position: fixed; inset: 0; z-index: 2147483647; cursor: grabbing; }
 .group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); cursor: grab; }
 .group-head .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }
@@ -406,7 +406,7 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__resize-control.line.top, .react-flow__resize-control.line.bottom { height: 6px; }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
-.xterm-box > div { overflow: hidden; }
+.xterm-box > div { overflow: hidden; contain: strict; }
 .xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
 .xterm-box .xterm .xterm-viewport { background-color: transparent; }
 .xterm-box .xterm-rows > div { overflow: visible !important; }
@@ -429,7 +429,7 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__connection-path { stroke: var(--accent); stroke-width: 2; }
 .refusal { position: absolute; top: 60px; right: 16px; z-index: 6; max-width: 480px; padding: 6px 10px; border-radius: 6px; background: var(--surface); color: var(--err); font-size: 13px; }
 
-.zoomed { position: absolute; inset: 0; z-index: 7; padding: 16px; background: var(--bg); display: flex; }
+.zoomed { position: absolute; inset: 0; z-index: 7; padding: 16px 16px calc(16px + var(--composer-room, 0px)); background: var(--bg); display: flex; }
 .zoomed .card { width: 100%; height: 100%; }
 .zoomed .term { flex: 1; height: auto; min-height: 0; }
 
@@ -539,9 +539,9 @@ a { color: var(--accent); }
 .inbox-pill .head { cursor: grab; touch-action: none; }
 .inbox-pill[data-dragging] .head { cursor: grabbing; }
 .inbox-pill[data-dragging] { user-select: none; }
-.inbox-pill :is(.pill-reset, .pill-close) { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.inbox-pill :is(.pill-reset, .pill-close):hover { background: var(--surface-hover); color: var(--ink); }
-.inbox-pill :is(.pill-reset, .pill-close) svg { width: 14px; height: 14px; }
+.inbox-pill :is(.float-reset, .pill-close) { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.inbox-pill :is(.float-reset, .pill-close):hover { background: var(--surface-hover); color: var(--ink); }
+.inbox-pill :is(.float-reset, .pill-close) svg { width: 14px; height: 14px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
 .wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
@@ -838,7 +838,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-title b { font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); cursor: pointer; }
 .phone-icon:hover { background: var(--surface-hover); }
-.phone-icon svg, .phone-tabs svg, .phone-keys svg, .phone-input .send svg, .phone-offline svg { width: 20px; height: 20px; }
+.phone-icon svg, .phone-tabs svg, .phone-keys svg, .phone .composer :is(.send, .attach) svg, .phone-offline svg { width: 20px; height: 20px; }
 .phone-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px; display: grid; align-content: start; gap: 10px; }
 .phone-empty { display: grid; justify-items: start; gap: 10px; padding: 16px; color: var(--ink-2); }
 .phone-empty.center { place-content: center; justify-items: center; text-align: center; margin: 0; }
@@ -931,9 +931,6 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-keys button { flex: 1; min-width: 0; height: 40px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 600 13px var(--mono); display: grid; place-items: center; cursor: pointer; }
 .phone-keys button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .phone-keys svg { width: 16px; height: 16px; }
-.phone-input { display: flex; gap: 6px; }
-.phone-input input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
-.phone-input .send { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
 .phone-scrim { position: fixed; inset: 0; z-index: 30; display: grid; align-items: end; background: var(--scrim); }
 .phone-sheet { display: grid; grid-template-rows: auto minmax(0, 1fr); max-height: 85dvh; background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px var(--shadow); }
 .sheet-head { position: relative; display: flex; align-items: center; min-height: 52px; padding: 14px 4px 0 16px; touch-action: none; }
@@ -988,3 +985,45 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .doc-bar .feedback { flex: 1 1 100%; min-width: 0; max-height: 30vh; padding: 5px 8px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
 .doc-bar .feedback::placeholder { color: var(--ink-3); }
 .doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
+
+.canvas .react-flow__panel.bottom { margin-bottom: calc(15px + var(--composer-room, 0px)); }
+.canvas .react-flow__panel.react-flow__attribution { margin-bottom: var(--composer-room, 0px); }
+.composer-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.composer-float { position: absolute; width: min(calc(600px * var(--float-zoom)), calc(100% - 24px)); pointer-events: auto; }
+.composer-float > .composer { zoom: var(--float-zoom); }
+.composer-float .composer-to { cursor: grab; touch-action: none; }
+.composer-float[data-dragging] .composer-to { cursor: grabbing; }
+.composer-float[data-dragging] { user-select: none; }
+.composer-to .float-reset { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: -3px 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.composer-to .node-name { min-width: 0; padding: 0; border: 0; background: none; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.composer-to .node-name:hover b { text-decoration: underline; }
+.composer-to .float-reset:hover { background: var(--surface-hover); color: var(--ink); }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 8px 8px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+.composer:focus-within, .composer[data-dragging] { border-color: var(--accent); }
+.composer-to { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.composer-to .target { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-to svg { flex: none; width: 14px; height: 14px; }
+.composer-to b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.composer-to .keys { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.composer .refusal { position: static; max-width: none; margin: 0; padding: 0; background: none; color: var(--err); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer .filing { margin: 0; color: var(--ink-3); font-size: 12px; }
+.composer-line { display: flex; align-items: flex-end; gap: 4px; }
+.composer-line textarea { flex: 1; min-width: 0; max-height: 40vh; padding: 5px 8px; resize: none; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
+.composer-line textarea::placeholder { color: var(--ink-3); }
+.composer-line textarea:focus-visible { outline: none; border-color: var(--accent); }
+.composer .attach { position: relative; flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
+.composer .attach:hover { background: var(--surface-hover); color: var(--ink); }
+.composer .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.composer .attach:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.composer :is(.attach, .send) svg { width: 16px; height: 16px; }
+.composer .send { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+.composer .send:disabled { opacity: 0.4; cursor: default; }
+.answer-images .upload { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 6px; background: oklch(0% 0 0 / 0.45); color: oklch(100% 0 0); font-size: 11px; pointer-events: none; }
+.answer-images [data-upload="failed"] img { opacity: 0.35; border-color: var(--err); }
+.answer-images [data-upload="failed"] .upload { background: none; color: var(--err); font-weight: 600; }
+.phone .composer { gap: 6px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.phone .composer-to, .phone .composer .attach.image { display: none; }
+.phone .composer .attach.file { order: -1; }
+.phone .composer-line { gap: 6px; }
+.phone .composer-line textarea { padding: 10px 12px; border-radius: 10px; font-size: 16px; line-height: 22px; }
+.phone .composer :is(.attach, .send) { width: 44px; height: 44px; border-radius: 10px; }

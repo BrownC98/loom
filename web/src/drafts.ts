@@ -8,12 +8,16 @@ const listen = (heed: () => void) => {
   return () => void heard.delete(heed);
 };
 
+export const readDraft = (key: string) => drafts.get(key) ?? '';
+
+export function editDraft(key: string, change: (now: string) => string) {
+  const next = change(readDraft(key));
+  if (next) drafts.set(key, next);
+  else drafts.delete(key);
+  heard.forEach((heed) => heed());
+}
+
 export function useDraft(key: string): [string, (text: string) => void] {
-  const text = useSyncExternalStore(listen, () => drafts.get(key) ?? '');
-  const write = (next: string) => {
-    if (next) drafts.set(key, next);
-    else drafts.delete(key);
-    heard.forEach((heed) => heed());
-  };
-  return [text, write];
+  const text = useSyncExternalStore(listen, () => readDraft(key));
+  return [text, (next) => editDraft(key, () => next)];
 }

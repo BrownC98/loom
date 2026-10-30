@@ -1,13 +1,14 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, EyeOff, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, type LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, EllipsisVertical, EyeOff, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, removeNode } from './api';
 import type { Theme } from './gen/Theme';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
-import { watchComposition, type Composition } from './composition';
+import { Composer, PHONE_KEYS } from './Composer';
 import { InboxPanel, waitCount } from './Inbox';
+import { useNodeInput } from './nodeInputs';
 import { AgentLine, stateLabel } from './NodeCard';
 import { NodeText, NoticeChips, NoticeLead, oldestWait } from './notice';
 import { useNotifyState } from './phoneNotify';
@@ -248,21 +249,9 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
-  const paster = useRef<((text: string) => void) | null>(null);
+  const input = useNodeInput(view.id);
   const [pasteFailed, setPasteFailed] = useState(false);
   const [ctrl, setCtrl] = useState(false);
-  const [text, setText] = useState('');
-  const box = useRef<HTMLInputElement>(null);
-  const composition = useRef<Composition | null>(null);
-  useEffect(() => {
-    if (!box.current) return;
-    const watched = watchComposition(box.current);
-    composition.current = watched;
-    return () => {
-      watched.dispose();
-      composition.current = null;
-    };
-  }, []);
   const [sheet, setSheet] = useState<'actions' | null>(null);
   const { askOpen, setAskOpen } = props;
   const { waiting } = props;
@@ -281,23 +270,16 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
     readClipboard().then(
       (text) => {
         setPasteFailed(false);
-        if (text) paster.current?.(text);
+        if (text) input?.paste(text);
       },
       () => setPasteFailed(true),
     );
   };
   const arrow = (code: string) => key(ctrl ? `${ESC}[1;5${code}` : `${ESC}[${code}`);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const sendBox = () => {
-      key(`${box.current?.value ?? text}\r`);
-      setText('');
-    };
-    if (!composition.current?.afterText(sendBox)) sendBox();
-  };
-  const type = (next: string) => {
-    if (ctrl && next.length === text.length + 1 && next.startsWith(text)) return key(controlOf(next.slice(-1)));
-    setText(next);
+  const typed = (before: string, after: string) => {
+    if (!ctrl || after.length !== before.length + 1 || !after.startsWith(before)) return false;
+    key(controlOf(after.slice(-1)));
+    return true;
   };
 
   return (
@@ -329,7 +311,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
         </div>
       )}
       <div className="phone-term" translate="no">
-        <SizingTerminal src={nodePty(view.id)} node={view.id} hold={borrowSize} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} onPaster={(p) => (paster.current = p)} />
+        <SizingTerminal src={nodePty(view.id)} node={view.id} hold={borrowSize} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} />
       </div>
       <div className="phone-dock">
         <div className="phone-keys" role="group" aria-label={t('phone.keys')}>
@@ -359,12 +341,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
             {t('phone.pasteDenied')}
           </p>
         )}
-        <form className="phone-input" onSubmit={submit}>
-          <input ref={box} value={text} onChange={(e) => type(e.target.value)} aria-label={t('phone.input')} placeholder={t('phone.input')} autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" />
-          <button type="submit" className="send" aria-label={t('phone.send')}>
-            <CornerDownLeft aria-hidden="true" />
-          </button>
-        </form>
+        <Composer node={view.id} name={view.name} keys={PHONE_KEYS} onTyped={typed} />
       </div>
       {sheet === 'actions' && <ActionSheet view={view} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
     </>

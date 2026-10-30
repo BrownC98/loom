@@ -94,10 +94,10 @@ class Bridge:
         finally:
             self.events.put((source, None))
 
-    def call(self, method, params, done):
+    def call(self, method, params, done, failed=None):
         self.next += 1
         ident = self.prefix + str(self.next)
-        self.calls[ident] = (time.monotonic() + CALL_TIMEOUT, done)
+        self.calls[ident] = (time.monotonic() + CALL_TIMEOUT, done, failed)
         send(self.server.stdin, {"jsonrpc": "2.0", "id": ident, "method": method, "params": params})
 
     def state(self):
@@ -107,11 +107,11 @@ class Bridge:
         model = self.runtime.config.active_model
         return {"transcript": session.id, "model": model.alias, "effort": model.thinking}
 
-    def request(self, event, done, **values):
+    def request(self, event, done, failed=None, **values):
         self.next += 1
         ident = self.next
         limit = None if event in ("idle", "settled") else time.monotonic() + CALL_TIMEOUT
-        self.hooks[ident] = (limit, done)
+        self.hooks[ident] = (limit, done, failed)
         send(self.hook.stdin, {"protocol": HOOK_PROTOCOL, "id": ident, "event": event, **self.state(), **values})
         return ident
 
@@ -125,6 +125,9 @@ class Bridge:
             acked(None)
 
     def deliver(self, reply):
+        self.post(reply, lambda: self.post(reply, lambda: None))
+
+    def post(self, reply, again):
         if not reply.get("text"):
             return
         params = {
@@ -134,16 +137,26 @@ class Bridge:
                 "-".join(map(str, reply["ids"])) if reply.get("ids") else uuid.uuid4().hex
             ),
         }
+        def failed(error):
+            print(f"loom: Vibe 메일 전달 실패: {error}", file=sys.stderr)
+            self.unacked_deliveries -= 1
+            again()
+
         method = "turn/start"
         if self.turn:
             method = "turn/steer"
             params["expectedTurnId"] = self.turn
         self.waiting = None
         self.unacked_deliveries += 1
-        self.call(method, params, lambda _: self.acknowledge(reply))
+        self.call(method, params, lambda _: self.acknowledge(reply), failed)
 
     def wait(self, event="idle", **values):
         self.waiting = (event, values)
+
+    def rewait(self, event, values):
+        if self.waiting is None and self.turn is None:
+            self.waiting = (event, values)
+            self.next_poll = time.monotonic() + MAIL_POLL_SECONDS
 
     def polled(self, reply=None):
         if reply:
@@ -159,6 +172,7 @@ class Bridge:
             self.call(
                 "turn/interrupt",
                 {"sessionId": self.projection.state.session.id, "expectedTurnId": turn},
+                lambda _: None,
                 lambda _: None,
             )
             self.polled()
@@ -240,8 +254,9 @@ class Bridge:
         pending = self.calls.pop(ident, None)
         if pending:
             if "error" in msg:
-                raise RuntimeError(f"Vibe 응답 오류: {msg['error']}")
-            pending[1](msg.get("result", {}))
+                self.fail(pending, msg["error"])
+            else:
+                pending[1](msg.get("result", {}))
         elif ident in self.opening:
             from vibe.app_server.events import ClientProjection
             from vibe.app_server.models import PublicSessionState
@@ -266,22 +281,46 @@ class Bridge:
         else:
             send(sys.stdout, msg)
 
+    def fail(self, pending, error):
+        if pending[2] is None:
+            raise RuntimeError(f"Vibe 응답 오류: {error}")
+        pending[2](error)
+
+    def hooked(self, pending, msg):
+        if not msg.get("error"):
+            pending[1](msg)
+            return
+        print(f"loom: {msg['error']}", file=sys.stderr)
+        if pending[2] is None:
+            pending[1]({})
+        else:
+            pending[2]()
+
+    def expire(self, now):
+        for ident, pending in list(self.calls.items()):
+            if pending[0] <= now:
+                del self.calls[ident]
+                self.fail(pending, "응답 시간이 지났습니다")
+        for ident, pending in list(self.hooks.items()):
+            if pending[0] is not None and pending[0] <= now:
+                del self.hooks[ident]
+                self.hooked(pending, {"error": "loom 훅의 응답 시간이 지났습니다"})
+
     def run(self):
         for source, stream in (("client", sys.stdin), ("server", self.server.stdout), ("hook", self.hook.stdout)):
             threading.Thread(target=self.read, args=(source, stream), daemon=True).start()
         while True:
             now = time.monotonic()
             if not self.polling and not self.unacked_deliveries:
-                if self.waiting is not None and self.turn is None:
+                if self.waiting is not None and self.turn is None and now >= self.next_poll:
                     event, values = self.waiting
                     self.waiting = None
-                    self.request(event, self.deliver, **values)
+                    self.request(event, self.deliver, lambda event=event, values=values: self.rewait(event, values), **values)
                 if self.turn and self.interrupting != self.turn and now >= self.next_poll:
                     turn = self.turn
                     self.polling = True
                     self.request("interrupt_pending", lambda reply, turn=turn: self.interrupt_turn(turn, reply))
-            if any(limit is not None and limit <= now for limit, _ in (*self.calls.values(), *self.hooks.values())):
-                raise TimeoutError("Vibe 연결의 응답 시간이 지났습니다")
+            self.expire(now)
             try:
                 source, msg = self.events.get(timeout=POLL_SECONDS)
             except queue.Empty:
@@ -294,10 +333,8 @@ class Bridge:
                 self.client(msg)
             elif source == "hook":
                 pending = self.hooks.pop(msg.get("id"), None)
-                if msg.get("error"):
-                    raise RuntimeError(msg["error"])
                 if pending:
-                    pending[1](msg)
+                    self.hooked(pending, msg)
             elif "method" in msg:
                 send(sys.stdout, msg)
                 self.notification(msg)

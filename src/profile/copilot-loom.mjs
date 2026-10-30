@@ -14,7 +14,7 @@ let tools = 0;
 let interrupt;
 const fail = (error) => {
   console.error(`loom: ${error}`);
-  for (const { reject } of pending.values()) reject(new Error(String(error)));
+  for (const resolve of pending.values()) resolve(undefined);
   pending.clear();
 };
 child.on("error", fail);
@@ -27,8 +27,8 @@ createInterface({ input: child.stdout }).on("line", (line) => {
     const request = pending.get(answer.id);
     if (!request) return;
     pending.delete(answer.id);
-    if (answer.error) request.reject(new Error(answer.error));
-    else request.resolve(answer);
+    if (answer.error) console.error(`loom: ${answer.error}`);
+    request(answer.error ? undefined : answer);
   } catch (error) {
     fail(error);
   }
@@ -36,8 +36,8 @@ createInterface({ input: child.stdout }).on("line", (line) => {
 
 function send(event) {
   const id = ++next;
-  const answer = new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+  const answer = new Promise((resolve) => {
+    pending.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ protocol: 4, id, ...state, ...event })}\n`);
   });
   return { id, answer };
@@ -50,7 +50,7 @@ function watch() {
   const request = send({ event: "interrupt" });
   interrupt = request.id;
   void request.answer.then(async (answer) => {
-    if (interrupt === request.id && answer.interrupted) await session.abort();
+    if (interrupt === request.id && answer?.interrupted) await session.abort();
   }).catch(fail);
 }
 
@@ -72,8 +72,8 @@ async function acknowledge(ids) {
 
 async function context(event) {
   const answer = await call(event);
-  if (answer.ids?.length) unacked.push(answer);
-  return answer.text;
+  if (answer?.ids?.length) unacked.push(answer);
+  return answer?.text;
 }
 
 async function admit(answer) {
@@ -97,7 +97,7 @@ async function idle(event = "settled") {
       return;
     }
     const answer = await call({ event, reply });
-    if (answer.text) await admit(answer);
+    if (answer?.text) await admit(answer);
   } catch (error) {
     console.error(`loom idle: ${error}`);
   } finally {

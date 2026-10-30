@@ -1096,6 +1096,18 @@ impl Graph {
         spent_in(&self.lock(), node)
     }
 
+    pub fn parent_holds(&self, child: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            &format!(
+                r#"SELECT EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' != 'done'
+                     OR {BUSY} OR EXISTS (SELECT 1 FROM gates g WHERE g.owner = p.id AND g.state != '"merged"')))
+                 FROM nodes c WHERE c.id = ?1"#
+            ),
+            [child.0],
+            |row| row.get(0),
+        )
+    }
+
     pub fn finishing_children(&self, node: NodeId) -> rusqlite::Result<Vec<String>> {
         Ok(
             children_where(&self.lock(), node, &format!("{SETTLED} AND NOT {IDLE}"))?
@@ -1117,12 +1129,18 @@ const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS N
 const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
      WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))";
 
-const FREE: &str = "EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' = 'done'
-     OR NOT EXISTS (SELECT 1 FROM agent_states s WHERE s.node = p.id
-         AND coalesce(s.state ->> '$.before.kind', s.state ->> 'kind') IN ('turn', 'starting', 'mismatch'))))";
+const BUSY: &str = "EXISTS (SELECT 1 FROM agent_states s WHERE s.node = p.id
+     AND coalesce(s.state ->> '$.before.kind', s.state ->> 'kind') IN ('turn', 'starting', 'mismatch'))";
 
 fn spent_in(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<(NodeId, String)>> {
-    children_where(db, node, &format!("{SETTLED} AND {IDLE} AND {FREE}"))
+    children_where(
+        db,
+        node,
+        &format!(
+            "{SETTLED} AND {IDLE} AND EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent
+                 AND (p.state ->> 'kind' = 'done' OR NOT {BUSY}))"
+        ),
+    )
 }
 
 fn children_where(

@@ -99,6 +99,14 @@ impl App {
         name: &str,
         swept: &mut Swept,
     ) -> Result<bool, String> {
+        if self.graph.parent_holds(child).map_err(|e| e.to_string())?
+            && let Left::Work(_) = self.work(parent).await?
+        {
+            swept.kept.push(format!(
+                "{name}: the branch of its parent is not merged yet. loom keeps it for gate rework and removes it after the merge."
+            ));
+            return Ok(false);
+        }
         let left = self.left(child).await?;
         if let Left::Work(why) = left {
             swept.kept.push(format!("{name}: {why}"));
@@ -140,10 +148,6 @@ impl App {
 
     async fn left(&self, child: NodeId) -> Result<Left, String> {
         let place = self.graph.place_of(child).map_err(|e| e.to_string())?;
-        let dir = self.repos.path(place.repo).map_err(|e| e.to_string())?;
-        if Path::new(&place.worktree) == dir {
-            return Ok(Left::Nothing);
-        }
         let shared = self
             .graph
             .nodes_in(&place.worktree)
@@ -151,6 +155,15 @@ impl App {
             .iter()
             .any(|n| *n != child);
         if shared {
+            return Ok(Left::Nothing);
+        }
+        self.work(child).await
+    }
+
+    async fn work(&self, node: NodeId) -> Result<Left, String> {
+        let place = self.graph.place_of(node).map_err(|e| e.to_string())?;
+        let dir = self.repos.path(place.repo).map_err(|e| e.to_string())?;
+        if Path::new(&place.worktree) == dir {
             return Ok(Left::Nothing);
         }
         let own = match worktree::find(&dir, &place.worktree).await {
@@ -172,7 +185,7 @@ impl App {
                 "the worktree {path} has a detached HEAD. loom keeps the node and the worktree."
             )));
         };
-        let target = match self.gate_of(child, &dir).await {
+        let target = match self.gate_of(node, &dir).await {
             Ok((_, target)) => target,
             Err(e) => {
                 return Ok(Left::Work(format!(

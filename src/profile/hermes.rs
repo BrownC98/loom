@@ -110,8 +110,8 @@ impl Adapter for Hermes {
         std::fs::write(dir.join(BUNDLED_FILE), BUNDLED)
     }
 
-    fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+    fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
     }
 }
 

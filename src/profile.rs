@@ -10,6 +10,7 @@ pub mod omp;
 pub mod opencode2;
 pub mod pi;
 pub mod process;
+mod qwen;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -41,6 +42,7 @@ pub enum Profile {
     Claude,
     #[serde(rename = "openclaude")]
     OpenClaude,
+    QwenCode,
     Codex,
     Copilot,
     Trae,
@@ -111,6 +113,7 @@ pub trait HookEvent {
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum HookEntry {
     Claude,
+    Qwen,
     Copilot,
     Cursor,
     CursorRules,
@@ -151,6 +154,7 @@ pub struct Unserved {
 pub fn hook(entry: HookEntry) -> Hook {
     match entry {
         HookEntry::Claude => Hook::Once(|input| Ok(Box::new(claude::Hook::deserialize(input)?))),
+        HookEntry::Qwen => Hook::Once(|input| Ok(Box::new(qwen::Hook::deserialize(input)?))),
         HookEntry::Copilot => Hook::Lines(|line| lines::request(line, "Copilot extension")),
         HookEntry::Cursor => Hook::Once(|input| Ok(Box::new(cursor::Hook::parse(input)?))),
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
@@ -202,6 +206,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude::Code,
         Profile::OpenClaude => &claude::Claude::Open,
+        Profile::QwenCode => &qwen::Qwen,
         Profile::Codex => &codex::Codex::OpenAi,
         Profile::Trae => &codex::Codex::Trae,
         Profile::Copilot => &copilot::Copilot,

@@ -549,7 +549,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     pub fn guarded_shell(&self, id: K, caller: u32) -> Option<Identity> {
         let root = self.pid(id)?;
         let snapshot = Snapshot::now();
-        snapshot.identity(snapshot.child_on_path(root, caller)?)
+        snapshot.guarded_shell(root, caller)
     }
 
     pub fn stop_guarded(&self, id: K, shells: &[Identity]) -> bool {

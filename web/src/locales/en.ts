@@ -230,6 +230,7 @@ const en = {
       cursor: 'cursor-agent {{installed}} · pinned {{pinned}}',
       pi: 'pi {{installed}} · pinned {{pinned}}',
       omp: 'omp {{installed}} · pinned {{pinned}}',
+      qwenCode: 'qwen {{installed}} · pinned {{pinned}}',
       dsh: 'dsh-tui {{installed}} · pinned {{pinned}}',
       copilot: 'copilot {{installed}} · pinned {{pinned}}',
       hermes: 'hermes {{installed}} · pinned {{pinned}}',

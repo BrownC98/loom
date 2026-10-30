@@ -1018,6 +1018,13 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .composer :is(.attach, .send) svg { width: 16px; height: 16px; }
 .composer .send { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
 .composer .send:disabled { opacity: 0.4; cursor: default; }
+.size-prev { position: relative; display: grid; align-items: center; max-width: 720px; padding: 22px 16px 10px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.size-prev > :not(.cap) { grid-area: 1 / 1; }
+.size-prev > .room { visibility: hidden; }
+.size-prev .cap { position: absolute; left: 10px; top: 4px; font-size: 11px; color: var(--ink-3); }
+.size-prev .inbox-pill { justify-self: start; }
+.size-prev .inbox-pill .head { cursor: default; }
+.size-prev .composer { width: 440px; }
 .answer-images .upload { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 6px; background: oklch(0% 0 0 / 0.45); color: oklch(100% 0 0); font-size: 11px; pointer-events: none; }
 .answer-images [data-upload="failed"] img { opacity: 0.35; border-color: var(--err); }
 .answer-images [data-upload="failed"] .upload { background: none; color: var(--err); font-weight: 600; }

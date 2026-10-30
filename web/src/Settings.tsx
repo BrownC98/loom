@@ -199,17 +199,19 @@ function useSearch(pane: RefObject<HTMLDivElement | null>, query: string): numbe
       const ranges: Range[] = [];
       let count = 0;
       for (const section of root.querySelectorAll<HTMLElement>('.search-tab section')) {
-        const hit = (section.textContent ?? '').toLocaleLowerCase().includes(needle);
+        const walk = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement?.closest('[inert]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+        const texts: Node[] = [];
+        while (walk.nextNode()) texts.push(walk.currentNode);
+        const hit = texts.map((n) => n.nodeValue ?? '').join('').toLocaleLowerCase().includes(needle);
         section.hidden = !hit;
         if (!hit) continue;
         count++;
-        const walk = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
-        while (walk.nextNode()) {
-          const text = walk.currentNode.nodeValue?.toLocaleLowerCase() ?? '';
+        for (const node of texts) {
+          const text = node.nodeValue?.toLocaleLowerCase() ?? '';
           for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
             const range = new Range();
-            range.setStart(walk.currentNode, at);
-            range.setEnd(walk.currentNode, at + needle.length);
+            range.setStart(node, at);
+            range.setEnd(node, at + needle.length);
             ranges.push(range);
           }
         }

@@ -657,6 +657,9 @@ const ko: typeof en = {
     normal: '기본',
     large: '크게',
     huge: '아주 크게',
+    preview: '미리 보기 · {{size}}',
+    sampleNode: '코디',
+    sampleText: '이 크기로 보입니다',
   },
   terminal: {
     copy: '복사',

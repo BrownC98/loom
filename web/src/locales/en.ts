@@ -655,6 +655,9 @@ const en = {
     normal: 'Default',
     large: 'Large',
     huge: 'Extra large',
+    preview: 'Preview · {{size}}',
+    sampleNode: 'coordinator',
+    sampleText: 'this is the size',
   },
   terminal: {
     copy: 'Copy',

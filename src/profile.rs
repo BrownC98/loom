@@ -8,6 +8,7 @@ pub mod omp;
 pub mod opencode2;
 pub mod pi;
 pub mod process;
+pub mod vibe;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +45,7 @@ pub enum Profile {
     Pi,
     Omp,
     Dsh,
+    Vibe,
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,6 +111,7 @@ pub enum HookEntry {
     Pi,
     Omp,
     Dsh,
+    VibeBridge,
 }
 
 pub enum Hook {
@@ -146,6 +149,7 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
         HookEntry::Dsh => Hook::Lines(dsh::request),
+        HookEntry::VibeBridge => Hook::Lines(vibe::request),
     }
 }
 
@@ -196,6 +200,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
+        Profile::Vibe => &vibe::Vibe,
     }
 }
 

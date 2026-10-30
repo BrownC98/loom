@@ -4,5 +4,5 @@
   "description": "데몬이 내는 화면(127.0.0.1)이 앱 판을 읽고, 업데이트를 확인하고 설치한 뒤 앱을 다시 띄운다. 근거: docs/design/데스크톱-앱.md.",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
-  "permissions": ["core:app:allow-version", "updater:allow-check", "updater:allow-download", "updater:allow-install", "process:allow-restart"]
+  "permissions": ["core:app:allow-version", "updater:allow-check", "updater:allow-download", "updater:allow-install", "core:resources:allow-close", "process:allow-restart"]
 }

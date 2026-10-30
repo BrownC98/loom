@@ -232,6 +232,7 @@ const ko: typeof en = {
       pi: 'pi {{installed}} · 고정 {{pinned}}',
       omp: 'omp {{installed}} · 고정 {{pinned}}',
       dsh: 'dsh-tui {{installed}} · 고정 {{pinned}}',
+      hermes: 'hermes {{installed}} · 고정 {{pinned}}',
     },
     messaging: '메시지 연동',
     docs: '문서',

@@ -3,4 +3,4 @@
 /**
  * 메시지 연동(훅·app-server·서버 API)이 있는 에이전트. 근거: docs/design/에이전트-실행.md.
  */
-export type Profile = "claude" | "openclaude" | "codex" | "opencode2" | "cursor" | "pi" | "omp" | "dsh";
+export type Profile = "claude" | "openclaude" | "codex" | "opencode2" | "cursor" | "pi" | "omp" | "dsh" | "hermes";

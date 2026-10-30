@@ -3,6 +3,7 @@ pub mod claude;
 pub mod codex;
 pub mod cursor;
 pub mod dsh;
+pub mod hermes;
 mod lines;
 pub mod omp;
 pub mod opencode2;
@@ -37,7 +38,10 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 #[ts(export)]
 pub enum Profile {
     Claude,
+    #[serde(rename = "openclaude")]
+    OpenClaude,
     Codex,
+    Trae,
     #[serde(rename = "opencode2")]
     OpenCode2,
     #[serde(rename = "mimo-code")]
@@ -47,6 +51,7 @@ pub enum Profile {
     Pi,
     Omp,
     Dsh,
+    Hermes,
 }
 
 #[derive(Debug, PartialEq)]
@@ -112,6 +117,7 @@ pub enum HookEntry {
     Pi,
     Omp,
     Dsh,
+    Hermes,
 }
 
 pub enum Hook {
@@ -149,6 +155,7 @@ pub fn hook(entry: HookEntry) -> Hook {
         HookEntry::CursorRules => Hook::Once(|_| Ok(Box::new(cursor::Rules::from_env()))),
         HookEntry::Pi | HookEntry::Omp => Hook::Lines(pi::request),
         HookEntry::Dsh => Hook::Lines(dsh::request),
+        HookEntry::Hermes => Hook::Lines(hermes::request),
     }
 }
 
@@ -192,8 +199,10 @@ fn file_name(program: &str) -> &str {
 
 pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
-        Profile::Claude => &claude::Claude,
-        Profile::Codex => &codex::Codex,
+        Profile::Claude => &claude::Claude::Code,
+        Profile::OpenClaude => &claude::Claude::Open,
+        Profile::Codex => &codex::Codex::OpenAi,
+        Profile::Trae => &codex::Codex::Trae,
         Profile::OpenCode2 => &opencode2::OPENCODE2,
         Profile::MiMoCode => &opencode2::MIMO,
         Profile::Kilo => &opencode2::KILO,
@@ -201,6 +210,7 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
         Profile::Dsh => &dsh::Dsh,
+        Profile::Hermes => &hermes::Hermes,
     }
 }
 

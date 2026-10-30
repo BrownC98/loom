@@ -12,6 +12,7 @@ enum Lang {
     Tsx,
     Bash,
     PowerShell,
+    Python,
     Yaml,
     Toml,
     Kotlin,
@@ -29,7 +30,7 @@ enum Kind {
     Unchecked,
 }
 
-const UNCHECKED_DIRS: &[&str] = &["docs/", "web/src/gen/"];
+const UNCHECKED_DIRS: &[&str] = &["docs/", "web/src/gen/", "skills/design-stack/"];
 
 const UNCHECKED_NAMES: &[&str] = &["LICENSE", "Cargo.lock", "package-lock.json"];
 
@@ -51,6 +52,7 @@ fn kind_of(path: &str) -> Option<Kind> {
             "tsx" | "js" | "mjs" | "cjs" | "jsx" => Lang::Tsx,
             "sh" => Lang::Bash,
             "ps1" => Lang::PowerShell,
+            "py" => Lang::Python,
             "yml" | "yaml" => Lang::Yaml,
             "toml" => Lang::Toml,
             "kt" | "kts" => Lang::Kotlin,
@@ -89,6 +91,7 @@ fn grammar(lang: Lang) -> Language {
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Lang::Bash => tree_sitter_bash::LANGUAGE.into(),
         Lang::PowerShell => tree_sitter_powershell::LANGUAGE.into(),
+        Lang::Python => tree_sitter_python::LANGUAGE.into(),
         Lang::Yaml => tree_sitter_yaml::LANGUAGE.into(),
         Lang::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
         Lang::Kotlin => tree_sitter_kotlin_sg::LANGUAGE.into(),

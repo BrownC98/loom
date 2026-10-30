@@ -225,6 +225,8 @@ const en = {
       claude: 'claude {{installed}} · pinned {{pinned}}',
       codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',
       opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',
+      'mimo-code': 'mimo {{installed}} · pinned {{pinned}}',
+      kilo: 'kilo {{installed}} · pinned {{pinned}}',
       cursor: 'cursor-agent {{installed}} · pinned {{pinned}}',
       pi: 'pi {{installed}} · pinned {{pinned}}',
       omp: 'omp {{installed}} · pinned {{pinned}}',

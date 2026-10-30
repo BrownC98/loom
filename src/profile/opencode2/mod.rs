@@ -1,4 +1,5 @@
 mod server;
+mod v1;
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -20,7 +21,7 @@ use crate::protocol::{
 };
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
-use server::Server;
+use server::{Api, Server};
 
 pub const PINNED_VERSION: &str = "2.0.32";
 pub const PASSWORD_ENV: &str = "OPENCODE_PASSWORD";
@@ -39,25 +40,60 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-pub struct OpenCode2;
+pub struct OpenCode {
+    api: Api,
+    command: &'static str,
+}
 
-impl super::adapter::Adapter for OpenCode2 {
+pub const OPENCODE2: OpenCode = OpenCode {
+    api: Api::V2,
+    command: CMD,
+};
+pub const MIMO: OpenCode = OpenCode {
+    api: Api::MiMo,
+    command: "mimo",
+};
+pub const KILO: OpenCode = OpenCode {
+    api: Api::Kilo,
+    command: "kilo",
+};
+
+impl super::adapter::Adapter for OpenCode {
     fn facts(&self) -> Facts {
         Facts {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
             turn_take: TurnTake::CanOpenTurn,
-            model_rule: ModelRule::Fixed,
-            pinned: Some(CMD),
-            usage_part: "usage/opencode2",
+            model_rule: match self.api {
+                Api::V2 => ModelRule::Fixed,
+                _ => ModelRule::Free,
+            },
+            pinned: (self.api == Api::V2).then_some(CMD),
+            usage_part: match self.api {
+                Api::V2 => "usage/opencode2",
+                Api::MiMo => "usage/mimo-code",
+                Api::Kilo => "usage/kilo",
+            },
             waiting: WAITING,
             helper_shells: &[],
         }
     }
 
     fn leading_args(&self, _: Option<&Session>, bypass: &[String]) -> Vec<String> {
-        bypass.to_vec()
+        match self.api {
+            Api::V2 => bypass.to_vec(),
+            _ => vec!["attach".into()],
+        }
+    }
+
+    fn command(&self, cmd: &mut CommandBuilder, at: super::adapter::Command<'_>) {
+        if self.api != Api::V2 {
+            cmd.env(
+                self.api.config_env(),
+                serde_json::json!({ "model": at.choice.model, "effort": at.choice.effort, "brief": at.brief }).to_string(),
+            );
+        }
     }
 
     fn launch<'a>(
@@ -70,19 +106,38 @@ impl super::adapter::Adapter for OpenCode2 {
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
         Box::pin(async move {
             let failed = |cause| LaunchError::Helper {
-                program: format!("{CMD} serve"),
+                program: format!("{} serve", self.command),
                 cause,
             };
+            let brief = if self.api == Api::V2 {
+                String::new()
+            } else {
+                cmd.get_env(self.api.config_env())
+                    .and_then(|v| v.to_str())
+                    .and_then(|v| serde_json::from_str::<Value>(v).ok())
+                    .and_then(|v| v["brief"].as_str().map(str::to_owned))
+                    .unwrap_or_default()
+            };
             let rules = permission_rules(bypass);
-            let (node, turns) = Node::start(at, resume, &rules).await.map_err(failed)?;
-            cmd.args(["--server", node.server.url(), "--session", &node.session]);
-            cmd.env(PASSWORD_ENV, node.server.password());
+            let (node, turns) = Node::start(self, at, resume, &rules, bypass, cmd)
+                .await
+                .map_err(failed)?;
+            match self.api {
+                Api::V2 => cmd.args(["--server", node.server.url(), "--session", &node.session]),
+                _ => cmd.args([node.server.url(), "--session", &node.session]),
+            }
+            cmd.env(self.api.password_env(), node.server.password());
+            if let Some(key) = self.api.username_env() {
+                cmd.env(key, self.api.user());
+            }
             let record = node.server.process().record(State {
                 url: node.server.url().to_owned(),
                 password: node.server.password().to_owned(),
+                model: node.model.borrow().clone(),
             });
             let session = Session(node.session.clone());
-            tokio::spawn(drive(Arc::new(node), turns, port));
+            let node = Arc::new(node);
+            tokio::spawn(start_drive(node, turns, port, brief));
             Ok(Started {
                 record: Some(record),
                 session: Some(session),
@@ -104,8 +159,8 @@ impl super::adapter::Adapter for OpenCode2 {
                 served.stop();
                 return Err("OpenCode 2 세션이 없어 서버에 다시 붙지 않는다".into());
             };
-            let server = Server::connect(state.url, state.password, served);
-            let (node, turns) = Node::follow(server, session.0.clone());
+            let server = Server::connect(self.api, state.url, state.password, served);
+            let (node, turns) = Node::follow(server, session.0.clone(), state.model).await?;
             tokio::spawn(drive(Arc::new(node), turns, port));
             Ok(())
         })
@@ -123,7 +178,7 @@ impl super::adapter::Adapter for OpenCode2 {
             else {
                 return Ok(Chosen::OnScreen);
             };
-            let server = Server::connect(state.url, state.password, served);
+            let server = Server::connect(self.api, state.url, state.password, served);
             let asked = open_permission(&server, &session.0).await?;
             let Some(decision) = decide(asked.as_ref(), prompt, option) else {
                 return Ok(Chosen::PromptChanged);
@@ -136,7 +191,7 @@ impl super::adapter::Adapter for OpenCode2 {
     }
 
     fn choice_args(&self, _: &ModelChoice) -> Option<Vec<String>> {
-        None
+        (self.api != Api::V2).then(Vec::new)
     }
 
     fn screen(&self) -> Option<(&'static [Grammar], &'static [Dialog])> {
@@ -144,6 +199,9 @@ impl super::adapter::Adapter for OpenCode2 {
     }
 
     fn version_warning(&self, version_output: &str) -> Option<VersionMismatch> {
+        if self.api != Api::V2 {
+            return None;
+        }
         let last = version_output.split_whitespace().last()?;
         let installed = last.strip_prefix('v').unwrap_or(last);
         (installed != PINNED_VERSION).then(|| VersionMismatch {
@@ -304,14 +362,41 @@ struct Node {
 
 impl Node {
     async fn start(
+        adapter: &OpenCode,
         at: &LaunchAt<'_>,
         resume: Option<&Session>,
         rules: &[Value],
+        bypass: &[String],
+        cmd: &mut CommandBuilder,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Seen>), String> {
-        let config = serde_json::json!({ "skills": [at.skills] }).to_string();
+        let mut model = Model::default();
+        let config = match adapter.api {
+            Api::V2 => serde_json::json!({ "skills": [at.skills] }).to_string(),
+            _ => {
+                let choice: ModelChoice = cmd
+                    .get_env(adapter.api.config_env())
+                    .and_then(|s| s.to_str())
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or_default();
+                model = Model {
+                    model: choice.model,
+                    effort: choice.effort,
+                };
+                v1::config(at, &model, bypass)
+            }
+        };
         let mut env: Vec<(&'static str, OsString)> = at.env.to_vec();
-        env.push((CONFIG_ENV, config.into()));
-        let server = Server::start(CMD, at.cwd, at.inside, &env, password()?).await?;
+        env.push((adapter.api.config_env(), config.clone().into()));
+        cmd.env(adapter.api.config_env(), config);
+        let server = Server::start(
+            adapter.api,
+            adapter.command,
+            at.cwd,
+            at.inside,
+            &env,
+            password()?,
+        )
+        .await?;
         let directory = at.inside.map_or(at.cwd, |inside| Path::new(inside.cwd()));
         let created = match resume {
             Some(session) => Ok(session.0.clone()),
@@ -325,6 +410,9 @@ impl Node {
             }
         };
         let set = async {
+            if adapter.api != Api::V2 {
+                return Ok(());
+            }
             server.set_permissions(&session, rules).await?;
             server
                 .put_instructions(&session, "loom", &usage(at.launch))
@@ -334,49 +422,71 @@ impl Node {
             server.stop();
             return Err(e);
         }
-        Ok(Self::follow(server, session))
+        Self::follow(server, session, model).await
     }
 
-    fn follow(server: Server, session: String) -> (Self, mpsc::UnboundedReceiver<Seen>) {
-        let (tx, model) = watch::channel(Model::default());
+    async fn follow(
+        server: Server,
+        session: String,
+        model: Model,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<Seen>), String> {
+        let (tx, model) = watch::channel(model);
         let (tx_permission, permission) = watch::channel(());
         let (tx_turns, turns) = mpsc::unbounded_channel();
         let ours = session.clone();
         let mut said = None;
-        server.follow_events(move |event| {
-            if let Some(selected) = selected_model(&event, &ours) {
-                tx.send_replace(selected);
-            }
-            let turn = turn_event(&event, &ours);
-            if permission_event(&event, &ours) || turn == Some(TurnEvent::Stopped) {
-                tx_permission.send_replace(());
-            }
-            match turn {
-                Some(TurnEvent::Started) => {
-                    said = None;
-                    let _ = tx_turns.send(Seen::Started);
+        let mut v1 = v1::Events::default();
+        let api = server.api();
+        let subscribed = server
+            .follow_events(move |event| {
+                if let Some(selected) = match api {
+                    Api::V2 => selected_model(&event, &ours),
+                    _ => v1::selected_model(&event, &ours),
+                } {
+                    tx.send_replace(selected);
                 }
-                Some(TurnEvent::Said(text)) => said = Some(text),
-                Some(TurnEvent::Succeeded) => {
-                    let _ = tx_turns.send(Seen::Succeeded(said.take()));
+                let turn = match api {
+                    Api::V2 => turn_event(&event, &ours),
+                    _ => v1.turn(&event, &ours),
+                };
+                if match api {
+                    Api::V2 => permission_event(&event, &ours),
+                    _ => v1::permission_event(&event, &ours),
+                } || turn == Some(TurnEvent::Stopped)
+                {
+                    tx_permission.send_replace(());
                 }
-                Some(TurnEvent::Stopped) => {
-                    said = None;
-                    let _ = tx_turns.send(Seen::Stopped);
+                match turn {
+                    Some(TurnEvent::Started) => {
+                        said = None;
+                        let _ = tx_turns.send(Seen::Started);
+                    }
+                    Some(TurnEvent::Said(text)) => said = Some(text),
+                    Some(TurnEvent::Succeeded) => {
+                        let _ = tx_turns.send(Seen::Succeeded(said.take()));
+                    }
+                    Some(TurnEvent::Stopped) => {
+                        said = None;
+                        let _ = tx_turns.send(Seen::Stopped);
+                    }
+                    Some(TurnEvent::Enqueued { id }) if !id.starts_with(LOOM_INBOX) => {
+                        let _ = tx_turns.send(Seen::Human);
+                    }
+                    Some(TurnEvent::Enqueued { .. }) | None => {}
                 }
-                Some(TurnEvent::Enqueued { id }) if !id.starts_with(LOOM_INBOX) => {
-                    let _ = tx_turns.send(Seen::Human);
-                }
-                Some(TurnEvent::Enqueued { .. }) | None => {}
-            }
-        });
+            })
+            .await;
+        if let Err(e) = subscribed {
+            server.stop();
+            return Err(e);
+        }
         let node = Self {
             server,
             session,
             model,
             permission,
         };
-        (node, turns)
+        Ok((node, turns))
     }
 
     async fn permission_wait(&self) -> PermissionWait {
@@ -394,8 +504,9 @@ impl Node {
 
     async fn prompt(&self, mail: &[MessageId], text: &str, inbox: Inbox) -> Result<(), String> {
         let id = inbox_id(&self.session, mail)?;
+        let model = self.model.borrow().clone();
         self.server
-            .prompt(&self.session, &id, text, inbox.as_str())
+            .prompt(&self.session, &id, text, inbox.as_str(), &model)
             .await
     }
 }
@@ -409,17 +520,22 @@ fn permission_rules(bypass: &[String]) -> Vec<Value> {
 
 async fn open_permission(server: &Server, session: &str) -> Result<Option<Permission>, String> {
     let reply = server.permissions(session).await?;
-    reply["data"]
-        .get(0)
-        .map(Permission::deserialize)
-        .transpose()
-        .map_err(|e| format!("permission list: {e}"))
+    match server.api() {
+        Api::V2 => reply["data"]
+            .get(0)
+            .map(Permission::deserialize)
+            .transpose()
+            .map_err(|e| format!("permission list: {e}")),
+        _ => v1::permission(&reply, session),
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 struct State {
     url: String,
     password: String,
+    #[serde(default)]
+    model: Model,
 }
 
 fn password() -> Result<String, String> {
@@ -458,6 +574,38 @@ fn take_request(step: &str, human_input: bool) -> TakeRequest {
         turn: None,
         prompt_id: None,
     }
+}
+
+async fn start_drive(
+    node: Arc<Node>,
+    turns: mpsc::UnboundedReceiver<Seen>,
+    port: Arc<dyn Port>,
+    brief: String,
+) {
+    if !brief.trim().is_empty() {
+        let sent = tokio::select! {
+            biased;
+            () = port.ended() => {
+                node.server.stop();
+                return;
+            }
+            sent = async {
+                port.ready().await?;
+                node.prompt(&[], &brief, Inbox::Queue).await
+            } => sent,
+        };
+        if let Err(e) = sent {
+            refused(
+                &node,
+                &*port,
+                Vec::new(),
+                format!("initial input failed: {e}"),
+            );
+            port.ended().await;
+            return;
+        }
+    }
+    drive(node, turns, port).await;
 }
 
 async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: Arc<dyn Port>) {

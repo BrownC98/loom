@@ -40,6 +40,9 @@ pub enum Profile {
     Codex,
     #[serde(rename = "opencode2")]
     OpenCode2,
+    #[serde(rename = "mimo-code")]
+    MiMoCode,
+    Kilo,
     Cursor,
     Pi,
     Omp,
@@ -191,7 +194,9 @@ pub fn adapter(profile: Profile) -> &'static dyn Adapter {
     match profile {
         Profile::Claude => &claude::Claude,
         Profile::Codex => &codex::Codex,
-        Profile::OpenCode2 => &opencode2::OpenCode2,
+        Profile::OpenCode2 => &opencode2::OPENCODE2,
+        Profile::MiMoCode => &opencode2::MIMO,
+        Profile::Kilo => &opencode2::KILO,
         Profile::Cursor => &cursor::Cursor,
         Profile::Pi => &pi::Pi,
         Profile::Omp => &omp::Omp,
@@ -245,6 +250,7 @@ enum Prompt {
     ArgvAfter(String),
     Flag(String),
     None,
+    AdapterDelivered,
 }
 
 #[derive(Deserialize)]
@@ -644,6 +650,7 @@ async fn agent_command(
         (Prompt::Argv, false) => vec![typed],
         (Prompt::ArgvAfter(sep) | Prompt::Flag(sep), false) => vec![sep.as_str(), typed],
         (Prompt::None, false) => return Err(LaunchError::NoBrief(agent.label.clone())),
+        (Prompt::AdapterDelivered, false) => Vec::new(),
     };
     let mut cmd = CommandBuilder::from_argv(argv);
     let bypass: &[String] = if bypass_off.contains(id) {

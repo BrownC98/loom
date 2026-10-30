@@ -93,6 +93,18 @@ impl IdleWaits {
         self.wake(&mut ends, node, ended, by);
     }
 
+    pub fn submit_input(&self, node: NodeId) {
+        let mut ends = self.ends.lock().unwrap();
+        let ended = self.graph.submit_input(node);
+        self.wake(&mut ends, node, ended, IdleEnd::Typed);
+    }
+
+    pub fn release_submitted(&self, node: NodeId) {
+        let mut ends = self.ends.lock().unwrap();
+        let ended = self.graph.release_submitted(node);
+        self.wake(&mut ends, node, ended, IdleEnd::Typed);
+    }
+
     pub fn release(&self, node: NodeId) {
         self.end(node, IdleEnd::Relaunch);
     }

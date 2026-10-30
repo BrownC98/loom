@@ -89,24 +89,6 @@ impl Graph {
         Ok(())
     }
 
-    pub fn submit_draft(&self, id: NodeId) -> rusqlite::Result<bool> {
-        Ok(self.lock().execute(
-            "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1 AND drafted = 1",
-            params![id.0, SUBMITTED_INPUT],
-        )? > 0)
-    }
-
-    pub fn input_submitted(&self, id: NodeId) -> rusqlite::Result<bool> {
-        self.lock()
-            .query_row(
-                "SELECT (turn_flags & ?2) != 0 FROM nodes WHERE id = ?1",
-                params![id.0, SUBMITTED_INPUT],
-                |row| row.get(0),
-            )
-            .optional()
-            .map(|submitted| submitted.unwrap_or(false))
-    }
-
     pub fn end_draft(&self, id: NodeId) -> rusqlite::Result<bool> {
         Ok(self.lock().execute(
             "UPDATE nodes SET drafted = 0, turn_flags = turn_flags & ~?2

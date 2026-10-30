@@ -192,11 +192,8 @@ pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
     {
         eprintln!("loom: 노드 {}의 입력 중 표시를 쓰지 못했다: {e}", id.0);
     }
-    if bytes.contains(&SUBMIT)
-        && app.profile(id).is_some_and(Profile::idle_holds_input)
-        && app.graph.submit_draft(id).unwrap_or(false)
-    {
-        app.idle.end(id, IdleEnd::Typed);
+    if bytes.contains(&SUBMIT) && app.profile(id).is_some_and(Profile::idle_holds_input) {
+        app.idle.submit_input(id);
     }
 }
 

@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::events::IdleEnd;
+use super::turns::SUBMITTED_INPUT;
 use super::{AgentEvent, AgentState, Graph, NodeId, agent_state};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -19,6 +20,25 @@ fn remove(db: &Connection, node: NodeId) -> rusqlite::Result<Option<IdleId>> {
     let id = open_id(db, node)?;
     db.execute("DELETE FROM idle_requests WHERE node = ?1", [node.0])?;
     Ok(id)
+}
+
+fn release_submitted(
+    tx: &Transaction,
+    node: NodeId,
+) -> rusqlite::Result<(Option<IdleId>, Option<AgentEvent>)> {
+    let submitted: bool = tx
+        .query_row(
+            "SELECT (turn_flags & ?2) != 0 FROM nodes WHERE id = ?1",
+            params![node.0, SUBMITTED_INPUT],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    let id = if submitted { remove(tx, node)? } else { None };
+    Ok((
+        id,
+        id.map(|_| AgentEvent::WaitClosed { by: IdleEnd::Typed }),
+    ))
 }
 
 pub(super) fn forget_old_daemon(db: &Connection) -> rusqlite::Result<()> {
@@ -92,6 +112,24 @@ impl Graph {
             let id = remove(tx, node)?;
             Ok((id, id.map(|_| AgentEvent::WaitClosed { by })))
         })
+    }
+
+    pub fn submit_input(&self, node: NodeId) -> rusqlite::Result<Option<IdleId>> {
+        self.idle_change(node, |tx| {
+            let submitted = tx.execute(
+                "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1 AND drafted = 1",
+                params![node.0, SUBMITTED_INPUT],
+            )? > 0;
+            if submitted {
+                release_submitted(tx, node)
+            } else {
+                Ok((None, None))
+            }
+        })
+    }
+
+    pub fn release_submitted(&self, node: NodeId) -> rusqlite::Result<Option<IdleId>> {
+        self.idle_change(node, |tx| release_submitted(tx, node))
     }
 
     pub fn idle_turn(&self, node: NodeId) -> rusqlite::Result<Option<IdleId>> {

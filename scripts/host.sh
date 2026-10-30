@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+unset $(git rev-parse --local-env-vars)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}

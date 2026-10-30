@@ -99,7 +99,7 @@ Each agent is a node card with its real terminal. Click a card to type into it. 
 
 ### Many agent CLIs in one team
 
-Claude Code, Codex, OpenCode 2, Cursor, Pi, OMP, DeepSeek Harness and Trae have a message link: they can start children, send messages and report results. Settings and the new-node dialog show only these agents. A plain shell runs as a terminal-only node; start other CLIs from it. Each card head shows the agent and the model.
+Claude Code, OpenClaude, Codex, OpenCode 2, Cursor, Pi, OMP, DeepSeek Harness and Trae have a message link: they can start children, send messages and report results. Settings and the new-node dialog show only these agents. A plain shell runs as a terminal-only node; start other CLIs from it. Each card head shows the agent and the model.
 
 In **Settings › Agents › o-mode roles**, you give each role an agent, a model and an effort. The default roles are 총괄 (lead), 코디 (coordinator), 워커 (worker), 고위험 워커 (high-risk worker), 검토자 (reviewer) and 보조 검토자 (second reviewer), and you can rename them or add more. An agent starts a child with `--role <role>`, and loom starts it with the settings of that role.
 
@@ -138,7 +138,7 @@ The owner of a branch runs `loom ready <branch>`. loom starts reviewers, and the
 
 ### Built-in skills
 
-loom gives each node five skills. You do not install anything.
+loom gives each node six skills. You do not install anything.
 
 | Skill | What it does |
 |---|---|
@@ -147,8 +147,9 @@ loom gives each node five skills. You do not install anything.
 | `ste-orwell` | Short, simple text. Agents write to you in your language and to each other in English. |
 | `user-doc` | Mockups and reports as one HTML file. |
 | `raptor-3` | Remove parts that have no requirement, before writing code and before each commit. |
+| `design-stack` | UI/UX work in a fixed order, with the design skills it calls (Impeccable, Hallmark, web-design-guidelines and others) in its folder. |
 
-You can turn off all but `ask-human` in **Settings › Agents › Built-in skills**. Details (Korean): [docs/design/에이전트-실행.md 「내장 스킬」](docs/design/에이전트-실행.md#내장-스킬).
+You can turn off all but `ask-human` and `design-stack` in **Settings › Agents › Built-in skills**. Details (Korean): [docs/design/에이전트-실행.md 「내장 스킬」](docs/design/에이전트-실행.md#내장-스킬).
 
 ### Accounts and usage
 

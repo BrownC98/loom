@@ -223,6 +223,7 @@ const en = {
     noneInstalled: 'No installed agent found. Install one from the list below, then click “Rescan”.',
     versionWarning: {
       claude: 'claude {{installed}} · pinned {{pinned}}',
+      openclaude: 'openclaude {{installed}} · pinned {{pinned}}',
       codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',
       trae: 'traecli {{installed}} · pinned {{pinned}}',
       opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',

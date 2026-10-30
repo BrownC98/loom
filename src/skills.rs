@@ -65,8 +65,12 @@ const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-orwell", "raptor-3"];
 
 const ASK: &str = "ask-human";
 
+const DESIGN: &str = "design-stack";
+
 pub fn names(on: AlwaysOn) -> impl Iterator<Item = &'static str> {
-    std::iter::once(ASK).chain(SKILLS.into_iter().filter(move |s| on.has(s)))
+    [ASK, DESIGN]
+        .into_iter()
+        .chain(SKILLS.into_iter().filter(move |s| on.has(s)))
 }
 
 fn skill_of(name: &str) -> &str {
@@ -115,7 +119,7 @@ impl AlwaysOn {
             "user-doc" => self.user_doc,
             "ste-orwell" => self.ste_orwell,
             "raptor-3" => self.raptor3,
-            ASK => true,
+            ASK | DESIGN => true,
             _ => unreachable!("`SKILLS`에 없는 스킬 폴더: {skill}"),
         }
     }

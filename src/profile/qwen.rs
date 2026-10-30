@@ -158,7 +158,12 @@ impl Adapter for Qwen {
     }
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+        Box::pin(async {
+            rec.session
+                .as_ref()
+                .filter(|session| session.0.contains(['/', '\\']))
+                .map(|session| session.0.clone())
+        })
     }
 }
 

@@ -299,9 +299,9 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
-    const sent = images.paths().then((paths) => answerWait(wait.id, text, paths));
-    sent.then(images.clear, (err: Error) => setRefusal(err.message));
-    return sent;
+    const sent = images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids)));
+    sent.catch((err: Error) => setRefusal(err.message));
+    return sent.then(() => null);
   };
   const answerPrompt = (sent: Promise<null>) => {
     setRefusal(null);

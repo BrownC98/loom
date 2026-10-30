@@ -996,6 +996,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .composer-to b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .composer-to .keys { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
 .composer .refusal { position: static; max-width: none; margin: 0; padding: 0; background: none; color: var(--err); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer .filing { margin: 0; color: var(--ink-3); font-size: 12px; }
 .composer-line { display: flex; align-items: flex-end; gap: 4px; }
 .composer-line textarea { flex: 1; min-width: 0; max-height: 40vh; padding: 5px 8px; resize: none; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
 .composer-line textarea::placeholder { color: var(--ink-3); }

@@ -5,6 +5,7 @@ export const CONNECT_LIMIT_MS = 5000;
 
 export interface Link {
   send: (data: string | Uint8Array<ArrayBuffer>) => void;
+  connected: () => boolean;
   beat: (quietMs: number | undefined) => void;
   reopen: () => void;
   close: () => void;
@@ -92,6 +93,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
     send: (data) => {
       if (socket?.readyState === WebSocket.OPEN) socket.send(data);
     },
+    connected: () => socket?.readyState === WebSocket.OPEN,
     beat: (ms) => {
       limit = ms;
       watch(limit);

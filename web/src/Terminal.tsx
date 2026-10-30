@@ -231,8 +231,10 @@ export function SizingTerminal(props: TerminalProps) {
         if (latest.current.draw === 'slow') flush();
       });
       reflush.current = flush;
+      let ended = false;
       const link = attachPty(props.src, {
         onAttach: () => {
+          ended = false;
           held.length = 0;
           settled = false;
           xterm.reset();
@@ -246,7 +248,10 @@ export function SizingTerminal(props: TerminalProps) {
           }),
         onOutput: (bytes) => feed(() => xterm.write(bytes)),
         onNotice: (notice) => {
-          if (notice === 'gone') feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
+          if (notice === 'gone') {
+            ended = true;
+            feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
+          }
           else if (notice === 'settled')
             feed(() => {
               settled = true;
@@ -314,6 +319,7 @@ export function SizingTerminal(props: TerminalProps) {
         node === null
           ? () => {}
           : offerInput(node, {
+              state: () => (ended ? 'gone' : link.connected() ? 'open' : 'offline'),
               paste: (text) => xterm.paste(text),
               enter: () => {
                 claim();

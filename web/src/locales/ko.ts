@@ -629,6 +629,9 @@ const ko: typeof en = {
     send: '보내기',
     uploading: '올리는 중',
     failed: '실패',
+    offline: '터미널 연결이 끊겨 보낼 수 없습니다. 다시 연결되면 보내십시오.',
+    nothingSaved: '올리지 못한 그림만 있습니다. [×]로 빼고 다시 넣으십시오.',
+    filing: '파일 {{count}}개를 올리는 중',
     gone: '터미널이 끝나 보낼 수 없습니다.',
   },
   terminal: {

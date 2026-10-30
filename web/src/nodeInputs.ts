@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { NodeId } from './gen/NodeId';
 
-export type NodeInput = { paste: (text: string) => void; enter: () => void };
+export type InputState = 'open' | 'offline' | 'gone';
+
+export type NodeInput = { state: () => InputState; paste: (text: string) => void; enter: () => void };
 
 const inputs = new Map<NodeId, readonly NodeInput[]>();
 const heard = new Set<() => void>();

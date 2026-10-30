@@ -77,12 +77,16 @@ export function useImages(key: string, node: NodeId, onError: (message: string) 
     URL.revokeObjectURL(image.url);
     edit(key, (now) => now.filter((i) => i.id !== image.id));
   };
-  const clear = () => {
-    list.forEach((i) => URL.revokeObjectURL(i.url));
-    edit(key, (now) => now.filter((i) => !list.includes(i)));
+  const forget = (ids: readonly number[]) => {
+    list.filter((i) => ids.includes(i.id)).forEach((i) => URL.revokeObjectURL(i.url));
+    edit(key, (now) => now.filter((i) => !ids.includes(i.id)));
   };
-  const paths = () => Promise.all(list.map((i) => i.saved)).then((all) => all.filter((p): p is string => p !== null));
-  return { list, attach, remove, clear, paths };
+  const paths = () =>
+    Promise.all(list.map((i) => i.saved.then((path) => ({ id: i.id, path })))).then((all) => {
+      const saved = all.filter((s): s is { id: number; path: string } => s.path !== null);
+      return { ids: saved.map((s) => s.id), paths: saved.map((s) => s.path) };
+    });
+  return { list, attach, remove, forget, paths };
 }
 
 export function ZoomImage(props: { src: string; name: string; title: string }) {

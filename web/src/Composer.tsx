@@ -6,16 +6,17 @@ import { droppedFiles, ImageList, isImage, quotePath, tooBig, useImages } from '
 import { IME_KEY_CODE, watchComposition, type Composition } from './composition';
 import { useDraft } from './drafts';
 import type { NodeId } from './gen/NodeId';
-import { useNodeInput } from './nodeInputs';
+import { useNodeInput, type NodeInput } from './nodeInputs';
 
-export type ComposerKeys = { sends: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean; escape: (() => void) | null };
+export type ComposerKeys = { sends: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean; escape: (() => void) | null; blank: ((input: NodeInput) => void) | null };
 
 export const deskKeys = (escape: () => void): ComposerKeys => ({
   sends: (e) => e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.nativeEvent.isComposing && e.keyCode !== IME_KEY_CODE,
   escape,
+  blank: null,
 });
 
-export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null };
+export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blank: (input) => input.enter() };
 
 const COMPOSER_ROOM = '--composer-room';
 
@@ -70,14 +71,22 @@ export function Composer(props: ComposerProps) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, [text]);
-  const ready = text.trim() !== '' || images.list.length > 0;
+  const [filing, setFiling] = useState(0);
+  const uploads = useRef(new Set<Promise<unknown>>());
+  const latest = useRef({ text, input });
+  latest.current = { text, input };
+  const write = (next: string) => {
+    latest.current.text = next;
+    setText(next);
+  };
+  const ready = text.trim() !== '' || images.list.length > 0 || filing > 0 || props.keys.blank !== null;
 
   const insertPath = (path: string) => {
     const el = area.current;
-    const now = el?.value ?? text;
-    const at = el?.selectionStart ?? now.length;
+    const now = latest.current.text;
+    const at = el && el.value === now ? el.selectionStart : now.length;
     const typed = `${at > 0 && !/\s/.test(now[at - 1]) ? ' ' : ''}${quotePath(path)} `;
-    setText(now.slice(0, at) + typed + now.slice(at));
+    write(now.slice(0, at) + typed + now.slice(at));
     requestAnimationFrame(() => el?.setSelectionRange(at + typed.length, at + typed.length));
   };
   const take = (files: File[]) => {
@@ -85,24 +94,42 @@ export function Composer(props: ComposerProps) {
     images.attach(files.filter(isImage));
     for (const file of files.filter((f) => !isImage(f))) {
       const big = tooBig(file);
-      if (big) setRefusal(big);
-      else savePastedFile(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message));
+      if (big) {
+        setRefusal(big);
+        continue;
+      }
+      const upload = savePastedFile(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message));
+      uploads.current.add(upload);
+      setFiling((n) => n + 1);
+      void upload.finally(() => {
+        uploads.current.delete(upload);
+        setFiling((n) => n - 1);
+      });
     }
+  };
+  const deliverable = (): NodeInput => {
+    const input = latest.current.input;
+    const state = input?.state() ?? 'gone';
+    if (!input || state !== 'open') throw new Error(state === 'offline' ? t('composer.offline') : t('composer.gone'));
+    return input;
   };
 
   const send = () => {
-    const body = area.current?.value ?? text;
-    if (body.trim() === '' && images.list.length === 0) return;
     setRefusal(null);
     setSending(true);
-    images
-      .paths()
-      .then((paths) => {
-        if (!input) throw new Error(t('composer.gone'));
-        input.paste([body.trimEnd(), paths.map(quotePath).join(' ')].filter((part) => part !== '').join('\n'));
+    Promise.all([images.paths(), Promise.all([...uploads.current])])
+      .then(([saved]) => {
+        const body = latest.current.text.trimEnd();
+        const input = deliverable();
+        if (body.trim() === '' && saved.paths.length === 0) {
+          if (images.list.length > 0) throw new Error(t('composer.nothingSaved'));
+          props.keys.blank?.(input);
+          return;
+        }
+        input.paste([body, saved.paths.map(quotePath).join(' ')].filter((part) => part !== '').join('\n'));
         input.enter();
-        setText('');
-        images.clear();
+        write('');
+        images.forget(saved.ids);
       })
       .catch((err: Error) => setRefusal(err.message))
       .finally(() => setSending(false));
@@ -175,6 +202,7 @@ export function Composer(props: ComposerProps) {
         <span className="keys">{t('composer.keys')}</span>
       </div>
       <ImageList images={images.list} onRemove={images.remove} />
+      {filing > 0 && <p className="filing">{t('composer.filing', { count: filing })}</p>}
       {refusal && (
         <p className="refusal" role="alert">
           {refusal}
@@ -193,7 +221,7 @@ export function Composer(props: ComposerProps) {
           value={text}
           readOnly={sending}
           onChange={(e) => {
-            if (!props.onTyped?.(text, e.target.value)) setText(e.target.value);
+            if (!props.onTyped?.(text, e.target.value)) write(e.target.value);
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}

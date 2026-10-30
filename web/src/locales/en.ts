@@ -627,6 +627,9 @@ const en = {
     send: 'Send',
     uploading: 'Uploading',
     failed: 'Failed',
+    offline: 'The terminal connection is lost. Send again when it reconnects.',
+    nothingSaved: 'Only images that failed to upload are attached. Remove them with [×] and add them again.',
+    filing: 'Uploading files: {{count}}',
     gone: 'The terminal has ended. You cannot send.',
   },
   terminal: {

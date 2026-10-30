@@ -52,6 +52,8 @@ fn bashless() -> bool {
             .is_none()
 }
 
+const ROWS_PER_THREAD: usize = 16;
+
 const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
 
 fn html(path: &Path) -> bool {
@@ -389,10 +391,25 @@ impl Store {
     fn docs(&self, titles: &Titles) -> Vec<DocRow> {
         let rows = self.rows();
         let mut seen = std::collections::HashSet::new();
-        let mut docs: Vec<DocRow> = table_rows(&rows)
+        let listed: Vec<(&str, &str)> = table_rows(&rows)
             .filter(|(path, id)| html(Path::new(path)) && seen.insert(*id))
-            .map(|(path, id)| self.row(id, Path::new(path), titles))
             .collect();
+        let mut docs: Vec<DocRow> = std::thread::scope(|scope| {
+            let parts: Vec<_> = listed
+                .chunks(ROWS_PER_THREAD)
+                .map(|part| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .map(|(path, id)| self.row(id, Path::new(path), titles))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            parts
+                .into_iter()
+                .flat_map(|part| part.join().unwrap())
+                .collect()
+        });
         docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
         docs
     }

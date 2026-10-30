@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getClosedWaits } from './api';
 import { useShowNodes } from './camera';
@@ -82,7 +83,7 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
   return (
     <ul className="wait-list history">
       {list.map((w) => (
-        <HistoryRow key={w.seq} closed={w} onGo={onGo} onRefusal={setRefusal} />
+        <HistoryRow key={w.seq} closed={w} onGo={onGo} onRefusal={setRefusal} t={t} />
       ))}
       {more && (
         <li className="history-more">
@@ -100,8 +101,8 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
   );
 }
 
-const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onRefusal: (message: string) => void }) {
-  const { t } = useTranslation();
+const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onRefusal: (message: string) => void; t: TFunction }) {
+  const { t } = props;
   const { wait, node, chosen } = props.closed;
   const Icon = ICON[wait.tone];
   const choices = wait.choices ?? [];
@@ -147,15 +148,15 @@ const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (
               ))}
             </div>
           )}
-          <ClosedLine closed={props.closed} />
+          <ClosedLine closed={props.closed} t={t} />
         </div>
       </div>
     </li>
   );
 });
 
-function ClosedLine(props: { closed: ClosedWait }) {
-  const { t } = useTranslation();
+function ClosedLine(props: { closed: ClosedWait; t: TFunction }) {
+  const { t } = props;
   const { how, chosen, closedAt } = props.closed;
   const said = 'text' in how && how.text !== chosen ? how.text : null;
   return (

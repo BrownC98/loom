@@ -99,7 +99,7 @@ Windows loom 하나가 Windows와 WSL의 에이전트를 함께 돌립니다. WS
 
 ### 여러 에이전트 CLI를 한 팀으로
 
-Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes는 메시지 연동이 있습니다. 자식을 띄우고, 메시지를 보내고, 결과를 보고합니다. 설정과 새 노드 창에는 이 에이전트만 보입니다. 일반 셸은 터미널만 있는 노드로 돕니다. 다른 CLI는 그 셸에서 띄웁니다. 카드 머리에 에이전트와 모델이 보입니다.
+Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes, Crush는 메시지 연동이 있습니다. 자식을 띄우고, 메시지를 보내고, 결과를 보고합니다. 설정과 새 노드 창에는 이 에이전트만 보입니다. 일반 셸은 터미널만 있는 노드로 돕니다. 다른 CLI는 그 셸에서 띄웁니다. 카드 머리에 에이전트와 모델이 보입니다.
 
 **설정 › 에이전트 › o-mode 역할**에서 역할마다 에이전트, 모델, 강도를 정합니다. 기본 역할은 총괄, 코디, 워커, 고위험 워커, 검토자, 보조 검토자이고, 이름을 바꾸거나 더할 수 있습니다. 에이전트가 `--role <역할>`로 자식을 띄우면 loom은 그 역할의 설정으로 띄웁니다.
 

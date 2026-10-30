@@ -236,6 +236,7 @@ const ko: typeof en = {
       omp: 'omp {{installed}} · 고정 {{pinned}}',
       qwenCode: 'qwen {{installed}} · 고정 {{pinned}}',
       dsh: 'dsh-tui {{installed}} · 고정 {{pinned}}',
+      crush: 'crush {{installed}} · 고정 {{pinned}}',
       copilot: 'copilot {{installed}} · 고정 {{pinned}}',
       hermes: 'hermes {{installed}} · 고정 {{pinned}}',
     },

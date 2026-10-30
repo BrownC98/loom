@@ -225,6 +225,7 @@ const ko: typeof en = {
     noneInstalled: '설치된 에이전트를 찾지 못했습니다. 아래 목록에서 하나를 설치한 뒤 ‘다시 찾기’를 클릭하십시오.',
     versionWarning: {
       claude: 'claude {{installed}} · 고정 {{pinned}}',
+      openclaude: 'openclaude {{installed}} · 고정 {{pinned}}',
       codex: 'codex {{installed}} · 고정 {{pinned}} · loom 명령마다 승인 필요',
       opencode2: 'opencode2 {{installed}} · 고정 {{pinned}}',
       cursor: 'cursor-agent {{installed}} · 고정 {{pinned}}',

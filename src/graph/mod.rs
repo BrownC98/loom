@@ -33,7 +33,7 @@ pub use events::{
 pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round};
 pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
-pub use nodes::{Active, Launched, Listed, NewChild, Relations};
+pub use nodes::{Active, Launched, Listed, NewChild, ParentWork, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
 pub use turns::TurnMark;
 pub use waits::{DocQuestion, HUMAN, HumanWait, ScreenWait, WaitSource};

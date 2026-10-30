@@ -191,8 +191,16 @@ pub(super) fn next_step(
             Receiver::Gate | Receiver::Root,
         ) => "Next: wait for the owner's next `loom ready`.".to_owned(),
         (GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
+        (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate)
+            if target == Target::Coordinator =>
+        {
+            "Next: accept the result. loom keeps the owner node until your branch is merged, for gate rework, then removes it, its clean worktree and the branch.".to_owned()
+        }
         (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate) => {
             "Next: accept the result. loom removes the branch's reviewers, its owner node, its clean worktree and the branch.".to_owned()
+        }
+        (GateCall::End(MergeEnd::Merged), Receiver::Owner) if target == Target::Coordinator => {
+            "Next: call `loom done` again. loom keeps this node until your gate's branch is merged, then removes it, its clean worktree and the branch. If your gate sends rework, commit the fix on this branch and call `loom ready` again.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
             "Next: nothing. loom removes this node, its clean worktree and the branch now, unless the node has no parent or has children. Do not commit to this branch again.".to_owned()

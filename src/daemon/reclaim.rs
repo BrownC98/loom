@@ -38,13 +38,19 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<(), String> {
+async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Result<(), String> {
     let text = |e: rusqlite::Error| e.to_string();
     let Some(round) = app.graph.reclaim(repo, branch).map_err(text)? else {
         return Ok(());
     };
     for reviewer in &round.reviewers {
         remove(app, *reviewer).map_err(|e| e.to_string())?;
+    }
+    if round.gate != round.owner {
+        return Ok(());
+    }
+    for problem in app.sweep(round.owner).await.problems {
+        app.graph.note_reclaim(&round, &problem).map_err(text)?;
     }
     let path = git::from_git_path(dir, &round.worktree);
     let own = match worktree::find(dir, &path).await {

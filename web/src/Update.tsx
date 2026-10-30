@@ -6,6 +6,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update as Release } from '@tauri-apps/plugin-updater';
 import { checkUpdate, getUpdate, installUpdate } from './api';
 import type { UpdateView } from './gen/UpdateView';
+import { VERSION } from './version';
 
 type Step =
   | { kind: 'available' }
@@ -28,6 +29,17 @@ const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 60 * 60 * 1000;
 const UPDATE_QUERY = 'update';
 
+function newer(mine: string, theirs: string): boolean {
+  const parts = (version: string) => {
+    const numbers = version.split('.');
+    return numbers.length === 3 && numbers.every((n) => /^\d+$/.test(n)) ? numbers.map(Number) : null;
+  };
+  const [m, t] = [parts(mine), parts(theirs)];
+  if (!m || !t) return false;
+  const differ = m.findIndex((n, i) => n !== t[i]);
+  return differ >= 0 && m[differ] > t[differ];
+}
+
 function useAppUpdates(): Updates {
   const [release, setRelease] = useState<Release | null>(null);
   const [step, setStep] = useState<Step | null>(null);
@@ -41,7 +53,9 @@ function useAppUpdates(): Updates {
   async function find(): Promise<Release | null> {
     clearTimeout(next.current);
     try {
-      const found = await check();
+      const offered = await check();
+      const found = offered && newer(offered.version, VERSION) ? offered : null;
+      if (offered && !found) offered.close().catch(() => {});
       setRelease(found);
       setStep(found && { kind: 'available' });
       next.current = setTimeout(find, CHECK_EVERY_MS);

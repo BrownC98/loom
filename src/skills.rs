@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -17,12 +17,17 @@ impl Plugin {
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
         for on in AlwaysOn::all() {
-            let dir = plugin.dir(on);
-            let _ = std::fs::remove_dir_all(&dir);
+            let skills = plugin.skills(on);
+            let mut keep = BTreeSet::new();
             for name in Files::iter().filter(|name| on.has(skill_of(name))) {
                 let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-                write(&dir.join("skills").join(name.as_ref()), &file.data)?;
+                let path = skills.join(name.as_ref());
+                if std::fs::read(&path).ok().as_deref() != Some(file.data.as_ref()) {
+                    write(&path, &file.data)?;
+                }
+                keep.insert(path);
             }
+            prune(&skills, &keep)?;
         }
         Ok(plugin)
     }
@@ -75,6 +80,22 @@ pub fn names(on: AlwaysOn) -> impl Iterator<Item = &'static str> {
 
 fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
+}
+
+fn prune(dir: &Path, keep: &BTreeSet<PathBuf>) -> io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            prune(&path, keep)?;
+            if std::fs::read_dir(&path)?.next().is_none() {
+                std::fs::remove_dir(&path)?;
+            }
+        } else if !keep.contains(&path) {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }
 
 fn write(path: &Path, data: &[u8]) -> io::Result<()> {

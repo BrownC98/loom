@@ -75,7 +75,7 @@ impl App {
     pub(super) fn sweep_above(self: &Arc<Self>, node: NodeId) {
         match self.graph.parent(node) {
             Ok(Some(parent)) => self.sweep_later(parent),
-            Ok(None) => {}
+            Ok(None) | Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(e) => eprintln!("loom: 노드 {}의 부모를 읽지 못했다: {e}", node.0),
         }
     }

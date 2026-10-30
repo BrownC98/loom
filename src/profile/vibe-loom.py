@@ -125,17 +125,18 @@ class Bridge:
             acked(None)
 
     def deliver(self, reply):
-        self.post(reply, lambda: self.post(reply, lambda: None))
-
-    def post(self, reply, again):
         if not reply.get("text"):
             return
+        key = self.prefix + "mail-" + (
+            "-".join(map(str, reply["ids"])) if reply.get("ids") else uuid.uuid4().hex
+        )
+        self.post(reply, key, lambda: self.post(reply, key, lambda: None))
+
+    def post(self, reply, key, again):
         params = {
             "sessionId": self.projection.state.session.id,
             "message": [{"type": "text", "text": reply["text"]}],
-            "idempotencyKey": self.prefix + "mail-" + (
-                "-".join(map(str, reply["ids"])) if reply.get("ids") else uuid.uuid4().hex
-            ),
+            "idempotencyKey": key,
         }
         def failed(error):
             print(f"loom: Vibe 메일 전달 실패: {error}", file=sys.stderr)
@@ -278,7 +279,7 @@ class Bridge:
                 self.call("config/model/write", params, lambda runtime: self.opened(msg, runtime))
             else:
                 self.call("runtime/read", {"sessionId": session}, lambda runtime: self.opened(msg, runtime))
-        else:
+        elif not str(ident).startswith(self.prefix):
             send(sys.stdout, msg)
 
     def fail(self, pending, error):

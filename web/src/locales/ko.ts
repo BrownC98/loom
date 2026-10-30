@@ -233,7 +233,6 @@ const ko: typeof en = {
       dsh: 'dsh-tui {{installed}} · 고정 {{pinned}}',
     },
     messaging: '메시지 연동',
-    terminalOnly: '터미널만',
     docs: '문서',
     bypass: '모든 권한 허용',
     bypassLabel: '{{agent}} 모든 권한 허용',

@@ -231,7 +231,6 @@ const en = {
       dsh: 'dsh-tui {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',
-    terminalOnly: 'terminal only',
     docs: 'Docs',
     bypass: 'Allow all permissions',
     bypassLabel: '{{agent}}: allow all permissions',

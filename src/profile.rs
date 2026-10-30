@@ -267,7 +267,7 @@ static CATALOG: LazyLock<Vec<Agent>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("agents.json")).expect("agents.json은 컴파일 때 넣은 표다")
 });
 
-/// 설정 화면과 새 노드 창이 보는 카탈로그 한 줄.
+/// 설정 화면과 새 노드 창이 보는 카탈로그 한 줄. 메시지 연동이 있는 에이전트만 보인다.
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -275,7 +275,7 @@ pub struct AgentView {
     pub id: AgentId,
     pub label: String,
     pub homepage: String,
-    pub profile: Option<Profile>,
+    pub profile: Profile,
     /// 계정을 고르는 공급자. 프로필이 있어도 없을 수 있다(OpenCode 2).
     pub provider: Option<Provider>,
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
@@ -315,7 +315,8 @@ pub struct AgentAt {
 pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
     CATALOG
         .iter()
-        .map(|a| {
+        .filter_map(|a| Some((a, a.profile?)))
+        .map(|(a, profile)| {
             let names = || std::iter::once(&a.cmd).chain(&a.aliases);
             let pc = AgentAt {
                 distro: None,
@@ -331,10 +332,10 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 id: a.id.clone(),
                 label: a.label.clone(),
                 homepage: a.homepage.clone(),
-                profile: a.profile,
-                provider: a.profile.and_then(Profile::provider),
+                profile,
+                provider: profile.provider(),
                 can_bypass: !a.bypass.is_empty(),
-                model_rule: model_rule(a.profile),
+                model_rule: model_rule(Some(profile)),
                 places: std::iter::once(pc).chain(inside).collect(),
             }
         })

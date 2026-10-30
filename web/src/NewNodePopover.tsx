@@ -119,7 +119,7 @@ export function NewNodePopover(props: {
       >
         <span translate="no">{labelOf(c)}</span>
         {c.installed && props.recent !== undefined && keyOf(c) === props.recent && <span className="recent">{t('newNode.recent')}</span>}
-        {!c.installed ? <span className="tag">{multi && c.agent?.places.some((p) => p.path !== null) ? t('place.missingAt', { place: distro === null ? t('place.pcShort') : t('place.wsl') }) : t('newNode.notInstalled')}</span> : !c.agent?.profile && <span className="tag">{t('newNode.terminalOnly')}</span>}
+        {!c.installed ? <span className="tag">{multi && c.agent?.places.some((p) => p.path !== null) ? t('place.missingAt', { place: distro === null ? t('place.pcShort') : t('place.wsl') }) : t('newNode.notInstalled')}</span> : c.agent === null && <span className="tag">{t('newNode.terminalOnly')}</span>}
       </li>
     );
   };

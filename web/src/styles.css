@@ -407,7 +407,9 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
 .xterm-box > div { overflow: hidden; contain: strict; }
-.xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
+.xterm-box > div > .xterm, .xterm-box > div > .term-snap { display: inline-block; transform-origin: 0 0; }
+.term-snap { position: absolute; top: 0; left: 0; margin: 0; line-height: normal; white-space: pre; pointer-events: none; }
+.term-snap > div { height: 1lh; }
 .xterm-box .xterm .xterm-viewport { background-color: transparent; }
 .xterm-box .xterm-rows > div { overflow: visible !important; }
 .xterm-box .xterm-rows span[class*="xterm-bg-"], .xterm-box .xterm-rows span[style*="background-color"] { box-sizing: content-box; padding-bottom: 1px; }

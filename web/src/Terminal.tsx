@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { withoutColorReplies } from './colorReplies';
-import { IME_KEY_CODE, watchComposition } from './composition';
+import { IME_KEY_CODE, watchComposition, type Composition } from './composition';
 import { attachPty, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { droppedFiles, MB, quotePath } from './attachments';
 import { offerInput } from './nodeInputs';
@@ -15,6 +15,8 @@ import { openLink } from './openLink';
 import { commandKey } from './platform';
 import { findKey, navDirection, paneKey, type Direction } from './keys';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
+import { probeSize } from './sizeProbe';
+import { paintSnapshot } from './terminalSnapshot';
 import { attachTouchGestures, type TouchSelection } from './touchTerminal';
 
 const SHIFT_ENTER_INPUT = '\n';
@@ -104,24 +106,11 @@ type TerminalProps = {
   hold?: SizeHold;
 };
 
-export type Draw = 'live' | 'slow' | 'hidden';
-const SLOW_DRAW_MS = 250;
-const slowFlushes = new Set<() => void>();
-let slowTimer: ReturnType<typeof setInterval> | undefined;
-function holdSlow(flush: () => void): () => void {
-  slowFlushes.add(flush);
-  slowTimer ??= setInterval(() => slowFlushes.forEach((f) => f()), SLOW_DRAW_MS);
-  return () => {
-    slowFlushes.delete(flush);
-    if (slowFlushes.size === 0) {
-      clearInterval(slowTimer);
-      slowTimer = undefined;
-    }
-  };
-}
+export type Draw = 'live' | 'snapshot' | 'hidden';
+type Face = 'xterm' | 'snapshot';
+const SNAPSHOT_MS = 250;
 
-function boxTransform(xterm: XTerm, box: HTMLElement): string | null {
-  const el = xterm.element;
+function boxTransform(el: HTMLElement | undefined, box: HTMLElement): string | null {
   if (!el) return null;
   const width = el.offsetWidth;
   const height = el.offsetHeight;
@@ -136,15 +125,15 @@ function boxTransform(xterm: XTerm, box: HTMLElement): string | null {
   return `translate(${left}px, ${(snap(at.top) - at.top) / zoom}px)`;
 }
 
-function scaleToBox(xterm: XTerm, box: HTMLElement) {
-  const transform = boxTransform(xterm, box);
-  if (transform !== null && xterm.element) xterm.element.style.transform = transform;
+function scaleToBox(el: HTMLElement | undefined, box: HTMLElement) {
+  const transform = boxTransform(el, box);
+  if (transform !== null && el) el.style.transform = transform;
 }
 
 const shown = new Map<HTMLElement, XTerm>();
 
 export function realignTerminals() {
-  const moves = [...shown].map(([box, xterm]) => [xterm.element, boxTransform(xterm, box)] as const);
+  const moves = [...shown].map(([box, xterm]) => [xterm.element, boxTransform(xterm.element, box)] as const);
   for (const [el, transform] of moves) if (el && transform !== null) el.style.transform = transform;
 }
 
@@ -160,7 +149,8 @@ export function SizingTerminal(props: TerminalProps) {
   const latestFont = useRef(font);
   latestFont.current = font;
   const redecide = useRef<() => void>(() => {});
-  const reflush = useRef<() => void>(() => {});
+  const redraw = useRef<() => void>(() => {});
+  const restyle = useRef<() => void>(() => {});
   const [dragging, setDragging] = useState<number | null>(null);
   const [picked, setPicked] = useState<TouchSelection | null>(null);
 
@@ -186,14 +176,32 @@ export function SizingTerminal(props: TerminalProps) {
       });
       const fitAddon = new FitAddon();
       xterm.loadAddon(fitAddon);
-      xterm.open(el);
-      unscaleMouse(xterm);
       term.current = xterm;
-      const composition = watchComposition(xterm.textarea ?? el);
+      const snap = document.createElement('pre');
+      snap.className = 'term-snap';
+      el.append(snap);
+      let face: Face | null = null;
+      let composition: Composition | null = null;
+      let closeView = () => {};
       let enterHeld = false;
       const replayed = new WeakSet<KeyboardEvent>();
-      const rescale = () => scaleToBox(xterm, el);
+      const rescale = () => scaleToBox(face === 'snapshot' ? snap : xterm.element, el);
+      let dirty = true;
+      let paintedSize = '';
+      const paint = () => {
+        dirty = false;
+        paintSnapshot(xterm, snap, latestTheme.current);
+        const size = `${xterm.cols}x${xterm.rows} ${xterm.options.fontSize} ${xterm.options.fontFamily}`;
+        if (size !== paintedSize) rescale();
+        paintedSize = size;
+      };
+      const parsed = xterm.onWriteParsed(() => (dirty = true));
+      const snapTimer = setInterval(() => {
+        if (dirty && face === 'snapshot' && latest.current.draw === 'snapshot') paint();
+      }, SNAPSHOT_MS);
+      restyle.current = () => (dirty = true);
       const propose = () => {
+        if (!xterm.element) return probeSize(el, xterm.options.fontFamily ?? '', xterm.options.fontSize ?? DEFAULT_TERMINAL_FONT.size);
         const proposed = fitAddon.proposeDimensions();
         return proposed && proposed.cols > 0 && proposed.rows > 0 ? { cols: proposed.cols, rows: proposed.rows } : null;
       };
@@ -222,15 +230,12 @@ export function SizingTerminal(props: TerminalProps) {
         for (const step of held.splice(0)) step();
       };
       const feed = (step: () => void) => {
-        if ((latest.current.draw ?? 'live') === 'live') {
+        if (latest.current.draw === 'hidden') held.push(step);
+        else {
           flush();
           step();
-        } else held.push(step);
+        }
       };
-      const unhold = holdSlow(() => {
-        if (latest.current.draw === 'slow') flush();
-      });
-      reflush.current = flush;
       let ended = false;
       const link = attachPty(props.src, {
         onAttach: () => {
@@ -276,7 +281,7 @@ export function SizingTerminal(props: TerminalProps) {
               xterm.textarea?.dispatchEvent(again);
             }
           };
-          if (e.type === 'keydown' && composition.afterText(later)) enterHeld = true;
+          if (e.type === 'keydown' && composition?.afterText(later)) enterHeld = true;
           if (enterHeld) {
             e.preventDefault();
             return false;
@@ -305,7 +310,6 @@ export function SizingTerminal(props: TerminalProps) {
           (err: Error) => xterm.write(`\r\n${err.message}\r\n`),
         );
       };
-      el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => {
         const sent = replaying === 0 ? data : withoutColorReplies(data);
         if (sent) link.sendInput(sent);
@@ -326,39 +330,77 @@ export function SizingTerminal(props: TerminalProps) {
                 link.sendInput('\r');
               },
             });
-      const detachTouch = attachTouchGestures(xterm, el, (at) => {
-        const box = el.getBoundingClientRect();
-        setPicked({ x: at.x - box.left, y: at.y - box.top });
+      const openView = () => {
+        xterm.open(el);
+        unscaleMouse(xterm);
+        const watched = watchComposition(xterm.textarea ?? el);
+        composition = watched;
+        el.addEventListener('paste', pasteImage, true);
+        const detachTouch = attachTouchGestures(xterm, el, (at) => {
+          const box = el.getBoundingClientRect();
+          setPicked({ x: at.x - box.left, y: at.y - box.top });
+        });
+        const unpick = xterm.onSelectionChange(() => xterm.hasSelection() || setPicked(null));
+        xterm.textarea?.addEventListener('focus', () => {
+          claim();
+          latest.current.onFocus();
+        });
+        shown.set(el, xterm);
+        if (latest.current.focused) focusSoon(xterm);
+        return () => {
+          watched.dispose();
+          shown.delete(el);
+          el.removeEventListener('paste', pasteImage, true);
+          unpick.dispose();
+          detachTouch();
+        };
+      };
+      const show = (next: Face) => {
+        if (next === face) return;
+        face = next;
+        if (next === 'xterm' && !xterm.element) {
+          closeView = openView();
+          redecide.current();
+        }
+        if (xterm.element) xterm.element.style.display = next === 'xterm' ? '' : 'none';
+        if (next === 'snapshot') {
+          snap.style.display = '';
+          paint();
+        }
+        rescale();
+      };
+      const rendered = xterm.onRender(() => {
+        if (face === 'xterm') snap.style.display = 'none';
       });
-      const unpick = xterm.onSelectionChange(() => xterm.hasSelection() || setPicked(null));
+      redraw.current = () => {
+        const draw = latest.current.draw ?? 'live';
+        if (draw === 'hidden') return;
+        flush();
+        show(draw === 'snapshot' ? 'snapshot' : 'xterm');
+      };
       const resize = xterm.onResize(() => requestAnimationFrame(rescale));
-      xterm.textarea?.addEventListener('focus', () => {
-        claim();
-        latest.current.onFocus();
-      });
       window.addEventListener('focus', claim);
       document.addEventListener('visibilitychange', onVisibility);
       const observer = new ResizeObserver(() => redecide.current());
-      shown.set(el, xterm);
       observer.observe(el);
-      if (latest.current.focused) focusSoon(xterm);
+      redraw.current();
       return () => {
-        unhold();
-        composition.dispose();
-        reflush.current = () => {};
+        closeView();
+        clearInterval(snapTimer);
+        parsed.dispose();
+        rendered.dispose();
+        redraw.current = () => {};
+        restyle.current = () => {};
         observer.disconnect();
         window.removeEventListener('focus', claim);
         document.removeEventListener('visibilitychange', onVisibility);
-        shown.delete(el);
-        el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();
-        unpick.dispose();
-        detachTouch();
         latest.current.onSender?.(null);
         unoffer();
         link.close();
         xterm.dispose();
+        snap.remove();
         term.current = null;
         redecide.current = () => {};
       };
@@ -367,10 +409,11 @@ export function SizingTerminal(props: TerminalProps) {
 
   useEffect(() => {
     if (term.current) term.current.options.theme = theme;
+    restyle.current();
   }, [theme]);
 
   useEffect(() => {
-    if ((props.draw ?? 'live') !== 'hidden') reflush.current();
+    redraw.current();
   }, [props.draw]);
 
   useEffect(() => {
@@ -380,6 +423,7 @@ export function SizingTerminal(props: TerminalProps) {
       if (disposed || !xterm) return;
       xterm.options.fontFamily = font.family;
       xterm.options.fontSize = font.size;
+      restyle.current();
       requestAnimationFrame(() => redecide.current());
     });
     return () => {

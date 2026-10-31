@@ -29,14 +29,23 @@ struct Patch {
     text: String,
 }
 
-fn patch(plugin: &Path, launch: Launch) -> Patch {
+fn default_model(choice: &ModelChoice) -> Option<serde_json::Value> {
+    let (provider, model) = choice.model.as_deref()?.split_once('/')?;
+    let mut config = serde_json::json!({ "provider": provider, "model": model });
+    if let Some(effort) = &choice.effort {
+        config["reasoningEffort"] = effort.as_str().into();
+    }
+    Some(serde_json::json!({ "id": "agent-default-model", "config": config }))
+}
+
+fn patch(plugin: &Path, launch: Launch, choice: &ModelChoice) -> Patch {
     let plugin = plugin.to_string_lossy().replace('\\', "/");
     let root = match plugin.starts_with('/') {
         true => "file://",
         false => "file:///",
     };
     let url = utf8_percent_encode(&plugin, URL_ESCAPED);
-    let text = serde_json::json!([{
+    let mut rows = vec![serde_json::json!({
         "insert": [
             {
                 "id": "loom",
@@ -54,8 +63,9 @@ fn patch(plugin: &Path, launch: Launch) -> Patch {
                 },
             },
         ]
-    }])
-    .to_string();
+    })];
+    rows.extend(default_model(choice));
+    let text = serde_json::Value::Array(rows).to_string();
     let file = format!("dsh-{}.yml", &crate::skills::digest(&[&text])[..16]);
     Patch { file, text }
 }
@@ -116,14 +126,14 @@ impl Adapter for Dsh {
     }
 
     fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()> {
-        write_patch(at.plugin_here, &patch(at.plugin, at.launch))
+        write_patch(at.plugin_here, &patch(at.plugin, at.launch, at.choice))
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
         let plugin = at.plugin.to_string_lossy();
         cmd.args([
             "--patch".into(),
-            format!("{plugin}/{}", patch(at.plugin, at.launch).file),
+            format!("{plugin}/{}", patch(at.plugin, at.launch, at.choice).file),
             WORKSPACE.into(),
         ]);
         if at.brief.trim().is_empty() {

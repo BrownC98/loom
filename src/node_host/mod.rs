@@ -602,17 +602,24 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 fn ended(reader: &mut TcpStream) -> Option<Vec<Frame>> {
     let deadline = Instant::now() + GREET_TIMEOUT;
     let mut frames = Vec::new();
-    loop {
-        let left = deadline.checked_duration_since(Instant::now())?;
-        reader.set_read_timeout(Some(left)).ok()?;
-        let frame = wire::read(reader).ok()?;
+    let found = loop {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            break false;
+        };
+        let Ok(frame) = reader
+            .set_read_timeout(Some(left))
+            .and_then(|()| wire::read(reader))
+        else {
+            break false;
+        };
         let last = matches!(frame, Frame::Exit(_) | Frame::SetupFailed(_));
         frames.push(frame);
         if last {
-            reader.set_read_timeout(None).ok()?;
-            return Some(frames);
+            break true;
         }
-    }
+    };
+    reader.set_read_timeout(None).ok()?;
+    found.then_some(frames)
 }
 
 fn start_host(exe: &std::path::Path, spec: &host::Spec) -> Result<SocketAddr, String> {

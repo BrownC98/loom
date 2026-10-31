@@ -11,8 +11,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinSet;
 
 use crate::protocol::DISTRO_HOST;
+use crate::ssh::{self, Failure, MacRelease, Remote};
 use crate::{process_tree, tunnel};
 
+pub const LINUX_LOOM: &str = "loom-linux";
+const LINUX_HASH_HEX: usize = 12;
+const LINUX_MISSING: &str = "loom-linux is not next to loom.exe";
+const SSH_FILE: &str = "ssh-";
 const MAGIC: &[u8] = b"loom-distro";
 const READY: &str = "loom distro-host ready";
 const MAX_FRAME: usize = 16 << 20;
@@ -128,15 +133,18 @@ pub enum Unreached {
 struct Hosted {
     at: SocketAddr,
     pid: Option<u32>,
+    remote: Option<Remote>,
 }
 
 pub struct Distros {
     dir: PathBuf,
-    folder: String,
-    program: String,
+    linux: Option<PathBuf>,
+    mac: MacRelease,
     gates: Mutex<HashMap<Host, Arc<Mutex<()>>>>,
     up: tokio::sync::Notify,
 }
+
+pub struct Held(TcpStream);
 
 #[derive(Clone)]
 pub struct Distro {
@@ -159,20 +167,11 @@ impl Distros {
         self.up.notified()
     }
 
-    pub fn through_wsl(dir: PathBuf, loom: &Path) -> Self {
-        let folder = loom
-            .parent()
-            .unwrap_or(Path::new("."))
-            .display()
-            .to_string();
-        let program = format!(
-            "./{}",
-            loom.file_name().unwrap_or_default().to_string_lossy()
-        );
+    pub fn new(dir: PathBuf, linux: Option<PathBuf>, mac: MacRelease) -> Self {
         Self {
             dir,
-            folder,
-            program,
+            linux,
+            mac,
             gates: Mutex::default(),
             up: tokio::sync::Notify::new(),
         }
@@ -258,8 +257,23 @@ impl Distros {
         }
     }
 
+    pub fn hold(&self, host: &Host) -> Result<Held, Failure> {
+        self.link(host).map(Held)
+    }
+
+    pub fn remote(&self, host: &Host) -> Result<Remote, Failure> {
+        let file = self.dir.join(file_name(host));
+        self.link(host)?;
+        std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| Hosted::read(&text)?.remote)
+            .ok_or_else(|| Failure::Failed(format!("{}: not an SSH host", file.display())))
+    }
+
     fn file_answer(&self, host: &Host, ask: &Ask) -> io::Result<Answer> {
-        let mut link = self.link(host).map_err(io::Error::other)?;
+        let mut link = self
+            .link(host)
+            .map_err(|e| io::Error::other(e.to_string()))?;
         link.set_read_timeout(Some(FILE_WAIT))?;
         link.set_write_timeout(Some(FILE_WAIT))?;
         let body = serde_json::to_vec(ask).map_err(io::Error::other)?;
@@ -273,17 +287,13 @@ impl Distros {
     }
 
     fn ask(&self, host: &Host, ask: &Ask) -> Result<TcpStream, String> {
-        let mut link = self.link(host)?;
+        let mut link = self.link(host).map_err(|e| e.to_string())?;
         let body = serde_json::to_vec(ask).map_err(|e| e.to_string())?;
         write_frame(&mut link, &body).map_err(|e| format!("distro host: {e}"))?;
         Ok(link)
     }
 
-    fn link(&self, host: &Host) -> Result<TcpStream, String> {
-        let distro = match host {
-            Host::Distro(name) => name.as_str(),
-            Host::Ssh(name) => return Err(format!("{name}: {SSH_NOT_CONNECTED}")),
-        };
+    fn link(&self, host: &Host) -> Result<TcpStream, Failure> {
         let gate = self
             .gates
             .lock()
@@ -292,7 +302,7 @@ impl Distros {
             .or_default()
             .clone();
         let _one_start = gate.lock().unwrap();
-        let file = self.dir.join(distro);
+        let file = self.dir.join(file_name(host));
         let known = std::fs::read_to_string(&file)
             .ok()
             .and_then(|text| Hosted::read(&text));
@@ -304,41 +314,110 @@ impl Distros {
                 process_tree::end_if_runs(pid, "distro-host");
             }
         }
+        let failed = |cause| Failure::Failed(format!("{}: {cause}", host.name()));
+        let (argv, remote, released) = match host {
+            Host::Distro(distro) => (self.through_wsl(distro).map_err(failed)?, None, false),
+            Host::Ssh(name) => {
+                let linux = self.linux.as_deref();
+                let file = linux
+                    .map(linux_name)
+                    .transpose()
+                    .map_err(|e| failed(e.to_string()))?;
+                let outer = ssh::prepare(name, linux.zip(file.as_deref()), self.mac)?;
+                (outer.argv, Some(outer.remote), outer.released)
+            }
+        };
+        let hosted = Hosted {
+            remote,
+            ..launch_outer(argv).map_err(failed)?
+        };
+        std::fs::create_dir_all(&self.dir)
+            .and_then(|()| std::fs::write(&file, hosted.text()))
+            .map_err(|e| Failure::Failed(format!("{}: {e}", file.display())))?;
+        let link = greet(hosted.at).map_err(|e| match released {
+            true => Failure::VersionMismatch,
+            false => failed(format!("distro host: {e}")),
+        })?;
+        self.up.notify_one();
+        Ok(link)
+    }
+
+    fn through_wsl(&self, distro: &str) -> Result<Vec<String>, String> {
+        let loom = self.linux.as_deref().ok_or(LINUX_MISSING)?;
+        let folder = loom
+            .parent()
+            .unwrap_or(Path::new("."))
+            .display()
+            .to_string();
+        let program = format!(
+            "./{}",
+            loom.file_name().unwrap_or_default().to_string_lossy()
+        );
         let argv = [
             "wsl.exe",
             "-d",
             distro,
             "--cd",
-            &self.folder,
+            &folder,
             "--exec",
-            &self.program,
+            &program,
             "distro-host",
             "--inner",
         ];
-        let hosted = launch_outer(argv.map(str::to_owned).to_vec())
-            .map_err(|cause| format!("{distro}: {cause}"))?;
-        std::fs::create_dir_all(&self.dir)
-            .and_then(|()| std::fs::write(&file, hosted.text()))
-            .map_err(|e| format!("{}: {e}", file.display()))?;
-        let link = greet(hosted.at).map_err(|e| format!("{distro}: distro host: {e}"))?;
-        self.up.notify_one();
-        Ok(link)
+        Ok(argv.map(str::to_owned).to_vec())
+    }
+}
+
+fn file_name(host: &Host) -> String {
+    match host {
+        Host::Distro(name) => name.clone(),
+        Host::Ssh(name) => format!("{SSH_FILE}{name}"),
+    }
+}
+
+pub fn linux_name(file: &Path) -> io::Result<String> {
+    use sha2::Digest;
+    let mut hash = sha2::Sha256::new();
+    let mut from = std::fs::File::open(file)?;
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        match from.read(&mut buf)? {
+            0 => break,
+            n => hash.update(&buf[..n]),
+        }
+    }
+    let hex: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("{LINUX_LOOM}-{}", &hex[..LINUX_HASH_HEX]))
+}
+
+impl Held {
+    pub fn closed(mut self) {
+        let mut byte = [0u8; 1];
+        while let Ok(1..) = self.0.read(&mut byte) {}
     }
 }
 
 impl Hosted {
     fn read(text: &str) -> Option<Hosted> {
-        let mut words = text.split_whitespace();
+        let mut lines = text.lines();
+        let mut words = lines.next()?.split_whitespace();
         Some(Hosted {
             at: words.next()?.parse().ok()?,
             pid: words.next().and_then(|pid| pid.parse().ok()),
+            remote: lines
+                .next()
+                .and_then(|line| serde_json::from_str(line).ok()),
         })
     }
 
     fn text(&self) -> String {
-        match self.pid {
+        let first = match self.pid {
             Some(pid) => format!("{} {pid}", self.at),
             None => self.at.to_string(),
+        };
+        match self.remote.as_ref().map(serde_json::to_string) {
+            Some(Ok(remote)) => format!("{first}\n{remote}"),
+            Some(Err(_)) | None => first,
         }
     }
 }

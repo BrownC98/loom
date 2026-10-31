@@ -66,6 +66,10 @@ pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
         stop(child);
         return None;
     };
+    wait_until(child, deadline)?.success().then_some(bytes)
+}
+
+pub fn wait_until(mut child: Child, deadline: Instant) -> Option<std::process::ExitStatus> {
     let ended = match Exit::watch(child.id()) {
         Ok(Some(exit)) => exit.wait(deadline).is_ok(),
         Ok(None) => true,
@@ -75,10 +79,10 @@ pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
         stop(child);
         return None;
     }
-    child.wait().ok()?.success().then_some(bytes)
+    child.wait().ok()
 }
 
-fn stop(mut child: Child) {
+pub fn stop(mut child: Child) {
     #[cfg(unix)]
     if let Ok(group) = i32::try_from(child.id()) {
         unsafe { libc::kill(-group, libc::SIGKILL) };

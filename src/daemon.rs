@@ -22,6 +22,7 @@ mod sessions;
 mod settings;
 mod sleep;
 mod spent;
+mod ssh_hosts;
 pub use crate::graph::NewAgent;
 pub use relaunch::Relaunched;
 mod switch;
@@ -123,7 +124,8 @@ struct App {
     plugin: skills::Plugin,
     shim: PathBuf,
     linux_loom: Option<PathBuf>,
-    distros: Option<Arc<crate::distro::Distros>>,
+    distros: Arc<crate::distro::Distros>,
+    ssh_hosts: ssh_hosts::SshHosts,
     run_dir: PathBuf,
     versions: HashMap<Profile, String>,
     node_ip: Option<IpAddr>,
@@ -322,6 +324,7 @@ impl App {
             app.watch_sleep();
             app.watch_agents();
         });
+        self.watch_ssh_hosts();
     }
 }
 
@@ -383,7 +386,7 @@ impl App {
         let linux_loom = match cfg!(windows) {
             true => wsl::install_linux(
                 &shim,
-                &std::env::current_exe()?.with_file_name(wsl::LINUX_LOOM),
+                &std::env::current_exe()?.with_file_name(crate::distro::LINUX_LOOM),
             )
             .unwrap_or_else(|e| {
                 eprintln!("loom: WSL 노드용 Linux loom을 넣지 못했다: {e}");
@@ -397,20 +400,22 @@ impl App {
         if cfg!(windows) {
             wsl::write_shim(&shim, &std::env::current_exe()?, linux_loom.as_deref())?;
         }
-        let distros = linux_loom.as_ref().map(|loom| {
-            Arc::new(crate::distro::Distros::through_wsl(
-                pty_dir.join("distros"),
-                loom,
-            ))
-        });
-        let host = NodeHost::new(pty_dir.join("nodes.screens")).with_links(links);
+        let linux = match cfg!(target_os = "linux") {
+            true => Some(crate::process_tree::own_exe().map_err(std::io::Error::other)?),
+            false => linux_loom.clone(),
+        };
+        let distros = Arc::new(crate::distro::Distros::new(
+            pty_dir.join("distros"),
+            linux,
+            crate::update::mac_release,
+        ));
+        let host = NodeHost::new(pty_dir.join("nodes.screens"))
+            .with_links(links)
+            .with_distros(distros.clone());
         let turn_ends = turn_end::TurnEnds::new(graph.clone());
         let app = App {
             repos,
-            host: match &distros {
-                Some(distros) => host.with_distros(distros.clone()),
-                None => host,
-            },
+            host,
             graph,
             settings: Settings::new(database.clone(), profile::check_choice),
             devices: devices.clone(),
@@ -453,6 +458,7 @@ impl App {
             shim,
             linux_loom,
             distros,
+            ssh_hosts: ssh_hosts::SshHosts::default(),
             run_dir: db_path.with_file_name("run"),
             versions: profile::versions(),
             node_ip: node_door.map(|_| NODE_IP.into()),

@@ -153,7 +153,10 @@ async fn list_folders(
             .to_string_lossy()
             .into_owned(),
     };
-    Ok(Json(worktree::folders(app.files(), path.trim())?))
+    let listed = tokio::task::spawn_blocking(move || worktree::folders(app.files(), path.trim()))
+        .await
+        .map_err(internal)?;
+    Ok(Json(listed?))
 }
 
 async fn create_worktree(

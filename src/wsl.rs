@@ -430,10 +430,8 @@ const SEP: char = '\u{1e}';
 const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
-pub const LINUX_LOOM: &str = "loom-linux";
 pub const WINDOWS_VERBS: &[&str] = &["serve", "start", "open", "stop", "carry", "pty-host"];
 pub const SPAWN_AT_DAEMON_EXIT: i32 = 4;
-const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
     at: &WslPath,
@@ -647,23 +645,19 @@ fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
 }
 
 pub fn install_linux(dir: &Path, source: &Path) -> std::io::Result<Option<PathBuf>> {
-    use sha2::Digest;
-    let bytes = match std::fs::read(source) {
-        Ok(bytes) => bytes,
+    let name = match distro::linux_name(source) {
+        Ok(name) => name,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    let hash: String = sha2::Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
     std::fs::create_dir_all(dir)?;
-    let path = dir.join(format!("{LINUX_LOOM}-{}", &hash[..LINUX_HASH_HEX]));
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64) {
+    let path = dir.join(name);
+    let len = std::fs::metadata(source)?.len();
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() == len) {
         return Ok(Some(path));
     }
     let partial = path.with_extension("partial");
-    std::fs::write(&partial, &bytes)?;
+    std::fs::copy(source, &partial)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -685,7 +679,7 @@ pub fn prune_linux(keep: &Path) {
         if name != keep
             && name
                 .to_string_lossy()
-                .starts_with(&format!("{LINUX_LOOM}-"))
+                .starts_with(&format!("{}-", distro::LINUX_LOOM))
         {
             let _ = std::fs::remove_file(entry.path());
         }

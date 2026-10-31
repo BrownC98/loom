@@ -998,8 +998,6 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .doc-bar .feedback::placeholder { color: var(--ink-3); }
 .doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
 
-.canvas .react-flow__panel.bottom { margin-bottom: calc(15px + var(--composer-room, 0px)); }
-.canvas .react-flow__panel.react-flow__attribution { margin-bottom: var(--composer-room, 0px); }
 .composer-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
 .composer-float { position: absolute; width: min(calc(600px * var(--float-zoom)), calc(100% - 24px)); pointer-events: auto; }
 .composer-float > .composer { zoom: var(--float-zoom); }

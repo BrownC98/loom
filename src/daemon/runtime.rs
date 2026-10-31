@@ -165,11 +165,10 @@ impl App {
             rules: _,
             position,
         } = prepared;
-        match first_input {
-            true => self.first_inputs.mark(id),
-            false => self.first_inputs.clear(id),
-        }
         self.turn_ends.launched(id);
+        if first_input && let Err(e) = self.graph.first_input_sent(id) {
+            eprintln!("loom: 노드 {}의 첫 입력 표시를 쓰지 못했다: {e}", id.0);
+        }
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, port.clone());
         let at = match &inside {
@@ -646,7 +645,9 @@ impl App {
             started,
             position,
             first_input: match start {
-                Start::Agent { brief, .. } => !brief.trim().is_empty(),
+                Start::Agent { brief, .. } => {
+                    !brief.trim().is_empty() && profile.is_some_and(Profile::echoes_brief)
+                }
                 Start::Command { .. } => false,
             },
         })

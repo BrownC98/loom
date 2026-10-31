@@ -80,6 +80,10 @@ impl super::adapter::Adapter for OpenCode {
         }
     }
 
+    fn echoes_brief(&self) -> bool {
+        self.api == Api::V2
+    }
+
     fn leading_args(&self, _: Option<&Session>, bypass: &[String]) -> Vec<String> {
         match self.api {
             Api::V2 => bypass.to_vec(),

@@ -38,6 +38,7 @@ import type { Direction } from './keys';
 import { flowId, MOVE_MS } from './camera';
 import { SLOP_PX } from './touchTerminal';
 import { keepSame } from './keepSame';
+import { useLive, type Hop } from './useLive';
 
 const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .react-flow__resize-control, [data-selected] .term';
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -108,6 +109,31 @@ function UnzoomVar() {
   useLayoutEffect(() => {
     store.getState().domNode?.style.setProperty('--unzoom', String(1 / zoom));
   }, [store, zoom]);
+  return null;
+}
+
+function CornerWatch(props: { onCorner: (width: number) => void }) {
+  const root = useStore((s) => s.domNode);
+  const { onCorner } = props;
+  useLayoutEffect(() => {
+    if (!root) return;
+    const panels = () => [...root.querySelectorAll('.react-flow__panel.bottom.right')];
+    const read = () => onCorner(Math.max(0, ...panels().map((panel) => root.getBoundingClientRect().right - panel.getBoundingClientRect().left)));
+    const sizes = new ResizeObserver(read);
+    const track = () => {
+      sizes.disconnect();
+      panels().forEach((panel) => sizes.observe(panel));
+      read();
+    };
+    const mounts = new MutationObserver(track);
+    mounts.observe(root, { childList: true });
+    track();
+    return () => {
+      mounts.disconnect();
+      sizes.disconnect();
+      onCorner(0);
+    };
+  }, [root, onCorner]);
   return null;
 }
 
@@ -444,23 +470,18 @@ type Draft = { spots?: ReadonlyMap<string, XYPosition>; size?: { id: NodeId; siz
 
 export type Lit = { keys: ReadonlySet<string>; current: string | null };
 
-export type Pulse = Readonly<{ hue: number; last: Toward; counts: Readonly<Record<Toward, number>> }>;
-
-export type Hop = Readonly<{ source: NodeId; target: NodeId; hue: number; last: HopEndName; counts: Readonly<Record<HopEndName, number>> }>;
-
-export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
+export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void; pulse: (child: NodeId, toward: Toward) => void; hop: (from: NodeId, to: NodeId) => void };
 
 export function Graph(props: {
   repos: readonly RepoView[];
   onRepo: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
-  pulses: ReadonlyMap<NodeId, Pulse>;
-  hops: ReadonlyMap<string, Hop>;
   agents: AgentView[];
   onRescanAgents: () => void;
   settings: SettingsView;
   viewVersion: number;
   onMinimapFold: (folded: boolean) => void;
+  onCorner: (width: number) => void;
   accounts: AccountView[] | null;
   selected: NodeId | null;
   focusAsk: number;
@@ -483,6 +504,7 @@ export function Graph(props: {
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
   const { selected, onSelect: setSelected, chosenBox, onChooseBox: setChosenBox } = props;
   const flow = useReactFlow();
+  const traffic = useLive();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const zoomed = expanded !== null && selected !== null && props.views.has(selected) ? selected : expanded;
   const [creating, setCreating] = useState<string | null>(null);
@@ -698,6 +720,8 @@ export function Graph(props: {
     },
     hasSizes: () => views.some((v) => standard(v.id) && savedSize(v.id) !== undefined),
     resetSizes: () => resetSizes(views.filter((v) => standard(v.id) && savedSize(v.id) !== undefined).map((v) => v.id)),
+    pulse: traffic.pulse,
+    hop: traffic.hop,
   }));
   const resetSizes = (ids: NodeId[]) => {
     if (ids.length === 0) return;
@@ -930,7 +954,7 @@ export function Graph(props: {
   const stepOf = (parent: Box, child: Box) => (props.settings.edgeStyle === 'step' ? stepAt(parent, child, direction, STEP_BEND) : null);
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
-    const pulse = props.pulses.get(view.id);
+    const pulse = traffic.pulses.get(view.id);
     const receivers = pulse ? ([['parent', view.parent], ['child', view.id]] as const).filter(([toward]) => pulse.counts[toward] > 0) : [];
     const color = pulse ? hopColor(pulse.hue) : undefined;
     const paint = color ? ({ '--hop': color } as CSSProperties) : undefined;
@@ -991,7 +1015,7 @@ export function Graph(props: {
   };
   const turnedLabels = direction === 'right' || direction === 'left';
   const siblingPairs = new Map<NodeId, HopPair[]>();
-  for (const [key, hop] of props.hops) {
+  for (const [key, hop] of traffic.hops) {
     const parent = props.views.get(hop.source)?.parent ?? null;
     const source = boxOf(hop.source);
     const target = boxOf(hop.target);
@@ -1004,7 +1028,7 @@ export function Graph(props: {
     const box = boxOf(parent);
     return box ? [...siblingLanes(box, pairs, direction)] : [];
   }));
-  const hopEdges: HopEdgeType[] = [...props.hops].flatMap(([key, hop]) => {
+  const hopEdges: HopEdgeType[] = [...traffic.hops].flatMap(([key, hop]) => {
     if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
     const route = routes.get(key) ?? null;
     const text = hopLabel(hop, route?.turned ?? false);
@@ -1248,6 +1272,7 @@ export function Graph(props: {
           folded={minimapFolded}
           onFold={props.onMinimapFold}
         />
+        {!zoomedView && <CornerWatch onCorner={props.onCorner} />}
         {groups.flatMap(({ group, repo, members, origin }) => [{ group, repo, members, origin }, ...chipsOf(group.path).map((chip) => ({ group: chip, repo, members: [], origin }))]).map(({ group, repo, members, origin }) => {
           return (
             (creating === group.path || deleting === group.path) &&

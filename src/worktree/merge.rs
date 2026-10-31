@@ -67,6 +67,16 @@ if [ -f "$wt/scripts/gate/check.sh" ]; then
   (cd "$wt" && CARGO_TARGET_DIR="$common/loom-batch-target" bash scripts/gate/check.sh 9>&-)
   code=$?
   echo "check $(($(date +%s) - start))" >&3
+  unused_min=2880
+  find "$common/loom-batch-target" -type d -name .fingerprint | while read -r fingerprints; do
+    profile=${fingerprints%/.fingerprint}
+    find "$fingerprints" -mindepth 1 -maxdepth 1 -type d | while read -r unit; do
+      [ -z "$(find "$unit" -mindepth 1 \( -amin -$unused_min -o -mmin -$unused_min \) -print -quit)" ] || continue
+      rm -rf "$unit" "$profile/build/${unit##*/}" "$profile"/deps/*-"${unit##*-}"*
+    done
+    [ ! -d "$profile/incremental" ] || find "$profile/incremental" -mindepth 1 -maxdepth 1 -type d -mmin +$unused_min -exec rm -rf {} +
+  done
+  find "$common/loom-batch-target" -mindepth 1 -type d -empty -delete
   [ "$code" -eq 0 ] || exit 14
 else
   echo "== no scripts/gate/check.sh"

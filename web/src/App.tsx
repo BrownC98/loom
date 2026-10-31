@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getReach, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -20,15 +20,13 @@ import type { ReachView } from './gen/ReachView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
-import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
 import { settingsPatch, type SettingsPatch } from './settingsPatch';
-import { pickHue } from './hopLanes';
-import { Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
+import { Graph, type GraphHandle, type Lit } from './Graph';
 import { CameraProvider, flowId } from './camera';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
@@ -63,9 +61,6 @@ import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
 
-type Live = Readonly<{ pulses: ReadonlyMap<NodeId, Pulse>; hops: ReadonlyMap<string, Hop> }>;
-
-const PULSE_MS = 3000;
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
 const REPOS_REFRESH_MS = 5000;
 const SIDE_PANE: Pane = { key: 'side', cssVar: '--side-w', initial: 260, min: 180, max: 480, grow: 1 };
@@ -146,8 +141,6 @@ export function App() {
   const putRepo = (next: RepoView) => setRepos((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [...prev, next]));
   const askedWorktrees = useRef(new Set<string>());
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
-  const [live, setLive] = useState<Live>({ pulses: new Map(), hops: new Map() });
-  const liveTimers = useRef(new Map<string, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -166,6 +159,7 @@ export function App() {
   const [stopped, setStopped] = useState(false);
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [chosenBox, setChosenBox] = useState<string | null>(null);
+  const [graphCorner, setGraphCorner] = useState(0);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -248,6 +242,8 @@ export function App() {
   const [phoneTheme, choosePhoneTheme] = usePhoneTheme();
   const theme = phoneTheme ?? settings.theme;
   const mode = useColorMode(theme);
+  const { family, size } = settings.terminalFont;
+  const font = useMemo(() => activeFont({ family, size }), [family, size]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -358,41 +354,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const flash = (timer: string, bump: (now: Live) => Live, drop: (now: Live) => Live) => {
-      setLive(bump);
-      clearTimeout(liveTimers.current.get(timer));
-      liveTimers.current.set(timer, window.setTimeout(() => setLive(drop), PULSE_MS));
-    };
-    const without = <K, V>(map: ReadonlyMap<K, V>, key: K) => {
-      const next = new Map(map);
-      next.delete(key);
-      return next;
-    };
-    const hueOf = (now: Live, prev: { hue: number } | undefined) => prev?.hue ?? pickHue([...now.pulses.values(), ...now.hops.values()].map((edge) => edge.hue));
-    const pulse = (child: NodeId, toward: Toward) =>
-      flash(
-        `pulse-${child}`,
-        (now) => {
-          const prev = now.pulses.get(child);
-          const counts = prev?.counts ?? { parent: 0, child: 0 };
-          return { ...now, pulses: new Map(now.pulses).set(child, { hue: hueOf(now, prev), last: toward, counts: { ...counts, [toward]: counts[toward] + 1 } }) };
-        },
-        (now) => ({ ...now, pulses: without(now.pulses, child) }),
-      );
-    const hop = (from: NodeId, to: NodeId) => {
-      const [source, target] = from < to ? [from, to] : [to, from];
-      const toward = to === target ? 'target' : 'source';
-      const key = `${source}-${target}`;
-      flash(
-        `hop-${key}`,
-        (now) => {
-          const prev = now.hops.get(key);
-          const counts = prev?.counts ?? { source: 0, target: 0 };
-          return { ...now, hops: new Map(now.hops).set(key, { source, target, hue: hueOf(now, prev), last: toward, counts: { ...counts, [toward]: counts[toward] + 1 } }) };
-        },
-        (now) => ({ ...now, hops: without(now.hops, key) }),
-      );
-    };
     let reading = false;
     let again = false;
     const readNodes = () => {
@@ -407,7 +368,7 @@ export function App() {
               const kept = keepSame(before, views);
               return kept === before ? old : new Map(kept.map((view) => [view.id, view]));
             }),
-          () => again || graph.reopen(),
+          () => again || events.reopen(),
         )
         .finally(() => {
           reading = false;
@@ -425,13 +386,13 @@ export function App() {
       void readSettings();
       setViewVersion((n) => n + 1);
     };
-    const graph = watchGraph((event) => {
+    const events = watchGraph((event) => {
       switch (event.kind) {
         case 'message':
-          pulse(event.child, event.toward);
+          graph.current?.pulse(event.child, event.toward);
           break;
         case 'hop':
-          hop(event.from, event.to);
+          graph.current?.hop(event.from, event.to);
           break;
         case 'nodes':
           readNodes();
@@ -448,7 +409,7 @@ export function App() {
           event satisfies never;
       }
     }, linked);
-    return graph.close;
+    return events.close;
   }, []);
 
   if (stopped)
@@ -499,7 +460,7 @@ export function App() {
   const openNode = (id: NodeId) => setPhoneRoute({ screen: 'node', id });
   const providers = (children: ReactNode) => (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
-      <XtermFont.Provider value={activeFont(settings.terminalFont)}>
+      <XtermFont.Provider value={font}>
         <ReactFlowProvider>
           <CameraProvider>
             <Reaches.Provider value={reaches}>{children}</Reaches.Provider>
@@ -583,10 +544,9 @@ export function App() {
               repos={shown}
               viewVersion={viewVersion}
               onMinimapFold={(minimapFolded) => editSettings((s) => ({ ...s, minimapFolded }))}
+              onCorner={setGraphCorner}
               onRepo={putRepo}
               views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
-              pulses={live.pulses}
-              hops={live.hops}
               agents={agents}
               onRescanAgents={rescan}
               settings={settings}
@@ -602,7 +562,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} views={nodes} repos={repos} onPick={selectNode} />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} views={nodes} repos={repos} onPick={selectNode} />}
           </main>
           {dockOpen ? (
             <Dock

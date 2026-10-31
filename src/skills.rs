@@ -13,30 +13,47 @@ struct Files;
 
 pub struct Plugin(PathBuf);
 
+const HASHES: &str = "skills.sha256";
+
 impl Plugin {
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
-        for on in AlwaysOn::all() {
-            let skills = plugin.skills(on);
-            let keep: BTreeMap<PathBuf, EmbeddedFile> = Files::iter()
-                .filter(|name| on.has(skill_of(name)))
-                .map(|name| {
-                    let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-                    (skills.join(name.as_ref()), file)
+        let now: BTreeMap<String, String> = Files::iter()
+            .map(|name| {
+                let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+                (name.into_owned(), hex(&file.metadata.sha256_hash()))
+            })
+            .collect();
+        let hashes = data.join(HASHES);
+        let written = std::fs::read_to_string(&hashes)
+            .ok()
+            .map(|text| read_hashes(&text))
+            .filter(|_| AlwaysOn::all().all(|on| plugin.skills(on).is_dir()));
+        if written.as_ref() == Some(&now) {
+            return Ok(plugin);
+        }
+        let pruned = std::thread::scope(|scope| {
+            let syncs: Vec<_> = AlwaysOn::all()
+                .map(|on| {
+                    let skills = plugin.skills(on);
+                    let (written, now) = (written.as_ref(), &now);
+                    scope.spawn(move || sync(&skills, on, written, now))
                 })
                 .collect();
-            if let Err(e) = prune(&skills, &keep) {
-                eprintln!(
-                    "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
-                    skills.display()
-                );
-            }
-            for (path, file) in &keep {
-                if std::fs::read(path).ok().as_deref() != Some(file.data.as_ref()) {
-                    write(path, &file.data)?;
-                }
-            }
+            syncs
+                .into_iter()
+                .map(|s| s.join().expect("스킬 폴더 스레드는 패닉하지 않는다"))
+                .collect::<io::Result<Vec<bool>>>()
+        })?;
+        if !pruned.iter().all(|p| *p) {
+            return Ok(plugin);
         }
+        std::fs::write(
+            hashes,
+            now.iter()
+                .map(|(name, hash)| format!("{hash}  {name}\n"))
+                .collect::<String>(),
+        )?;
         Ok(plugin)
     }
 
@@ -63,14 +80,49 @@ pub fn digest(parts: &[&str]) -> String {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
-    hex(hasher)
+    hex(&hasher.finalize())
 }
 
-fn hex(hasher: Sha256) -> String {
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn sync(
+    skills: &Path,
+    on: AlwaysOn,
+    written: Option<&BTreeMap<String, String>>,
+    now: &BTreeMap<String, String>,
+) -> io::Result<bool> {
+    let keep: BTreeMap<PathBuf, (String, EmbeddedFile)> = Files::iter()
+        .filter(|name| on.has(skill_of(name)))
+        .map(|name| {
+            let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+            (skills.join(name.as_ref()), (name.into_owned(), file))
+        })
+        .collect();
+    let pruned = prune(skills, &keep);
+    if let Err(e) = &pruned {
+        eprintln!(
+            "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
+            skills.display()
+        );
+    }
+    for (path, (name, file)) in &keep {
+        let same = match written {
+            Some(written) => written.get(name) == now.get(name) && path.exists(),
+            None => std::fs::read(path).ok().as_deref() == Some(file.data.as_ref()),
+        };
+        if !same {
+            write(path, &file.data)?;
+        }
+    }
+    Ok(pruned.is_ok())
+}
+
+fn read_hashes(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| line.split_once("  "))
+        .map(|(hash, name)| (name.to_owned(), hash.to_owned()))
         .collect()
 }
 
@@ -90,7 +142,7 @@ fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }
 
-fn prune(dir: &Path, keep: &BTreeMap<PathBuf, EmbeddedFile>) -> io::Result<()> {
+fn prune<V>(dir: &Path, keep: &BTreeMap<PathBuf, V>) -> io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         entries => entries?,

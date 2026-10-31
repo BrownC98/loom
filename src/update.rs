@@ -59,8 +59,9 @@ struct Beside {
 
 const WINDOWS_BESIDES: &[Beside] = &[Beside {
     asset: "loom-web-linux-x64",
-    file: crate::wsl::LINUX_LOOM,
+    file: crate::distro::LINUX_LOOM,
 }];
+const MAC_ASSET: &str = "loom-web-macos-arm64";
 
 impl Install {
     fn of(exe: &Path, asset: Option<&'static str>, besides: &'static [Beside]) -> Self {
@@ -81,7 +82,7 @@ fn asset_name(os: &str, arch: &str) -> Option<&'static str> {
     match (os, arch) {
         ("linux", "x86_64") => Some("loom-web-linux-x64"),
         ("windows", "x86_64") => Some("loom-web-windows-x64.exe"),
-        ("macos", "aarch64") => Some("loom-web-macos-arm64"),
+        ("macos", "aarch64") => Some(MAC_ASSET),
         _ => None,
     }
 }
@@ -255,6 +256,15 @@ fn fetch_latest(releases: &str) -> Result<String, String> {
         .and_then(|mut r| r.body_mut().read_json())
         .map_err(|e| format!("{url}: {e}"))?;
     Ok(latest.version)
+}
+
+pub fn mac_release() -> Result<crate::ssh::Release, String> {
+    let releases = RELEASES.ok_or("this loom build has no release address (LOOM_RELEASES)")?;
+    let version = fetch_latest(releases)?;
+    Ok(crate::ssh::Release {
+        file: format!("loom-{version}"),
+        url: asset_url(releases, &version, MAC_ASSET),
+    })
 }
 
 fn staged(file: &Path) -> PathBuf {

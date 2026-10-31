@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
+import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getReach, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { PlaceUsage } from './gen/PlaceUsage';
@@ -16,6 +16,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Provider } from './gen/Provider';
 import type { RepoId } from './gen/RepoId';
+import type { ReachView } from './gen/ReachView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
@@ -55,7 +56,7 @@ import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { CanvasComposer, deskKeys } from './Composer';
-import { PlaceTag } from './place';
+import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
@@ -126,6 +127,7 @@ function useSettingsTab(): [SettingsTab | null, (tab: SettingsTab | null) => voi
 export function App() {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<RepoView[]>([]);
+  const [reaches, setReaches] = useState<ReadonlyMap<string, ReachView | null>>(new Map());
   const [repoFocused, setRepoFocused] = useState(true);
   const selectRepo = (id: RepoId) => {
     editSettings((s) => ({ ...s, repo: id }));
@@ -338,7 +340,12 @@ export function App() {
 
   useEffect(() => {
     const refreshRepos = () =>
-      getRepos().then((next) => setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)));
+      getRepos()
+        .then((next) => {
+          setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+          return Promise.all(sshHosts(next).map(async (host) => [hostKey(host), await getReach(host).catch(() => null)] as const));
+        })
+        .then((next) => setReaches((prev) => (JSON.stringify([...prev]) === JSON.stringify(next) ? prev : new Map(next))));
     refreshRepos();
     const timer = window.setInterval(() => {
       if (!document.hidden) refreshRepos();
@@ -455,7 +462,9 @@ export function App() {
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={font}>
         <ReactFlowProvider>
-          <CameraProvider>{children}</CameraProvider>
+          <CameraProvider>
+            <Reaches.Provider value={reaches}>{children}</Reaches.Provider>
+          </CameraProvider>
         </ReactFlowProvider>
       </XtermFont.Provider>
     </XtermTheme.Provider>
@@ -479,7 +488,7 @@ export function App() {
             {treeView(openNode)}
           </>
         }
-        foot={<StatusBar usage={usage} settings={settings} distro={repo?.wsl?.distro ?? null} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
+        foot={<StatusBar usage={usage} settings={settings} distro={wslDistro(repo)} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
       />,
     );
   return providers(
@@ -522,8 +531,13 @@ export function App() {
             {title !== null && (
               <h1 className="canvas-title">
                 {title}
-                <PlaceTag wsl={shown[0].wsl} />
+                <PlaceTag place={shown[0].place} />
               </h1>
+            )}
+            {title !== null && (
+              <div className="canvas-down">
+                <DownLine place={shown[0].place} />
+              </div>
             )}
             <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
@@ -595,7 +609,7 @@ export function App() {
           <StatusBar
             usage={usage}
             settings={settings}
-            distro={repo?.wsl?.distro ?? null}
+            distro={wslDistro(repo)}
             onChoose={chooseAccount}
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}

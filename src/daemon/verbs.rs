@@ -86,7 +86,16 @@ pub(super) async fn spawn(
             let workspace = app.workspace(&repo).await?;
             let from = std::path::Path::new(&place.worktree);
             let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
-            let made = worktree::create(&repo, from, &workspace, branch, "HEAD", unowned).await?;
+            let made = worktree::create(
+                app.files(),
+                &repo,
+                from,
+                &workspace,
+                branch,
+                "HEAD",
+                unowned,
+            )
+            .await?;
             Some((repo, made))
         }
         None => None,
@@ -191,13 +200,14 @@ async fn spawn_child(
 ) -> Result<NodeId, Problem> {
     let mut prepared = app.prepare(start, cwd, Position::Child, Some(dir)).await?;
     if child.worktree.is_some() {
-        prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
+        prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
     }
     let discard = prepared.discarder();
     let limits = app.tree_limits().inspect_err(|_| discard())?;
     app.graph
         .add_child(parent, child, limits, &prepared.launched(), |id| {
-            task::create(&dir.local, brief).map_err(|e| format!("{}: {e}", dir.local.display()))?;
+            task::create(app.files(), &dir.local, brief)
+                .map_err(|e| format!("{}: {e}", dir.local.display()))?;
             app.launch(id, prepared)
         })
         .map_err(Problem::from)
@@ -296,7 +306,7 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
             return Err(profile::not_steerable(req.to.clone()));
         }
         if req.mode == Kind::Interrupt {
-            let inside = app.wsl_at(to)?;
+            let inside = app.machine_at(to)?.host();
             let mut stopped = false;
             let (sent, shells) =
                 app.graph
@@ -306,7 +316,7 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
                         }
                     })?;
             match inside {
-                Some(at) => app.end_guarded_inside(to, &at, shells),
+                Some(host) => app.end_guarded_inside(to, host, shells),
                 None if stopped => app.release_guarded(to, &shells),
                 None => {}
             }
@@ -355,13 +365,13 @@ pub(super) async fn agent_done(
         .try_for_each(|image| done_image(image))
         .and_then(|()| {
             let unchecked = if !app.graph.has_parent(node)? {
-                unchecked_link(&app.graph, node, &req.summary)?
+                unchecked_link(&app, node, &req.summary)?
             } else {
                 None
             };
             match unchecked {
                 Some(link) => Err(Refusal::UncheckedDoc(link)),
-                None => attach(req.doc.as_deref()),
+                None => attach(&app, node, req.doc.as_deref()),
             }
         });
     let doc = match checked {
@@ -434,15 +444,33 @@ fn done_image(path: &std::path::Path) -> Result<(), Refusal> {
     Ok(())
 }
 
-fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, Refusal> {
-    doc.map(user_doc::attach).transpose()
+fn attach(
+    app: &App,
+    node: NodeId,
+    doc: Option<&std::path::Path>,
+) -> Result<Option<WaitDoc>, Refusal> {
+    doc.map(|doc| user_doc::attach(app.files(), &node_doc(&app.graph, node, doc)?))
+        .transpose()
+}
+
+fn node_doc(
+    graph: &Graph,
+    node: NodeId,
+    doc: &std::path::Path,
+) -> Result<std::path::PathBuf, Refusal> {
+    let folder = graph.place_of(node)?.worktree;
+    Ok(crate::place::from_node(
+        doc.to_path_buf(),
+        std::path::Path::new(&folder),
+    ))
 }
 
 const INBOX: &str = "inbox";
 
-fn unchecked_link(graph: &Graph, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
-    let folder = graph.place_of(node)?.worktree;
+fn unchecked_link(app: &App, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
+    let folder = app.graph.place_of(node)?.worktree;
     Ok(user_doc::unchecked_link(
+        app.files(),
         text,
         std::path::Path::new(&folder),
     ))
@@ -470,13 +498,16 @@ pub(super) async fn agent_ask(
             sent.map(AskResult::Parent),
         );
     }
-    let asked = match unchecked_link(&app.graph, node, &req.question) {
+    let asked = match unchecked_link(&app, node, &req.question) {
         Ok(Some(link)) => Err(Refusal::UncheckedDoc(link)),
         Ok(None) => req
             .doc
             .as_deref()
-            .map_or(Ok(()), |path| user_doc::doc_label(&req.question, path))
-            .and_then(|()| attach(req.doc.as_deref())),
+            .map_or(Ok(()), |path| {
+                let path = node_doc(&app.graph, node, path)?;
+                user_doc::doc_label(app.files(), &req.question, &path)
+            })
+            .and_then(|()| attach(&app, node, req.doc.as_deref())),
         Err(e) => Err(e),
     }
     .and_then(|doc| {

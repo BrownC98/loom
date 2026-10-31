@@ -97,18 +97,11 @@ impl App {
                 tokio::select! {
                     () = mail => {}
                     () = changed => {}
-                    () = app.distro_up() => app.attempts_forgotten(Attempt::Wake),
+                    () = app.distros.up() => app.attempts_forgotten(Attempt::Wake),
                     () = until(resting) => {}
                 }
             }
         });
-    }
-
-    async fn distro_up(&self) {
-        match &self.distros {
-            Some(distros) => distros.up().await,
-            None => std::future::pending().await,
-        }
     }
 
     pub(super) fn watch_agents(self: &Arc<Self>) {

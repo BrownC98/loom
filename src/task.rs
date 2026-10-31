@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::place::Files;
+
 pub const ENV: &str = "LOOM_TASK_DIR";
 pub const BRIEF: &str = "brief.md";
 pub const RESULT: &str = "result.md";
@@ -32,10 +34,11 @@ pub fn base(repo: &Path, name: &str) -> String {
 
 pub const ROOT: [&str; 2] = [".cache", "loom"];
 
-pub struct Tasks {
+pub struct Tasks<'a> {
     local: PathBuf,
     shown: String,
     sep: char,
+    files: Files<'a>,
 }
 
 pub struct TaskDir {
@@ -44,8 +47,8 @@ pub struct TaskDir {
     pub shown: String,
 }
 
-impl Tasks {
-    pub fn pc() -> Option<Self> {
+impl<'a> Tasks<'a> {
+    pub fn pc(files: Files<'a>) -> Option<Self> {
         let local = ROOT
             .iter()
             .fold(std::env::home_dir()?, |path, part| path.join(part));
@@ -53,15 +56,17 @@ impl Tasks {
             shown: local.display().to_string(),
             local,
             sep: std::path::MAIN_SEPARATOR,
+            files,
         })
     }
 
-    pub fn wsl(home: &str, local: impl FnOnce(&str) -> PathBuf) -> Self {
+    pub fn inside(home: &str, local: impl FnOnce(&str) -> PathBuf, files: Files<'a>) -> Self {
         let shown = format!("{}/{}", home.trim_end_matches('/'), ROOT.join("/"));
         Self {
             local: local(&shown),
             shown,
             sep: '/',
+            files,
         }
     }
 
@@ -73,18 +78,18 @@ impl Tasks {
         }
     }
 
-    pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh)> {
-        std::fs::create_dir_all(&self.local)?;
+    pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh<'a>)> {
+        self.files.create_dir_all(&self.local)?;
         let base = folder(base);
         for n in 1.. {
             let name = match n {
                 1 => base.clone(),
                 n => format!("{base}-{n}"),
             };
-            match std::fs::create_dir(self.local.join(&name)) {
+            match self.files.create_dir(&self.local.join(&name)) {
                 Ok(()) => {
                     let dir = self.dir(&name);
-                    let fresh = Fresh(Some(dir.local.clone()));
+                    let fresh = Fresh(Some((dir.local.clone(), self.files)));
                     return Ok((dir, fresh));
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -95,41 +100,35 @@ impl Tasks {
     }
 }
 
-pub struct Fresh(Option<PathBuf>);
+pub fn create(files: Files<'_>, dir: &Path, brief: &str) -> std::io::Result<()> {
+    files.create_dir_all(&dir.join(REVIEW))?;
+    files.create_dir_all(&dir.join(LOGS))?;
+    write_new(files, &dir.join(RESULT), "")?;
+    if !brief.trim().is_empty() {
+        write_new(files, &dir.join(BRIEF), brief)?;
+    }
+    Ok(())
+}
 
-impl Fresh {
+fn write_new(files: Files<'_>, path: &Path, text: &str) -> std::io::Result<()> {
+    match files.create_new(path, text) {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        done => done,
+    }
+}
+
+pub struct Fresh<'a>(Option<(PathBuf, Files<'a>)>);
+
+impl Fresh<'_> {
     pub fn keep(mut self) {
         self.0 = None;
     }
 }
 
-impl Drop for Fresh {
+impl Drop for Fresh<'_> {
     fn drop(&mut self) {
-        if let Some(dir) = self.0.take() {
-            let _ = std::fs::remove_dir_all(dir);
+        if let Some((dir, files)) = self.0.take() {
+            let _ = files.remove_dir_all(&dir);
         }
-    }
-}
-
-pub fn create(dir: &Path, brief: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir.join(REVIEW))?;
-    std::fs::create_dir_all(dir.join(LOGS))?;
-    write_new(&dir.join(RESULT), "")?;
-    if !brief.trim().is_empty() {
-        write_new(&dir.join(BRIEF), brief)?;
-    }
-    Ok(())
-}
-
-fn write_new(path: &Path, text: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
-        Ok(mut file) => file.write_all(text.as_bytes()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(e),
     }
 }

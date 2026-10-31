@@ -17,7 +17,7 @@ import type { Found } from './findSpots';
 import { useShowAll, useShowGroups, useShowNodes } from './camera';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
-import { shownPath, ShortPlaceTag } from './place';
+import { ShortPlaceTag, sshHosts } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
@@ -258,9 +258,9 @@ export function Tree(props: {
     row: (
       <>
         <span className="name">{repo.name}</span>
-        <ShortPlaceTag wsl={repo.wsl} />
+        <ShortPlaceTag place={repo.place} />
         <span className="sub" translate="no" title={repo.path}>
-          {shownPath(repo)}
+          {repo.shownPath}
         </span>
       </>
     ),
@@ -417,7 +417,7 @@ export function Tree(props: {
         <NewNodePopover
           branch={group.label}
           place={{ repo: repo.id, worktree: group.path }}
-          distro={repo.wsl?.distro ?? null}
+          at={repo.place}
           agents={props.agents}
           onOpen={props.onRescanAgents}
           recent={recentAgent(views)}
@@ -447,6 +447,7 @@ export function Tree(props: {
   const popLabel: Record<Target['kind'], string> = { newWorktree: t('repo.newWorktree'), newNode: t('graph.newNode'), deleteWorktree: t('deleteWorktree.action') };
   const addRepo = (
     <AddRepoPopover
+      hosts={sshHosts(props.repos)}
       onClose={() => setAdding(false)}
       onAdded={(repo) => {
         setAdding(false);

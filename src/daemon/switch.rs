@@ -13,11 +13,12 @@ use ts_rs::TS;
 use super::relaunch::{Relaunched, provider_of};
 use super::{App, Problem, internal};
 use crate::accounts::AccountId;
+use crate::distro::Host;
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
+use crate::place;
 use crate::profile;
 use crate::protocol::Provider;
 use crate::usage::{Limits, Window};
-use crate::wsl;
 
 const EXHAUSTED_AT: u8 = 100;
 const COOLDOWN: Duration = Duration::from_secs(10 * 60);
@@ -113,13 +114,13 @@ impl App {
             .filter(|n| {
                 n.account.as_ref() != target && !self.graph.relaunch_stopping(n.id).unwrap_or(false)
             })
-            .filter(|n| self.distro_of(n.id).as_deref() == distro)
+            .filter(|n| self.host_of(n.id) == distro.map(|d| Host::Distro(d.to_owned())))
             .collect())
     }
 
-    fn distro_of(&self, node: NodeId) -> Option<String> {
+    fn host_of(&self, node: NodeId) -> Option<Host> {
         let place = self.graph.place_of(node).ok()?;
-        wsl::of(Path::new(&place.worktree)).map(|at| at.distro)
+        place::of(Path::new(&place.worktree)).host()
     }
 
     async fn switch_nodes(
@@ -169,8 +170,12 @@ impl App {
         if let Err(e) = self.graph.limit_reached(node) {
             eprintln!("loom: 노드 {}의 한도 표시를 쓰지 못했다: {e}", node.0);
         }
+        let distro = match self.host_of(node) {
+            None => None,
+            Some(Host::Distro(name)) => Some(name),
+            Some(Host::Ssh(_)) => return,
+        };
         let app = self.clone();
-        let distro = self.distro_of(node);
         tokio::spawn(async move { app.auto_switch(provider, distro).await });
     }
 

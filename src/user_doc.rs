@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::link_text::DOC_LINK;
+use crate::place::{Files, Machine};
 use crate::protocol::{Refusal, WaitDoc};
 
 mod share;
@@ -24,20 +25,21 @@ pub enum DocStep {
     Pass,
 }
 
-pub fn take_step(path: &Path, step: DocStep) -> Result<WaitDoc, String> {
+pub fn take_step(files: Files<'_>, path: &Path, step: DocStep) -> Result<WaitDoc, String> {
     let store = Store::here()?;
     match step {
-        DocStep::Stamp => stamp_in(&store, path),
-        DocStep::Pass => pass_in(&store, path),
+        DocStep::Stamp => stamp_in(&store, files, path),
+        DocStep::Pass => pass_in(&store, files, path),
     }
 }
 
 pub fn show(path: &Path, step: DocStep) -> Result<(), String> {
-    let doc = take_step(path, step)?;
+    let files = Files::new(None);
+    let doc = take_step(files, path, step)?;
     match (step, bashless()) {
         (DocStep::Stamp, true) => {
             println!("show: 문서 ID {} ({})", doc.id, doc.title);
-            take_step(path, DocStep::Pass)?;
+            take_step(files, path, DocStep::Pass)?;
             println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
             print_ask(path);
         }
@@ -68,10 +70,10 @@ fn print_ask(path: &Path) {
 
 fn bashless() -> bool {
     cfg!(windows)
-        && std::env::current_dir()
-            .ok()
-            .and_then(|dir| crate::wsl::of(&dir))
-            .is_none()
+        && std::env::current_dir().is_ok_and(|dir| match crate::place::of(&dir) {
+            crate::place::Machine::Pc => true,
+            crate::place::Machine::Wsl(_) | crate::place::Machine::Ssh(_) => false,
+        })
 }
 
 const ROWS_PER_THREAD: usize = 16;
@@ -84,16 +86,18 @@ fn html(path: &Path) -> bool {
         .is_some_and(|e| HTML_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-fn stamp_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
-    let (path, text) = checked(path)?;
+fn stamp_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(files, path)?;
     let id = store.doc_id(&path)?;
     let title = bare_title(title(&text).unwrap_or_default()).to_owned();
-    fs::write(&path, stamp(&text, &id)).map_err(|e| e.to_string())?;
+    files
+        .write(&path, stamp(&text, &id).as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(WaitDoc { id, title })
 }
 
-fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
-    let (path, text) = checked(path)?;
+fn pass_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(files, path)?;
     let id = store.doc_id(&path)?;
     if stamp(&text, &id) != text {
         return Err(format!(
@@ -106,9 +110,9 @@ fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     Ok(WaitDoc { id, title })
 }
 
-fn checked(path: &Path) -> Result<(PathBuf, String), String> {
+fn checked(files: Files<'_>, path: &Path) -> Result<(PathBuf, String), String> {
     let path = real_path(path)?;
-    let text = read_html(&path)?;
+    let text = read_html(files, &path)?;
     check(&text)?;
     if !mockup(&path) {
         check_report(&text)?;
@@ -116,7 +120,7 @@ fn checked(path: &Path) -> Result<(PathBuf, String), String> {
     Ok((path, text))
 }
 
-fn read_html(path: &Path) -> Result<String, String> {
+fn read_html(files: Files<'_>, path: &Path) -> Result<String, String> {
     let refused = || {
         format!(
             "{}: --doc takes a user-doc HTML file (.{}); put images inside an HTML file.",
@@ -127,20 +131,20 @@ fn read_html(path: &Path) -> Result<String, String> {
     if !html(path) {
         return Err(refused());
     }
-    fs::read_to_string(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::InvalidData => refused(),
-        _ => format!("{}: {e}", path.display()),
-    })
+    let bytes = files
+        .read(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    String::from_utf8(bytes).map_err(|_| refused())
 }
 
-pub fn attach(path: &Path) -> Result<WaitDoc, Refusal> {
-    attach_in(&Store::here().map_err(Refusal::Db)?, path)
+pub fn attach(files: Files<'_>, path: &Path) -> Result<WaitDoc, Refusal> {
+    attach_in(&Store::here().map_err(Refusal::Db)?, files, path)
 }
 
-fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
+fn attach_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, Refusal> {
     let refused = || Refusal::UncheckedDoc(path.display().to_string());
     let path = real_path(path).map_err(|_| refused())?;
-    let text = read_html(&path).map_err(|_| refused())?;
+    let text = read_html(files, &path).map_err(|_| refused())?;
     if !store.passed(&text) {
         return Err(refused());
     }
@@ -153,8 +157,8 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
     Ok(WaitDoc { id, title })
 }
 
-pub fn doc_label(text: &str, doc: &Path) -> Result<(), Refusal> {
-    let Some(h1) = read_html(doc).ok().as_deref().and_then(h1) else {
+pub fn doc_label(files: Files<'_>, text: &str, doc: &Path) -> Result<(), Refusal> {
+    let Some(h1) = read_html(files, doc).ok().as_deref().and_then(h1) else {
         return Ok(());
     };
     let mut rest = text;
@@ -239,12 +243,12 @@ fn words(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub fn unchecked_link(text: &str, folder: &Path) -> Option<String> {
+pub fn unchecked_link(files: Files<'_>, text: &str, folder: &Path) -> Option<String> {
     let store = Store::here().ok()?;
-    unchecked_link_in(&store, text, folder)
+    unchecked_link_in(&store, files, text, folder)
 }
 
-fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String> {
+fn unchecked_link_in(store: &Store, files: Files<'_>, text: &str, folder: &Path) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
         let link = &rest[open..];
@@ -252,9 +256,9 @@ fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String>
             Some((_, target, len)) => {
                 if target.starts_with("file://") {
                     let checked = link_path(target)
-                        .map(|p| crate::wsl::from_node(p, folder))
+                        .map(|p| crate::place::from_node(p, folder))
                         .and_then(|p| real_path(&p).ok())
-                        .and_then(|p| read_html(&p).ok())
+                        .and_then(|p| read_html(files, &p).ok())
                         .is_some_and(|text| store.passed(&text));
                     if !checked {
                         return Some(target.to_owned());
@@ -584,8 +588,13 @@ fn link_path(target: &str) -> Option<PathBuf> {
 }
 
 fn real_path(path: &Path) -> Result<PathBuf, String> {
-    let real = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(without_verbatim(real))
+    match crate::place::of(path) {
+        Machine::Pc | Machine::Wsl(_) => {
+            let real = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(without_verbatim(real))
+        }
+        Machine::Ssh(_) => Ok(path.to_path_buf()),
+    }
 }
 
 fn without_verbatim(real: PathBuf) -> PathBuf {

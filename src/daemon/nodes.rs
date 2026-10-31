@@ -2,6 +2,8 @@ use futures_util::Sink;
 
 use super::pulse::{Beat, Heard, Pulse};
 use super::*;
+use crate::distro::SSH_NOT_CONNECTED;
+use crate::place::{self, Machine};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -62,7 +64,7 @@ async fn create_node(
     Json(req): Json<NewNode>,
 ) -> Result<Json<NodeId>, Problem> {
     let repo = app.repos.path(req.place.repo)?;
-    worktree::find(&repo, &req.place.worktree).await?;
+    worktree::find(app.files(), &repo, &req.place.worktree).await?;
     Ok(Json(app.start_root(&req.place, &req.start).await?))
 }
 
@@ -72,17 +74,14 @@ async fn save_paste(
     Query(at): Query<PasteAt>,
     body: Bytes,
 ) -> Result<Json<String>, Problem> {
-    let wsl = app.node_wsl(at.node)?;
-    let root = match &wsl {
-        Some(wsl) => PathBuf::from(wsl.unc("/tmp")),
-        None => std::env::temp_dir(),
+    let machine = app.node_machine(at.node)?;
+    let root = match &machine {
+        Machine::Pc => std::env::temp_dir(),
+        Machine::Wsl(wsl) => PathBuf::from(wsl.unc("/tmp")),
+        Machine::Ssh(at) => return Err(internal(format!("{}: {SSH_NOT_CONNECTED}", at.host))),
     };
     let path = paste::save(&root, &name, &body).map_err(internal)?;
-    let path = path.to_string_lossy().into_owned();
-    Ok(Json(match wsl {
-        Some(_) => wsl::linux_of(&path),
-        None => path,
-    }))
+    Ok(Json(place::inner(&path.to_string_lossy())))
 }
 
 async fn remove_node(

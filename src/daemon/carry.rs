@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{App, Problem, internal};
 use crate::db;
+use crate::distro::Host;
 use crate::graph::{Entry, Who};
 use crate::profile::process::Served;
 use crate::settings::Settings;
@@ -51,7 +52,9 @@ impl App {
             .rsplit_once('/')
             .map(|(home, _)| home.to_owned())
             .ok_or_else(|| format!("{from} has no parent folder"))?;
-        let distro = self.distro(&at.distro).map_err(|e| e.to_string())?;
+        let distro = self
+            .host(Host::Distro(at.distro.clone()))
+            .map_err(|e| e.to_string())?;
         let copy = std::env::temp_dir().join(format!("loom-carry-{}", std::process::id()));
         std::fs::create_dir_all(&copy).map_err(|e| e.to_string())?;
         let copied = self.carry_from_copy(Path::new(from), &copy, &at);

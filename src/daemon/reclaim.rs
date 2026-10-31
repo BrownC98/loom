@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::App;
 use crate::git;
 use crate::graph::{NodeId, Reclaim};
+use crate::place::Files;
 use crate::protocol::Refusal;
 use crate::worktree::merge::{base_branch, branch_head, delete_merged, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
@@ -26,7 +27,7 @@ pub(super) async fn run(app: Arc<App>) {
         };
         if !held {
             if let Entry::Vacant(missing) = branches.entry(repo) {
-                missing.insert(worktree::branches(&dir).await);
+                missing.insert(worktree::branches(app.files(), &dir).await);
             }
             if !branches[&repo].contains(&branch) {
                 continue;
@@ -53,7 +54,7 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
         app.graph.note_reclaim(&round, &problem).map_err(text)?;
     }
     let path = git::from_git_path(dir, &round.worktree);
-    let own = match worktree::find(dir, &path).await {
+    let own = match worktree::find(app.files(), dir, &path).await {
         Ok(found) => Some(found).filter(|w| !w.original),
         Err(RepoProblem::NotInRepo(_)) => None,
         Err(e) => return Err(e.to_string()),
@@ -71,15 +72,15 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
         _ => None,
     };
     let on = only_owner.map(|w| w.branch.as_deref());
-    let target = live_target(dir, &round.target).await?;
-    if !still_merged(dir, on, branch, &target).await? {
+    let target = live_target(app.files(), dir, &round.target).await?;
+    if !still_merged(app.files(), dir, on, branch, &target).await? {
         return app
             .graph
             .note_reclaim(&round, &moved(branch, &round, &target))
             .map_err(text);
     }
     if only_owner.is_some()
-        && worktree::dirty(Path::new(&path))
+        && worktree::dirty(app.files(), Path::new(&path))
             .await
             .map_err(|e| e.to_string())?
     {
@@ -91,14 +92,14 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
     remove(app, round.owner).map_err(|e| e.to_string())?;
     if let Some(own) = own
         && alone(app, None)?
-        && let Err(e) = worktree::remove_clean(dir, &own).await
+        && let Err(e) = worktree::remove_clean(app.files(), dir, &own).await
     {
         return app
             .graph
             .note_reclaim(&round, &changed(branch, &round, &e.to_string()))
             .map_err(text);
     }
-    if let Some(cause) = delete_merged(dir, branch, &target).await? {
+    if let Some(cause) = delete_merged(app.files(), dir, branch, &target).await? {
         app.graph
             .note_reclaim(&round, &remote_kept(branch, &round, &cause))
             .map_err(text)?;
@@ -106,10 +107,10 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
     Ok(())
 }
 
-async fn live_target(dir: &Path, target: &str) -> Result<String, String> {
-    match branch_head(dir, target).await {
+async fn live_target(files: Files<'_>, dir: &Path, target: &str) -> Result<String, String> {
+    match branch_head(files, dir, target).await {
         Ok(_) => Ok(target.to_owned()),
-        Err(_) => base_branch(dir).await.map_err(|e| e.to_string()),
+        Err(_) => base_branch(files, dir).await.map_err(|e| e.to_string()),
     }
 }
 

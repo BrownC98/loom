@@ -72,10 +72,20 @@ impl Plugin {
     }
 
     pub fn dir(&self, on: AlwaysOn) -> PathBuf {
+        Self::parts(on)
+            .iter()
+            .fold(self.0.clone(), |path, part| path.join(part))
+    }
+
+    pub fn dir_under(root: &str, on: AlwaysOn) -> String {
+        format!("{root}/{}", Self::parts(on).join("/"))
+    }
+
+    fn parts(on: AlwaysOn) -> Vec<String> {
         let off: Vec<&str> = SKILLS.into_iter().filter(|s| !on.has(s)).collect();
         match off.is_empty() {
-            true => self.0.join("plugin"),
-            false => self.0.join("plugin-off").join(off.join("+")),
+            true => vec!["plugin".into()],
+            false => vec!["plugin-off".into(), off.join("+")],
         }
     }
 

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{Conversation, HOOK};
+use crate::place::Files;
 use crate::process_tree::{self, Listen};
 use crate::profile::adapter::{LaunchAt, Port, Record, Started};
 use crate::profile::process::Served;
@@ -52,11 +53,13 @@ impl Server {
             }
         };
         let local = at.site.local(&data);
-        std::fs::create_dir_all(&local).map_err(|e| e.to_string())?;
-        std::fs::write(local.join("loom.md"), rules).map_err(|e| e.to_string())?;
+        let files = Files::of(at.inside);
+        files
+            .write(&local.join("loom.md"), rules.as_bytes())
+            .map_err(|e| e.to_string())?;
         let config = local.join("crush.json");
-        let mut settings: Value = match std::fs::read_to_string(&config) {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| e.to_string())?,
+        let mut settings: Value = match files.read(&config) {
+            Ok(text) => serde_json::from_slice(&text).map_err(|e| e.to_string())?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
             Err(e) => return Err(e.to_string()),
         };
@@ -64,7 +67,9 @@ impl Server {
             settings["hooks"][event] = json!([{"command": HOOK, "timeout": 10}]);
         }
         settings["options"]["skills_paths"] = json!([at.skills]);
-        std::fs::write(&config, settings.to_string()).map_err(|e| e.to_string())?;
+        files
+            .write(&config, settings.to_string().as_bytes())
+            .map_err(|e| e.to_string())?;
         let port = process_tree::free_port()?;
         let host = format!("tcp://127.0.0.1:{port}");
         let mut argv = program.to_vec();

@@ -23,6 +23,7 @@ pub struct Facts {
     pub logins: Logins,
     pub sleeps: bool,
     pub listens_at_start: bool,
+    pub serves: bool,
     pub turn_take: TurnTake,
     pub model_rule: ModelRule,
     pub pinned: Option<&'static str>,

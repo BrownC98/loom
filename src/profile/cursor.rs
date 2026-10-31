@@ -9,6 +9,7 @@ use portable_pty::CommandBuilder;
 
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
+use crate::place::Files;
 use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
@@ -108,14 +109,12 @@ fn user_hooks(inside: Option<&Inside>) -> Option<PathBuf> {
     }
 }
 
-fn open_gate(path: &Path) -> std::io::Result<()> {
+fn open_gate(files: Files, path: &Path) -> std::io::Result<()> {
     let _held = GATE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let target = std::fs::canonicalize(path);
-    let path = target.as_deref().unwrap_or(path);
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => Some(text),
+    let text = match files.read(path) {
+        Ok(bytes) => Some(String::from_utf8(bytes).map_err(std::io::Error::other)?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e),
     };
@@ -124,23 +123,7 @@ fn open_gate(path: &Path) -> std::io::Result<()> {
     else {
         return Ok(());
     };
-    std::fs::create_dir_all(path.parent().expect("파일 경로에는 부모가 있다"))?;
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let draft = path.with_extension(format!(
-        "json.{}.{}.loom",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let written = std::fs::write(&draft, gated)
-        .and_then(|()| match std::fs::metadata(path) {
-            Ok(old) => std::fs::set_permissions(&draft, old.permissions()),
-            Err(_) => Ok(()),
-        })
-        .and_then(|()| std::fs::rename(&draft, path));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&draft);
-    }
-    written
+    files.write(path, gated.as_bytes())
 }
 
 fn with_gate(text: Option<&str>) -> Result<Option<String>, String> {
@@ -194,6 +177,7 @@ impl Adapter for Cursor {
             logins: Logins::One(&Cursor),
             sleeps: true,
             listens_at_start: false,
+            serves: false,
             turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::EffortNeedsModel,
             pinned: None,
@@ -256,7 +240,7 @@ impl Adapter for Cursor {
 
     fn prepare(&self, at: &LaunchAt<'_>) -> std::io::Result<()> {
         if let Some(hooks) = user_hooks(at.inside)
-            && let Err(e) = open_gate(&hooks)
+            && let Err(e) = open_gate(Files::of(at.inside), &hooks)
         {
             eprintln!(
                 "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
@@ -408,7 +392,7 @@ impl Hook {
             return Ok(false);
         };
         let here = std::env::current_dir().unwrap_or_default();
-        let Ok(file) = std::fs::File::open(crate::wsl::from_node(path.into(), &here)) else {
+        let Ok(file) = std::fs::File::open(crate::place::from_node(path.into(), &here)) else {
             return Ok(false);
         };
         used_question_box(std::io::BufReader::new(file))

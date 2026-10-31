@@ -14,6 +14,7 @@ mod node_host;
 mod open;
 mod pake;
 mod paste;
+mod place;
 mod process_tree;
 mod profile;
 mod protocol;
@@ -23,6 +24,7 @@ mod search_path;
 mod settings;
 mod skills;
 mod spots;
+mod ssh;
 mod tailscale;
 mod task;
 mod timed;
@@ -365,7 +367,7 @@ fn main() -> ExitCode {
                 false => user_doc::DocStep::Stamp,
                 true => user_doc::DocStep::Pass,
             };
-            match wsl::to_windows_daemon() {
+            match wsl::to_windows_daemon() || cli::only_endpoint() {
                 true => cli::show(file, step),
                 false => user_doc::show(&wsl::from_caller(file), step),
             }

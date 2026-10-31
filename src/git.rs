@@ -1,43 +1,93 @@
 use std::path::Path;
+use std::time::Duration;
 
 use tokio::process::Command;
 
-use crate::wsl::{self, WslPath};
+use crate::distro::{self, Ran};
+use crate::place::{self, Files, Machine};
 
-pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = output(dir, args).await?;
-    if !out.status.success() {
-        return Err(failure(&out));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+const REMOTE_CWD: &str = "/";
+const GIT_WAIT: Duration = Duration::from_secs(5 * 60);
+const CLONE_WAIT: Duration = Duration::from_secs(60 * 60);
+
+pub async fn run(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = output(files, dir, args).await?;
+    succeeded(&out)?;
+    Ok(out.stdout)
 }
 
-pub async fn holds(dir: &Path, args: &[&str]) -> Result<bool, String> {
-    let out = output(dir, args).await?;
-    match out.status.code() {
+pub async fn holds(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<bool, String> {
+    let out = output(files, dir, args).await?;
+    match out.code {
         Some(0) => Ok(true),
         Some(1) if out.stdout.is_empty() && git_text(&out.stderr).is_empty() => Ok(false),
         _ => Err(failure(&out)),
     }
 }
 
-async fn output(dir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
-    command(dir, wsl::of(dir).as_ref(), args)
-        .output()
-        .await
-        .map_err(|e| format!("git을 실행하지 못했다: {e}"))
+async fn output(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<Ran, String> {
+    let mut cmd = match place::of(dir) {
+        Machine::Wsl(wsl) => {
+            let mut cmd = Command::new("wsl.exe");
+            cmd.args(["-d", &wsl.distro, "-e", "git", "-C", &wsl.path]);
+            cmd
+        }
+        Machine::Pc => {
+            let mut safe = std::ffi::OsString::from("safe.directory=");
+            safe.push(dir);
+            let mut cmd = Command::new("git");
+            cmd.arg("-c").arg(safe).arg("-C").arg(dir);
+            cmd
+        }
+        Machine::Ssh(at) => {
+            let argv = ["git", "-C", &at.path]
+                .into_iter()
+                .chain(args.iter().copied());
+            return files.run(&at.host, remote(argv, &[]), GIT_WAIT).await;
+        }
+    };
+    cmd.args(args);
+    ran(cmd).await
 }
 
-fn failure(out: &std::process::Output) -> String {
+pub fn remote<'a>(
+    argv: impl IntoIterator<Item = &'a str>,
+    env: &[(&str, &str)],
+) -> distro::Command {
+    distro::Command {
+        argv: argv.into_iter().map(str::to_owned).collect(),
+        cwd: REMOTE_CWD.to_owned(),
+        env: env
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+    }
+}
+
+async fn ran(mut cmd: Command) -> Result<Ran, String> {
+    let out = cmd
+        .output()
+        .await
+        .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
+    Ok(Ran {
+        code: out.status.code(),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    })
+}
+
+fn failure(out: &Ran) -> String {
     [git_text(&out.stderr), git_text(&out.stdout)]
         .into_iter()
         .find(|text| !text.is_empty())
-        .unwrap_or_else(|| format!("git이 {}로 끝났다", out.status))
+        .unwrap_or_else(|| match out.code {
+            Some(code) => format!("git이 코드 {code}로 끝났다"),
+            None => "git이 신호로 끝났다".to_owned(),
+        })
 }
 
-fn git_text(text: &[u8]) -> String {
-    String::from_utf8_lossy(text)
-        .lines()
+fn git_text(text: &str) -> String {
+    text.lines()
         .filter(|line| !line.starts_with("wsl: "))
         .collect::<Vec<_>>()
         .join("\n")
@@ -45,48 +95,15 @@ fn git_text(text: &[u8]) -> String {
         .to_owned()
 }
 
-fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {
-    let mut cmd = match wsl {
-        Some(wsl) => {
-            let mut cmd = Command::new("wsl.exe");
-            cmd.args(["-d", &wsl.distro, "-e", "git", "-C", &wsl.path]);
-            cmd
-        }
-        None => {
-            let mut safe = std::ffi::OsString::from("safe.directory=");
-            safe.push(dir);
-            let mut cmd = Command::new("git");
-            cmd.arg("-c").arg(safe).arg("-C").arg(dir);
-            cmd
-        }
-    };
-    cmd.args(args);
-    cmd
-}
-
 pub fn to_git_path(dir: &Path, path: &str) -> String {
-    match wsl::of(dir) {
-        Some(_) => wsl::linux_of(path),
-        None => path.to_owned(),
+    match place::of(dir) {
+        Machine::Pc => path.to_owned(),
+        Machine::Wsl(_) | Machine::Ssh(_) => place::inner(path),
     }
 }
 
 pub fn from_git_path(dir: &Path, path: &str) -> String {
-    match wsl::of(dir) {
-        Some(wsl) if path.starts_with('/') => wsl.unc(path),
-        _ => path.to_owned(),
-    }
-}
-
-pub async fn clone(url: &str, target: &Path) -> Result<(), String> {
-    let out = clone_command(url, target)
-        .output()
-        .await
-        .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
-    if !out.status.success() {
-        return Err(failure(&out));
-    }
-    Ok(())
+    place::of(dir).local(path)
 }
 
 const NO_PROMPT: [(&str, &str); 4] = [
@@ -96,18 +113,25 @@ const NO_PROMPT: [(&str, &str); 4] = [
     ("GCM_INTERACTIVE", "never"),
 ];
 
-fn clone_command(url: &str, target: &Path) -> Command {
-    let mut cmd = match wsl::of(target) {
-        Some(at) => {
+pub async fn clone(files: Files<'_>, url: &str, target: &Path) -> Result<(), String> {
+    let mut cmd = match place::of(target) {
+        Machine::Wsl(at) => {
             let mut cmd = Command::new("wsl.exe");
             cmd.args(["-d", &at.distro, "-e", "git", "clone", "--", url, &at.path])
                 .env("WSLENV", NO_PROMPT.map(|(name, _)| name).join(":"));
             cmd
         }
-        None => {
+        Machine::Pc => {
             let mut cmd = Command::new("git");
             cmd.args(["clone", "--", url]).arg(target);
             cmd
+        }
+        Machine::Ssh(at) => {
+            let argv = ["git", "clone", "--", url, &at.path];
+            let out = files
+                .run(&at.host, remote(argv, &NO_PROMPT), CLONE_WAIT)
+                .await?;
+            return succeeded(&out);
         }
     };
     cmd.envs(NO_PROMPT)
@@ -115,5 +139,12 @@ fn clone_command(url: &str, target: &Path) -> Command {
         .env_remove("WAYLAND_DISPLAY")
         .stdin(std::process::Stdio::null());
     crate::timed::own_session(cmd.as_std_mut());
-    cmd
+    succeeded(&ran(cmd).await?)
+}
+
+fn succeeded(out: &Ran) -> Result<(), String> {
+    match out.code {
+        Some(0) => Ok(()),
+        _ => Err(failure(out)),
+    }
 }

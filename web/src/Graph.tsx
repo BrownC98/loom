@@ -15,7 +15,7 @@ import type { RepoId } from './gen/RepoId';
 import type { NodeView } from './gen/NodeView';
 import type { Placed } from './gen/Placed';
 import type { RepoView } from './gen/RepoView';
-import type { WslPlace } from './gen/WslPlace';
+import type { PlaceView } from './gen/PlaceView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
@@ -25,7 +25,7 @@ import { hopColor, hopParts, siblingLanes, type HopEndName, type HopPair } from 
 import { arrangeNested, bendCenter, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
-import { PlaceTag, shownPath } from './place';
+import { DownLine, PlaceTag, Reaches, unreachedAt } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
@@ -66,6 +66,8 @@ const CHIP_ROW = 43;
 const REPO_HEAD = 46;
 const REPO_SIDE = 16;
 const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
+const DOWN_LINE = 40;
+const DOWN_INSET = { top: REPO_INSET.top + DOWN_LINE, side: REPO_SIDE };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.5;
 
@@ -197,10 +199,10 @@ type GroupData = {
   onChipRow: (height: number) => void;
 };
 type Chip = { path: string; label: string; className: string | undefined; creating: boolean; deleting: boolean };
-type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; unreached: boolean; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
-type RepoData = { name: string; path: string; wsl: WslPlace | null; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
+type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type RepoNode = Node<RepoData, 'repo'>;
 type CardNode = Node<CardData, 'card'>;
@@ -281,9 +283,9 @@ function Repo({ data }: NodeProps<RepoNode>) {
     <section className="repo-box" aria-label={data.name}>
       <div className="repo-head">
         <span className="name">{data.name}</span>
-        <PlaceTag wsl={data.wsl} />
+        <PlaceTag place={data.place} />
         <span className="sub" translate="no" title={data.path}>
-          {shownPath(data)}
+          {data.shownPath}
         </span>
         <span className="spacer" />
         <IconButton label={t('graph.arrangeRepo')} title={t('graph.arrangeRepo')} onClick={data.onArrange}>
@@ -300,6 +302,7 @@ function Repo({ data }: NodeProps<RepoNode>) {
           {t('repo.newWorktree')}
         </button>
       </div>
+      <DownLine place={data.place} />
     </section>
   );
 }
@@ -360,6 +363,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
+            {data.unreached && <span className="unreached-tag">{t('place.unreachedCard')}</span>}
             <BookmarkButton view={data.view} />
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
@@ -398,10 +402,12 @@ function Card({ id, data }: NodeProps<CardNode>) {
 }
 
 function Simple({ data }: NodeProps<SimpleNode>) {
+  const { t } = useTranslation();
   return (
     <>
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
+            {data.unreached && <span className="unreached-tag">{t('place.unreachedCard')}</span>}
             <BookmarkButton view={data.view} />
             <NodeMenu view={data.view} defaultView={data.defaultView} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
@@ -490,6 +496,9 @@ export function Graph(props: {
 }) {
   const { t } = useTranslation();
   const { highlight } = props;
+  const reaches = useContext(Reaches);
+  const downRepos = new Set(props.repos.filter((r) => unreachedAt(r.place, reaches) !== null).map((r) => `repo:${r.id}`));
+  const repoInset = (key: string) => (downRepos.has(key) ? DOWN_INSET : REPO_INSET);
   const lit = (...keys: string[]) => (highlight === null ? undefined : keys.every((key) => highlight.keys.has(key)) ? 'hl' : 'dim');
   const litGroup = (path: string, inside: string[]) => (highlight !== null && !highlight.keys.has(path) && inside.some((key) => highlight.keys.has(key)) ? undefined : lit(path));
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
@@ -655,7 +664,7 @@ export function Graph(props: {
     const key = `repo:${repo.id}`;
     const laid = top.map((t) => t.laid);
     share({ boxes: laid.map((g) => ({ key: g.group.path, at: at.get(g.group.path)!, size: g.size })), lead: new Map(laid.map((g) => [g.group.path, g.lead])), parent: framed ? key : null });
-    const box = cover(laid.map((g) => ({ at: at.get(g.group.path)!, size: g.size })), REPO_INSET);
+    const box = cover(laid.map((g) => ({ at: at.get(g.group.path)!, size: g.size })), repoInset(key));
     const all = (g: Laid): Laid[] => [g, ...g.kids.flatMap(all)];
     const arranged = new Map([...laid.flatMap(all).flatMap((g) => [...g.auto]), ...top.map(({ laid: g, auto }): [string, XYPosition] => [g.group.path, { x: auto.x - g.lead.x, y: auto.y - g.lead.y }])]);
     return { repo, key, laid: laid.map((g) => ({ ...g, at: at.get(g.group.path)! })), lead: box.at, size: box.size, arranged };
@@ -809,7 +818,8 @@ export function Graph(props: {
           data: {
             name: r.repo.name,
             path: r.repo.path,
-            wsl: r.repo.wsl,
+            place: r.repo.place,
+            shownPath: r.repo.shownPath,
             hasCommits: r.repo.hasCommits,
             creating: branching?.key === r.key,
             onArrange: () => arrangeRepo(r),
@@ -883,14 +893,16 @@ export function Graph(props: {
       },
     }),
     ...members.map((view): FlowNode => {
+      const unreached = downRepos.has(`repo:${view.place.repo}`);
       const base = {
         id: String(view.id),
         parentId: group.path,
-        className: classes(String(view.id), lit(String(view.id))),
+        className: [classes(String(view.id), lit(String(view.id))), unreached && 'unreached'].filter(Boolean).join(' ') || undefined,
         position: { x: local.get(String(view.id))!.x - lead.x, y: local.get(String(view.id))!.y - lead.y },
       };
       const data: CardBase = {
         view,
+        unreached,
         defaultView: props.settings.cardView,
         agentLabel: agentLabel(props.agents, view.agent),
         onRefusal: setRefusal,
@@ -1097,7 +1109,7 @@ export function Graph(props: {
     const outer = levels.get(level.parent);
     if (!outer) return null;
     const contents = placed(level, done).map((b) => (b.key === key ? { ...b, ...mover } : b));
-    const shell = cover(contents, spotOf.get(level.parent)?.kind === 'worktree' ? insetOf(level.parent) : REPO_INSET);
+    const shell = cover(contents, spotOf.get(level.parent)?.kind === 'worktree' ? insetOf(level.parent) : repoInset(level.parent));
     const self = outer.boxes.find((b) => b.key === level.parent)!;
     const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);
     return { key: self.key, level: outer, mover: { at: { x: origin.x + shell.at.x, y: origin.y + shell.at.y }, size: shell.size } };
@@ -1146,7 +1158,8 @@ export function Graph(props: {
     else save(done);
   });
   const arrangeRepo = (r: (typeof repos)[number]) => {
-    const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
+    const inset = repoInset(r.key);
+    const kept = keepAround(r.key, { x: -inset.side, y: -inset.top });
     holdOrder();
     const after = clearSpots(r.repo.id);
     saveAfter(kept, after);
@@ -1278,7 +1291,7 @@ export function Graph(props: {
                     <NewNodePopover
                       branch={group.label}
                       place={{ repo, worktree: group.path }}
-                      distro={props.repos.find((r) => r.id === repo)?.wsl?.distro ?? null}
+                      at={props.repos.find((r) => r.id === repo)?.place ?? { kind: 'pc' }}
                       agents={props.agents}
                       onOpen={props.onRescanAgents}
                       recent={recentAgent(views)}

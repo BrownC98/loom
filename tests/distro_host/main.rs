@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 
 const LOOM: &str = env!("CARGO_BIN_EXE_loom");
 const LIMIT: Duration = Duration::from_secs(10);
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
+const MAX_FILE: usize = 8 << 20;
 
 const HELLO: u8 = 0;
 const DATA: u8 = 1;
@@ -142,32 +143,30 @@ fn launches(count: &Path) -> usize {
 }
 
 fn inner_host_of(outer: &Child) -> u32 {
-    let marker = format!("{LOOM}\0distro-host\0--inner\0");
-    let parent = outer.id().to_string();
-    std::fs::read_dir("/proc")
-        .unwrap()
-        .flatten()
-        .filter(|entry| {
-            std::fs::read(entry.path().join("cmdline")).is_ok_and(|c| c == marker.as_bytes())
-        })
-        .find(|entry| {
-            std::fs::read_to_string(entry.path().join("stat")).is_ok_and(|stat| {
-                stat.rsplit(')')
-                    .next()
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .nth(1)
-                    == Some(&parent)
-            })
-        })
-        .and_then(|entry| entry.file_name().to_str()?.parse().ok())
+    let found = Command::new("pgrep")
+        .args(["-P", &outer.id().to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&found.stdout)
+        .split_whitespace()
+        .next()
+        .and_then(|pid| pid.parse().ok())
         .expect("the outer host runs an inner host")
+}
+
+fn runs(pid: u64) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
+        .success()
 }
 
 #[test]
 fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let home = &dir.path().canonicalize().unwrap();
     let count = home.join("launches");
     let socket = home.join("run/node.sock");
     let (mut outer, address) = distro_host(home, &count);
@@ -206,7 +205,7 @@ fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     outer.kill().unwrap();
     outer.wait().unwrap();
     let until = Instant::now() + LIMIT;
-    while Path::new(&format!("/proc/{inner}")).exists() {
+    while runs(inner.into()) {
         assert!(Instant::now() < until, "the inner host ends with the outer");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -234,6 +233,68 @@ fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     );
 }
 
+fn encoded(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[test]
+fn a_distro_host_reads_writes_and_lists_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let (mut outer, address) = distro_host(home, &home.join("launches"));
+    let file = home.join("made/deep/note.txt");
+
+    let write = |path: &Path, bytes: &[u8]| {
+        ask(
+            &address,
+            json!({ "write": { "path": path, "bytes": encoded(bytes) } }),
+        )
+        .1
+    };
+    assert_eq!(write(&file, b"first"), json!("written"));
+    assert_eq!(std::fs::read(&file).unwrap(), b"first");
+    assert_eq!(
+        ask(&address, json!({ "read": file })).1,
+        json!({ "read": encoded(b"first") })
+    );
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let link = home.join("link.txt");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    assert_eq!(write(&link, b"second"), json!("written"));
+    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+    assert_eq!(std::fs::read(&file).unwrap(), b"second");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+
+    let (_, listed) = ask(&address, json!({ "list": home.join("made/deep") }));
+    assert_eq!(
+        listed,
+        json!({ "listed": [{ "name": "note.txt", "dir": false }] })
+    );
+    let (_, listed) = ask(&address, json!({ "list": home.join("made") }));
+    assert_eq!(
+        listed,
+        json!({ "listed": [{ "name": "deep", "dir": true }] })
+    );
+
+    let gone = home.join("nothing");
+    assert_eq!(ask(&address, json!({ "read": gone })).1, json!("missing"));
+    assert_eq!(ask(&address, json!({ "list": gone })).1, json!("missing"));
+    let (_, relative) = ask(&address, json!({ "read": "made/deep/note.txt" }));
+    assert!(relative["failed"].is_string(), "{relative}");
+
+    let large = home.join("large.bin");
+    std::fs::write(&large, vec![0u8; MAX_FILE + 1]).unwrap();
+    let (_, read) = ask(&address, json!({ "read": large }));
+    assert!(read["failed"].is_string(), "{read}");
+
+    outer.kill().unwrap();
+    outer.wait().unwrap();
+}
+
 #[test]
 fn a_served_process_reports_its_pid_and_outlives_the_distro_host() {
     let dir = tempfile::tempdir().unwrap();
@@ -249,6 +310,6 @@ fn a_served_process_reports_its_pid_and_outlives_the_distro_host() {
     outer.wait().unwrap();
     let mut rest = Vec::new();
     let _ = link.read_to_end(&mut rest);
-    assert!(Path::new(&format!("/proc/{pid}")).exists());
+    assert!(runs(pid));
     Command::new("kill").arg(pid.to_string()).status().unwrap();
 }

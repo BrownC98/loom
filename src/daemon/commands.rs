@@ -69,8 +69,16 @@ async fn agent_show(
     headers: HeaderMap,
     Json(req): Json<ShowRequest>,
 ) -> Result<Json<WaitDoc>, AgentError> {
-    app.caller(&headers)?;
-    user_doc::take_step(&req.file, req.step)
+    let node = app.caller(&headers)?;
+    let folder = app
+        .graph
+        .place_of(node)
+        .map_err(|e| for_agent(Refusal::from(e)))?
+        .worktree;
+    let file = crate::place::from_node(req.file, std::path::Path::new(&folder));
+    tokio::task::spawn_blocking(move || user_doc::take_step(app.files(), &file, req.step))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
         .map(Json)
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))
 }
@@ -356,7 +364,8 @@ pub(super) async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    let shell = match (req, app.node_wsl(Some(node)).map_err(for_agent)?) {
+    let host = app.node_machine(Some(node)).map_err(for_agent)?.host();
+    let shell = match (req, host) {
         (GuardRequest::Pc { caller }, None) => app.host.guarded_shell(node, caller),
         (GuardRequest::Inside { shell, birth }, Some(_)) => Some(Identity { pid: shell, birth }),
         _ => None,

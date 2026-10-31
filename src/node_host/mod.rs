@@ -15,7 +15,7 @@ use bytes::Bytes;
 use portable_pty::CommandBuilder;
 use tokio::sync::{broadcast, watch};
 
-use crate::distro::{self, Distros, Unreached};
+use crate::distro::{self, Distros, Host, Unreached};
 use crate::process_tree::{self, Identity, Snapshot};
 use crate::screen::Screen;
 use wire::Frame;
@@ -119,7 +119,7 @@ type OnExit = Box<dyn FnOnce(Exit) + Send>;
 #[derive(Clone)]
 pub enum Address {
     Here(SocketAddr),
-    Distro { at: SocketAddr, distro: String },
+    Distro { at: SocketAddr, host: Host },
 }
 
 impl Display for Address {
@@ -131,13 +131,13 @@ impl Display for Address {
 }
 
 impl Address {
-    pub fn parse(text: &str, distro: Option<String>) -> Result<Self, String> {
+    pub fn parse(text: &str, host: Option<Host>) -> Result<Self, String> {
         let at = text.lines().next().unwrap_or_default().trim();
         let at = at
             .parse()
             .map_err(|e| format!("pty-host address {at}: {e}"))?;
-        Ok(match distro {
-            Some(distro) => Address::Distro { at, distro },
+        Ok(match host {
+            Some(host) => Address::Distro { at, host },
             None => Address::Here(at),
         })
     }
@@ -228,11 +228,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         start_host(&process_tree::own_exe()?, &host::Spec::of(cmd, setup)).map(Address::Here)
     }
 
-    pub fn start_in(&self, distro: &str, start: distro::Start) -> Result<Address, String> {
+    pub fn start_in(&self, host: &Host, start: distro::Start) -> Result<Address, String> {
         let distros = self.distros.as_ref().ok_or("no WSL distro host")?;
         Ok(Address::Distro {
-            at: distros.start(distro, start)?,
-            distro: distro.to_owned(),
+            at: distros.start(host, start)?,
+            host: host.clone(),
         })
     }
 
@@ -394,11 +394,13 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     _ => silent(e),
                 })?
             }
-            Address::Distro { at, distro } => self
+            Address::Distro { at, host } => self
                 .distros
                 .as_ref()
-                .ok_or_else(|| Unattached::Unreached(format!("no distro host for {distro}")))?
-                .reach(distro, *at)
+                .ok_or_else(|| {
+                    Unattached::Unreached(format!("no distro host for {}", host.name()))
+                })?
+                .reach(host, *at)
                 .map_err(|e| match e {
                     Unreached::Gone => Unattached::Gone,
                     Unreached::Failed(cause) => Unattached::Unreached(cause),

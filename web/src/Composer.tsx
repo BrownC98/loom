@@ -1,5 +1,5 @@
 import { ArrowUp, Image as ImageIcon, Paperclip, RotateCcw, SquareTerminal } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ComponentProps, type CSSProperties, type DOMAttributes, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { savePastedFile } from './api';
 import { droppedFiles, ImageList, isImage, quotePath, tooBig, useImages } from './attachments';
@@ -190,6 +190,60 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
     take(files);
     if (errors.length > 0) setRefusal(errors.join('\n'));
   };
+  return (
+    <ComposerFace
+      name={props.name}
+      float={props.float}
+      dragging={dragging}
+      drop={{
+        onDragOver: (e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragging(true);
+        },
+        onDragLeave: (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        },
+        onDrop,
+      }}
+      field={{
+        ref: area,
+        value: text,
+        readOnly: sending,
+        onChange: (e) => {
+          if (!props.onTyped?.(text, e.target.value)) setText(e.target.value);
+        },
+        onKeyDown,
+        onPaste,
+      }}
+      sendable={ready && !sending}
+      onFiles={take}
+      onSubmit={submit}
+    >
+      <ImageList images={images.list} onRemove={images.remove} />
+      {filing > 0 && <p className="filing">{t('composer.filing', { count: filing })}</p>}
+      {refusal && (
+        <p className="refusal" role="alert">
+          {refusal}
+        </p>
+      )}
+    </ComposerFace>
+  );
+}
+
+export function ComposerFace(props: {
+  name: string;
+  float?: FloatHead;
+  dragging: boolean;
+  drop: Pick<DOMAttributes<HTMLDivElement>, 'onDragOver' | 'onDragLeave' | 'onDrop'>;
+  field: Pick<ComponentProps<'textarea'>, 'ref' | 'value' | 'readOnly' | 'onChange' | 'onKeyDown' | 'onPaste'>;
+  sendable: boolean;
+  onFiles: (files: File[]) => void;
+  onSubmit: () => void;
+  children?: ReactNode;
+}) {
+  const { t } = useTranslation();
   const picker = (accept: string | undefined, label: string, Icon: typeof ImageIcon, className: string) => (
     <label className={`attach ${className}`} title={label}>
       <Icon aria-hidden="true" />
@@ -199,28 +253,14 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
         multiple
         aria-label={label}
         onChange={(e) => {
-          take([...(e.target.files ?? [])]);
+          props.onFiles([...(e.target.files ?? [])]);
           e.target.value = '';
         }}
       />
     </label>
   );
-
   return (
-    <div
-      className="composer"
-      data-dragging={dragging || undefined}
-      onDragOver={(e) => {
-        if (!hasFiles(e)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        setDragging(true);
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
-      }}
-      onDrop={onDrop}
-    >
+    <div className="composer" data-dragging={props.dragging || undefined} {...props.drop}>
       <div className="composer-to" onPointerDown={props.float?.onDragStart}>
         <span className="target">
           <SquareTerminal aria-hidden="true" />
@@ -240,30 +280,17 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
           </button>
         )}
       </div>
-      <ImageList images={images.list} onRemove={images.remove} />
-      {filing > 0 && <p className="filing">{t('composer.filing', { count: filing })}</p>}
-      {refusal && (
-        <p className="refusal" role="alert">
-          {refusal}
-        </p>
-      )}
+      {props.children}
       <form
         className="composer-line"
         onSubmit={(e) => {
           e.preventDefault();
-          if (ready && !sending) submit();
+          if (props.sendable) props.onSubmit();
         }}
       >
         <textarea
-          ref={area}
+          {...props.field}
           rows={1}
-          value={text}
-          readOnly={sending}
-          onChange={(e) => {
-            if (!props.onTyped?.(text, e.target.value)) setText(e.target.value);
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
           aria-label={t('composer.label', { name: props.name })}
           placeholder={t('composer.placeholder')}
           autoComplete="off"
@@ -272,7 +299,7 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
         />
         {picker('image/*', t('composer.attachImage'), ImageIcon, 'image')}
         {picker(undefined, t('composer.attachFile'), Paperclip, 'file')}
-        <button type="submit" className="send" aria-label={t('composer.send')} title={t('composer.send')} disabled={!ready || sending}>
+        <button type="submit" className="send" aria-label={t('composer.send')} title={t('composer.send')} disabled={!props.sendable}>
           <ArrowUp aria-hidden="true" />
         </button>
       </form>

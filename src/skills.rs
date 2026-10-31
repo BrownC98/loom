@@ -13,29 +13,56 @@ struct Files;
 
 pub struct Plugin(PathBuf);
 
+const HASHES: &str = "skills.sha256";
+
+const STORE: &str = "skills";
+
 impl Plugin {
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
+        let store = data.join(STORE);
+        let now: BTreeMap<String, String> = Files::iter()
+            .map(|name| {
+                let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+                (name.into_owned(), hex(&file.metadata.sha256_hash()))
+            })
+            .collect();
+        let hashes = data.join(HASHES);
+        let written = std::fs::read_to_string(&hashes)
+            .ok()
+            .map(|text| read_hashes(&text))
+            .filter(|_| names(AlwaysOn::default()).all(|name| store.join(name).is_dir()));
+        let linked = AlwaysOn::all().all(|on| plugin.skills(on).is_dir());
+        if linked && written.as_ref() == Some(&now) {
+            return Ok(plugin);
+        }
+        match std::fs::remove_file(&hashes) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        let mut done = sync(&store, written.as_ref(), &now)?;
+        let same = |name: &str| {
+            written
+                .as_ref()
+                .is_some_and(|w| w.get(name) == now.get(name))
+        };
+        let mut copied = false;
         for on in AlwaysOn::all() {
-            let skills = plugin.skills(on);
-            let keep: BTreeMap<PathBuf, EmbeddedFile> = Files::iter()
-                .filter(|name| on.has(skill_of(name)))
-                .map(|name| {
-                    let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-                    (skills.join(name.as_ref()), file)
-                })
-                .collect();
-            if let Err(e) = prune(&skills, &keep) {
-                eprintln!(
-                    "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
-                    skills.display()
-                );
-            }
-            for (path, file) in &keep {
-                if std::fs::read(path).ok().as_deref() != Some(file.data.as_ref()) {
-                    write(path, &file.data)?;
-                }
-            }
+            done &= link(&store, &plugin.skills(on), on, &same, &mut copied)?;
+        }
+        if copied {
+            eprintln!(
+                "loom: {}에 하드 링크를 만들지 못해 스킬 파일을 복사했다",
+                store.display()
+            );
+        }
+        if done {
+            std::fs::write(
+                hashes,
+                now.iter()
+                    .map(|(name, hash)| format!("{hash}  {name}\n"))
+                    .collect::<String>(),
+            )?;
         }
         Ok(plugin)
     }
@@ -73,14 +100,47 @@ pub fn digest(parts: &[&str]) -> String {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
-    hex(hasher)
+    hex(&hasher.finalize())
 }
 
-fn hex(hasher: Sha256) -> String {
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn sync(
+    store: &Path,
+    written: Option<&BTreeMap<String, String>>,
+    now: &BTreeMap<String, String>,
+) -> io::Result<bool> {
+    let keep: BTreeMap<PathBuf, (String, EmbeddedFile)> = Files::iter()
+        .map(|name| {
+            let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+            (store.join(name.as_ref()), (name.into_owned(), file))
+        })
+        .collect();
+    let pruned = prune(store, &keep);
+    if let Err(e) = &pruned {
+        eprintln!(
+            "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
+            store.display()
+        );
+    }
+    for (path, (name, file)) in &keep {
+        let same = match written {
+            Some(written) => written.get(name) == now.get(name) && path.exists(),
+            None => std::fs::read(path).ok().as_deref() == Some(file.data.as_ref()),
+        };
+        if !same {
+            write(path, &file.data)?;
+        }
+    }
+    Ok(pruned.is_ok())
+}
+
+fn read_hashes(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| line.split_once("  "))
+        .map(|(hash, name)| (name.to_owned(), hash.to_owned()))
         .collect()
 }
 
@@ -100,7 +160,7 @@ fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }
 
-fn prune(dir: &Path, keep: &BTreeMap<PathBuf, EmbeddedFile>) -> io::Result<()> {
+fn prune<V>(dir: &Path, keep: &BTreeMap<PathBuf, V>) -> io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         entries => entries?,
@@ -118,6 +178,47 @@ fn prune(dir: &Path, keep: &BTreeMap<PathBuf, EmbeddedFile>) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn link(
+    store: &Path,
+    skills: &Path,
+    on: AlwaysOn,
+    same: &impl Fn(&str) -> bool,
+    copied: &mut bool,
+) -> io::Result<bool> {
+    let keep: BTreeMap<PathBuf, String> = Files::iter()
+        .filter(|name| on.has(skill_of(name)))
+        .map(|name| (skills.join(name.as_ref()), name.into_owned()))
+        .collect();
+    let mut done = true;
+    if let Err(e) = prune(skills, &keep) {
+        eprintln!(
+            "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
+            skills.display()
+        );
+        done = false;
+    }
+    for (to, name) in &keep {
+        if same(name) && to.exists() {
+            continue;
+        }
+        let from = store.join(name);
+        std::fs::create_dir_all(to.parent().expect("파일 경로에는 부모가 있다"))?;
+        match std::fs::remove_file(to) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                eprintln!("loom: {}를 지우지 못했다: {e}", to.display());
+                done = false;
+                continue;
+            }
+            _ => {}
+        }
+        if std::fs::hard_link(&from, to).is_err() {
+            std::fs::copy(&from, to)?;
+            *copied = true;
+        }
+    }
+    Ok(done)
 }
 
 fn write(path: &Path, data: &[u8]) -> io::Result<()> {

@@ -6,8 +6,9 @@ use std::sync::Arc;
 use super::App;
 use crate::git;
 use crate::graph::{NodeId, Reclaim};
+use crate::place::Files;
 use crate::protocol::Refusal;
-use crate::worktree::merge::{delete_merged, still_merged};
+use crate::worktree::merge::{base_branch, branch_head, delete_merged, still_merged};
 use crate::worktree::{self, RepoId, RepoProblem};
 
 pub(super) async fn run(app: Arc<App>) {
@@ -71,10 +72,11 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
         _ => None,
     };
     let on = only_owner.map(|w| w.branch.as_deref());
-    if !still_merged(app.files(), dir, on, branch, &round.target).await? {
+    let target = live_target(app.files(), dir, &round.target).await?;
+    if !still_merged(app.files(), dir, on, branch, &target).await? {
         return app
             .graph
-            .note_reclaim(&round, &moved(branch, &round))
+            .note_reclaim(&round, &moved(branch, &round, &target))
             .map_err(text);
     }
     if only_owner.is_some()
@@ -97,12 +99,19 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
             .note_reclaim(&round, &changed(branch, &round, &e.to_string()))
             .map_err(text);
     }
-    if let Some(cause) = delete_merged(app.files(), dir, branch, &round.target).await? {
+    if let Some(cause) = delete_merged(app.files(), dir, branch, &target).await? {
         app.graph
             .note_reclaim(&round, &remote_kept(branch, &round, &cause))
             .map_err(text)?;
     }
     Ok(())
+}
+
+async fn live_target(files: Files<'_>, dir: &Path, target: &str) -> Result<String, String> {
+    match branch_head(files, dir, target).await {
+        Ok(_) => Ok(target.to_owned()),
+        Err(_) => base_branch(files, dir).await.map_err(|e| e.to_string()),
+    }
 }
 
 fn remove(app: &App, node: NodeId) -> Result<(), Refusal> {
@@ -119,10 +128,10 @@ fn kept(branch: &str, round: &Reclaim) -> String {
     )
 }
 
-fn moved(branch: &str, round: &Reclaim) -> String {
+fn moved(branch: &str, round: &Reclaim, target: &str) -> String {
     format!(
-        "{branch} merged at {}, but the worktree {} is now on another branch or {branch} has commits that {} does not have. loom kept the worktree, the branch {branch} and its owner node.",
-        round.head, round.worktree, round.target
+        "{branch} merged at {}, but the worktree {} is now on another branch or {branch} has commits that {target} does not have. loom kept the worktree, the branch {branch} and its owner node.",
+        round.head, round.worktree
     )
 }
 

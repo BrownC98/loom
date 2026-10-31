@@ -360,6 +360,12 @@ function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void
   );
 }
 
+function fitAnswer(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  if (el.offsetParent === null) return;
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+
 function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => Promise<null>; onPasteImages: (files: File[]) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useDraft(String(props.wait));
@@ -369,15 +375,12 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const fit = () => {
-      if (el.offsetParent === null) return;
-      el.style.height = 'auto';
-      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
-    };
-    fit();
-    const watch = new ResizeObserver(fit);
+    const watch = new ResizeObserver(() => fitAnswer(el));
     watch.observe(el);
     return () => watch.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (box.current) fitAnswer(box.current);
   }, [text]);
   return (
     <form

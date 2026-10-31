@@ -377,7 +377,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         println!("Open questions: {}.", open.join(", "));
     }
     println!(
-        "The question is in the human's inbox. End your turn now. The human answers in your terminal or in the inbox."
+        "The question is in the human's inbox. Do not write it again in the terminal. End your turn now. The human answers in your terminal or in the inbox."
     );
     Ok(())
 }
@@ -457,7 +457,9 @@ pub fn done(
         },
         None,
     )?;
-    println!("Reported to your parent, or to the human's inbox if you have no parent.");
+    println!(
+        "Reported to your parent, or to the human's inbox if you have no parent. Do not write the report again in the terminal."
+    );
     if let Some(warning) = reported.warning {
         println!(
             "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."

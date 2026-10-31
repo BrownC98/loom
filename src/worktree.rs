@@ -489,7 +489,7 @@ pub async fn create(
     if leaf.is_empty() {
         return Err(RepoProblem::EmptyBranch);
     }
-    if !has_commits(&worktrees(files, repo).await) {
+    if !has_commits(&listed(files, repo).await.map_err(RepoProblem::Git)?) {
         return Err(RepoProblem::NoCommit);
     }
     if !place::absolute(workspace) {

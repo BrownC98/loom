@@ -139,6 +139,9 @@ pub trait Adapter: Sync {
     fn idle_holds_input(&self) -> bool {
         false
     }
+    fn echoes_brief(&self) -> bool {
+        true
+    }
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String>;
     fn prepare(&self, _: &LaunchAt<'_>) -> std::io::Result<()> {
         Ok(())

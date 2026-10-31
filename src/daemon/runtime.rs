@@ -579,7 +579,9 @@ impl App {
             started,
             position,
             first_input: match start {
-                Start::Agent { brief, .. } => !brief.trim().is_empty(),
+                Start::Agent { brief, .. } => {
+                    !brief.trim().is_empty() && profile.is_some_and(Profile::echoes_brief)
+                }
                 Start::Command { .. } => false,
             },
         })

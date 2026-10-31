@@ -284,6 +284,10 @@ impl Profile {
     pub fn idle_holds_input(self) -> bool {
         adapter(self).idle_holds_input()
     }
+
+    pub fn echoes_brief(self) -> bool {
+        adapter(self).echoes_brief()
+    }
 }
 
 #[derive(Deserialize)]

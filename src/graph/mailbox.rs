@@ -719,6 +719,21 @@ fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     Ok(done)
 }
 
+const SWITCHED_INTERRUPT: &str = "(The sender sent this interrupt to the agent that ran this node before you. loom stopped that agent's work. This message does not stop your work.)\n";
+
+pub(super) fn queue_interrupts(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
+    db.execute(
+        "UPDATE messages SET kind = ?3, body = ?4 || body
+         WHERE recipient = ?1 AND delivered = 0 AND kind = ?2",
+        params![
+            node.0,
+            to_json(&Kind::Interrupt),
+            to_json(&Kind::Queue),
+            SWITCHED_INTERRUPT
+        ],
+    )
+}
+
 fn steer(db: &Connection, node: NodeId, only: &str) -> rusqlite::Result<usize> {
     db.execute(
         &format!(

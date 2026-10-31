@@ -13,6 +13,7 @@ enum Bit {
     QuestionBox,
     Replied,
     SubmittedInput,
+    FirstInput,
 }
 
 impl Bit {
@@ -21,9 +22,15 @@ impl Bit {
     }
 }
 
-const _: () = match Bit::SubmittedInput {
-    Bit::Human | Bit::Called | Bit::KindNudged | Bit::Asked | Bit::QuestionBox | Bit::Replied => {}
-    last @ Bit::SubmittedInput => assert!((last as u32) < u8::BITS),
+const _: () = match Bit::FirstInput {
+    Bit::Human
+    | Bit::Called
+    | Bit::KindNudged
+    | Bit::Asked
+    | Bit::QuestionBox
+    | Bit::Replied
+    | Bit::SubmittedInput => {}
+    last @ Bit::FirstInput => assert!((last as u32) < u8::BITS),
 };
 
 #[derive(Clone, Copy)]
@@ -48,6 +55,7 @@ impl TurnMark {
 
 const REPLIED: u8 = Bit::Replied.mask();
 pub(super) const SUBMITTED_INPUT: u8 = Bit::SubmittedInput.mask();
+const FIRST_INPUT: u8 = Bit::FirstInput.mask();
 
 fn set_flags(db: &Connection, node: NodeId, set: u8, clear: u8) -> rusqlite::Result<()> {
     db.execute(
@@ -206,8 +214,30 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED,
+            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | FIRST_INPUT,
         )?;
         tx.commit()
+    }
+
+    pub fn first_input_sent(&self, node: NodeId) -> rusqlite::Result<()> {
+        set_flags(&self.lock(), node, FIRST_INPUT, 0)
+    }
+
+    pub fn first_input_pending(&self, node: NodeId) -> rusqlite::Result<bool> {
+        self.lock()
+            .query_row(
+                "SELECT (turn_flags & ?2) != 0 FROM nodes WHERE id = ?1",
+                params![node.0, FIRST_INPUT],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|pending| pending.unwrap_or(false))
+    }
+
+    pub fn first_input_taken(&self, node: NodeId) -> rusqlite::Result<bool> {
+        Ok(self.lock().execute(
+            "UPDATE nodes SET turn_flags = turn_flags & ~?2 WHERE id = ?1 AND (turn_flags & ?2) != 0",
+            params![node.0, FIRST_INPUT],
+        )? > 0)
     }
 }

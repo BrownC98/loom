@@ -43,27 +43,6 @@ impl Sessions {
 }
 
 #[derive(Default)]
-pub struct FirstInputs(Mutex<HashSet<NodeId>>);
-
-impl FirstInputs {
-    pub fn mark(&self, node: NodeId) {
-        self.0.lock().unwrap().insert(node);
-    }
-
-    pub fn clear(&self, node: NodeId) {
-        self.0.lock().unwrap().remove(&node);
-    }
-
-    pub fn injected(&self, node: NodeId) -> bool {
-        self.0.lock().unwrap().remove(&node)
-    }
-
-    pub fn pending(&self, node: NodeId) -> bool {
-        self.0.lock().unwrap().contains(&node)
-    }
-}
-
-#[derive(Default)]
 pub struct Wakes {
     nodes: Mutex<HashMap<NodeId, NodeWakes>>,
     order: Mutex<()>,

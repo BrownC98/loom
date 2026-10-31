@@ -10,7 +10,7 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 
 ## Work and contact
 
-- A worker implements and examines its piece to the end. A coordinator designs, assigns and reviews.
+- A worker implements and examines its piece to the end. A coordinator designs, assigns and reviews. With one edit scope, it implements that scope itself.
 - Read-only research into a cause can go outside your edit scope. You select the implementation method in the scope and the contract.
 - Ask your parent before you enlarge the edit scope or change done-when, product behavior or a shared contract. Continue the work that the question does not affect.
 - Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits). Write reports in English and text for the human in the human's language.

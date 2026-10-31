@@ -621,7 +621,7 @@ impl Batch<'_> {
                 self.rework(
                     format!(
                         "the coordinator worktree {} has uncommitted changes; the coordinator commits them, then the owner calls loom ready again",
-                        crate::wsl::linux_of(worktree)
+                        crate::place::inner(worktree)
                     ),
                     None,
                 ),

@@ -142,7 +142,10 @@ async fn remove_repo(
     Ok(Json(()))
 }
 
-async fn list_folders(Query(req): Query<FolderQuery>) -> Result<Json<FolderList>, Problem> {
+async fn list_folders(
+    State(app): State<Arc<App>>,
+    Query(req): Query<FolderQuery>,
+) -> Result<Json<FolderList>, Problem> {
     let path = match req.path {
         Some(path) => path,
         None => worktree::loom_home()
@@ -150,7 +153,7 @@ async fn list_folders(Query(req): Query<FolderQuery>) -> Result<Json<FolderList>
             .to_string_lossy()
             .into_owned(),
     };
-    Ok(Json(worktree::folders(path.trim())?))
+    Ok(Json(worktree::folders(app.files(), path.trim())?))
 }
 
 async fn create_worktree(

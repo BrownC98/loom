@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use base64::Engine;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinSet;
 
@@ -15,9 +16,57 @@ use crate::{process_tree, tunnel};
 const MAGIC: &[u8] = b"loom-distro";
 const READY: &str = "loom distro-host ready";
 const MAX_FRAME: usize = 16 << 20;
+pub const MAX_FILE: usize = MAX_FRAME / 2;
 const MAX_TEXT: usize = 64 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GREET_TIMEOUT: Duration = Duration::from_secs(2);
+const FILE_WAIT: Duration = Duration::from_secs(30);
+pub const SSH_NOT_CONNECTED: &str = "SSH hosts are not connected yet";
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Host {
+    Distro(String),
+    Ssh(String),
+}
+
+impl Host {
+    pub fn name(&self) -> &str {
+        match self {
+            Host::Distro(name) | Host::Ssh(name) => name,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    pub name: String,
+    pub dir: bool,
+}
+
+#[derive(Debug, PartialEq)]
+struct Bytes(Vec<u8>);
+
+impl Serialize for Bytes {
+    fn serialize<S: Serializer>(&self, to: S) -> Result<S::Ok, S::Error> {
+        to.serialize_str(&base64::engine::general_purpose::STANDARD.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for Bytes {
+    fn deserialize<D: Deserializer<'de>>(from: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(from)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(text)
+            .map(Bytes)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Written {
+    path: String,
+    bytes: Bytes,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Command {
@@ -41,6 +90,9 @@ enum Ask {
     Run(Command),
     Serve(Command),
     End(Vec<u32>),
+    Read(String),
+    Write(Written),
+    List(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +105,10 @@ enum Answer {
     Spawned(u32),
     Exited(Option<i32>),
     Ended,
+    Read(Bytes),
+    Written,
+    Listed(Vec<Entry>),
+    Missing,
     Failed(String),
 }
 
@@ -78,14 +134,14 @@ pub struct Distros {
     dir: PathBuf,
     folder: String,
     program: String,
-    gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    gates: Mutex<HashMap<Host, Arc<Mutex<()>>>>,
     up: tokio::sync::Notify,
 }
 
 #[derive(Clone)]
 pub struct Distro {
     distros: Arc<Distros>,
-    name: String,
+    host: Host,
 }
 
 pub struct Serving {
@@ -122,17 +178,15 @@ impl Distros {
         }
     }
 
-    pub fn distro(self: &Arc<Self>, name: &str) -> Distro {
+    pub fn host(self: &Arc<Self>, host: Host) -> Distro {
         Distro {
             distros: self.clone(),
-            name: name.to_owned(),
+            host,
         }
     }
 
-    pub fn reach(&self, distro: &str, at: SocketAddr) -> Result<TcpStream, Unreached> {
-        let mut link = self
-            .ask(distro, &Ask::Reach(at))
-            .map_err(Unreached::Failed)?;
+    pub fn reach(&self, host: &Host, at: SocketAddr) -> Result<TcpStream, Unreached> {
+        let mut link = self.ask(host, &Ask::Reach(at)).map_err(Unreached::Failed)?;
         let answer = link
             .set_read_timeout(Some(CONNECT_TIMEOUT))
             .and_then(|()| read_answer(&mut link))
@@ -145,53 +199,96 @@ impl Distros {
         }
     }
 
-    pub fn start(&self, distro: &str, start: Start) -> Result<SocketAddr, String> {
-        match self.answer(distro, &Ask::Start(start))? {
+    pub fn start(&self, host: &Host, start: Start) -> Result<SocketAddr, String> {
+        match self.answer(host, &Ask::Start(start))? {
             Answer::Started(at) => Ok(at),
             other => Err(unexpected(other)),
         }
     }
 
-    pub fn run(&self, distro: &str, command: Command) -> Result<Ran, String> {
-        match self.answer(distro, &Ask::Run(command))? {
+    pub fn run(&self, host: &Host, command: Command) -> Result<Ran, String> {
+        match self.answer(host, &Ask::Run(command))? {
             Answer::Ran(ran) => Ok(ran),
             other => Err(unexpected(other)),
         }
     }
 
-    pub fn serve(&self, distro: &str, command: Command) -> Result<Serving, String> {
-        let mut link = self.ask(distro, &Ask::Serve(command))?;
+    pub fn serve(&self, host: &Host, command: Command) -> Result<Serving, String> {
+        let mut link = self.ask(host, &Ask::Serve(command))?;
         match read_answer(&mut link).map_err(|e| format!("distro host: {e}"))? {
             Answer::Spawned(pid) => Ok(Serving { pid, link }),
             other => Err(unexpected(other)),
         }
     }
 
-    pub fn end(&self, distro: &str, roots: Vec<u32>) -> Result<(), String> {
-        match self.answer(distro, &Ask::End(roots))? {
+    pub fn end(&self, host: &Host, roots: Vec<u32>) -> Result<(), String> {
+        match self.answer(host, &Ask::End(roots))? {
             Answer::Ended => Ok(()),
             other => Err(unexpected(other)),
         }
     }
 
-    fn answer(&self, distro: &str, ask: &Ask) -> Result<Answer, String> {
-        let mut link = self.ask(distro, ask)?;
+    pub fn read(&self, host: &Host, path: &str) -> io::Result<Vec<u8>> {
+        match self.file_answer(host, &Ask::Read(path.to_owned()))? {
+            Answer::Read(Bytes(bytes)) => Ok(bytes),
+            Answer::Missing => Err(io::ErrorKind::NotFound.into()),
+            other => Err(io::Error::other(unexpected(other))),
+        }
+    }
+
+    pub fn write(&self, host: &Host, path: &str, bytes: &[u8]) -> io::Result<()> {
+        if bytes.len() > MAX_FILE {
+            return Err(too_large());
+        }
+        let ask = Ask::Write(Written {
+            path: path.to_owned(),
+            bytes: Bytes(bytes.to_vec()),
+        });
+        match self.file_answer(host, &ask)? {
+            Answer::Written => Ok(()),
+            other => Err(io::Error::other(unexpected(other))),
+        }
+    }
+
+    pub fn list(&self, host: &Host, dir: &str) -> io::Result<Vec<Entry>> {
+        match self.file_answer(host, &Ask::List(dir.to_owned()))? {
+            Answer::Listed(entries) => Ok(entries),
+            Answer::Missing => Err(io::ErrorKind::NotFound.into()),
+            other => Err(io::Error::other(unexpected(other))),
+        }
+    }
+
+    fn file_answer(&self, host: &Host, ask: &Ask) -> io::Result<Answer> {
+        let mut link = self.link(host).map_err(io::Error::other)?;
+        link.set_read_timeout(Some(FILE_WAIT))?;
+        link.set_write_timeout(Some(FILE_WAIT))?;
+        let body = serde_json::to_vec(ask).map_err(io::Error::other)?;
+        write_frame(&mut link, &body)?;
+        read_answer(&mut link)
+    }
+
+    fn answer(&self, host: &Host, ask: &Ask) -> Result<Answer, String> {
+        let mut link = self.ask(host, ask)?;
         read_answer(&mut link).map_err(|e| format!("distro host: {e}"))
     }
 
-    fn ask(&self, distro: &str, ask: &Ask) -> Result<TcpStream, String> {
-        let mut link = self.link(distro)?;
+    fn ask(&self, host: &Host, ask: &Ask) -> Result<TcpStream, String> {
+        let mut link = self.link(host)?;
         let body = serde_json::to_vec(ask).map_err(|e| e.to_string())?;
         write_frame(&mut link, &body).map_err(|e| format!("distro host: {e}"))?;
         Ok(link)
     }
 
-    fn link(&self, distro: &str) -> Result<TcpStream, String> {
+    fn link(&self, host: &Host) -> Result<TcpStream, String> {
+        let distro = match host {
+            Host::Distro(name) => name.as_str(),
+            Host::Ssh(name) => return Err(format!("{name}: {SSH_NOT_CONNECTED}")),
+        };
         let gate = self
             .gates
             .lock()
             .unwrap()
-            .entry(distro.to_owned())
+            .entry(host.clone())
             .or_default()
             .clone();
         let _one_start = gate.lock().unwrap();
@@ -248,31 +345,39 @@ impl Hosted {
 
 impl Distro {
     pub fn name(&self) -> &str {
-        &self.name
+        self.host.name()
+    }
+
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+
+    pub fn hosts(&self) -> &Distros {
+        &self.distros
     }
 
     pub fn run(&self, command: Command) -> Result<Ran, String> {
-        self.distros.run(&self.name, command)
+        self.distros.run(&self.host, command)
     }
 
     pub fn serve(&self, command: Command) -> Result<Serving, String> {
-        self.distros.serve(&self.name, command)
+        self.distros.serve(&self.host, command)
     }
 
     pub fn end(&self, roots: Vec<u32>) -> Result<(), String> {
-        self.distros.end(&self.name, roots)
+        self.distros.end(&self.host, roots)
     }
 }
 
 impl std::fmt::Debug for Distro {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
+        f.write_str(self.name())
     }
 }
 
 impl PartialEq for Distro {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.host == other.host
     }
 }
 
@@ -363,8 +468,84 @@ async fn read_frame_async(from: &mut (impl AsyncRead + Unpin)) -> io::Result<Vec
 }
 
 async fn write_answer(to: &mut (impl AsyncWrite + Unpin), answer: &Answer) -> io::Result<()> {
-    let body = serde_json::to_vec(answer).map_err(|e| invalid(&e.to_string()))?;
+    let mut body = serde_json::to_vec(answer).map_err(|e| invalid(&e.to_string()))?;
+    if body.len() > MAX_FRAME {
+        body = serde_json::to_vec(&Answer::Failed(too_large().to_string()))
+            .map_err(|e| invalid(&e.to_string()))?;
+    }
     to.write_all(&frame(&body)).await
+}
+
+fn too_large() -> io::Error {
+    io::Error::other(format!("larger than the {MAX_FILE}-byte limit"))
+}
+
+pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let real = std::fs::canonicalize(path);
+    let path = real.as_deref().unwrap_or(path);
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(io::Error::other(format!(
+            "{}: not a file path",
+            path.display()
+        )));
+    };
+    std::fs::create_dir_all(parent)?;
+    let draft = path.with_file_name(format!(
+        "{}.{}.{}.loom",
+        name.to_string_lossy(),
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let written = std::fs::write(&draft, bytes)
+        .and_then(|()| match std::fs::metadata(path) {
+            Ok(old) => std::fs::set_permissions(&draft, old.permissions()),
+            Err(_) => Ok(()),
+        })
+        .and_then(|()| std::fs::rename(&draft, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&draft);
+    }
+    written
+}
+
+pub fn list(dir: &Path) -> io::Result<Vec<Entry>> {
+    Ok(std::fs::read_dir(dir)?
+        .filter_map(Result::ok)
+        .map(|entry| Entry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            dir: entry.path().is_dir(),
+        })
+        .collect())
+}
+
+fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(MAX_FILE as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    match bytes.len() > MAX_FILE {
+        true => Err(too_large()),
+        false => Ok(bytes),
+    }
+}
+
+async fn on_file<T: Send + 'static>(
+    path: &str,
+    work: impl FnOnce(&Path) -> io::Result<T> + Send + 'static,
+    answer: impl FnOnce(T) -> Answer,
+) -> Answer {
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Answer::Failed(format!("{}: not an absolute path", path.display()));
+    }
+    let shown = path.display().to_string();
+    match tokio::task::spawn_blocking(move || work(&path)).await {
+        Ok(Ok(done)) => answer(done),
+        Ok(Err(e)) if e.kind() == io::ErrorKind::NotFound => Answer::Missing,
+        Ok(Err(e)) => Answer::Failed(format!("{shown}: {e}")),
+        Err(e) => Answer::Failed(e.to_string()),
+    }
 }
 
 fn invalid(why: &str) -> io::Error {
@@ -565,6 +746,16 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
             Ok(Err(e)) => Answer::Failed(e),
             Err(e) => Answer::Failed(e.to_string()),
         },
+        Ask::Read(path) => on_file(&path, read_bounded, |bytes| Answer::Read(Bytes(bytes))).await,
+        Ask::Write(Written { path, bytes }) => {
+            on_file(
+                &path,
+                move |path| replace(path, &bytes.0),
+                |()| Answer::Written,
+            )
+            .await
+        }
+        Ask::List(dir) => on_file(&dir, list, Answer::Listed).await,
         Ask::Serve(command) => {
             match process(&command).and_then(|cmd| spawn_detached(cmd, &command)) {
                 Ok(mut child) => {

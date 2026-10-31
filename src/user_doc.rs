@@ -68,10 +68,10 @@ fn print_ask(path: &Path) {
 
 fn bashless() -> bool {
     cfg!(windows)
-        && std::env::current_dir()
-            .ok()
-            .and_then(|dir| crate::wsl::of(&dir))
-            .is_none()
+        && std::env::current_dir().is_ok_and(|dir| match crate::place::of(&dir) {
+            crate::place::Machine::Pc => true,
+            crate::place::Machine::Wsl(_) | crate::place::Machine::Ssh(_) => false,
+        })
 }
 
 const ROWS_PER_THREAD: usize = 16;
@@ -252,7 +252,7 @@ fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String>
             Some((_, target, len)) => {
                 if target.starts_with("file://") {
                     let checked = link_path(target)
-                        .map(|p| crate::wsl::from_node(p, folder))
+                        .map(|p| crate::place::from_node(p, folder))
                         .and_then(|p| real_path(&p).ok())
                         .and_then(|p| read_html(&p).ok())
                         .is_some_and(|text| store.passed(&text));

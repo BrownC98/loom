@@ -9,7 +9,7 @@ use ts_rs::TS;
 
 use crate::db::Database;
 use crate::git;
-use crate::wsl;
+use crate::place::{self, Files, Machine};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -311,36 +311,36 @@ fn has_commits(worktrees: &[Worktree]) -> bool {
         .is_some_and(|w| w.head.bytes().any(|b| b != b'0'))
 }
 
-pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
+pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
     let dir = Path::new(path);
-    if !dir.is_absolute() {
+    if !place::absolute(dir) {
         return Err(RepoProblem::NotAbsolute(path.to_owned()));
     }
-    if !dir.is_dir() {
-        return Err(RepoProblem::NotFound(path.to_owned()));
-    }
-    let mut folders: Vec<Folder> = std::fs::read_dir(dir)
-        .map_err(|e| RepoProblem::Git(e.to_string()))?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_dir())
-        .map(|entry| {
-            (
-                entry.file_name().to_string_lossy().into_owned(),
-                entry.path(),
-            )
-        })
-        .filter(|(name, _)| !name.starts_with('.'))
-        .map(|(name, path)| Folder {
-            git: path.join(".git").exists(),
-            name,
+    let entries = files.list(dir).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
+            RepoProblem::NotFound(path.to_owned())
+        }
+        _ => RepoProblem::Git(e.to_string()),
+    })?;
+    let mut folders: Vec<Folder> = entries
+        .into_iter()
+        .filter(|entry| entry.dir && !entry.name.starts_with('.'))
+        .map(|entry| Folder {
+            git: files
+                .list(&dir.join(&entry.name))
+                .is_ok_and(|inside| inside.iter().any(|e| e.name == ".git")),
+            name: entry.name,
         })
         .collect();
     folders.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(FolderList {
         path: path.to_owned(),
-        parent: dir.parent().map(|p| p.to_string_lossy().into_owned()),
+        parent: place::parent(dir),
         folders,
-        distro: wsl::of(dir).map(|w| w.distro),
+        distro: match place::of(dir) {
+            Machine::Wsl(at) => Some(at.distro),
+            Machine::Pc | Machine::Ssh(_) => None,
+        },
     })
 }
 
@@ -459,8 +459,7 @@ pub async fn create(
             workspace.to_string_lossy().into_owned(),
         ));
     }
-    let distro = |dir: &Path| wsl::of(dir).map(|w| w.distro.to_lowercase());
-    if distro(repo) != distro(workspace) {
+    if !place::of(repo).same(&place::of(workspace)) {
         return Err(RepoProblem::OtherPlace(
             workspace.to_string_lossy().into_owned(),
         ));
@@ -600,8 +599,8 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-pub fn setup_script(worktree: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(worktree.join("orca.yaml")).ok()?;
+pub fn setup_script(files: Files, worktree: &Path) -> Option<String> {
+    let text = String::from_utf8(files.read(&worktree.join("orca.yaml")).ok()?).ok()?;
     let docs = yaml_rust2::YamlLoader::load_from_str(&text).ok()?;
     let script = docs.first()?["scripts"]["setup"].as_str()?;
     (!script.trim().is_empty()).then(|| script.to_owned())

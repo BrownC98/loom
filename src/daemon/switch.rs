@@ -14,10 +14,10 @@ use super::relaunch::{Relaunched, provider_of};
 use super::{App, Problem, internal};
 use crate::accounts::AccountId;
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
+use crate::place::{self, Machine};
 use crate::profile;
 use crate::protocol::Provider;
 use crate::usage::{Limits, Window};
-use crate::wsl;
 
 const EXHAUSTED_AT: u8 = 100;
 const COOLDOWN: Duration = Duration::from_secs(10 * 60);
@@ -119,7 +119,10 @@ impl App {
 
     fn distro_of(&self, node: NodeId) -> Option<String> {
         let place = self.graph.place_of(node).ok()?;
-        wsl::of(Path::new(&place.worktree)).map(|at| at.distro)
+        match place::of(Path::new(&place.worktree)) {
+            Machine::Wsl(at) => Some(at.distro),
+            Machine::Pc | Machine::Ssh(_) => None,
+        }
     }
 
     async fn switch_nodes(

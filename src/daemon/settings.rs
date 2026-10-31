@@ -15,7 +15,9 @@ use super::nodes::serve_pty;
 use super::origin::ViaRemote;
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
+use crate::distro::Host;
 use crate::node_host::{Exit, NodeHost};
+use crate::place::{self, Machine};
 use crate::profile::{self, Accounted, AgentView, Profile, VersionMismatch};
 use crate::protocol::{LaunchError, Provider};
 use crate::settings::{PatchProblem, SettingsView};
@@ -362,15 +364,16 @@ impl App {
         let running = wsl::running().await;
         let mut found: BTreeMap<String, wsl::WslPath> = BTreeMap::new();
         for (_, path) in self.repos.list().unwrap_or_default() {
-            if let Some(at) = wsl::of(&path)
-                && running.contains(&at.distro)
-            {
-                found.entry(at.distro.clone()).or_insert(at);
+            match place::of(&path) {
+                Machine::Wsl(at) if running.contains(&at.distro) => {
+                    found.entry(at.distro.clone()).or_insert(at);
+                }
+                Machine::Pc | Machine::Wsl(_) | Machine::Ssh(_) => {}
             }
         }
         let commands = profile::catalog_commands();
         let read = found.values().map(|at| async {
-            let distro = self.distro(&at.distro)?;
+            let distro = self.host(Host::Distro(at.distro.clone()))?;
             wsl::inside(at, distro, &commands, &self.shim, &[]).await
         });
         let mut sites = vec![self.pc_site()];
@@ -391,20 +394,25 @@ impl App {
         let path = repos
             .iter()
             .map(|(_, path)| path)
-            .find(|path| wsl::of(path).is_some_and(|at| at.distro == distro))
+            .find(|path| matches!(place::of(path), Machine::Wsl(at) if at.distro == distro))
             .ok_or_else(|| internal(format!("no repository in WSL · {distro}")))?;
         self.site_at(path).await
     }
 
     pub(super) async fn site_at(&self, cwd: &std::path::Path) -> Result<Site, Problem> {
-        Ok(match wsl::of(cwd) {
-            Some(at) => {
-                let distro = self.distro(&at.distro).map_err(LaunchError::Wsl)?;
+        Ok(match place::of(cwd) {
+            Machine::Wsl(at) => {
+                let distro = self
+                    .host(Host::Distro(at.distro.clone()))
+                    .map_err(LaunchError::Wsl)?;
                 let commands: Vec<_> = profile::with_accounts().map(|a| a.cli.command).collect();
                 let inside = wsl::inside(&at, distro, &commands, &self.shim, &[]);
                 Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
             }
-            None => self.pc_site(),
+            Machine::Pc => self.pc_site(),
+            Machine::Ssh(at) => {
+                return Err(LaunchError::Wsl(super::runtime::unconnected(&at)).into());
+            }
         })
     }
 }

@@ -14,6 +14,7 @@ mod node_host;
 mod open;
 mod pake;
 mod paste;
+mod place;
 mod process_tree;
 mod profile;
 mod protocol;

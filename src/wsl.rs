@@ -50,11 +50,7 @@ pub fn location(path: &str) -> Option<WslPath> {
     })
 }
 
-pub fn linux_of(path: &str) -> String {
-    location(path).map_or_else(|| path.to_owned(), |inside| inside.path)
-}
-
-pub fn of(dir: &Path) -> Option<WslPath> {
+fn of(dir: &Path) -> Option<WslPath> {
     if !cfg!(windows) {
         return None;
     }
@@ -208,10 +204,6 @@ pub async fn home(distro: &Distro) -> Result<String, InsideError> {
 
 pub fn from_caller(path: std::path::PathBuf) -> std::path::PathBuf {
     linux_at(path, caller())
-}
-
-pub fn from_node(path: PathBuf, folder: &Path) -> PathBuf {
-    linux_at(path, of(folder))
 }
 
 fn linux_at(path: PathBuf, at: Option<WslPath>) -> PathBuf {

@@ -26,22 +26,24 @@ function palette(index: number, theme: ITheme): string | undefined {
   return hex((CUBE[Math.floor(cube / 36)] << 16) | (CUBE[Math.floor(cube / 6) % 6] << 8) | CUBE[cube % 6]);
 }
 
-function fgOf(cell: IBufferCell, theme: ITheme): string | undefined {
-  if (cell.isFgRGB()) return hex(cell.getFgColor());
-  if (!cell.isFgPalette()) return undefined;
-  const index = cell.getFgColor();
-  return palette(cell.isBold() && index < BRIGHT_OFFSET ? index + BRIGHT_OFFSET : index, theme);
-}
+type Color = { rgb: boolean; indexed: boolean; value: number };
 
-function bgOf(cell: IBufferCell, theme: ITheme): string | undefined {
-  if (cell.isBgRGB()) return hex(cell.getBgColor());
-  return cell.isBgPalette() ? palette(cell.getBgColor(), theme) : undefined;
+function colorOf(color: Color, theme: ITheme, bright: boolean): string | undefined {
+  if (color.rgb) return hex(color.value);
+  if (!color.indexed) return undefined;
+  return palette(bright && color.value < BRIGHT_OFFSET ? color.value + BRIGHT_OFFSET : color.value, theme);
 }
 
 function styleOf(cell: IBufferCell, theme: ITheme): string {
-  let fg = fgOf(cell, theme);
-  let bg = bgOf(cell, theme);
-  if (cell.isInverse()) [fg, bg] = [bg ?? theme.background, fg ?? theme.foreground];
+  let front: Color = { rgb: cell.isFgRGB(), indexed: cell.isFgPalette(), value: cell.getFgColor() };
+  let back: Color = { rgb: cell.isBgRGB(), indexed: cell.isBgPalette(), value: cell.getBgColor() };
+  if (cell.isInverse()) [front, back] = [back, front];
+  let fg = colorOf(front, theme, cell.isBold() !== 0);
+  let bg = colorOf(back, theme, false);
+  if (cell.isInverse()) {
+    fg ??= theme.background;
+    bg ??= theme.foreground;
+  }
   const parts: string[] = [];
   if (cell.isInvisible()) parts.push('color:transparent');
   else if (cell.isDim()) parts.push(`color:color-mix(in srgb, ${fg ?? theme.foreground} 50%, transparent)`);

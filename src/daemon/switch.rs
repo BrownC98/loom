@@ -146,7 +146,7 @@ impl App {
                 Ok(Relaunched::Now) => result.moved += 1,
                 Ok(Relaunched::AtTurnEnd) => result.later += 1,
                 Err(e) => {
-                    eprintln!("loom: 노드를 새 계정으로 옮기지 못했다: {e}");
+                    crate::log::logln!("loom: 노드를 새 계정으로 옮기지 못했다: {e}");
                     result.failed += 1;
                 }
             }
@@ -168,7 +168,7 @@ impl App {
 
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
         if let Err(e) = self.graph.limit_reached(node) {
-            eprintln!("loom: 노드 {}의 한도 표시를 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 한도 표시를 쓰지 못했다: {e}", node.0);
         }
         let distro = match self.host_of(node) {
             None => None,
@@ -193,7 +193,7 @@ impl App {
         let site = match self.site_of(distro.as_deref()).await {
             Ok(site) => Arc::new(site),
             Err(e) => {
-                eprintln!("loom: 자동 전환할 위치를 읽지 못했다: {e:?}");
+                crate::log::logln!("loom: 자동 전환할 위치를 읽지 못했다: {e:?}");
                 return;
             }
         };
@@ -228,7 +228,7 @@ impl App {
                 distro: distro.clone(),
                 resets_at,
             }) {
-                eprintln!("loom: 「남은 계정 없음」을 남기지 못했다: {e}");
+                crate::log::logln!("loom: 「남은 계정 없음」을 남기지 못했다: {e}");
             }
             return;
         };
@@ -236,14 +236,14 @@ impl App {
             .settings
             .update(|view| view.set_account(provider, distro.as_deref(), to))
         {
-            eprintln!("loom: 자동 전환한 계정을 저장하지 못했다: {e}");
+            crate::log::logln!("loom: 자동 전환한 계정을 저장하지 못했다: {e}");
             return;
         }
         let switched = self
             .switch_nodes(provider, distro.as_deref(), SwitchCause::RateLimit)
             .await;
         if let Err(e) = switched {
-            eprintln!("loom: 자동 전환으로 노드를 옮기지 못했다: {e:?}");
+            crate::log::logln!("loom: 자동 전환으로 노드를 옮기지 못했다: {e:?}");
         }
     }
 

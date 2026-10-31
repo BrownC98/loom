@@ -122,7 +122,7 @@ impl App {
         match self.graph.relaunch_plan(node) {
             Ok(plan) => plan.map(|(phase, _)| phase),
             Err(e) => {
-                eprintln!(
+                crate::log::logln!(
                     "loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}",
                     node.0
                 );
@@ -143,7 +143,7 @@ impl App {
 
     pub(super) fn process_ended(self: &Arc<Self>, node: NodeId) {
         if plan_written(node, self.graph.drop_turn_end(node)) {
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
                 node.0
             );
@@ -154,14 +154,16 @@ impl App {
 
     pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {
         if let Err(e) = self.graph.agent_event(node, event) {
-            eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
         }
     }
 
     pub(super) fn agent_state(&self, node: NodeId) -> Option<AgentState> {
         self.graph
             .agent_state(node)
-            .inspect_err(|e| eprintln!("loom: 노드 {}의 에이전트 상태를 읽지 못했다: {e}", node.0))
+            .inspect_err(|e| {
+                crate::log::logln!("loom: 노드 {}의 에이전트 상태를 읽지 못했다: {e}", node.0)
+            })
             .ok()
             .flatten()
     }
@@ -253,7 +255,7 @@ impl App {
             _ => Ok(()),
         };
         if let Err(e) = kept {
-            eprintln!("loom: 깨우지 못한 노드 {}를 적지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 깨우지 못한 노드 {}를 적지 못했다: {e}", id.0);
         }
         let result = result.map_err(|e| e.to_string());
         self.record_relaunch(who, switched, &result);
@@ -331,7 +333,7 @@ impl App {
                 .map(profile::changed_parts)
                 .unwrap_or_default();
             if !changed.is_empty() && self.graph.plan_resume(node.id)? {
-                eprintln!(
+                crate::log::logln!(
                     "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
                     node.id.0,
                     changed.join(", ")
@@ -350,7 +352,7 @@ impl App {
             if !matches!(phase, Phase::Stopping | Phase::Stopped) {
                 continue;
             }
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 옛 프로세스를 끝내던 중 데몬이 다시 시작했다. 다시 띄우기를 마친다",
                 node.id.0
             );
@@ -358,7 +360,7 @@ impl App {
             tokio::spawn(async move {
                 let id = node.id;
                 if let Err(e) = app.relaunch(node, plan, None).await {
-                    eprintln!("loom: 노드 {}를 다시 띄우지 못했다: {e}", id.0);
+                    crate::log::logln!("loom: 노드 {}를 다시 띄우지 못했다: {e}", id.0);
                 }
             });
         }
@@ -415,7 +417,7 @@ impl App {
                 }
             };
             if let Err(e) = relaunched {
-                eprintln!("loom: 노드 {}를 턴 끝에 다시 띄우지 못했다: {e}", node.0);
+                crate::log::logln!("loom: 노드 {}를 턴 끝에 다시 띄우지 못했다: {e}", node.0);
             }
         });
         true
@@ -425,7 +427,7 @@ impl App {
         self.drop_plan(node);
         self.idle.release(node);
         self.graph.wake_mail();
-        eprintln!(
+        crate::log::logln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우지 않는다",
             node.0
         );
@@ -434,7 +436,7 @@ impl App {
     pub(super) fn kept_at_turn_end(self: &Arc<Self>, node: NodeId) {
         plan_written(node, self.graph.defer_relaunch(node));
         self.graph.wake_mail();
-        eprintln!(
+        crate::log::logln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
             node.0
         );
@@ -484,7 +486,7 @@ impl App {
             error: result.as_ref().err().cloned(),
         };
         if let Err(e) = self.graph.record(&entry) {
-            eprintln!("loom: 다시 띄운 결과를 남기지 못했다: {e}");
+            crate::log::logln!("loom: 다시 띄운 결과를 남기지 못했다: {e}");
         }
     }
 
@@ -677,7 +679,7 @@ impl App {
             return Err(e);
         }
         if let Err(e) = self.graph.limit_cleared(id) {
-            eprintln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
         }
         Ok(())
     }
@@ -816,20 +818,20 @@ impl App {
             return Err(e);
         }
         if let Err(e) = self.graph.limit_cleared(id) {
-            eprintln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
         }
         Ok(())
     }
 
     fn resumed_brief(&self, node: &Active, profile: Profile) -> String {
         let limited = self.graph.limited(node.id).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 한도 표시를 읽지 못했다: {e}", node.id.0);
+            crate::log::logln!("loom: 노드 {}의 한도 표시를 읽지 못했다: {e}", node.id.0);
             false
         });
         let stopped = self.background_commands(&Snapshot::now(), node);
         let cut = self.agent_state(node.id).is_some_and(|s| s.cut());
         let unread = self.graph.unread_mail(node.id).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
+            crate::log::logln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
             true
         });
         let opens_no_wait = !profile.listens_at_start();
@@ -892,7 +894,7 @@ pub(super) fn chosen_agent(
 fn plan_written<R: Default>(node: NodeId, written: rusqlite::Result<R>) -> R {
     written
         .inspect_err(|e| {
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
                 node.0
             )

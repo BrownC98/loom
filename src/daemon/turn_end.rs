@@ -20,13 +20,13 @@ impl TurnEnds {
 
     fn mark(&self, node: NodeId, mark: TurnMark) {
         if let Err(e) = self.graph.mark_turn(node, mark) {
-            eprintln!("loom: 노드 {}의 턴 표시를 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 턴 표시를 쓰지 못했다: {e}", node.0);
         }
     }
 
     pub fn said(&self, node: NodeId, text: &str, turn: Option<&str>) {
         if let Err(e) = self.graph.said(node, text, turn) {
-            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
         }
     }
 
@@ -34,7 +34,7 @@ impl TurnEnds {
         if let Some(turn) = turn
             && let Err(e) = self.graph.stepped(node, turn)
         {
-            eprintln!("loom: 노드 {}의 턴을 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 턴을 쓰지 못했다: {e}", node.0);
         }
     }
 
@@ -42,7 +42,7 @@ impl TurnEnds {
         if let Some(turn) = turn
             && let Err(e) = self.graph.stopped(node, turn)
         {
-            eprintln!("loom: 노드 {}의 끝난 턴을 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 끝난 턴을 쓰지 못했다: {e}", node.0);
         }
     }
 
@@ -64,7 +64,7 @@ impl TurnEnds {
 
     pub fn launched(&self, node: NodeId) {
         if let Err(e) = self.graph.turn_launched(node) {
-            eprintln!("loom: 노드 {}의 턴 표시를 지우지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 턴 표시를 지우지 못했다: {e}", node.0);
         }
     }
 }
@@ -87,7 +87,7 @@ impl App {
             .graph
             .record_about(node, |node| Entry::Nudged { node, check })
         {
-            eprintln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
         }
         Ok(Some(nudge_text(check)))
     }

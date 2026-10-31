@@ -377,7 +377,7 @@ pub fn end_trees(distro: &Distro, roots: &[u32]) {
     let distro = distro.clone();
     std::thread::spawn(move || {
         if let Err(e) = distro.end(roots) {
-            eprintln!("loom: {}의 프로세스를 끝내지 못했다: {e}", distro.name());
+            crate::log::logln!("loom: {}의 프로세스를 끝내지 못했다: {e}", distro.name());
         }
     });
 }

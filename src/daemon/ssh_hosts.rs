@@ -35,7 +35,7 @@ impl App {
     pub(super) fn watch_ssh_hosts(self: &Arc<Self>) {
         match self.ssh_hosts_in_use() {
             Ok(hosts) => hosts.into_iter().for_each(|host| self.watch_ssh(host)),
-            Err(e) => eprintln!("loom: SSH 호스트를 읽지 못했다: {e}"),
+            Err(e) => crate::log::logln!("loom: SSH 호스트를 읽지 못했다: {e}"),
         }
     }
 
@@ -101,7 +101,7 @@ impl App {
         let mut hosts = self.ssh_hosts.0.lock().unwrap();
         let used = self.ssh_hosts_in_use().map_or_else(
             |e| {
-                eprintln!("loom: SSH 호스트를 읽지 못했다: {e}");
+                crate::log::logln!("loom: SSH 호스트를 읽지 못했다: {e}");
                 true
             },
             |used| used.iter().any(|name| key(name) == key(host)),

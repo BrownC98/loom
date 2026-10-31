@@ -10,6 +10,7 @@ mod git;
 mod graph;
 mod launch;
 mod link_text;
+mod log;
 mod node_host;
 mod open;
 mod pake;
@@ -252,6 +253,7 @@ enum Cli {
     },
 }
 
+#[allow(clippy::disallowed_macros)]
 fn main() -> ExitCode {
     let cli = Cli::parse();
     take_shell_token();

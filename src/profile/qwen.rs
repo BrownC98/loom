@@ -186,7 +186,7 @@ async fn wake(file: PathBuf, distro: Option<Distro>, port: Arc<dyn Port>) {
         match files.create_new(&pending, "") {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return,
             Err(e) => {
-                eprintln!("loom: Qwen 깨움 표지를 쓰지 못했다: {e}");
+                crate::log::logln!("loom: Qwen 깨움 표지를 쓰지 못했다: {e}");
                 return;
             }
             Ok(()) => {}
@@ -194,18 +194,18 @@ async fn wake(file: PathBuf, distro: Option<Distro>, port: Arc<dyn Port>) {
         let row = json!({"type": "submit", "text": WAKE_PROMPT});
         if let Err(e) = files.append(&file, &format!("{row}\n")) {
             let _ = files.remove(&pending);
-            eprintln!("loom: Qwen 깨움을 쓰지 못했다: {e}");
+            crate::log::logln!("loom: Qwen 깨움을 쓰지 못했다: {e}");
         }
     };
     tokio::select! {
-        refused = port.wakes(&mut on) => eprintln!("loom: Qwen 깨움을 멈췄다: {refused}"),
+        refused = port.wakes(&mut on) => crate::log::logln!("loom: Qwen 깨움을 멈췄다: {refused}"),
         () = port.ended() => {}
     }
     for path in [pending, file] {
         if let Err(e) = files.remove(&path)
             && e.kind() != std::io::ErrorKind::NotFound
         {
-            eprintln!("loom: {}을 지우지 못했다: {e}", path.display());
+            crate::log::logln!("loom: {}을 지우지 못했다: {e}", path.display());
         }
     }
 }
@@ -265,14 +265,14 @@ impl HookEvent for Hook {
                         .truncate(false)
                         .open(&pending)
                     {
-                        eprintln!("loom: Qwen 턴 표지를 쓰지 못했다: {e}");
+                        crate::log::logln!("loom: Qwen 턴 표지를 쓰지 못했다: {e}");
                     }
                 }
                 Event::Stop => {
                     if let Err(e) = std::fs::remove_file(&pending)
                         && e.kind() != std::io::ErrorKind::NotFound
                     {
-                        eprintln!("loom: Qwen 턴 표지를 지우지 못했다: {e}");
+                        crate::log::logln!("loom: Qwen 턴 표지를 지우지 못했다: {e}");
                     }
                 }
                 _ => {}

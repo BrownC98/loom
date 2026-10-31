@@ -39,7 +39,7 @@ async fn carry(
         .await
         .map_err(internal)?;
     if let Err(e) = &result {
-        eprintln!("loom: 옮기지 못했다: {e}");
+        crate::log::logln!("loom: 옮기지 못했다: {e}");
     }
     result.map(Json).map_err(Problem::Internal)
 }
@@ -64,10 +64,10 @@ impl App {
         let active = self.graph.active().map_err(|e| e.to_string())?;
         for node in &active {
             if let Err(e) = self.end_detached(node).await {
-                eprintln!("loom: 노드 {}의 옛 세션을 끝내지 못했다: {e}", node.id.0);
+                crate::log::logln!("loom: 노드 {}의 옛 세션을 끝내지 못했다: {e}", node.id.0);
             }
             if let Err(e) = Served::end_stored(&self.record_of(node)).await {
-                eprintln!("loom: 노드 {}의 옛 도우미를 끝내지 못했다: {e}", node.id.0);
+                crate::log::logln!("loom: 노드 {}의 옛 도우미를 끝내지 못했다: {e}", node.id.0);
             }
         }
         let mut carried = Carried {

@@ -47,7 +47,9 @@ impl IdleWaits {
         let who = self
             .graph
             .who(node)
-            .inspect_err(|e| eprintln!("loom: 노드 {}의 쉬는 대기를 남기지 못했다: {e}", node.0))
+            .inspect_err(|e| {
+                crate::log::logln!("loom: 노드 {}의 쉬는 대기를 남기지 못했다: {e}", node.0)
+            })
             .ok();
         if let Some(who) = &who {
             self.record(Entry::IdleOpened { node: who.clone() });
@@ -68,7 +70,7 @@ impl IdleWaits {
             Ok(true) => {}
             Ok(false) => return false,
             Err(e) => {
-                eprintln!(
+                crate::log::logln!(
                     "loom: 노드 {}의 쉬는 대기를 다시 열지 못했다: {e}",
                     wait.node.0
                 );
@@ -122,13 +124,15 @@ impl IdleWaits {
                     let _ = end.send(by);
                 }
             }
-            Err(e) => eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0),
+            Err(e) => {
+                crate::log::logln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0)
+            }
         }
     }
 
     fn record(&self, entry: Entry) {
         if let Err(e) = self.graph.record(&entry) {
-            eprintln!("loom: 쉬는 대기를 남기지 못했다: {e}");
+            crate::log::logln!("loom: 쉬는 대기를 남기지 못했다: {e}");
         }
     }
 }
@@ -165,7 +169,7 @@ impl Wait<'_> {
         let mut ends = self.waits.ends.lock().unwrap();
         ends.remove(&self.id);
         if let Err(e) = self.waits.graph.close_idle(self.node, self.id, by) {
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}",
                 self.node.0
             );

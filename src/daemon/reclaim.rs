@@ -14,14 +14,14 @@ use crate::worktree::{self, RepoId, RepoProblem};
 pub(super) async fn run(app: Arc<App>) {
     let rounds = match app.graph.reclaim_rounds() {
         Ok(rounds) => rounds,
-        Err(e) => return eprintln!("loom: reclaim: {e}"),
+        Err(e) => return crate::log::logln!("loom: reclaim: {e}"),
     };
     let mut branches: HashMap<RepoId, Vec<String>> = HashMap::new();
     for (repo, branch, held) in rounds {
         let dir = match app.repos.path(repo) {
             Ok(dir) => dir,
             Err(e) => {
-                eprintln!("loom: reclaim {branch}: {e}");
+                crate::log::logln!("loom: reclaim {branch}: {e}");
                 continue;
             }
         };
@@ -34,7 +34,7 @@ pub(super) async fn run(app: Arc<App>) {
             }
         }
         if let Err(e) = reclaim(&app, &dir, repo, &branch).await {
-            eprintln!("loom: reclaim {branch}: {e}");
+            crate::log::logln!("loom: reclaim {branch}: {e}");
         }
     }
 }

@@ -26,7 +26,7 @@ pub(super) async fn run(app: Arc<App>) {
             let gates = match app.graph.queued_gates() {
                 Ok(gates) => gates,
                 Err(e) => {
-                    eprintln!("loom: merge queue: {e}");
+                    crate::log::logln!("loom: merge queue: {e}");
                     break;
                 }
             };
@@ -34,7 +34,7 @@ pub(super) async fn run(app: Arc<App>) {
                 match batch(&app, repo, gate.as_deref(), CHECK_LOCK).await {
                     Ok(true) => continue 'next,
                     Ok(false) => {}
-                    Err(e) => eprintln!("loom: merge queue: {e}"),
+                    Err(e) => crate::log::logln!("loom: merge queue: {e}"),
                 }
             }
             break;
@@ -77,7 +77,7 @@ async fn batch(
 async fn recover(app: &Arc<App>, lock: &str) {
     let stale = match app.graph.stale_batches() {
         Ok(stale) => stale,
-        Err(e) => return eprintln!("loom: merge queue recovery: {e}"),
+        Err(e) => return crate::log::logln!("loom: merge queue recovery: {e}"),
     };
     for stale in stale {
         let dir = match repo_path(app, stale.repo) {
@@ -85,7 +85,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             Err(e) => {
                 fail_all(app, stale.repo, stale.id, &stale.members, &e.to_string());
                 if let Err(e) = app.graph.batch_close(stale.id) {
-                    eprintln!("loom: merge queue recovery: {e}");
+                    crate::log::logln!("loom: merge queue recovery: {e}");
                 }
                 continue;
             }
@@ -99,7 +99,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             lock,
         };
         if let Err(e) = script(app.files(), &run.dir, CLEAN, &[]).await {
-            eprintln!("loom: merge queue recovery: {e}");
+            crate::log::logln!("loom: merge queue recovery: {e}");
         }
         run.record(0, &stale.members, None, BatchResult::Interrupted, None);
         let done = match (stale.base, stale.tip) {
@@ -115,7 +115,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             fail_all(app, stale.repo, stale.id, &stale.members, &e.to_string());
         }
         if let Err(e) = app.graph.batch_close(stale.id) {
-            eprintln!("loom: merge queue recovery: {e}");
+            crate::log::logln!("loom: merge queue recovery: {e}");
         }
     }
 }
@@ -478,7 +478,7 @@ impl Batch<'_> {
                     Ok(false) => return self.merged(members, landed, None, &Dest::Base),
                     Ok(true) => None,
                     Err(e) => {
-                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        crate::log::logln!("loom: merge queue deploy {merged}: {e}");
                         Some(e)
                     }
                 };
@@ -488,7 +488,7 @@ impl Batch<'_> {
                     .graph
                     .deploy_started(self.repo, &self.target, &merged, &last.branch, &owners)
                     .unwrap_or_else(|e| {
-                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        crate::log::logln!("loom: merge queue deploy {merged}: {e}");
                         None
                     });
                 let line = match (&deploy, unseen) {
@@ -698,13 +698,13 @@ impl Batch<'_> {
 
     fn settle(&self, member: &Queued, ended: Ended) {
         if let Err(e) = self.app.graph.merge_end(self.repo, &member.branch, ended) {
-            eprintln!("loom: merge queue {}: {e}", member.branch);
+            crate::log::logln!("loom: merge queue {}: {e}", member.branch);
         }
     }
 
     fn requeue(&self, member: &Queued) {
         if let Err(e) = self.app.graph.requeue(self.repo, &member.branch) {
-            eprintln!("loom: merge queue {}: {e}", member.branch);
+            crate::log::logln!("loom: merge queue {}: {e}", member.branch);
         }
     }
 
@@ -734,7 +734,7 @@ impl Batch<'_> {
             log,
         };
         if let Err(e) = self.app.graph.record(&entry) {
-            eprintln!("loom: merge queue trace: {e}");
+            crate::log::logln!("loom: merge queue trace: {e}");
         }
     }
 

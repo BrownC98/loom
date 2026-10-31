@@ -378,7 +378,7 @@ impl App {
         for inside in join_all(read).await {
             match inside {
                 Ok(inside) => sites.push(Site::wsl(inside)),
-                Err(e) => eprintln!("loom: WSL 위치를 읽지 못했다: {e}"),
+                Err(e) => crate::log::logln!("loom: WSL 위치를 읽지 못했다: {e}"),
             }
         }
         sites
@@ -402,7 +402,7 @@ impl App {
         for inside in join_all(read).await {
             match inside {
                 Ok(inside) => insides.push(inside),
-                Err(e) => eprintln!("loom: SSH 위치를 읽지 못했다: {e}"),
+                Err(e) => crate::log::logln!("loom: SSH 위치를 읽지 못했다: {e}"),
             }
         }
         insides

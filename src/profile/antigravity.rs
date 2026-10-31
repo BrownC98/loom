@@ -286,7 +286,7 @@ fn last_step_typed(transcript: &str) -> bool {
     match last_line(&path) {
         Ok(line) => serde_json::from_str::<Step>(&line).is_ok_and(|step| step.r#type == USER_INPUT),
         Err(e) => {
-            eprintln!(
+            crate::log::logln!(
                 "loom: could not read the transcript {}: {e}",
                 path.display()
             );

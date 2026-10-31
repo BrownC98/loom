@@ -304,15 +304,15 @@ async fn wake_on_mail(file: PathBuf, distro: Option<Distro>, port: Arc<dyn Port>
     let mut on = || {
         times += 1;
         if let Err(e) = touch(files, &file, times) {
-            eprintln!("loom: 에이전트를 깨우지 못했다: {e}");
+            crate::log::logln!("loom: 에이전트를 깨우지 못했다: {e}");
         }
     };
     tokio::select! {
-        refused = port.wakes(&mut on) => eprintln!("loom: 에이전트 깨움을 멈췄다: {refused}"),
+        refused = port.wakes(&mut on) => crate::log::logln!("loom: 에이전트 깨움을 멈췄다: {refused}"),
         () = port.ended() => {}
     }
     if let Err(e) = files.remove(&file) {
-        eprintln!("loom: {}을 지우지 못했다: {e}", file.display());
+        crate::log::logln!("loom: {}을 지우지 못했다: {e}", file.display());
     }
 }
 

@@ -51,7 +51,7 @@ impl Plugin {
             done &= link(&store, &plugin.skills(on), on, &same, &mut copied)?;
         }
         if copied {
-            eprintln!(
+            crate::log::logln!(
                 "loom: {}에 하드 링크를 만들지 못해 스킬 파일을 복사했다",
                 store.display()
             );
@@ -120,7 +120,7 @@ fn sync(
         .collect();
     let pruned = prune(store, &keep);
     if let Err(e) = &pruned {
-        eprintln!(
+        crate::log::logln!(
             "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
             store.display()
         );
@@ -193,7 +193,7 @@ fn link(
         .collect();
     let mut done = true;
     if let Err(e) = prune(skills, &keep) {
-        eprintln!(
+        crate::log::logln!(
             "loom: {}의 낡은 스킬 파일을 지우지 못했다: {e}",
             skills.display()
         );
@@ -207,7 +207,7 @@ fn link(
         std::fs::create_dir_all(to.parent().expect("파일 경로에는 부모가 있다"))?;
         match std::fs::remove_file(to) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                eprintln!("loom: {}를 지우지 못했다: {e}", to.display());
+                crate::log::logln!("loom: {}를 지우지 못했다: {e}", to.display());
                 done = false;
                 continue;
             }

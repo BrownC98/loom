@@ -430,7 +430,7 @@ pub async fn drive(mut server: Server, port: Arc<dyn Port>, brief: String) {
         } => result,
     };
     if let Err(error) = result {
-        eprintln!("loom: Crush 연동을 멈췄다: {error}");
+        crate::log::logln!("loom: Crush 연동을 멈췄다: {error}");
         server.process.stop();
         port.report(Report::Lost);
         port.ended().await;

@@ -162,7 +162,7 @@ impl super::adapter::Adapter for Codex {
                 .map_err(helper)?;
             let call = |method, params| server.call(method, params);
             if let Err(e) = add_skills(call, at.skills).await {
-                eprintln!("loom: app-server에 내장 스킬을 더하지 못했다: {e}");
+                crate::log::logln!("loom: app-server에 내장 스킬을 더하지 못했다: {e}");
             }
             server.address().tui(cmd);
             cmd.args(trust);
@@ -492,7 +492,7 @@ async fn human_wait(
     match server.logged_out().await {
         Ok(true) => return Some((WaitKind::Auth, LOGIN_TEXT.to_owned(), None)),
         Ok(false) => {}
-        Err(e) => eprintln!("loom: app-server 로그인 상태를 읽지 못했다: {e}"),
+        Err(e) => crate::log::logln!("loom: app-server 로그인 상태를 읽지 못했다: {e}"),
     }
     let now = thread?;
     match approvals.iter().find(|a| a.thread() == now.id) {
@@ -554,7 +554,10 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                 match server.subscribe(&now.id).await {
                     Ok(()) => subscribed = Some(now.id.clone()),
                     Err(e) => {
-                        eprintln!("loom: app-server 스레드 {}를 구독하지 못했다: {e}", now.id)
+                        crate::log::logln!(
+                            "loom: app-server 스레드 {}를 구독하지 못했다: {e}",
+                            now.id
+                        )
                     }
                 }
             }
@@ -632,10 +635,10 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                         let call = |method, params| server.call(method, params);
                         match start_turn(call, &id, &nudge).await {
                             Ok(()) => ours = true,
-                            Err(e) => eprintln!("loom: app-server 스레드 {id}를 다시 일하게 하지 못했다: {e}"),
+                            Err(e) => crate::log::logln!("loom: app-server 스레드 {id}를 다시 일하게 하지 못했다: {e}"),
                         }
                     }
-                    Err(e) => eprintln!("loom: app-server 스레드 {id}의 쉬는 대기가 끝났다: {e}"),
+                    Err(e) => crate::log::logln!("loom: app-server 스레드 {id}의 쉬는 대기가 끝났다: {e}"),
                 }
             }
             mail = pending(&mut busy) => {
@@ -650,7 +653,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
                             busy = Some(port.next_mail(BUSY_KINDS));
                         }
                     }
-                    Err(e) => eprintln!("loom: app-server 스레드 {id}의 메일함을 읽지 못했다: {e}"),
+                    Err(e) => crate::log::logln!("loom: app-server 스레드 {id}의 메일함을 읽지 못했다: {e}"),
                 }
             }
         }
@@ -672,7 +675,9 @@ fn read_model(
         let call = |method, params| server.call(method, params);
         match model(call, &thread).await {
             Ok(model) => drop(read.send((asked, model))),
-            Err(e) => eprintln!("loom: app-server 스레드 {thread}의 모델을 읽지 못했다: {e}"),
+            Err(e) => {
+                crate::log::logln!("loom: app-server 스레드 {thread}의 모델을 읽지 못했다: {e}")
+            }
         }
     });
 }
@@ -696,7 +701,9 @@ async fn human_input(
     let note = match port.take(req) {
         Ok(taken) => taken.note,
         Err(e) => {
-            eprintln!("loom: app-server 스레드 {thread}의 사람 입력을 처리하지 못했다: {e}");
+            crate::log::logln!(
+                "loom: app-server 스레드 {thread}의 사람 입력을 처리하지 못했다: {e}"
+            );
             return;
         }
     };
@@ -707,7 +714,9 @@ async fn human_input(
         }
         Some(Ok(IdleReply::Nudge { nudge })) => {
             if let Err(e) = steer(call, thread, &nudge).await {
-                eprintln!("loom: app-server 스레드 {thread}를 다시 일하게 하지 못했다: {e}");
+                crate::log::logln!(
+                    "loom: app-server 스레드 {thread}를 다시 일하게 하지 못했다: {e}"
+                );
             }
         }
         _ => {}
@@ -715,7 +724,7 @@ async fn human_input(
     if let Some(note) = note
         && let Err(e) = steer(call, thread, &note).await
     {
-        eprintln!("loom: app-server 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
+        crate::log::logln!("loom: app-server 스레드 {thread}에 열린 질문을 알리지 못했다: {e}");
     }
 }
 
@@ -723,7 +732,9 @@ async fn ended_turn(server: &CodexServer, thread: &str) -> EndedTurn {
     let call = |method, params| server.call(method, params);
     let reply = last_reply(call, thread)
         .await
-        .inspect_err(|e| eprintln!("loom: app-server 스레드 {thread}의 답 글을 읽지 못했다: {e}"))
+        .inspect_err(|e| {
+            crate::log::logln!("loom: app-server 스레드 {thread}의 답 글을 읽지 못했다: {e}")
+        })
         .ok()
         .flatten();
     EndedTurn { reply, turn: None }
@@ -749,14 +760,20 @@ async fn hand(
     match delivered {
         Ok(()) => {
             if let Err(e) = port.ack(&ids) {
-                eprintln!("loom: app-server 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}");
+                crate::log::logln!(
+                    "loom: app-server 스레드 {thread}의 받음 확인을 쓰지 못했다: {e}"
+                );
             }
             true
         }
         Err(cause) => {
-            eprintln!("loom: app-server 스레드 {thread}에 메시지를 넘기지 못했다: {cause}");
+            crate::log::logln!(
+                "loom: app-server 스레드 {thread}에 메시지를 넘기지 못했다: {cause}"
+            );
             if let Err(e) = port.release(&ids) {
-                eprintln!("loom: app-server 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}");
+                crate::log::logln!(
+                    "loom: app-server 스레드 {thread}의 메시지를 큐로 돌리지 못했다: {e}"
+                );
             }
             false
         }
@@ -770,7 +787,7 @@ async fn stop_turn(server: &CodexServer, thread: &str) -> Result<(), String> {
     let Err(e) = interrupted.and(cleaned) else {
         return Ok(());
     };
-    eprintln!("loom: app-server 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
+    crate::log::logln!("loom: app-server 스레드 {thread}의 턴을 끊지 못해 셸을 끝낸다: {e}");
     server
         .kill_shells()
         .map_err(|killed| format!("턴을 끊지 못했다({e}). 셸도 끝내지 못했다: {killed}"))

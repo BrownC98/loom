@@ -321,7 +321,7 @@ impl App {
         if !alive {
             self.idle.end(node, IdleEnd::Exit);
             wait.finish(IdleEnd::Exit);
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 쉬는 대기를 거절했다: 프로세스가 끝났다",
                 node.0
             );
@@ -359,7 +359,7 @@ impl App {
                 }
                 Err(e) => {
                     wait.finish(IdleEnd::Error);
-                    eprintln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
+                    crate::log::logln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
                     Err(for_agent(e))
                 }
             },
@@ -426,13 +426,16 @@ impl App {
                 match self.graph.release_refused(node, &ids) {
                     Ok(true) => self.end_refused(node, &cause),
                     Ok(false) => {}
-                    Err(e) => eprintln!("loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}", node.0),
+                    Err(e) => crate::log::logln!(
+                        "loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}",
+                        node.0
+                    ),
                 }
                 Ok(())
             }
         };
         if let Err(e) = written {
-            eprintln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 알림을 쓰지 못했다: {e}", node.0);
         }
     }
 
@@ -440,7 +443,7 @@ impl App {
         let notice =
             format!("The agent refused the same mail again after loom started it again: {cause}");
         if let Err(e) = self.graph.lost_because(node, notice) {
-            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", node.0);
         }
         self.host.stop(node);
     }
@@ -463,7 +466,9 @@ impl App {
         let nodes = self
             .graph
             .active()
-            .inspect_err(|e| eprintln!("loom: 노드 {}의 프로필을 읽지 못했다: {e}", node.0))
+            .inspect_err(|e| {
+                crate::log::logln!("loom: 노드 {}의 프로필을 읽지 못했다: {e}", node.0)
+            })
             .ok()?;
         nodes.iter().find(|n| n.id == node).and_then(profile_of)
     }

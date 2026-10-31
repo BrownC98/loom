@@ -379,7 +379,7 @@ impl Drop for Release {
                 .graph
                 .set_wait(&self.token, WaitSource::Agent, None)
             {
-                eprintln!(
+                crate::log::logln!(
                     "loom: 노드 {}의 응답 대기를 지우지 못했다: {e}",
                     self.node.0
                 );

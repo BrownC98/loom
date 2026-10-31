@@ -87,11 +87,11 @@ impl App {
                 let mut changed = pin!(app.sleeps.changed.notified());
                 changed.as_mut().enable();
                 if let Err(e) = app.wake_sleepers() {
-                    eprintln!("loom: 잠든 노드를 보지 못했다: {e}");
+                    crate::log::logln!("loom: 잠든 노드를 보지 못했다: {e}");
                 }
                 app.recover_held_with_mail();
                 let resting = app.sleep_resting().unwrap_or_else(|e| {
-                    eprintln!("loom: 쉬는 노드를 보지 못했다: {e}");
+                    crate::log::logln!("loom: 쉬는 노드를 보지 못했다: {e}");
                     None
                 });
                 tokio::select! {
@@ -109,7 +109,7 @@ impl App {
             return;
         };
         if let Err(e) = self.recover_stored() {
-            eprintln!("loom: 듣지 못하는 노드를 보지 못했다: {e}");
+            crate::log::logln!("loom: 듣지 못하는 노드를 보지 못했다: {e}");
         }
         let app = self.clone();
         tokio::spawn(async move {
@@ -165,7 +165,9 @@ impl App {
         let (node, plan, guard, kept) = match self.recovering(id) {
             Ok(Some(recovery)) => recovery,
             Ok(None) => return,
-            Err(e) => return eprintln!("loom: 듣지 못하는 노드 {}를 보지 못했다: {e}", id.0),
+            Err(e) => {
+                return crate::log::logln!("loom: 듣지 못하는 노드 {}를 보지 못했다: {e}", id.0);
+            }
         };
         let app = self.clone();
         tokio::spawn(async move {
@@ -176,17 +178,17 @@ impl App {
                     app.refused(id);
                 }
                 Err(e) if app.graph.ended(id).is_ok_and(|ended| ended.is_none()) => {
-                    eprintln!(
+                    crate::log::logln!(
                         "loom: 듣지 못하는 노드 {}를 살리지 못했다. 옛 프로세스를 두고 다음 사건에 다시 해 본다: {e}",
                         id.0
                     );
                     app.refused(id);
                 }
                 Err(e) => {
-                    eprintln!("loom: 듣지 못하는 노드 {}를 살리지 못했다: {e}", id.0);
+                    crate::log::logln!("loom: 듣지 못하는 노드 {}를 살리지 못했다: {e}", id.0);
                     app.host.stop(id);
                     if let Err(e) = app.graph.lost(id) {
-                        eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+                        crate::log::logln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
                     }
                     app.graph.wake_mail();
                 }
@@ -198,7 +200,7 @@ impl App {
         match self.graph.end_draft(id) {
             Ok(true) if self.held(id) => self.recover(id),
             Ok(_) => {}
-            Err(e) => eprintln!("loom: 노드 {}의 입력 중 표시를 지우지 못했다: {e}", id.0),
+            Err(e) => crate::log::logln!("loom: 노드 {}의 입력 중 표시를 지우지 못했다: {e}", id.0),
         }
     }
 
@@ -212,26 +214,28 @@ impl App {
 
     fn refused(&self, id: NodeId) {
         if let Err(e) = self.graph.attempted(id, Attempt::Deaf) {
-            eprintln!("loom: 노드 {}의 살리기 시도를 적지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 살리기 시도를 적지 못했다: {e}", id.0);
         }
     }
 
     fn held(&self, id: NodeId) -> bool {
         self.graph
             .attempt_held(id, Attempt::Deaf)
-            .inspect_err(|e| eprintln!("loom: 노드 {}의 살리기 시도를 읽지 못했다: {e}", id.0))
+            .inspect_err(|e| {
+                crate::log::logln!("loom: 노드 {}의 살리기 시도를 읽지 못했다: {e}", id.0)
+            })
             .unwrap_or(false)
     }
 
     fn attempt_cleared(&self, id: NodeId, cause: Attempt) {
         if let Err(e) = self.graph.attempt_cleared(id, cause) {
-            eprintln!("loom: 노드 {}의 살리기 시도를 지우지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 살리기 시도를 지우지 못했다: {e}", id.0);
         }
     }
 
     fn attempts_forgotten(&self, cause: Attempt) {
         if let Err(e) = self.graph.attempts_forgotten(cause) {
-            eprintln!("loom: 살리기 시도를 지우지 못했다: {e}");
+            crate::log::logln!("loom: 살리기 시도를 지우지 못했다: {e}");
         }
     }
 
@@ -240,7 +244,7 @@ impl App {
             .graph
             .mailed_since_attempt(Attempt::Deaf)
             .unwrap_or_else(|e| {
-                eprintln!("loom: 살리기를 미룬 노드를 보지 못했다: {e}");
+                crate::log::logln!("loom: 살리기를 미룬 노드를 보지 못했다: {e}");
                 Vec::new()
             });
         for id in mailed {
@@ -264,7 +268,7 @@ impl App {
         let guard = self.restart_guard(&node);
         if !guard(&self.host.screen(id)) {
             self.refused(id);
-            eprintln!(
+            crate::log::logln!(
                 "loom: 듣지 못하는 노드 {}를 사람이 쓰고 있어 다음 사건까지 기다린다",
                 id.0
             );
@@ -275,7 +279,7 @@ impl App {
             Some(DeafClaim::Fresh) => (Plan::Resume, App::kept_running),
             Some(DeafClaim::Queued(plan)) => (plan, App::kept_at_turn_end),
         };
-        eprintln!(
+        crate::log::logln!(
             "loom: 듣지 못하는 노드 {}를 같은 세션으로 다시 띄운다",
             id.0
         );
@@ -303,7 +307,7 @@ impl App {
                 let app = self.clone();
                 tokio::spawn(async move {
                     if let Err(e) = app.resume_node(node).await {
-                        eprintln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
+                        crate::log::logln!("loom: 노드 {}에 다시 붙지 못했다: {e}", id.0);
                     } else if !app.graph.unreached_hosts().is_ok_and(|u| u.contains(&id)) {
                         app.attempt_cleared(id, Attempt::Wake);
                         app.sleeps.changed();
@@ -327,7 +331,7 @@ impl App {
             tokio::spawn(async move {
                 match app.relaunch_by_id(id, Plan::Resume).await {
                     Ok(_) => app.attempt_cleared(id, Attempt::Wake),
-                    Err(e) => eprintln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
+                    Err(e) => crate::log::logln!("loom: 잠든 노드 {}를 깨우지 못했다: {e:?}", id.0),
                 }
             });
         }
@@ -389,14 +393,14 @@ impl App {
 
     fn start_sleep(&self, id: NodeId) -> bool {
         self.graph.begin_sleep(id).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 재우기 표시를 쓰지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 재우기 표시를 쓰지 못했다: {e}", id.0);
             false
         })
     }
 
     fn sleep_cancelled(&self, id: NodeId) -> bool {
         let cancelled = self.graph.cancel_sleep(id).unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 재우기 표시를 지우지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 재우기 표시를 지우지 못했다: {e}", id.0);
             false
         });
         if cancelled {
@@ -418,21 +422,21 @@ impl App {
             false => Ok(()),
         };
         if let Err(e) = &stopped {
-            eprintln!("loom: 노드 {}를 재우지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}를 재우지 못했다: {e}", id.0);
         }
         if stopped.is_err() || !still() {
             self.sleep_cancelled(id);
             self.graph.wake_mail();
             return;
         }
-        eprintln!("loom: 쉬는 완료 노드 {}를 재운다", id.0);
+        crate::log::logln!("loom: 쉬는 완료 노드 {}를 재운다", id.0);
         let snapshot = Snapshot::now();
         snapshot.kill_trees(self.background_shells(&snapshot, &node));
         self.idle.end(id, IdleEnd::Sleep);
         self.host.stop(id);
         tokio::time::sleep(EXIT_WAIT).await;
         if self.sleep_cancelled(id) {
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 프로세스가 끝나지 않았다. 재우지 않는다",
                 id.0
             );

@@ -167,7 +167,7 @@ impl App {
         } = prepared;
         self.turn_ends.launched(id);
         if first_input && let Err(e) = self.graph.first_input_sent(id) {
-            eprintln!("loom: 노드 {}의 첫 입력 표시를 쓰지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}의 첫 입력 표시를 쓰지 못했다: {e}", id.0);
         }
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, port.clone());
@@ -201,7 +201,7 @@ impl App {
         }
         if self.position_of(id).is_ok_and(|now| now != position) {
             if let Err(e) = self.graph.plan_resume(id) {
-                eprintln!("loom: 노드 {}의 다시 띄우기를 계획하지 못했다: {e}", id.0);
+                crate::log::logln!("loom: 노드 {}의 다시 띄우기를 계획하지 못했다: {e}", id.0);
             }
             self.run_unless_busy(id);
         }
@@ -290,7 +290,7 @@ impl App {
         let Some(profile) = profile else { return };
         let record = self.record_of(node);
         if let Err(e) = profile::adapter(profile).attach(&record, port).await {
-            eprintln!(
+            crate::log::logln!(
                 "loom: 노드 {}의 어댑터를 다시 붙이지 못했다: {e}",
                 node.id.0
             );
@@ -355,7 +355,7 @@ impl App {
             let app = self.clone();
             let hear = move || {
                 if let Err(e) = app.hear_lost_wait(node) {
-                    eprintln!("loom: 노드 {}의 쉬는 대기를 보지 못했다: {e}", node.0);
+                    crate::log::logln!("loom: 노드 {}의 쉬는 대기를 보지 못했다: {e}", node.0);
                 }
             };
             let failed = match link {
@@ -372,7 +372,7 @@ impl App {
                 node_host::Linked::EndpointFailed(error) => Some(error),
                 node_host::Linked::Unreached(cause) => {
                     if let Err(e) = self.host_unreached(node, &cause) {
-                        eprintln!("loom: 노드 {}의 붙지 않음을 적지 못했다: {e}", node.0);
+                        crate::log::logln!("loom: 노드 {}의 붙지 않음을 적지 못했다: {e}", node.0);
                     }
                     None
                 }
@@ -382,7 +382,7 @@ impl App {
                     .graph
                     .record_about(node, |node| Entry::EndpointFailed { node, error })
             {
-                eprintln!("loom: 노드 {}의 접속점 실패를 적지 못했다: {e}", node.0);
+                crate::log::logln!("loom: 노드 {}의 접속점 실패를 적지 못했다: {e}", node.0);
             }
         }
     }
@@ -406,7 +406,7 @@ impl App {
                 end_leftovers(&runtime, id, distro, token);
             }
             if app.graph.stop_exited(id).unwrap_or_else(|e| {
-                eprintln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
+                crate::log::logln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
                 false
             }) {
                 port.end();
@@ -425,7 +425,7 @@ impl App {
             let slept = matches!(exit, Exit::Command(_) | Exit::Gone)
                 && app.graph.slept(id).unwrap_or(false);
             if slept && let Err(e) = app.host.keep(id) {
-                eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
+                crate::log::logln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
             }
             let _ = match exit {
                 _ if slept => Ok(()),
@@ -488,7 +488,7 @@ impl App {
                         .and_then(|()| app.graph.screen_prompt(&token, prompt)),
                 };
                 if let Err(e) = written {
-                    eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                    crate::log::logln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);
@@ -508,7 +508,7 @@ impl App {
             let app = self.clone();
             tokio::spawn(async move {
                 if let Err(e) = app.relaunch_unserved(node).await {
-                    eprintln!(
+                    crate::log::logln!(
                         "loom: 판이 맞지 않는 노드 {}를 다시 띄우지 못했다: {e:?}",
                         node.0
                     );
@@ -667,7 +667,7 @@ impl App {
 
     pub(super) fn release_guarded(&self, node: NodeId, shells: &[Identity]) {
         if let Err(e) = self.graph.release_guarded(node, shells) {
-            eprintln!("loom: 노드 {}의 멈춘 명령을 지우지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 멈춘 명령을 지우지 못했다: {e}", node.0);
         }
     }
 
@@ -694,7 +694,7 @@ impl App {
         tokio::spawn(async move {
             match wsl::end_shells(&distro, &token, &shells).await {
                 Ok(()) => app.release_guarded(node, &shells),
-                Err(e) => eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0),
+                Err(e) => crate::log::logln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0),
             }
         });
     }
@@ -800,7 +800,7 @@ fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: Distro, t
             .chain(profile::SHELL_TOKEN_ENVS)
             .collect();
         if let Err(e) = wsl::end_token(&distro, &token, &names).await {
-            eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
+            crate::log::logln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
         }
     });
 }

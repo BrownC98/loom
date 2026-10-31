@@ -242,7 +242,7 @@ impl Adapter for Cursor {
         if let Some(hooks) = user_hooks(at.inside)
             && let Err(e) = open_gate(Files::of(at.inside), &hooks)
         {
-            eprintln!(
+            crate::log::logln!(
                 "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
                 hooks.display()
             );
@@ -419,7 +419,7 @@ impl HookEvent for Hook {
                 Ok(true) => Some(Report::QuestionBox),
                 Ok(false) => None,
                 Err(e) => {
-                    eprintln!("loom: could not read the transcript: {e}");
+                    crate::log::logln!("loom: could not read the transcript: {e}");
                     None
                 }
             },

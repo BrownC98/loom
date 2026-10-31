@@ -76,7 +76,7 @@ impl App {
         match self.graph.parent(node) {
             Ok(Some(parent)) => self.sweep_later(parent),
             Ok(None) | Err(rusqlite::Error::QueryReturnedNoRows) => {}
-            Err(e) => eprintln!("loom: 노드 {}의 부모를 읽지 못했다: {e}", node.0),
+            Err(e) => crate::log::logln!("loom: 노드 {}의 부모를 읽지 못했다: {e}", node.0),
         }
     }
 
@@ -90,7 +90,7 @@ impl App {
             for problem in swept.problems {
                 let body = format!("loom removed a finished child of yours. {problem}");
                 if let Err(e) = app.graph.note_from_loom(parent, &body) {
-                    eprintln!("loom: 노드 {}에 회수 알림을 보내지 못했다: {e}", parent.0);
+                    crate::log::logln!("loom: 노드 {}에 회수 알림을 보내지 못했다: {e}", parent.0);
                 }
             }
         });

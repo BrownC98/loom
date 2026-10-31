@@ -460,6 +460,9 @@ button.unread:hover { filter: brightness(1.1); }
 .add-repo .tabs button[aria-selected='true'] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
 .add-repo .tabs button:disabled { opacity: 0.5; cursor: default; }
 .add-repo .tab-panel { display: grid; gap: 12px; }
+.ssh-host { display: grid; gap: 5px; }
+.inrow { display: flex; gap: 6px; }
+.inrow input { flex: 1; min-width: 0; }
 .dirs { list-style: none; margin: -6px 0 0; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); height: 168px; overflow: auto; overscroll-behavior: contain; }
 .dirs li { display: flex; align-items: center; border-radius: 4px; }
 .dirs li.sel, .dirs li:hover { background: var(--accent-wash); }
@@ -907,7 +910,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .node-line + .node-line { margin-left: 16px; }
 .state-tag { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
 .state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
-.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
+span.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
 .chips .state-tag { margin-left: 0; }
 .state-tag:is(.exited, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }

@@ -57,7 +57,7 @@ import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { CanvasComposer, deskKeys } from './Composer';
-import { PlaceTag } from './place';
+import { PlaceTag, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
@@ -518,7 +518,7 @@ export function App() {
             {treeView(openNode)}
           </>
         }
-        foot={<StatusBar usage={usage} settings={settings} distro={repo?.wsl?.distro ?? null} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
+        foot={<StatusBar usage={usage} settings={settings} distro={wslDistro(repo)} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
       />,
     );
   return providers(
@@ -561,7 +561,7 @@ export function App() {
             {title !== null && (
               <h1 className="canvas-title">
                 {title}
-                <PlaceTag wsl={shown[0].wsl} />
+                <PlaceTag place={shown[0].place} />
               </h1>
             )}
             <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
@@ -635,7 +635,7 @@ export function App() {
           <StatusBar
             usage={usage}
             settings={settings}
-            distro={repo?.wsl?.distro ?? null}
+            distro={wslDistro(repo)}
             onChoose={chooseAccount}
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}

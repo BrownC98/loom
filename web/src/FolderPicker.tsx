@@ -32,7 +32,15 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
   const visited = useRef(new Set<string>());
+  const inflight = useRef(new Set<Promise<unknown>>());
   const { onPick, onPlace } = props;
+
+  function track<T>(request: Promise<T>): Promise<T> {
+    inflight.current.add(request);
+    const done = () => inflight.current.delete(request);
+    request.then(done, done);
+    return request;
+  }
   const places = (locations?.distros.length ?? 0) > 0;
   const reached = hostOf(list);
   const hosts = uniqueHosts(reached === null ? props.hosts : [...props.hosts, reached]);
@@ -40,15 +48,13 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   async function load(path?: string) {
     const ask = ++latest.current;
     try {
-      const next = await getFolders(path);
+      const next = await track(getFolders(path));
+      if (next.place.kind === 'ssh') visited.current.add(next.place.host);
       if (ask !== latest.current) return;
       setList(next);
       setFailed('');
       setWaiting(null);
-      if (next.place.kind === 'ssh') {
-        setAsking(false);
-        visited.current.add(next.place.host);
-      }
+      if (next.place.kind === 'ssh') setAsking(false);
       if (path === undefined) {
         setDir(next.path);
         onPick(next.path);
@@ -64,9 +70,14 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     load();
     getLocations().then(setLocations, () => {});
     const hosts = visited.current;
+    const requests = inflight.current;
     return () => {
-      hosts.forEach((name) => releaseSsh(name).catch(() => {}));
-      hosts.clear();
+      latest.current++;
+      Promise.allSettled([...requests]).then(() => {
+        const names = [...hosts];
+        hosts.clear();
+        names.forEach((name) => releaseSsh(name).catch(() => {}));
+      });
     };
   }, []);
 
@@ -121,7 +132,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     setConnecting(at);
     visited.current.add(at);
     try {
-      const view = await connectSsh(at);
+      const view = await track(connectSsh(at));
       if (ask !== latest.current) return;
       setConnecting(null);
       if (view.kind === 'reached') go(`ssh://${at}${view.home}`);

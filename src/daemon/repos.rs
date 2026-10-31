@@ -115,6 +115,7 @@ async fn add_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<NewRepo>,
 ) -> Result<Json<RepoView>, Problem> {
+    let _use = app.use_ssh_of(req.path.trim()).await;
     let id = app.repos.add(app.files(), req.path.trim()).await?;
     added(&app, id).await
 }
@@ -123,6 +124,7 @@ async fn clone_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<CloneRepo>,
 ) -> Result<Json<RepoView>, Problem> {
+    let _use = app.use_ssh_of(req.parent.trim()).await;
     let id = app
         .repos
         .clone(app.files(), &req.url, req.parent.trim())
@@ -134,6 +136,7 @@ async fn create_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<CreateRepo>,
 ) -> Result<Json<RepoView>, Problem> {
+    let _use = app.use_ssh_of(req.parent.trim()).await;
     let id = app
         .repos
         .create(app.files(), req.parent.trim(), &req.name)
@@ -172,6 +175,7 @@ async fn list_folders(
             .to_string_lossy()
             .into_owned(),
     };
+    let _use = app.use_ssh_of(path.trim()).await;
     let listed = tokio::task::spawn_blocking(move || worktree::folders(app.files(), path.trim()))
         .await
         .map_err(internal)?;

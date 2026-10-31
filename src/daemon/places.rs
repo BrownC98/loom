@@ -120,6 +120,7 @@ async fn ssh_connect(
     State(app): State<Arc<App>>,
     Path(host): Path<String>,
 ) -> Result<Json<ReachView>, Problem> {
+    let _use = app.use_ssh(&host).await;
     let distros = app.distros.clone();
     let remote = tokio::task::spawn_blocking(move || distros.remote(&Host::Ssh(host)))
         .await

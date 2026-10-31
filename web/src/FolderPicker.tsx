@@ -48,8 +48,9 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   async function load(path?: string) {
     const ask = ++latest.current;
     try {
+      const asked = path?.match(/^ssh:\/\/([^/]+)/i)?.[1];
+      if (asked) visited.current.add(asked);
       const next = await track(getFolders(path));
-      if (next.place.kind === 'ssh') visited.current.add(next.place.host);
       if (ask !== latest.current) return;
       setList(next);
       setFailed('');

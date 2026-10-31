@@ -20,7 +20,28 @@ pub enum Reach {
 }
 
 #[derive(Default)]
-pub(super) struct SshHosts(Mutex<HashMap<String, Watched>>);
+pub(super) struct SshHosts {
+    watched: Mutex<HashMap<String, Watched>>,
+    busy: Arc<Mutex<HashMap<String, usize>>>,
+    release: tokio::sync::Mutex<()>,
+}
+
+pub(super) struct SshUse {
+    busy: Arc<Mutex<HashMap<String, usize>>>,
+    host: String,
+}
+
+impl Drop for SshUse {
+    fn drop(&mut self) {
+        let mut busy = self.busy.lock().unwrap();
+        if let Entry::Occupied(mut uses) = busy.entry(self.host.clone()) {
+            *uses.get_mut() -= 1;
+            if *uses.get() == 0 {
+                uses.remove();
+            }
+        }
+    }
+}
 
 struct Watched {
     reach: Option<Reach>,
@@ -41,14 +62,14 @@ impl App {
     }
 
     pub(super) fn ssh_reach(&self, host: &str) -> Option<Reach> {
-        let hosts = self.ssh_hosts.0.lock().unwrap();
+        let hosts = self.ssh_hosts.watched.lock().unwrap();
         hosts
             .get(&key(host))
             .and_then(|watched| watched.reach.clone())
     }
 
     pub(super) fn ssh_home(&self, host: &str) -> Option<String> {
-        let hosts = self.ssh_hosts.0.lock().unwrap();
+        let hosts = self.ssh_hosts.watched.lock().unwrap();
         hosts
             .get(&key(host))
             .and_then(|watched| watched.home.clone())
@@ -56,12 +77,39 @@ impl App {
 
     pub(super) fn reconnect_ssh(self: &Arc<Self>, host: &str) {
         self.watch_ssh(host.to_owned());
-        if let Some(watched) = self.ssh_hosts.0.lock().unwrap().get(&key(host)) {
+        if let Some(watched) = self.ssh_hosts.watched.lock().unwrap().get(&key(host)) {
             watched.now.notify_one();
         }
     }
 
+    pub(super) async fn use_ssh(&self, host: &str) -> SshUse {
+        let _turn = self.ssh_hosts.release.lock().await;
+        let host = key(host);
+        *self
+            .ssh_hosts
+            .busy
+            .lock()
+            .unwrap()
+            .entry(host.clone())
+            .or_default() += 1;
+        SshUse {
+            busy: self.ssh_hosts.busy.clone(),
+            host,
+        }
+    }
+
+    pub(super) async fn use_ssh_of(&self, path: &str) -> Option<SshUse> {
+        match place::of(std::path::Path::new(path)) {
+            Machine::Ssh(at) => Some(self.use_ssh(&at.host).await),
+            Machine::Pc | Machine::Wsl(_) => None,
+        }
+    }
+
     pub(super) async fn release_ssh(&self, host: &str) {
+        let _turn = self.ssh_hosts.release.lock().await;
+        if self.ssh_hosts.busy.lock().unwrap().contains_key(&key(host)) {
+            return;
+        }
         match self.ssh_hosts_in_use() {
             Ok(used) if used.iter().all(|name| key(name) != key(host)) => {}
             Ok(_) => return,
@@ -73,7 +121,7 @@ impl App {
     }
 
     fn watch_ssh(self: &Arc<Self>, host: String) {
-        let now = match self.ssh_hosts.0.lock().unwrap().entry(key(&host)) {
+        let now = match self.ssh_hosts.watched.lock().unwrap().entry(key(&host)) {
             Entry::Occupied(_) => return,
             Entry::Vacant(free) => free
                 .insert(Watched {
@@ -118,7 +166,7 @@ impl App {
     }
 
     fn still_used(&self, host: &str) -> bool {
-        let mut hosts = self.ssh_hosts.0.lock().unwrap();
+        let mut hosts = self.ssh_hosts.watched.lock().unwrap();
         let used = self.ssh_hosts_in_use().map_or_else(
             |e| {
                 crate::log::logln!("loom: SSH 호스트를 읽지 못했다: {e}");
@@ -133,7 +181,7 @@ impl App {
     }
 
     fn set_reach(&self, host: &str, reach: Reach) {
-        let mut hosts = self.ssh_hosts.0.lock().unwrap();
+        let mut hosts = self.ssh_hosts.watched.lock().unwrap();
         let Some(watched) = hosts.get_mut(&key(host)) else {
             return;
         };

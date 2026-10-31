@@ -169,6 +169,12 @@ enum Dest {
     Coordinator { worktree: String },
 }
 
+struct Landed {
+    own: Option<String>,
+    sha: Option<String>,
+    first_parents: Option<String>,
+}
+
 enum Trial {
     Conflict { index: usize, log: Option<String> },
     Failed { log: Option<String> },
@@ -342,8 +348,9 @@ impl Batch<'_> {
         step: u32,
         into: &Dest,
     ) -> Result<(), Refusal> {
+        let landed = self.landed(members, base, tip, into).await?;
         match into {
-            Dest::Base => self.publish_base(members, base, tip, step).await,
+            Dest::Base => self.publish_base(members, landed, base, tip, step).await,
             Dest::Coordinator { worktree } => {
                 let (code, out) = script(
                     self.app.files(),
@@ -353,7 +360,7 @@ impl Batch<'_> {
                 )
                 .await?;
                 match code {
-                    0 => self.merged(members, base, tip, None, into).await,
+                    0 => self.merged(members, landed, None, into),
                     DIRTY => {
                         self.dirty(members, worktree);
                         Ok(())
@@ -444,19 +451,18 @@ impl Batch<'_> {
     async fn publish_base(
         &self,
         members: &[Queued],
+        landed: Vec<Landed>,
         base: &str,
         tip: &str,
         step: u32,
     ) -> Result<(), Refusal> {
-        let mut last = None;
-        for m in members.iter().rev() {
-            if let Some(sha) = merge_commit(self.app.files(), &self.dir, &m.head, tip).await? {
-                last = Some((m, sha));
-                break;
-            }
-        }
+        let last = members
+            .iter()
+            .zip(&landed)
+            .rev()
+            .find_map(|(m, landed)| Some((m, landed.own.clone()?)));
         let Some((last, merged)) = last else {
-            return self.merged(members, base, tip, None, &Dest::Base).await;
+            return self.merged(members, landed, None, &Dest::Base);
         };
         let args = [
             format!("batch-{}-publish.log", self.id.0),
@@ -469,7 +475,7 @@ impl Batch<'_> {
         match code {
             0 => {
                 let unseen = match self.ships().await {
-                    Ok(false) => return self.merged(members, base, tip, None, &Dest::Base).await,
+                    Ok(false) => return self.merged(members, landed, None, &Dest::Base),
                     Ok(true) => None,
                     Err(e) => {
                         eprintln!("loom: merge queue deploy {merged}: {e}");
@@ -499,9 +505,7 @@ impl Batch<'_> {
                         protocol::SHIP_SCRIPT
                     ),
                 };
-                let settled = self
-                    .merged(members, base, tip, Some(line), &Dest::Base)
-                    .await;
+                let settled = self.merged(members, landed, Some(line), &Dest::Base);
                 if let Some(deploy) = deploy {
                     super::deploy::start(self.app, deploy);
                 }
@@ -519,35 +523,56 @@ impl Batch<'_> {
         }
     }
 
-    async fn merged(
+    async fn landed(
         &self,
         members: &[Queued],
         base: &str,
         tip: &str,
+        into: &Dest,
+    ) -> Result<Vec<Landed>, Refusal> {
+        let files = self.app.files();
+        let mut all = Vec::new();
+        for m in members {
+            let own = merge_commit(files, &self.dir, &m.head, tip).await?;
+            let sha = match &own {
+                Some(sha) => Some(sha.clone()),
+                None => bringing_merge(files, &self.dir, &m.head, base, tip).await?,
+            };
+            let first_parents = match (&sha, into) {
+                (Some(sha), Dest::Base) => Some(merge::first_parents(files, &self.dir, sha).await?),
+                _ => None,
+            };
+            all.push(Landed {
+                own,
+                sha,
+                first_parents,
+            });
+        }
+        Ok(all)
+    }
+
+    fn merged(
+        &self,
+        members: &[Queued],
+        landed: Vec<Landed>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
-        let settled = self.settle_merged(members, base, tip, deploy, into).await;
+        let settled = self.settle_merged(members, landed, deploy, into);
         tokio::spawn(super::reclaim::run(self.app.clone()));
         settled
     }
 
-    async fn settle_merged(
+    fn settle_merged(
         &self,
         members: &[Queued],
-        base: &str,
-        tip: &str,
+        landed: Vec<Landed>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
         let into_base = matches!(into, Dest::Base);
-        for m in members {
-            let own = merge_commit(self.app.files(), &self.dir, &m.head, tip).await?;
-            let sha = match own {
-                Some(sha) => Some(sha),
-                None => bringing_merge(self.app.files(), &self.dir, &m.head, base, tip).await?,
-            };
-            let Some(sha) = sha else {
+        for (m, landed) in members.iter().zip(landed) {
+            let Some(sha) = landed.sha else {
                 self.settle(
                     m,
                     self.failed(
@@ -567,12 +592,11 @@ impl Batch<'_> {
                 .into_iter()
                 .filter(|f| !f.stops())
                 .collect();
-            if into_base {
-                let listed = merge::first_parents(self.app.files(), &self.dir, &sha).await?;
+            if let Some(listed) = &landed.first_parents {
                 findings.extend(
                     self.app
                         .graph
-                        .out_of_gate(self.repo, &self.target, &listed)?,
+                        .out_of_gate(self.repo, &self.target, listed)?,
                 );
             }
             let mut lines = self.lines();

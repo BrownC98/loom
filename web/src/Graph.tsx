@@ -333,7 +333,7 @@ function useDraw(id: string, fontSize: number): Draw | null {
     if (right <= -s.width || left >= 2 * s.width || bottom <= -s.height || top >= 2 * s.height) return null;
     const shown = right > 0 && left < s.width && bottom > 0 && top < s.height;
     if (!shown) return 'hidden';
-    return fontSize * zoom > READABLE_TEXT_PX ? 'live' : 'slow';
+    return fontSize * zoom > READABLE_TEXT_PX ? 'live' : 'snapshot';
   });
 }
 

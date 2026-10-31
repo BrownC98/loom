@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M52 크게 보기 그림 크기 조절 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; padding-bottom: 64px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.flow span { padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.page { position: relative; width: 1360px; height: 700px; display: grid; grid-template-rows: 32px 1fr 26px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; font-weight: 600; }
+.main { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side .row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 6px; white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.canvas { position: relative; flex: 1; min-width: 0; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.card { position: absolute; width: 380px; height: 220px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.card-head { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; font-size: 13px; font-weight: 600; }
+.dock { width: 300px; flex: none; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs button { height: 34px; padding: 0 8px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font-size: 13px; }
+.tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--panel); font: 11px var(--mono); color: var(--ink-2); }
+
+.scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.7); }
+.stage { position: absolute; inset: 0; overflow: hidden; }
+.fitpic { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 860px; height: 552px; }
+.bigpic { position: absolute; left: -620px; top: -380px; width: 2150px; height: 1380px; cursor: grab; }
+.pic { position: absolute; inset: 0; border-radius: 8px; overflow: hidden; background: var(--panel); }
+.pic .p-bar { position: absolute; left: 0; right: 0; top: 0; height: 6%; background: var(--surface); border-bottom: 1px solid var(--line); }
+.pic .p-nav { position: absolute; left: 0; top: 6%; bottom: 0; width: 20%; border-right: 1px solid var(--line); background: var(--bg); }
+.pic .p-nav i { position: absolute; left: 10%; width: 70%; height: 3.4%; border-radius: 4px; background: var(--line); }
+.pic .p-nav i.on { background: var(--accent-wash); outline: 1px solid var(--line-strong); }
+.pic .p-h { position: absolute; left: 24%; top: 11%; width: 18%; height: 4.4%; border-radius: 4px; background: var(--ink-3); }
+.pic .p-line { position: absolute; left: 24%; height: 2.6%; border-radius: 3px; background: var(--line-strong); }
+.pic .p-btn { position: absolute; height: 5.4%; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--surface); }
+.pic .p-btn.hot { border: 2px solid oklch(55% 0.22 28); }
+.pic .p-run { position: absolute; left: 24%; top: 70%; width: 30%; height: 18%; border-radius: 6px; background: color-mix(in oklch, var(--run) 18%, var(--surface)); border: 1px solid color-mix(in oklch, var(--run) 50%, transparent); }
+
+.zbar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); }
+.zb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 32px; height: 32px; padding: 0 8px; border: 0; border-radius: 6px; background: none; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.zb:hover { background: var(--surface-hover); }
+.zbar .pct { min-width: 52px; text-align: center; font: 600 12px var(--mono); color: var(--ink-2); }
+.zbar .sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+.hand { position: absolute; width: 26px; height: 26px; }
+.hand svg.i { width: 26px; height: 26px; fill: #fff; stroke: oklch(20% 0 0); stroke-width: 1.4; }
+
+.phones { position: absolute; inset: 0; display: flex; gap: 120px; padding: 24px 60px; background: var(--bg); }
+.phone { position: relative; width: 360px; height: 650px; flex: none; border: 1px solid var(--line-strong); border-radius: 22px; overflow: hidden; background: var(--bg); }
+.phone .ptop { height: 48px; display: flex; align-items: center; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); font-weight: 600; }
+.phone .fitpic { width: 320px; height: 206px; top: 45%; }
+.phone .bigpic { left: -260px; top: 36px; width: 900px; height: 578px; cursor: default; }
+.phone .zbar { bottom: 22px; }
+.phone .zb { min-width: 44px; height: 44px; font-size: 14px; }
+.phone .zbar .pct { min-width: 56px; }
+.finger { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgb(0 0 0 / 0.18); border: 2px solid rgb(0 0 0 / 0.55); }
+.phone-cap { position: absolute; top: 2px; font-size: 12px; color: var(--ink-3); }
+
+.fig { position: relative; }
+</style>
+<style>
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+
+</style>
+</head>
+<body data-ui=".zbar, .zb, .card, .tabs button, .fitpic, .finger, .hand">
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="fit" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="grab" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
+</svg>
+
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M52</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 이미지뷰어크기</b></span><span>v1 · 2026-10-31</span></div>
+  <h1>크게 보기에서 그림 크기 조절</h1>
+  <p class="lead">사람 지시: 「이미지 크게 보기 뷰어에서 이미지 크기 조절 가능하게 해줘」. 지금은 질문이나 답의 그림을 누르면 크게 보기 창이 열립니다. 휴대폰에서는 두 손가락으로 키우고 끌어 옮길 수 있습니다. 데스크톱에서는 크기를 바꿀 수 없고, 그림을 누르면 창이 닫힙니다. 바뀐 뒤에는 데스크톱에서도 휠과 단추로 키우고 줄이며, 끌어 옮깁니다. 새 설정은 없습니다. 점선 상자가 새로 생기는 것입니다.</p>
+  <div class="flow"><span>그림을 누른다</span>→<span>휠이나 −·+로 크기를 바꾼다</span>→<span>끌어 옮긴다</span>→<span>[맞춤]이나 한 번 누르기로 돌아간다</span>→<span>그림 밖이나 Esc로 닫는다</span></div>
+
+  <div class="fig"><h2>① 데스크톱 · 연 직후 <span class="tag">맞춤 크기</span></h2><div class="page"><div class="bar">loom</div><div class="main"><div class="side"><div class="row"><span class="dot"></span>loom 총괄</div><div class="row"><span class="dot"></span>코디 화면점검</div></div><div class="canvas"><div class="card" style="left:40px;top:40px"><div class="card-head">코디 화면점검</div></div><div class="card" style="left:460px;top:120px"><div class="card-head">워커 설정창</div></div></div><div class="dock"><div class="tabs"><button>이벤트</button><button class="on">질문</button></div></div></div><div class="statusbar"><span>Claude 34% · 2시간 10분</span></div>
+<div class="scrim"></div><div class="stage">
+<div class="fitpic mk new" data-n="2"><div class="pic"><div class="p-bar"></div><div class="p-nav"><i style="top:6%"></i><i class="on" style="top:12%"></i><i style="top:18%"></i><i style="top:24%"></i></div><div class="p-h"></div><div class="p-line" style="top:21%;width:52%"></div><div class="p-line" style="top:26%;width:40%"></div><div class="p-btn hot" style="left:24%;top:36%;width:12%"></div><div class="p-btn" style="left:33%;top:38%;width:12%"></div><div class="p-line" style="top:50%;width:46%"></div><div class="p-line" style="top:55%;width:34%"></div><div class="p-run"></div></div></div>
+<div class="zbar mk new" data-n="1"><button class="zb" aria-label="작게"><svg class="i"><use href="#minus"/></svg></button><span class="pct">61%</span><button class="zb" aria-label="크게"><svg class="i"><use href="#plus"/></svg></button><span class="sep"></span><button class="zb"><svg class="i"><use href="#fit"/></svg>맞춤</button></div>
+</div></div><div class="calls"><div><b>1</b><span>−·+로 한 단계씩 줄이고 키운다. 가운데 숫자는 원본 대비 크기다. 맞춤 크기보다 작게는 줄지 않는다.</span></div><div><b>2</b><span>그림 위에서 휠을 돌리면 마우스 자리를 중심으로 커진다. 터치패드는 두 손가락을 벌린다. 맞춤 크기에서 그림을 한 번 누르면 지금처럼 닫힌다.</span></div></div></div>
+<section class="decision" id="D1" data-for="1 5"><h3><span class="did">D1</span>단추 줄(−·크기·+·맞춤)을 두는가</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">데스크톱과 휴대폰 모두 둔다<span class="mark">권장</span><span class="sub">지금: 크기를 바꾸는 방법이 화면에 없음 → 바뀐 뒤: 아래 가운데 단추 줄 · 그림 아래쪽 일부를 덮음 · 되돌리기: 단추 줄을 지움</span></span></div><div class="opt"><span class="key">B</span><span class="label">데스크톱만 둔다<span class="sub">휴대폰은 지금처럼 두 손가락만 · 휴대폰 그림을 덜 덮음</span></span></div><div class="opt"><span class="key">C</span><span class="label">두지 않는다(휠·두 손가락만)<span class="sub">부품이 가장 적음 · 휠로 커지는 것을 화면에서 알 수 없음</span></span></div></div><ul class="why"><li>휠 확대는 화면에 보이지 않아 처음 쓰는 사람이 찾지 못한다.</li><li>크기 숫자가 보여야 원본 크기(100%)에 맞출 수 있다.</li></ul></section>
+
+  <div class="fig"><h2>② 데스크톱 · 키운 뒤 <span class="tag">원본 대비 152%</span></h2><div class="page"><div class="bar">loom</div><div class="main"><div class="side"></div><div class="canvas"></div><div class="dock"></div></div><div class="statusbar"></div>
+<div class="scrim"></div><div class="stage">
+<div class="bigpic"><div class="pic"><div class="p-bar"></div><div class="p-nav"><i style="top:6%"></i><i class="on" style="top:12%"></i><i style="top:18%"></i><i style="top:24%"></i></div><div class="p-h"></div><div class="p-line" style="top:21%;width:52%"></div><div class="p-line" style="top:26%;width:40%"></div><div class="p-btn hot" style="left:24%;top:36%;width:12%"></div><div class="p-btn" style="left:33%;top:38%;width:12%"></div><div class="p-line" style="top:50%;width:46%"></div><div class="p-line" style="top:55%;width:34%"></div><div class="p-run"></div></div></div>
+<span class="hand mk new" data-n="3" style="left:640px;top:300px"><svg class="i"><use href="#grab"/></svg></span>
+<div class="zbar"><button class="zb" aria-label="작게"><svg class="i"><use href="#minus"/></svg></button><span class="pct">152%</span><button class="zb" aria-label="크게"><svg class="i"><use href="#plus"/></svg></button><span class="sep"></span><button class="zb mk" data-n="4"><svg class="i"><use href="#fit"/></svg>맞춤</button></div>
+</div></div><div class="calls"><div><b>3</b><span>키운 그림이 창 전체를 채운다. 마우스로 끌어 옮긴다. 그림 끝에서 멈춘다.</span></div><div><b>4</b><span>누르면 ①의 맞춤 크기로 돌아간다. 끌지 않고 그림을 한 번 눌러도 같다.</span></div></div></div>
+<section class="decision" id="D2" data-for="3"><h3><span class="did">D2</span>키운 그림을 창 전체에 보이는가</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">창 전체에 보인다<span class="mark">권장</span><span class="sub">지금: 맞춤 크기 상자 안에서만 커짐 → 바뀐 뒤: 키우면 창을 채움 · 둘레의 어두운 바탕은 같음 · 되돌리기: 상자를 그림 크기로 되돌림</span></span></div><div class="opt"><span class="key">B</span><span class="label">지금 상자 안에서만 커진다<span class="sub">고칠 곳이 적음 · 작은 캡처는 키워도 그 작은 상자 안만 보임</span></span></div></div><ul class="why"><li>지금 상자는 그림의 맞춤 크기와 같다(styles.css .image-view). 창보다 작은 캡처는 키워도 보이는 넓이가 그대로다.</li><li>휴대폰은 화면이 좁아 상자 밖 자리가 거의 없다. 창 전체를 쓰면 같은 규칙으로 두 쪽이 맞는다.</li></ul></section>
+<section class="decision" id="D3" data-for="4"><h3><span class="did">D3</span>두 번 누르기로 맞춤과 원본 크기(100%)를 오가는가</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">두지 않는다. 한 번 누르기는 지금과 같다<span class="mark">권장</span><span class="sub">맞춤에서 누르면 닫힘, 키운 뒤 누르면 맞춤 · 비용 없음</span></span></div><div class="opt"><span class="key">B</span><span class="label">둔다<span class="sub">두 번 누르면 맞춤↔100% · 한 번 누르기로 닫으려면 두 번째 누르기를 기다려 닫기가 늦어짐</span></span></div></div><ul class="why"><li>작업 조건: 닫기는 지금과 같아야 한다.</li><li>휠과 + 단추로 같은 크기에 닿는다.</li></ul></section>
+
+  <div class="fig"><h2>③ 휴대폰 <span class="tag">맞춤 크기 · 두 손가락으로 키운 뒤</span></h2><div class="page"><div class="phones">
+<div class="phone"><div class="ptop">loom</div><div class="scrim"></div><div class="stage">
+<div class="fitpic mk" data-n="6"><div class="pic"><div class="p-bar"></div><div class="p-nav"><i style="top:6%"></i><i class="on" style="top:12%"></i><i style="top:18%"></i><i style="top:24%"></i></div><div class="p-h"></div><div class="p-line" style="top:21%;width:52%"></div><div class="p-line" style="top:26%;width:40%"></div><div class="p-btn hot" style="left:24%;top:36%;width:12%"></div><div class="p-btn" style="left:33%;top:38%;width:12%"></div><div class="p-line" style="top:50%;width:46%"></div><div class="p-line" style="top:55%;width:34%"></div><div class="p-run"></div></div></div>
+<div class="zbar mk new" data-n="5"><button class="zb" aria-label="작게"><svg class="i"><use href="#minus"/></svg></button><span class="pct">25%</span><button class="zb" aria-label="크게"><svg class="i"><use href="#plus"/></svg></button><span class="sep"></span><button class="zb"><svg class="i"><use href="#fit"/></svg>맞춤</button></div>
+</div></div>
+<div class="phone"><div class="ptop">loom</div><div class="scrim"></div><div class="stage">
+<div class="bigpic"><div class="pic"><div class="p-bar"></div><div class="p-nav"><i style="top:6%"></i><i class="on" style="top:12%"></i><i style="top:18%"></i><i style="top:24%"></i></div><div class="p-h"></div><div class="p-line" style="top:21%;width:52%"></div><div class="p-line" style="top:26%;width:40%"></div><div class="p-btn hot" style="left:24%;top:36%;width:12%"></div><div class="p-btn" style="left:33%;top:38%;width:12%"></div><div class="p-line" style="top:50%;width:46%"></div><div class="p-line" style="top:55%;width:34%"></div><div class="p-run"></div></div></div>
+<span class="finger" style="left:150px;top:250px"></span><span class="finger mk" data-n="7" style="left:270px;top:390px"></span>
+<div class="zbar"><button class="zb" aria-label="작게"><svg class="i"><use href="#minus"/></svg></button><span class="pct">65%</span><button class="zb" aria-label="크게"><svg class="i"><use href="#plus"/></svg></button><span class="sep"></span><button class="zb"><svg class="i"><use href="#fit"/></svg>맞춤</button></div>
+</div></div>
+</div></div><div class="calls"><div><b>5</b><span>데스크톱과 같은 단추 줄이다. 손가락에 맞게 단추가 크다.</span></div><div><b>6</b><span>맞춤 크기에서 그림을 누르면 닫힌다. 지금과 같다.</span></div><div><b>7</b><span>두 손가락을 벌리면 그 자리를 중심으로 커지고, 한 손가락으로 끌어 옮긴다. 누르면 맞춤으로 돌아간다. 지금과 같고, 그림이 화면 전체를 채운다(D2).</span></div></div></div>
+
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
@@ -97,11 +98,13 @@ export function ZoomImage(props: { src: string; name: string; title: string }) {
       <button type="button" className="zoom" title={props.title} aria-label={t('inbox.zoomImage', { name: props.name })} onClick={() => setOpen(true)}>
         <img src={props.src} alt={props.name} />
       </button>
-      {open && (
-        <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
-          <PinchImage src={props.src} alt={props.name} onTap={() => setOpen(false)} />
-        </Modal>
-      )}
+      {open &&
+        createPortal(
+          <Modal className="image-view" label={props.name} onClose={() => setOpen(false)}>
+            <PinchImage src={props.src} alt={props.name} onClose={() => setOpen(false)} />
+          </Modal>,
+          document.body,
+        )}
     </>
   );
 }

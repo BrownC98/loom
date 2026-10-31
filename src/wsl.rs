@@ -506,7 +506,7 @@ printf '\036%s\036' "$bin""#;
     let bin = format!("{}/{}/bin", remote.home, crate::ssh::REMOTE_DIR);
     let shim = format!(
         "#!/bin/sh\n[ \"$1\" = guard ] && exit 0\nexec {} \"$@\"",
-        word(&remote.program)
+        word(&remote.current())
     );
     let command = sh(
         script,

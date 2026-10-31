@@ -539,8 +539,11 @@ fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>,
 
 fn task_dir() -> Result<PathBuf, String> {
     let dir: Option<String> = call("task", &(), None)?;
-    dir.map(crate::wsl::from_daemon)
-        .ok_or_else(|| "loom has no task folder for this node".to_owned())
+    dir.map(|dir| match crate::place::parse(&dir) {
+        crate::place::Machine::Ssh(at) => PathBuf::from(at.path),
+        crate::place::Machine::Pc | crate::place::Machine::Wsl(_) => crate::wsl::from_daemon(dir),
+    })
+    .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, String> {

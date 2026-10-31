@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, RotateCcw, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
@@ -43,7 +43,6 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const shown = props.pill !== 'off' && !pillClosed(props.closed, waits);
   const first = props.waiting[0];
   const firstWait = first && oldestWait(first);
-  const line = props.pill === 'line';
   const toList = () => setOpen(!open);
   const paneRef = useRef<HTMLDivElement>(null);
   const pane = useSize(paneRef);
@@ -61,14 +60,9 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     <div className="inbox" ref={paneRef}>
       {first && shown && (
         <div ref={group} className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <div ref={pill} className="inbox-pill" style={{ zoom }} data-view={props.pill} data-tone={firstWait.tone} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
-            <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
-            {!line && (
-              <div className="pill-row">
-                <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
-              </div>
-            )}
-          </div>
+          <PillFace ref={pill} size={props.size} view={props.pill} name={first.name} wait={firstWait} waits={waits} open={open} dragging={drag.at !== null} onClickCapture={drag.swallowClick} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))}>
+            <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
+          </PillFace>
           {open && n > 0 && at && pane && box && (
             <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={popLeft(at.left, box.w, popWidth(pane, zoom), pane.w)} width={popWidth(pane, zoom)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
               <WaitList
@@ -100,24 +94,43 @@ function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>
   );
 }
 
-function PillHead(props: { node: NodeView; wait: ScreenWait; waits: readonly ScreenWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onClose: () => void }) {
+export function PillFace(props: {
+  ref?: Ref<HTMLDivElement>;
+  size: FloatSize;
+  view: QuestionPill;
+  name: string;
+  wait: ScreenWait;
+  waits: readonly ScreenWait[];
+  open: boolean;
+  dragging: boolean;
+  onClickCapture: (e: ReactMouseEvent) => void;
+  onToggle: () => void;
+  onDragStart: (e: ReactPointerEvent<HTMLElement>) => void;
+  onReset: (() => void) | null;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
   const { t } = useTranslation();
   const { wait, open } = props;
+  const line = props.view === 'line';
   return (
-    <div className="head" aria-live="polite" onPointerDown={props.onDragStart}>
-      <button type="button" className="pill-close" aria-label={t('inbox.closePill')} title={t('inbox.closePill')} onClick={props.onClose}>
-        <X aria-hidden="true" />
-      </button>
-      <NoticeLead wait={wait} waits={props.waits} />
-      <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
-        {props.line ? <NodeText name={props.node.name} wait={wait} /> : <b>{props.node.name}</b>}
-        {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
-      </button>
-      {props.onReset && (
-        <button type="button" className="float-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
-          <RotateCcw aria-hidden="true" />
+    <div ref={props.ref} className="inbox-pill" style={{ zoom: floatZoom(props.size) }} data-view={props.view} data-tone={wait.tone} data-dragging={props.dragging || undefined} onClickCapture={props.onClickCapture}>
+      <div className="head" aria-live="polite" onPointerDown={props.onDragStart}>
+        <button type="button" className="pill-close" aria-label={t('inbox.closePill')} title={t('inbox.closePill')} onClick={props.onClose}>
+          <X aria-hidden="true" />
         </button>
-      )}
+        <NoticeLead wait={wait} waits={props.waits} />
+        <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
+          {line ? <NodeText name={props.name} wait={wait} /> : <b>{props.name}</b>}
+          {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
+        </button>
+        {props.onReset && (
+          <button type="button" className="float-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
+            <RotateCcw aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      {!line && <div className="pill-row">{props.children}</div>}
     </div>
   );
 }

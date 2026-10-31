@@ -6,7 +6,7 @@ import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { PlaceView } from './gen/PlaceView';
 import type { ReachView } from './gen/ReachView';
-import { reachText, systemText, useStarting } from './place';
+import { reachText, systemText, uniqueHosts, useStarting } from './place';
 
 export function childPath(parent: string, name: string): string {
   const sep = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
@@ -34,7 +34,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const { onPick, onPlace } = props;
   const places = (locations?.distros.length ?? 0) > 0;
   const reached = hostOf(list);
-  const hosts = [...new Set(reached === null ? props.hosts : [...props.hosts, reached])];
+  const hosts = uniqueHosts(reached === null ? props.hosts : [...props.hosts, reached]);
 
   async function load(path?: string) {
     const ask = ++latest.current;

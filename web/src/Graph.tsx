@@ -25,7 +25,7 @@ import { hopColor, hopParts, siblingLanes, type HopEndName, type HopPair } from 
 import { arrangeNested, bendCenter, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
-import { DownLine, PlaceTag, Reaches, unreachedAt, wslDistro } from './place';
+import { DownLine, PlaceTag, Reaches, unreachedAt } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
@@ -1291,7 +1291,7 @@ export function Graph(props: {
                     <NewNodePopover
                       branch={group.label}
                       place={{ repo, worktree: group.path }}
-                      distro={wslDistro(props.repos.find((r) => r.id === repo))}
+                      at={props.repos.find((r) => r.id === repo)?.place ?? { kind: 'pc' }}
                       agents={props.agents}
                       onOpen={props.onRescanAgents}
                       recent={recentAgent(views)}

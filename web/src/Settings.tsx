@@ -282,17 +282,18 @@ function AboutTab({ updates }: { updates: Updates }) {
 function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const { agents, settings } = props;
-  const places = agents[0]?.places.map((p) => p.distro) ?? [null];
+  const placesOf = (a: AgentView) => a.places.filter((p) => p.place.kind !== 'ssh');
+  const places = agents[0] ? placesOf(agents[0]).map((p) => p.place) : [];
   const multi = places.length > 1;
-  const installed = agents.filter((a) => a.places.some((p) => p.path !== null));
-  const missing = agents.filter((a) => a.places.every((p) => p.path === null));
+  const installed = agents.filter((a) => placesOf(a).some((p) => p.path !== null));
+  const missing = agents.filter((a) => placesOf(a).every((p) => p.path === null));
   const toggle = (agent: AgentView, on: boolean) => {
     const rest = settings.bypassOff.filter((id) => id !== agent.id);
     props.onSettings({ ...settings, bypassOff: on ? rest : [...rest, agent.id] });
   };
   const versionText = (a: AgentView, at: AgentAt) => at.versionWarning && t(`settings.versionWarning.${a.profile}`, at.versionWarning);
   const heading = multi
-    ? `${t('settings.installedHead')} ${places.map((d, i) => t('settings.installedAt', { place: shortPlaceName(d), n: agents.filter((a) => a.places[i].path !== null).length })).join(' · ')}`
+    ? `${t('settings.installedHead')} ${places.map((d, i) => t('settings.installedAt', { place: shortPlaceName(d), n: agents.filter((a) => placesOf(a)[i].path !== null).length })).join(' · ')}`
     : t('settings.installed', { n: installed.length });
   return (
     <>
@@ -315,15 +316,15 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                   <AgentMark agent={a.id} label={a.label} />
                   <span className="name">{a.label}</span>
                   {multi ? (
-                    a.places.map((at) => (
-                      <Fragment key={at.distro ?? ''}>
+                    placesOf(a).map((at) => (
+                      <Fragment key={shortPlaceName(at.place)}>
                         <span className="meta" translate="no">
-                          <span className="where">{shortPlaceName(at.distro)}</span>
+                          <span className="where">{shortPlaceName(at.place)}</span>
                           {at.path === null ? <span className="none">{t('newNode.notInstalled')}</span> : `${at.path} · ${t('settings.messaging')}`}
                         </span>
                         {versionText(a, at) && (
                           <span className="meta warnline" translate="no">
-                            <span className="where">{shortPlaceName(at.distro)}</span>
+                            <span className="where">{shortPlaceName(at.place)}</span>
                             {versionText(a, at)}
                           </span>
                         )}

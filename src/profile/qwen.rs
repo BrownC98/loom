@@ -30,6 +30,7 @@ impl Adapter for Qwen {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: true,
+            serves: false,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: None,

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::accounts::Cli;
+use crate::distro::Host;
 use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, ChoiceRequest, Delivery, InputField, Kind, LaunchError, MessageId,
     ModelChoice, OpenQuestion, Prompt as ScreenPrompt, Provider, Refusal, Report, Session,
@@ -31,6 +32,7 @@ use crate::protocol::{
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
+use crate::worktree::PlaceView;
 use crate::wsl::Inside;
 use adapter::{Adapter, InputSeen, LaunchAt, Logins, Meter, Port, Started};
 
@@ -334,7 +336,9 @@ pub struct AgentView {
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
     pub can_bypass: bool,
     pub model_rule: ModelRule,
-    /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
+    /// 서버로 돈다(app-server, 서버 API). loom은 SSH 호스트의 서버에 아직 닿지 못한다.
+    pub serves: bool,
+    /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판, 마지막이 SSH 호스트다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
     pub places: Vec<AgentAt>,
 }
 
@@ -352,32 +356,36 @@ pub fn model_rule(profile: Option<Profile>) -> ModelRule {
     profile.map_or(ModelRule::Fixed, |p| adapter(p).facts().model_rule)
 }
 
-/// 한 위치(이 PC 또는 WSL 배포판)에서 에이전트를 찾은 결과.
+/// 한 위치(이 PC, WSL 배포판, SSH 호스트)에서 에이전트를 찾은 결과.
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct AgentAt {
-    /// WSL 배포판 이름. 이 PC면 없다.
-    pub distro: Option<String>,
+    pub place: PlaceView,
     /// 그 위치의 `PATH`에서 찾은 실행 파일. 없으면 그 위치에 설치하지 않은 것이다.
     pub path: Option<String>,
     /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
     pub version_warning: Option<VersionMismatch>,
 }
 
-pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
+pub fn agents(insides: &[&Inside]) -> Vec<AgentView> {
     CATALOG
         .iter()
         .filter_map(|a| Some((a, a.profile?)))
         .map(|(a, profile)| {
             let names = || std::iter::once(&a.cmd).chain(&a.aliases);
             let pc = AgentAt {
-                distro: None,
+                place: PlaceView::Pc,
                 path: installed(a).map(|p| p.to_string_lossy().into_owned()),
                 version_warning: None,
             };
-            let inside = wsl.iter().map(|inside| AgentAt {
-                distro: Some(inside.distro.name().to_owned()),
+            let inside = insides.iter().map(|inside| AgentAt {
+                place: match inside.distro.host() {
+                    Host::Distro(distro) => PlaceView::Wsl {
+                        distro: distro.clone(),
+                    },
+                    Host::Ssh(host) => PlaceView::Ssh { host: host.clone() },
+                },
                 path: inside.find(names()).map(str::to_owned),
                 version_warning: None,
             });
@@ -389,6 +397,7 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
                 provider: profile.provider(),
                 can_bypass: !a.bypass.is_empty(),
                 model_rule: model_rule(Some(profile)),
+                serves: adapter(profile).facts().serves,
                 places: std::iter::once(pc).chain(inside).collect(),
             }
         })

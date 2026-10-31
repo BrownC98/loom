@@ -26,11 +26,26 @@ export type Unreached = Exclude<ReachView, { kind: 'reached' }>;
 
 export const Reaches = createContext<ReadonlyMap<string, ReachView | null>>(new Map());
 
-export const sshHosts = (repos: readonly Pick<RepoView, 'place'>[]) => [...new Set(repos.flatMap((r) => (r.place.kind === 'ssh' ? [r.place.host] : [])))];
+export const hostKey = (host: string) => host.toLowerCase();
+
+export const uniqueHosts = (hosts: readonly string[]) => hosts.filter((host, i) => hosts.findIndex((other) => hostKey(other) === hostKey(host)) === i);
+
+export const sshHosts = (repos: readonly Pick<RepoView, 'place'>[]) => uniqueHosts(repos.flatMap((r) => (r.place.kind === 'ssh' ? [r.place.host] : [])));
+
+export function samePlace(a: PlaceView, b: PlaceView): boolean {
+  switch (a.kind) {
+    case 'pc':
+      return b.kind === 'pc';
+    case 'wsl':
+      return b.kind === 'wsl' && a.distro.toLowerCase() === b.distro.toLowerCase();
+    case 'ssh':
+      return b.kind === 'ssh' && hostKey(a.host) === hostKey(b.host);
+  }
+}
 
 export function unreachedAt(place: PlaceView, reaches: ReadonlyMap<string, ReachView | null>): Unreached | null {
   if (place.kind !== 'ssh') return null;
-  const reach = reaches.get(place.host);
+  const reach = reaches.get(hostKey(place.host));
   return reach == null || reach.kind === 'reached' ? null : reach;
 }
 
@@ -136,4 +151,13 @@ export function useStarting(busy: boolean): boolean {
 
 export const placeName = (distro: string | null) => (distro === null ? i18next.t('place.pc') : i18next.t('place.wslDistro', { distro }));
 
-export const shortPlaceName = (distro: string | null) => (distro === null ? i18next.t('place.pcShort') : i18next.t('place.wslDistro', { distro }));
+export function shortPlaceName(place: PlaceView): string {
+  switch (place.kind) {
+    case 'pc':
+      return i18next.t('place.pcShort');
+    case 'wsl':
+      return i18next.t('place.wslDistro', { distro: place.distro });
+    case 'ssh':
+      return i18next.t('place.sshHost', { host: place.host });
+  }
+}

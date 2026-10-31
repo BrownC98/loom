@@ -56,7 +56,7 @@ import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { CanvasComposer, deskKeys } from './Composer';
-import { DownLine, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
+import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
@@ -343,7 +343,7 @@ export function App() {
       getRepos()
         .then((next) => {
           setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-          return Promise.all(sshHosts(next).map(async (host) => [host, await getReach(host)] as const));
+          return Promise.all(sshHosts(next).map(async (host) => [hostKey(host), await getReach(host).catch(() => null)] as const));
         })
         .then((next) => setReaches((prev) => (JSON.stringify([...prev]) === JSON.stringify(next) ? prev : new Map(next))));
     refreshRepos();

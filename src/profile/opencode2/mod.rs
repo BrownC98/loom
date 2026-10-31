@@ -64,6 +64,7 @@ impl super::adapter::Adapter for OpenCode {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
+            serves: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: match self.api {
                 Api::V2 => ModelRule::Fixed,

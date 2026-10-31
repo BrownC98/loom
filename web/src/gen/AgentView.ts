@@ -18,6 +18,10 @@ provider: Provider | null,
  */
 canBypass: boolean, modelRule: ModelRule, 
 /**
- * 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
+ * 서버로 돈다(app-server, 서버 API). loom은 SSH 호스트의 서버에 아직 닿지 못한다.
+ */
+serves: boolean, 
+/**
+ * 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판, 마지막이 SSH 호스트다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
  */
 places: Array<AgentAt>, };

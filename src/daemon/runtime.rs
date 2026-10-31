@@ -79,7 +79,7 @@ impl App {
     }
 
     pub(super) fn files(&self) -> Files<'_> {
-        Files::new(self.distros.as_deref())
+        Files::new(Some(&self.distros))
     }
 
     pub(super) async fn task_dir(&self, node: NodeId) -> Result<task::TaskDir, Problem> {
@@ -646,17 +646,16 @@ impl App {
     }
 
     pub(super) fn host(&self, host: Host) -> Result<Distro, crate::protocol::InsideError> {
-        let Some(distros) = &self.distros else {
-            return Err(crate::protocol::InsideError::Start {
-                distro: host.name().into(),
-                cause: match host {
-                    Host::Distro(_) => LINUX_LOOM_MISSING,
-                    Host::Ssh(_) => SSH_NOT_CONNECTED,
-                }
-                .into(),
-            });
-        };
-        Ok(distros.host(host))
+        match &host {
+            Host::Distro(name) if self.linux_loom.is_none() => {
+                return Err(crate::protocol::InsideError::Start {
+                    distro: name.clone(),
+                    cause: LINUX_LOOM_MISSING.into(),
+                });
+            }
+            Host::Distro(_) | Host::Ssh(_) => {}
+        }
+        Ok(self.distros.host(host))
     }
 
     fn place_host(&self, node: NodeId) -> Option<Host> {

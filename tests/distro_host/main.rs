@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -143,32 +143,30 @@ fn launches(count: &Path) -> usize {
 }
 
 fn inner_host_of(outer: &Child) -> u32 {
-    let marker = format!("{LOOM}\0distro-host\0--inner\0");
-    let parent = outer.id().to_string();
-    std::fs::read_dir("/proc")
-        .unwrap()
-        .flatten()
-        .filter(|entry| {
-            std::fs::read(entry.path().join("cmdline")).is_ok_and(|c| c == marker.as_bytes())
-        })
-        .find(|entry| {
-            std::fs::read_to_string(entry.path().join("stat")).is_ok_and(|stat| {
-                stat.rsplit(')')
-                    .next()
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .nth(1)
-                    == Some(&parent)
-            })
-        })
-        .and_then(|entry| entry.file_name().to_str()?.parse().ok())
+    let found = Command::new("pgrep")
+        .args(["-P", &outer.id().to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&found.stdout)
+        .split_whitespace()
+        .next()
+        .and_then(|pid| pid.parse().ok())
         .expect("the outer host runs an inner host")
+}
+
+fn runs(pid: u64) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
+        .success()
 }
 
 #[test]
 fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let home = &dir.path().canonicalize().unwrap();
     let count = home.join("launches");
     let socket = home.join("run/node.sock");
     let (mut outer, address) = distro_host(home, &count);
@@ -207,7 +205,7 @@ fn a_distro_host_starts_and_carries_a_node_that_outlives_it() {
     outer.kill().unwrap();
     outer.wait().unwrap();
     let until = Instant::now() + LIMIT;
-    while Path::new(&format!("/proc/{inner}")).exists() {
+    while runs(inner.into()) {
         assert!(Instant::now() < until, "the inner host ends with the outer");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -312,6 +310,6 @@ fn a_served_process_reports_its_pid_and_outlives_the_distro_host() {
     outer.wait().unwrap();
     let mut rest = Vec::new();
     let _ = link.read_to_end(&mut rest);
-    assert!(Path::new(&format!("/proc/{pid}")).exists());
+    assert!(runs(pid));
     Command::new("kill").arg(pid.to_string()).status().unwrap();
 }

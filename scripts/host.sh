@@ -18,7 +18,7 @@ git -C "$build" fetch --quiet "$PWD" HEAD
 git -C "$build" checkout --detach --quiet --force FETCH_HEAD
 linux=
 if [ -n "$target" ] && command -v x86_64-linux-musl-gcc >/dev/null; then linux=x86_64-unknown-linux-musl; fi
-(cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) &&
+(cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) LOOM_RELEASES=https://github.com/BrownC98/loom/releases &&
   memcap -m 8G cargo build --release ${target:+--target "$target"} &&
   if [ -n "$linux" ]; then rustup target add "$linux" && memcap -m 8G cargo build --release --target "$linux"; fi &&
   if [ -n "$target" ] && [ -z "$linux" ]; then memcap -m 8G cargo build --release; fi)

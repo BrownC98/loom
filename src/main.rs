@@ -24,6 +24,7 @@ mod search_path;
 mod settings;
 mod skills;
 mod spots;
+mod ssh;
 mod tailscale;
 mod task;
 mod timed;

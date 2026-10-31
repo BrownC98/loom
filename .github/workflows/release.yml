@@ -130,6 +130,11 @@ jobs:
             - macOS 앱(Apple Silicon): 터미널에서 `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`를 실행하면 앱을 응용 프로그램 폴더에 넣고 연다. 터미널 없이는 `loom_<판>_aarch64.dmg`를 열어 loom을 응용 프로그램 폴더로 끌고, 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
             - Android 앱: 폰에서 `loom_<판>.apk`를 받아 설치한다. 폰과 PC에 Tailscale이 있어야 한다. PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 앱에서 찍는다.
             - 웹 버전(앱 없이 브라우저로, `loom-web-*` 파일): 아래 명령이 받는다. Linux·WSL `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
+      - name: macOS 안쪽 호스트와 서명 확인
+        if: runner.os == 'macOS'
+        run: |
+          cargo test --test distro_host
+          codesign --verify --verbose target/release/loom
       - name: 웹 버전 실행 파일 올리기
         run: |
           version=v${{ steps.version.outputs.version }}

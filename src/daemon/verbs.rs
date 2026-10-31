@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::{AgentId, ModelChoice};
 
 pub(super) async fn agent_spawn(
     State(app): State<Arc<App>>,
@@ -72,7 +73,13 @@ pub(super) async fn spawn(
                 .to_owned(),
         ),
     };
-    let start = role_start(&app.settings, role, &brief)?;
+    let start = role_start(
+        &app.settings,
+        role,
+        &brief,
+        req.agent.clone(),
+        req.choice.clone(),
+    )?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
@@ -142,17 +149,33 @@ fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> 
         })
 }
 
-fn role_start(settings: &Settings, role: &str, brief: &str) -> Result<Start, Problem> {
-    let assigned = settings
-        .get()
-        .map_err(internal)?
-        .roles
-        .assign(role, brief)
-        .map_err(role_refusal)?;
+fn role_start(
+    settings: &Settings,
+    role: &str,
+    brief: &str,
+    agent: Option<AgentId>,
+    choice: ModelChoice,
+) -> Result<Start, Problem> {
+    let roles = settings.get().map_err(internal)?.roles;
+    let assigned = roles.assign(role, brief).map_err(role_refusal)?;
+    let chosen = match (agent, choice.is_empty()) {
+        (None, true) => NewAgent {
+            agent: assigned.agent,
+            choice: assigned.choice,
+        },
+        (agent, _) => relaunch::chosen_agent(
+            &roles,
+            Some(role),
+            NewAgent {
+                agent: agent.unwrap_or(assigned.agent),
+                choice,
+            },
+        )?,
+    };
     Ok(Start::Agent {
-        agent: assigned.agent,
+        agent: chosen.agent,
         brief: assigned.brief,
-        choice: assigned.choice,
+        choice: chosen.choice,
         resume: None,
     })
 }

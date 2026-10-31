@@ -80,6 +80,10 @@ pub struct SpawnRequest {
     pub run: SpawnRun,
     pub brief: String,
     pub worktree: Option<String>,
+    #[serde(default)]
+    pub agent: Option<crate::protocol::AgentId>,
+    #[serde(default)]
+    pub choice: crate::protocol::ModelChoice,
 }
 
 #[derive(Serialize, Deserialize)]

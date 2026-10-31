@@ -203,6 +203,8 @@ impl App {
                 },
                 brief: String::new(),
                 worktree: None,
+                agent: None,
+                choice: Default::default(),
             };
             match spawn(self, gate, request).await {
                 Ok(_) | Err(Problem::Refused(Refusal::ReviewerSeated { .. })) => {}

@@ -32,7 +32,7 @@ function PreviewBox(props: { size: FloatSize; Sample: SizePreview }) {
 function PillSample(props: { size: FloatSize }) {
   const { t } = useTranslation();
   const wait: ScreenWait = { tone: 'ask', summary: t('floatSize.sampleText'), id: 1, kind: 'question', text: '', since: 0, answerable: false, doc: null, images: [] };
-  return <PillFace size={props.size} view="line" name={t('floatSize.sampleNode')} wait={wait} waits={[wait]} open={false} dragging={false} onClickCapture={IDLE} onToggle={IDLE} onDragStart={IDLE} onReset={null} onClose={IDLE} />;
+  return <PillFace size={props.size} view="line" name={t('floatSize.sampleNode')} wait={wait} waits={[]} open={false} dragging={false} onClickCapture={IDLE} onToggle={IDLE} onDragStart={IDLE} onReset={null} onClose={IDLE} />;
 }
 
 function ComposerSample(props: { size: FloatSize }) {

@@ -17,7 +17,7 @@ description: The Loom version of o-mode (orchestration mode). A procedure to dev
 
 Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `loom roles` by its duty; the human renames roles.
 
-- To change the agent of a running node, use `loom relaunch <target> --agent <id>` (any node); do not remove and spawn again. For new nodes, only the human changes the role table.
+- To change the agent of a running node, use `loom relaunch <target> --agent <id>` (any node); do not remove and spawn again. Do not send `--interrupt` after it: the switch stops the old work, and a later interrupt stops the new session. For new nodes, only the human changes the role table.
 - A high-risk edit scope goes to the high-risk role. That alone needs no worker.
 - The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one coordinator in a new worktree. It keeps the work context: current work, children, decisions, waiting approvals. It reads only the coordinator's `done` and the gate's merged and failed results, not result files.
 - The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its facts short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.

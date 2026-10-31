@@ -85,7 +85,7 @@ impl App {
         node: NodeId,
         prompt: Option<&str>,
     ) -> Result<Option<String>, Refusal> {
-        let injected = self.first_inputs.injected(node);
+        let injected = self.graph.first_input_taken(node)?;
         if !injected {
             self.graph.human_input(node)?;
         }
@@ -204,7 +204,7 @@ impl App {
         req: TakeRequest,
     ) -> Result<WakeReply, Refusal> {
         self.keep_session(token, req.session.as_ref())?;
-        if self.first_inputs.pending(node) {
+        if self.graph.first_input_pending(node)? {
             return Ok(WakeReply::Mail(Vec::new()));
         }
         let order = self.wakes.order();
@@ -269,7 +269,7 @@ impl App {
     }
 
     fn wake(&self, node: NodeId, hold: Hold) -> rusqlite::Result<Option<Wake>> {
-        if self.first_inputs.pending(node) {
+        if self.graph.first_input_pending(node)? {
             return Ok(None);
         }
         if self.graph.has_waking(node, Kind::ALL, hold)? {

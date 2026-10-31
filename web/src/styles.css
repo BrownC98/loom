@@ -830,6 +830,14 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .switch-list li { display: flex; justify-content: space-between; gap: 12px; }
 .switch-list .st { color: var(--ink-3); }
 .place { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; line-height: 18px; }
+.place.down { border-color: var(--err); color: var(--err); }
+.downline { display: flex; align-items: center; gap: 10px; margin: 0; padding: 6px 16px; font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--line); background: color-mix(in oklch, var(--err) 8%, transparent); pointer-events: all; }
+.downline > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.downline > .btn { flex: none; }
+.canvas-down { position: absolute; top: 52px; left: 16px; right: 16px; z-index: 5; pointer-events: none; }
+.canvas-down .downline { border: 1px solid var(--line); border-radius: 8px; background: color-mix(in oklch, var(--err) 8%, var(--panel)); }
+.react-flow__node.unreached .card { opacity: 0.55; }
+.unreached-tag { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .canvas-title { display: flex; align-items: center; gap: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); background: none; font-size: 12px; color: var(--ink-2); cursor: pointer; }

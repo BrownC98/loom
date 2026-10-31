@@ -1,11 +1,12 @@
-import { ChevronLeft, ChevronRight, Folder, Globe, Monitor, Terminal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder, Globe, LoaderCircle, Monitor, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getDistro, getFolders, getLocations } from './api';
+import { connectSsh, getDistro, getFolders, getLocations } from './api';
 import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { PlaceView } from './gen/PlaceView';
-import { useStarting } from './place';
+import type { ReachView } from './gen/ReachView';
+import { reachText, systemText, useStarting } from './place';
 
 export function childPath(parent: string, name: string): string {
   const sep = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
@@ -26,6 +27,8 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const [waiting, setWaiting] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [host, setHost] = useState('');
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [reach, setReach] = useState<{ host: string; view: ReachView } | null>(null);
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
   const { onPick, onPlace } = props;
@@ -80,6 +83,8 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   }
 
   function go(path: string, distro: string | null = null) {
+    setConnecting(null);
+    setReach(null);
     setDir(path);
     setSelected(null);
     onPick(path);
@@ -96,10 +101,26 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     go('');
   }
 
-  function connect(name: string) {
-    if (name.trim() === '') return;
+  async function connect(name: string) {
+    const at = name.trim();
+    if (at === '') return;
+    const ask = ++latest.current;
     setOpen(true);
-    go(`ssh://${name.trim()}/`);
+    setList(null);
+    setFailed('');
+    setReach(null);
+    setConnecting(at);
+    try {
+      const view = await connectSsh(at);
+      if (ask !== latest.current) return;
+      setConnecting(null);
+      if (view.kind === 'reached') go(`ssh://${at}${view.home}`);
+      setReach({ host: at, view });
+    } catch (err) {
+      if (ask !== latest.current) return;
+      setConnecting(null);
+      setFailed((err as Error).message);
+    }
   }
 
   const drivePressed = (drive: string) => !asking && list !== null && list.place.kind === 'pc' && list.path.toUpperCase().startsWith(drive.toUpperCase());
@@ -177,13 +198,20 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
                 autoFocus
                 translate="no"
               />
-              <button type="button" className="btn primary" disabled={props.disabled || host.trim() === ''} onClick={() => connect(host)}>
-                {t('place.connect')}
+              <button type="button" className="btn primary" disabled={props.disabled || host.trim() === '' || connecting !== null} onClick={() => connect(host)}>
+                {connecting !== null && <LoaderCircle className="spin" />}
+                {t(connecting === null ? 'place.connect' : 'place.connecting')}
               </button>
             </div>
           </div>
           <p className="hint">{t('place.sshHint')}</p>
         </div>
+      )}
+      {connecting !== null && <p className="hint">{t('place.connectingHint', { host: connecting })}</p>}
+      {reach !== null && reach.view.kind !== 'reached' && (
+        <p className="error" role="alert">
+          {reachText(reach.host, reach.view, t)}
+        </p>
       )}
       {open && (
         <ul className="dirs" aria-label={t('repo.folders')} translate="no">
@@ -216,7 +244,11 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
           {failed === '' && list?.folders.length === 0 && <li className="hint">{t('repo.noFolders')}</li>}
         </ul>
       )}
-      {reached !== null && <p className="hint" translate="no">{t('place.sshReached', { host: reached })}</p>}
+      {reach !== null && reach.view.kind === 'reached' && reached === reach.host && (
+        <p className="hint" translate="no">
+          {t('place.sshReached', { host: reach.host, system: systemText(reach.view.system, t) })}
+        </p>
+      )}
     </>
   );
 }

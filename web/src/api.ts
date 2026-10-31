@@ -36,6 +36,7 @@ import type { OpenLink } from './gen/OpenLink';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
+import type { ReachView } from './gen/ReachView';
 import type { PhoneView } from './gen/PhoneView';
 import type { Served } from './gen/Served';
 import type { ClosedPage } from './gen/ClosedPage';
@@ -141,6 +142,9 @@ export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repo
 export const removeRepo = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}`);
 export const getLocations = () => call<Locations>('GET', '/api/locations');
 export const getDistro = (name: string) => call<DistroView>('GET', `/api/distros/${encodeURIComponent(name)}`);
+export const getReach = (host: string) => call<ReachView | null>('GET', `/api/ssh/${encodeURIComponent(host)}`);
+export const connectSsh = (host: string) => call<ReachView>('POST', `/api/ssh/${encodeURIComponent(host)}`);
+export const reconnectSsh = (host: string) => call<null>('POST', `/api/ssh/${encodeURIComponent(host)}/reconnect`);
 export const getFolders = (path?: string) => call<FolderList>('GET', path === undefined ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`);
 export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);
 const worktreeQuery = (path: string) => `path=${encodeURIComponent(path)}`;

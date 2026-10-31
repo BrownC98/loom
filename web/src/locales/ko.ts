@@ -222,6 +222,8 @@ const ko: typeof en = {
     noMatch: '일치하는 프로필 없음',
     account: '계정: {{name}} · {{usage}}',
     accountAt: '계정: {{name}} ({{place}}) · {{usage}}',
+    accountSsh: '계정: {{host}}의 시스템 기본',
+    serverOnSsh: 'SSH에서 아직 쓸 수 없음',
     bypass: '모든 권한 허용으로 시작합니다. ‘설정 › 에이전트’에서 끌 수 있습니다.',
   },
   settings: {

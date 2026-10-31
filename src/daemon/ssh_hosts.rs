@@ -27,6 +27,10 @@ struct Watched {
     now: Arc<Notify>,
 }
 
+pub(super) fn key(host: &str) -> String {
+    host.to_lowercase()
+}
+
 impl App {
     pub(super) fn watch_ssh_hosts(self: &Arc<Self>) {
         match self.ssh_hosts_in_use() {
@@ -37,18 +41,20 @@ impl App {
 
     pub(super) fn ssh_reach(&self, host: &str) -> Option<Reach> {
         let hosts = self.ssh_hosts.0.lock().unwrap();
-        hosts.get(host).and_then(|watched| watched.reach.clone())
+        hosts
+            .get(&key(host))
+            .and_then(|watched| watched.reach.clone())
     }
 
     pub(super) fn reconnect_ssh(self: &Arc<Self>, host: &str) {
         self.watch_ssh(host.to_owned());
-        if let Some(watched) = self.ssh_hosts.0.lock().unwrap().get(host) {
+        if let Some(watched) = self.ssh_hosts.0.lock().unwrap().get(&key(host)) {
             watched.now.notify_one();
         }
     }
 
     fn watch_ssh(self: &Arc<Self>, host: String) {
-        let now = match self.ssh_hosts.0.lock().unwrap().entry(host.clone()) {
+        let now = match self.ssh_hosts.0.lock().unwrap().entry(key(&host)) {
             Entry::Occupied(_) => return,
             Entry::Vacant(free) => free
                 .insert(Watched {
@@ -98,17 +104,17 @@ impl App {
                 eprintln!("loom: SSH 호스트를 읽지 못했다: {e}");
                 true
             },
-            |used| used.iter().any(|name| name == host),
+            |used| used.iter().any(|name| key(name) == key(host)),
         );
         if !used {
-            hosts.remove(host);
+            hosts.remove(&key(host));
         }
         used
     }
 
     fn set_reach(&self, host: &str, reach: Reach) {
         let mut hosts = self.ssh_hosts.0.lock().unwrap();
-        let Some(watched) = hosts.get_mut(host) else {
+        let Some(watched) = hosts.get_mut(&key(host)) else {
             return;
         };
         if watched.reach.as_ref() == Some(&reach) {

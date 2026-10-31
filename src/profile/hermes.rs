@@ -44,6 +44,7 @@ impl Adapter for Hermes {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            serves: false,
             turn_take: TurnTake::StaysInTurn,
             model_rule: ModelRule::Free,
             pinned: None,

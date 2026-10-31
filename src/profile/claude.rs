@@ -90,6 +90,7 @@ impl Adapter for Claude {
             },
             sleeps: true,
             listens_at_start: true,
+            serves: false,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: None,

@@ -24,6 +24,7 @@ impl Adapter for Vibe {
             logins: Logins::None,
             sleeps: true,
             listens_at_start: false,
+            serves: false,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: Some("vibe"),

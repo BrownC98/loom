@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { LoaderCircle, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,30 +10,43 @@ import type { AgentId } from './gen/AgentId';
 import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
 import type { Place } from './gen/Place';
+import type { PlaceView } from './gen/PlaceView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Start } from './gen/Start';
-import { shortPlaceName, useStarting } from './place';
+import { samePlace, shortPlaceName, useStarting } from './place';
 import { accountName, activeAccount, windowsText } from './usage';
 
 type Choice = { agent: AgentView | null; installed: boolean };
 
 const keyOf = (c: Choice): AgentId | null => c.agent?.id ?? null;
 
-const pathAt = (agent: AgentView, distro: string | null) => agent.places.find((p) => p.distro === distro)?.path ?? null;
+const blockedAt = (agent: AgentView, at: PlaceView) => at.kind === 'ssh' && agent.serves;
 
-function choices(agents: AgentView[], distro: string | null): Choice[] {
+const usableAt = (agent: AgentView, at: PlaceView) => !blockedAt(agent, at) && (agent.places.find((p) => samePlace(p.place, at))?.path ?? null) !== null;
+
+function choices(agents: AgentView[], at: PlaceView): Choice[] {
   return [
     { agent: null, installed: true },
-    ...agents.filter((a) => pathAt(a, distro) !== null).map((agent) => ({ agent, installed: true })),
-    ...agents.filter((a) => pathAt(a, distro) === null).map((agent) => ({ agent, installed: false })),
+    ...agents.filter((a) => usableAt(a, at)).map((agent) => ({ agent, installed: true })),
+    ...agents.filter((a) => !usableAt(a, at)).map((agent) => ({ agent, installed: false })),
   ];
 }
 
+function placeShort(at: PlaceView, t: TFunction): string {
+  switch (at.kind) {
+    case 'pc':
+      return t('place.pcShort');
+    case 'wsl':
+      return t('place.wsl');
+    case 'ssh':
+      return at.host;
+  }
+}
 
 export function NewNodePopover(props: {
   branch: string;
   place: Place;
-  distro: string | null;
+  at: PlaceView;
   agents: AgentView[];
   onOpen: () => void;
   recent: AgentId | null | undefined;
@@ -45,16 +59,17 @@ export function NewNodePopover(props: {
   const box = useEscapeClose<HTMLFormElement>(props.onCancel);
   const labelOf = (c: Choice) => c.agent?.label ?? t('newNode.shell');
   const loading = props.agents.length === 0;
-  const places = props.agents[0]?.places.map((p) => p.distro) ?? [null];
-  const distro = places.includes(props.distro) ? props.distro : null;
-  const multi = places.length > 1;
-  const all = loading ? [] : choices(props.agents, distro);
+  const places = props.agents[0]?.places.map((p) => p.place) ?? [];
+  const at: PlaceView = props.at.kind === 'ssh' || places.some((p) => samePlace(p, props.at)) ? props.at : { kind: 'pc' };
+  const distro = at.kind === 'wsl' ? at.distro : null;
+  const multi = places.length > 1 || at.kind !== 'pc';
+  const all = loading ? [] : choices(props.agents, at);
   const installed = all.filter((c) => c.installed);
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<{ key: AgentId | null } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const starting = useStarting(busy && props.distro !== null);
+  const starting = useStarting(busy && distro !== null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const needle = query.trim().toLowerCase();
@@ -101,6 +116,11 @@ export function NewNodePopover(props: {
     setPicked({ key: keyOf(next) });
   }
 
+  const missingTag = (agent: AgentView | null) => {
+    if (agent && blockedAt(agent, at)) return t('newNode.serverOnSsh');
+    if (multi && agent?.places.some((p) => p.path !== null)) return t('place.missingAt', { place: placeShort(at, t) });
+    return t('newNode.notInstalled');
+  };
   const optionId = (i: number) => `n-opt-${i}`;
   const installedShown = shown.filter((c) => c.installed);
   const missingShown = shown.filter((c) => !c.installed);
@@ -119,7 +139,7 @@ export function NewNodePopover(props: {
       >
         <span translate="no">{labelOf(c)}</span>
         {c.installed && props.recent !== undefined && keyOf(c) === props.recent && <span className="recent">{t('newNode.recent')}</span>}
-        {!c.installed ? <span className="tag">{multi && c.agent?.places.some((p) => p.path !== null) ? t('place.missingAt', { place: distro === null ? t('place.pcShort') : t('place.wsl') }) : t('newNode.notInstalled')}</span> : c.agent === null && <span className="tag">{t('newNode.terminalOnly')}</span>}
+        {!c.installed ? <span className="tag">{missingTag(c.agent)}</span> : c.agent === null && <span className="tag">{t('newNode.terminalOnly')}</span>}
       </li>
     );
   };
@@ -158,7 +178,7 @@ export function NewNodePopover(props: {
           {installedShown.length > 0 && (
             <li className="grp" role="presentation">
               {multi
-                ? t('newNode.installedAt', { n: installedShown.filter((c) => c.agent).length, place: shortPlaceName(distro) })
+                ? t('newNode.installedAt', { n: installedShown.filter((c) => c.agent).length, place: shortPlaceName(at) })
                 : t('newNode.installed', { n: installedShown.filter((c) => c.agent).length })}
             </li>
           )}
@@ -170,18 +190,20 @@ export function NewNodePopover(props: {
           )}
           {missingShown.map(option)}
         </ul>
-        {account && (
-          <span className="hint">
-            {multi
-              ? t('newNode.accountAt', { name: accountName(account), place: shortPlaceName(distro), usage: windowsText(account.usage.limits) })
-              : t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}
-          </span>
-        )}
+        {at.kind === 'ssh'
+          ? agent?.provider && <span className="hint">{t('newNode.accountSsh', { host: at.host })}</span>
+          : account && (
+              <span className="hint">
+                {multi
+                  ? t('newNode.accountAt', { name: accountName(account), place: shortPlaceName(at), usage: windowsText(account.usage.limits) })
+                  : t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}
+              </span>
+            )}
         {agent && canBypass(agent, props.settings.bypassOff) && <span className="hint">{t('newNode.bypass')}</span>}
       </div>
       {starting && (
         <span className="hint" role="status">
-          {t('place.starting', { distro: props.distro })}
+          {t('place.starting', { distro })}
         </span>
       )}
       {error && (

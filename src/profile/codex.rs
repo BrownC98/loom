@@ -112,6 +112,7 @@ impl super::adapter::Adapter for Codex {
             },
             sleeps: true,
             listens_at_start: true,
+            serves: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: Some(self.program()),

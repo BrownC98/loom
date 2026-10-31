@@ -37,6 +37,7 @@ impl Adapter for Crush {
             logins: Logins::None,
             sleeps: false,
             listens_at_start: true,
+            serves: true,
             turn_take: TurnTake::CanOpenTurn,
             model_rule: ModelRule::Free,
             pinned: None,

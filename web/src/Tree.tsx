@@ -17,7 +17,7 @@ import type { Found } from './findSpots';
 import { useShowAll, useShowGroups, useShowNodes } from './camera';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
-import { ShortPlaceTag, sshHosts, wslDistro } from './place';
+import { ShortPlaceTag, sshHosts } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
@@ -417,7 +417,7 @@ export function Tree(props: {
         <NewNodePopover
           branch={group.label}
           place={{ repo: repo.id, worktree: group.path }}
-          distro={wslDistro(repo)}
+          at={repo.place}
           agents={props.agents}
           onOpen={props.onRescanAgents}
           recent={recentAgent(views)}

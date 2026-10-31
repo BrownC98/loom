@@ -13,6 +13,7 @@ use ts_rs::TS;
 
 use super::nodes::serve_pty;
 use super::origin::ViaRemote;
+use super::ssh_hosts::{self, Reach};
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::distro::Host;
@@ -111,19 +112,17 @@ pub fn routes() -> Router<Arc<App>> {
 }
 
 async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
-    let sites = app.sites().await;
+    let (sites, ssh) = tokio::join!(app.sites(), app.ssh_insides());
     let wsl: Vec<_> = sites.iter().filter_map(Site::inside).collect();
-    let warnings = join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await;
-    let pc = profile::version_warnings(&app.versions);
-    let mut agents = profile::agents(&wsl);
+    let warnings: Vec<_> = std::iter::once(profile::version_warnings(&app.versions))
+        .chain(join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await)
+        .collect();
+    let insides: Vec<_> = wsl.into_iter().chain(&ssh).collect();
+    let mut agents = profile::agents(&insides);
     agents.sort_by_cached_key(|a| a.label.to_lowercase());
     for agent in &mut agents {
         let profile = agent.profile;
-        for (i, place) in agent.places.iter_mut().enumerate() {
-            let warnings = match i {
-                0 => &pc,
-                _ => &warnings[i - 1],
-            };
+        for (place, warnings) in agent.places.iter_mut().zip(&warnings) {
             place.version_warning = warnings.get(&profile).cloned();
         }
     }
@@ -384,6 +383,30 @@ impl App {
             }
         }
         sites
+    }
+
+    async fn ssh_insides(&self) -> Vec<Inside> {
+        let mut found: BTreeMap<String, place::SshPath> = BTreeMap::new();
+        for (_, path) in self.repos.list().unwrap_or_default() {
+            if let Machine::Ssh(at) = place::of(&path)
+                && let Some(Reach::Reached(_)) = self.ssh_reach(&at.host)
+            {
+                found.entry(ssh_hosts::key(&at.host)).or_insert(at);
+            }
+        }
+        let commands = profile::catalog_commands();
+        let read = found.values().map(|at| async {
+            let (distro, remote) = self.ssh_host(at).await?;
+            wsl::inside_ssh(at.url(""), &at.path, distro, &remote, &commands, Vec::new()).await
+        });
+        let mut insides = Vec::new();
+        for inside in join_all(read).await {
+            match inside {
+                Ok(inside) => insides.push(inside),
+                Err(e) => eprintln!("loom: SSH 위치를 읽지 못했다: {e}"),
+            }
+        }
+        insides
     }
 
     pub(super) async fn site_of(&self, distro: Option<&str>) -> Result<Site, Problem> {

@@ -220,6 +220,8 @@ const en = {
     noMatch: 'No matching profile',
     account: 'Account: {{name}} · {{usage}}',
     accountAt: 'Account: {{name}} ({{place}}) · {{usage}}',
+    accountSsh: 'Account: system default on {{host}}',
+    serverOnSsh: 'Not on SSH yet',
     bypass: 'Starts with all permissions allowed. Turn this off in Settings › Agents.',
   },
   settings: {

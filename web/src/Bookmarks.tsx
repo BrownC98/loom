@@ -8,7 +8,7 @@ import type { RepoView } from './gen/RepoView';
 import { useShowNodes } from './camera';
 import { stateClass, stateText } from './NodeCard';
 import { MenuSheet, useLongPress, usePhone } from './sheet';
-import { groupsOf } from './repos';
+import { bookmarked, placeName } from './repos';
 
 export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: RepoView[]; selected: NodeId | null; onSelect: (id: NodeId) => void; open: boolean; onOpen: (open: boolean) => void }) {
   const { t } = useTranslation();
@@ -20,13 +20,7 @@ export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: 
   const longPress = useLongPress((row) => setMenu(Number(row.dataset.node) as NodeId));
   const menuView = menu === null ? undefined : props.views.get(menu);
   const views = [...props.views.values()];
-  const marked = views.filter((v) => v.bookmark !== null).sort((a, b) => a.bookmark! - b.bookmark!);
-  const where = (v: NodeView) => {
-    const repo = props.repos.find((r) => r.id === v.place.repo);
-    if (!repo) return '';
-    const group = groupsOf(repo, views).find((g) => g.path === v.place.worktree);
-    return group ? `${repo.name} · ${group.label}` : repo.name;
-  };
+  const marked = bookmarked(views);
   return (
     <section className="bookmarks" aria-label={t('bookmark.label')}>
       <div className="side-head">
@@ -61,7 +55,7 @@ export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: 
                     >
                       <span className={`dot ${stateClass(v)}`} aria-label={stateText(v)} />
                       <span className="name">{v.name}</span>
-                      <span className="sub">{where(v)}</span>
+                      <span className="sub">{placeName(props.repos, views, v)}</span>
                     </button>
                     {phone ? (
                       <button type="button" className="row-menu" aria-label={t('tree.rowMenu', { name: v.name })} aria-haspopup="dialog" onClick={() => setMenu(v.id)}>

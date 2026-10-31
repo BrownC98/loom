@@ -1028,6 +1028,10 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .node-pick .pick-row .sub { display: block; color: var(--ink-3); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
 .node-pick .pick-row svg { flex: none; width: 14px; height: 14px; color: var(--ink-2); }
 .node-pick .pick-none { padding: 4px 14px 12px; color: var(--ink-3); }
+.node-pick-at[data-above] .node-pick { flex-direction: column-reverse; }
+.node-pick-at[data-above] .pick-find { margin-top: 0; }
+.node-pick-at[data-above] .pick-list { padding-top: 6px; }
+.node-pick-at[data-above] .pick-none { padding: 12px 14px 4px; }
 .composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 8px 8px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
 .composer:focus-within, .composer[data-dragging] { border-color: var(--accent); }
 .composer-to { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; }

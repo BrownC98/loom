@@ -62,7 +62,7 @@ function holdUpload(key: string, upload: Promise<unknown>) {
   });
 }
 
-export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; views: ReadonlyMap<NodeId, NodeView>; repos: readonly RepoView[]; onPick: (id: NodeId) => void }) {
+export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; corner: number; onPlace: (place: FloatPlace | null) => void; views: ReadonlyMap<NodeId, NodeView>; repos: readonly RepoView[]; onPick: (id: NodeId) => void }) {
   const input = useNodeInput(props.node);
   const layer = useRef<HTMLDivElement>(null);
   const float = useRef<HTMLDivElement>(null);
@@ -88,8 +88,9 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
     return () => void canvas.style.removeProperty(COMPOSER_ROOM);
   }, [box?.h, home]);
   if (!input) return null;
-  const at = drag.at ?? (pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null);
-  const zoom = { '--float-zoom': floatZoom(props.size) } as CSSProperties;
+  const placed = pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null;
+  const at = drag.at ?? (placed && pane && box && home ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - box.w) } : placed);
+  const zoom = { '--float-zoom': floatZoom(props.size), ...(home && { '--float-corner': `${props.corner}px` }) } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const pickWidth = pane ? Math.min(PICK_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : 0;
   const pickLeft = at && pane ? Math.max(FLOAT_MARGIN, Math.min(at.left, pane.w - FLOAT_MARGIN - pickWidth)) - at.left : 0;

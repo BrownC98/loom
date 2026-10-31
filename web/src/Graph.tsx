@@ -109,6 +109,31 @@ function UnzoomVar() {
   return null;
 }
 
+function CornerWatch(props: { onCorner: (width: number) => void }) {
+  const root = useStore((s) => s.domNode);
+  const { onCorner } = props;
+  useLayoutEffect(() => {
+    if (!root) return;
+    const panels = () => [...root.querySelectorAll('.react-flow__panel.bottom.right')];
+    const read = () => onCorner(Math.max(0, ...panels().map((panel) => root.getBoundingClientRect().right - panel.getBoundingClientRect().left)));
+    const sizes = new ResizeObserver(read);
+    const track = () => {
+      sizes.disconnect();
+      panels().forEach((panel) => sizes.observe(panel));
+      read();
+    };
+    const mounts = new MutationObserver(track);
+    mounts.observe(root, { childList: true });
+    track();
+    return () => {
+      mounts.disconnect();
+      sizes.disconnect();
+      onCorner(0);
+    };
+  }, [root, onCorner]);
+  return null;
+}
+
 function ZoomLevel(props: { folded: boolean; onFold: (folded: boolean) => void }) {
   const { t } = useTranslation();
   const flow = useReactFlow();
@@ -455,6 +480,7 @@ export function Graph(props: {
   settings: SettingsView;
   viewVersion: number;
   onMinimapFold: (folded: boolean) => void;
+  onCorner: (width: number) => void;
   accounts: AccountView[] | null;
   selected: NodeId | null;
   focusAsk: number;
@@ -1235,6 +1261,7 @@ export function Graph(props: {
           folded={minimapFolded}
           onFold={props.onMinimapFold}
         />
+        <CornerWatch onCorner={props.onCorner} />
         {groups.flatMap(({ group, repo, members, origin }) => [{ group, repo, members, origin }, ...chipsOf(group.path).map((chip) => ({ group: chip, repo, members: [], origin }))]).map(({ group, repo, members, origin }) => {
           return (
             (creating === group.path || deleting === group.path) &&

@@ -164,6 +164,7 @@ export function App() {
   const [stopped, setStopped] = useState(false);
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [chosenBox, setChosenBox] = useState<string | null>(null);
+  const [graphCorner, setGraphCorner] = useState(0);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -569,6 +570,7 @@ export function App() {
               repos={shown}
               viewVersion={viewVersion}
               onMinimapFold={(minimapFolded) => editSettings((s) => ({ ...s, minimapFolded }))}
+              onCorner={setGraphCorner}
               onRepo={putRepo}
               views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
               pulses={live.pulses}
@@ -588,7 +590,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} views={nodes} repos={repos} onPick={selectNode} />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} views={nodes} repos={repos} onPick={selectNode} />}
           </main>
           {dockOpen ? (
             <Dock

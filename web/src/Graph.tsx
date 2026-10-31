@@ -1261,7 +1261,7 @@ export function Graph(props: {
           folded={minimapFolded}
           onFold={props.onMinimapFold}
         />
-        <CornerWatch onCorner={props.onCorner} />
+        {!zoomedView && <CornerWatch onCorner={props.onCorner} />}
         {groups.flatMap(({ group, repo, members, origin }) => [{ group, repo, members, origin }, ...chipsOf(group.path).map((chip) => ({ group: chip, repo, members: [], origin }))]).map(({ group, repo, members, origin }) => {
           return (
             (creating === group.path || deleting === group.path) &&

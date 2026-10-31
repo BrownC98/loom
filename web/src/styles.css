@@ -999,7 +999,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
 
 .composer-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
-.composer-float { position: absolute; width: min(calc(600px * var(--float-zoom)), calc(100% - 24px - var(--float-corner, 0px))); pointer-events: auto; }
+.composer-float { position: absolute; pointer-events: auto; }
 .composer-float > .composer { zoom: var(--float-zoom); }
 .composer-float .composer-to { cursor: grab; touch-action: none; }
 .composer-float[data-dragging] .composer-to { cursor: grabbing; }

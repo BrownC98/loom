@@ -27,6 +27,7 @@ export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blan
 
 const COMPOSER_ROOM = '--composer-room';
 const PICK_WIDTH = 380;
+const COMPOSER_WIDTH = 600;
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
 type FloatHead = { onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onName: () => void; list: { button: RefObject<HTMLButtonElement | null>; open: boolean; onToggle: () => void } };
@@ -70,7 +71,9 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
   const [listing, setListing] = useState(false);
   const pane = useSize(layer);
   const box = useSize(float);
-  const drag = useFloatDrag(float, pane, box, props.onPlace);
+  const fullWidth = pane ? Math.min(COMPOSER_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : null;
+  const fullBox = box && fullWidth !== null ? { w: fullWidth, h: box.h } : null;
+  const drag = useFloatDrag(float, pane, fullBox, props.onPlace);
   const show = useShowNodes();
   const home = props.place === null;
   const focusField = () => float.current?.querySelector('textarea')?.focus();
@@ -88,9 +91,11 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
     return () => void canvas.style.removeProperty(COMPOSER_ROOM);
   }, [box?.h, home]);
   if (!input) return null;
-  const placed = pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null;
-  const at = drag.at ?? (placed && pane && box && home ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - box.w) } : placed);
-  const zoom = { '--float-zoom': floatZoom(props.size), ...(home && { '--float-corner': `${props.corner}px` }) } as CSSProperties;
+  const beside = home && !drag.at;
+  const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
+  const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
+  const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
+  const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const pickWidth = pane ? Math.min(PICK_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : 0;
   const pickLeft = at && pane ? Math.max(FLOAT_MARGIN, Math.min(at.left, pane.w - FLOAT_MARGIN - pickWidth)) - at.left : 0;

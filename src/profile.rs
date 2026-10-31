@@ -733,7 +733,7 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 - loom adopt <name>: become that node's parent. loom detach <name>: make that node a root again (its loom ask then goes to the human). loom rm <target>: remove that node and end its process; its children become yours.
 - loom relaunch [<target>]: restart your own (or any other node's) agent process with the current loom settings; the conversation continues after the turn ends. Add --agent <agent-id> to give the node to a new session of that agent; the node keeps its role, mailbox, and children.
 Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
-With a parent, write no progress in the terminal. Results go in loom done or loom note. End each turn with at most one short line.
+Write no progress in the terminal. Results go in loom done or loom note. Do not write again in the terminal what you sent with loom ask, loom done or loom note. End each turn with at most one short line, for example \"코디 결과 대기\". A direct answer to the human's terminal question can be longer, but must not repeat a done or an ask.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 

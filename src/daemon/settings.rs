@@ -411,7 +411,11 @@ impl App {
             }
             Machine::Pc => self.pc_site(),
             Machine::Ssh(at) => {
-                return Err(LaunchError::Wsl(super::runtime::unconnected(&at)).into());
+                let (distro, remote) = self.ssh_host(&at).await.map_err(LaunchError::Wsl)?;
+                let commands: Vec<_> = profile::with_accounts().map(|a| a.cli.command).collect();
+                let inside =
+                    wsl::inside_ssh(at.url(""), &at.path, distro, &remote, &commands, Vec::new());
+                Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
             }
         })
     }

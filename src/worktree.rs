@@ -716,7 +716,9 @@ async fn test(
 
 async fn shell(files: Files<'_>, at: &SshPath, script: &str) -> Result<Ran, String> {
     let argv = ["sh", "-c", script, "sh", &at.path];
-    files.run(&at.host, git::remote(argv, &[])).await
+    files
+        .run(&at.host, git::remote(argv, &[]), place::RUN_WAIT)
+        .await
 }
 
 pub fn setup_script(files: Files, worktree: &Path) -> Option<String> {

@@ -467,8 +467,15 @@ impl Batch<'_> {
         let (code, out) = script(self.app.files(), &self.dir, PUBLISH, &args).await?;
         let log = Lines::read(&out).log;
         match code {
-            0 if !self.ships().await => self.merged(members, base, tip, None, &Dest::Base).await,
             0 => {
+                let unseen = match self.ships().await {
+                    Ok(false) => return self.merged(members, base, tip, None, &Dest::Base).await,
+                    Ok(true) => None,
+                    Err(e) => {
+                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        Some(e)
+                    }
+                };
                 let owners: Vec<_> = members.iter().map(|m| m.owner).collect();
                 let deploy = self
                     .app
@@ -478,12 +485,16 @@ impl Batch<'_> {
                         eprintln!("loom: merge queue deploy {merged}: {e}");
                         None
                     });
-                let line = match deploy {
-                    Some(_) => format!(
+                let line = match (&deploy, unseen) {
+                    (Some(_), None) => format!(
                         "deploy: {} checks it apart; the root gets a message only if it fails",
                         protocol::SHIP_SCRIPT
                     ),
-                    None => format!(
+                    (Some(_), Some(e)) => format!(
+                        "deploy: loom could not see if {} is there ({e}); the deploy check runs anyway, and the root gets a message only if it fails",
+                        protocol::SHIP_SCRIPT
+                    ),
+                    (None, _) => format!(
                         "deploy: loom did not start {} (see the daemon log); check the deploy by hand",
                         protocol::SHIP_SCRIPT
                     ),
@@ -612,11 +623,9 @@ impl Batch<'_> {
         Ok(findings)
     }
 
-    async fn ships(&self) -> bool {
+    async fn ships(&self) -> Result<bool, String> {
         let ship = self.dir.join(protocol::SHIP_SCRIPT);
-        worktree::is_file(self.app.files(), &ship)
-            .await
-            .unwrap_or(false)
+        worktree::is_file(self.app.files(), &ship).await
     }
 
     async fn into(&self) -> Result<Dest, Refusal> {

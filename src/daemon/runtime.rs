@@ -1,6 +1,6 @@
 use super::agent::AgentPort;
 use super::*;
-use crate::distro::{Distro, Host, SSH_NOT_CONNECTED};
+use crate::distro::{Distro, Host};
 use crate::graph::{Active, Entry};
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
@@ -9,13 +9,6 @@ use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
-
-pub(super) fn unconnected(at: &SshPath) -> crate::protocol::InsideError {
-    crate::protocol::InsideError::Start {
-        distro: at.host.clone(),
-        cause: SSH_NOT_CONNECTED.into(),
-    }
-}
 
 impl App {
     pub(super) fn tree_limits(&self) -> Result<TreeLimits, Problem> {
@@ -102,6 +95,14 @@ impl App {
                 distro: at.host.clone(),
                 cause,
             })
+    }
+
+    pub(super) async fn ssh_host(
+        &self,
+        at: &SshPath,
+    ) -> Result<(Distro, crate::ssh::Remote), crate::protocol::InsideError> {
+        let distro = self.host(Host::Ssh(at.host.clone()))?;
+        Ok((distro, self.remote(at).await?))
     }
 
     pub(super) fn files(&self) -> Files<'_> {
@@ -560,10 +561,7 @@ impl App {
                 (self.pc_site(), None)
             }
             Machine::Ssh(at) => {
-                let distro = self
-                    .host(Host::Ssh(at.host.clone()))
-                    .map_err(LaunchError::Wsl)?;
-                let remote = self.remote(at).await.map_err(LaunchError::Wsl)?;
+                let (distro, remote) = self.ssh_host(at).await.map_err(LaunchError::Wsl)?;
                 let root = format!("{}/{}", remote.home, crate::ssh::REMOTE_DIR);
                 let plugin = skills::Plugin::dir_under(&root, launch.skills);
                 let commands = profile::commands(start);

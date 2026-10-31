@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::distro::Ran;
 use crate::git;
@@ -9,6 +10,7 @@ pub const CONFLICT: i32 = 10;
 pub const CHECK_FAILED: i32 = 14;
 pub const MOVED: i32 = 20;
 pub const DIRTY: i32 = 21;
+const BATCH_WAIT: Duration = Duration::from_secs(60 * 60);
 
 pub const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
 for wt in "$common"/loom-batches/*; do
@@ -107,6 +109,7 @@ log=$common/loom-logs/$1
 mkdir -p "$common/loom-logs"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
+[ -f scripts/gate/ship.sh ] || { echo "no scripts/gate/ship.sh"; exit 0; }
 exec bash scripts/gate/ship.sh "$2" "$3"
 "#;
 
@@ -296,11 +299,12 @@ pub async fn script(
             }
         }
         Machine::Ssh(at) => {
+            let enter = [crate::ssh::LOGIN_PATH, r#"cd "$1" && shift && exec "$@""#].concat();
             let argv = [
-                "bash",
-                "-lc",
-                r#"cd "$1" && shift && exec "$@""#,
-                "bash",
+                "sh",
+                "-c",
+                &enter,
+                "sh",
                 &at.path,
                 "bash",
                 "-c",
@@ -309,7 +313,7 @@ pub async fn script(
             ];
             let argv = argv.into_iter().chain(args.iter().map(String::as_str));
             files
-                .run(&at.host, git::remote(argv, &[]))
+                .run(&at.host, git::remote(argv, &[]), BATCH_WAIT)
                 .await
                 .map_err(|e| Refusal::Git(format!("could not run bash on {}: {e}", at.host)))?
         }

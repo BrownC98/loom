@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use tokio::process::Command;
 
@@ -6,6 +7,8 @@ use crate::distro::{self, Ran};
 use crate::place::{self, Files, Machine};
 
 const REMOTE_CWD: &str = "/";
+const GIT_WAIT: Duration = Duration::from_secs(5 * 60);
+const CLONE_WAIT: Duration = Duration::from_secs(60 * 60);
 
 pub async fn run(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<String, String> {
     let out = output(files, dir, args).await?;
@@ -40,7 +43,7 @@ async fn output(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<Ran, Stri
             let argv = ["git", "-C", &at.path]
                 .into_iter()
                 .chain(args.iter().copied());
-            return files.run(&at.host, remote(argv, &[])).await;
+            return files.run(&at.host, remote(argv, &[]), GIT_WAIT).await;
         }
     };
     cmd.args(args);
@@ -125,7 +128,9 @@ pub async fn clone(files: Files<'_>, url: &str, target: &Path) -> Result<(), Str
         }
         Machine::Ssh(at) => {
             let argv = ["git", "clone", "--", url, &at.path];
-            let out = files.run(&at.host, remote(argv, &NO_PROMPT)).await?;
+            let out = files
+                .run(&at.host, remote(argv, &NO_PROMPT), CLONE_WAIT)
+                .await?;
             return succeeded(&out);
         }
     };

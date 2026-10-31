@@ -103,6 +103,7 @@ export function DownLine({ place }: { place: PlaceView }) {
   const down = unreachedAt(place, useContext(Reaches));
   const [asking, setAsking] = useState(false);
   if (down === null || place.kind !== 'ssh') return null;
+  const text = `${reachText(place.host, down, t)} ${t('place.downKeep', { host: place.host })}`;
   const reconnect = () => {
     setAsking(true);
     reconnectSsh(place.host)
@@ -111,9 +112,7 @@ export function DownLine({ place }: { place: PlaceView }) {
   };
   return (
     <p className="downline nodrag" role="status" translate="no">
-      <span>
-        {reachText(place.host, down, t)} {t('place.downKeep', { host: place.host })}
-      </span>
+      <span title={text}>{text}</span>
       <button type="button" className="btn sm" disabled={asking} onClick={reconnect}>
         <RotateCw />
         {t('place.reconnect')}

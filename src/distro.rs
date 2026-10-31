@@ -447,7 +447,7 @@ impl Distro {
         &self.host
     }
 
-    pub fn hosts(&self) -> &Distros {
+    pub fn hosts(&self) -> &Arc<Distros> {
         &self.distros
     }
 

@@ -114,7 +114,7 @@ async fn add_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<NewRepo>,
 ) -> Result<Json<RepoView>, Problem> {
-    let id = app.repos.add(req.path.trim()).await?;
+    let id = app.repos.add(app.files(), req.path.trim()).await?;
     Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
@@ -122,7 +122,10 @@ async fn clone_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<CloneRepo>,
 ) -> Result<Json<RepoView>, Problem> {
-    let id = app.repos.clone(&req.url, req.parent.trim()).await?;
+    let id = app
+        .repos
+        .clone(app.files(), &req.url, req.parent.trim())
+        .await?;
     Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
@@ -130,7 +133,10 @@ async fn create_repo(
     State(app): State<Arc<App>>,
     Json(req): Json<CreateRepo>,
 ) -> Result<Json<RepoView>, Problem> {
-    let id = app.repos.create(req.parent.trim(), &req.name).await?;
+    let id = app
+        .repos
+        .create(app.files(), req.parent.trim(), &req.name)
+        .await?;
     Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
@@ -168,7 +174,16 @@ async fn create_worktree(
     let repo = app.repos.path(id)?;
     let workspace = app.workspace(&repo).await?;
     let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
-    let made = worktree::create(&repo, &repo, &workspace, &req.branch, &req.base, unowned).await?;
+    let made = worktree::create(
+        app.files(),
+        &repo,
+        &repo,
+        &workspace,
+        &req.branch,
+        &req.base,
+        unowned,
+    )
+    .await?;
     app.setup(&Place {
         repo: id,
         worktree: made,
@@ -183,9 +198,9 @@ async fn worktree_changes(
     Query(req): Query<WorktreePath>,
 ) -> Result<Json<Vec<String>>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
-    match worktree::find(&repo, &req.path).await {
+    match worktree::find(app.files(), &repo, &req.path).await {
         Ok(listed) => Ok(Json(
-            worktree::changes(std::path::Path::new(&listed.path)).await?,
+            worktree::changes(app.files(), std::path::Path::new(&listed.path)).await?,
         )),
         Err(RepoProblem::NotInRepo(_)) => Ok(Json(Vec::new())),
         Err(e) => Err(e.into()),
@@ -199,13 +214,13 @@ async fn rename_worktree(
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    let listed = worktree::find(&repo, &req.path).await?;
+    let listed = worktree::find(app.files(), &repo, &req.path).await?;
     if let Some(branch) = &listed.branch
         && app.graph.open_round(id, branch).map_err(internal)?
     {
         return Err(RepoProblem::OpenRound(branch.clone()).into());
     }
-    worktree::rename(&repo, &listed, &req.name).await?;
+    worktree::rename(app.files(), &repo, &listed, &req.name).await?;
     Ok(Json(app.repo_view(id, &repo).await))
 }
 
@@ -216,7 +231,7 @@ async fn delete_worktree(
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    let listed = match worktree::find(&repo, &req.path).await {
+    let listed = match worktree::find(app.files(), &repo, &req.path).await {
         Ok(listed) => Some(listed),
         Err(RepoProblem::NotInRepo(_)) => None,
         Err(e) => return Err(e.into()),
@@ -230,9 +245,9 @@ async fn delete_worktree(
     app.spots.forget_worktree(id, &req.path).map_err(internal)?;
     app.graph.publish_view_changed();
     if let Some(listed) = listed {
-        worktree::remove(&repo, &listed).await?;
+        worktree::remove(app.files(), &repo, &listed).await?;
         if let (true, Some(branch)) = (req.delete_branch, &listed.branch) {
-            worktree::delete_branch(&repo, branch).await?;
+            worktree::delete_branch(app.files(), &repo, branch).await?;
         }
     }
     Ok(Json(app.repo_view(id, &repo).await))
@@ -298,13 +313,13 @@ async fn commits(
 ) -> Result<Json<CommitGraph>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
     let read = tokio::try_join!(
-        commit_graph::read(&repo, range),
-        commit_graph::version(&repo)
+        commit_graph::read(app.files(), &repo, range),
+        commit_graph::version(app.files(), &repo)
     );
     let (commits, version) = match read {
         Ok(read) => read,
         Err(e) => {
-            return Err(worktree::check(&repo)
+            return Err(worktree::check(app.files(), &repo)
                 .await
                 .err()
                 .map_or_else(|| internal(e), Into::into));
@@ -313,6 +328,6 @@ async fn commits(
     Ok(Json(CommitGraph {
         commits,
         version,
-        worktrees: worktree::worktrees(&repo).await,
+        worktrees: worktree::worktrees(app.files(), &repo).await,
     }))
 }

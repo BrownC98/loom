@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::git;
+use crate::place::Files;
 
 const SEPARATOR: char = '\0';
 const TAG_PREFIX: &str = "tag: ";
@@ -41,8 +42,13 @@ pub struct CommitRange {
     pub limit: u32,
 }
 
-pub async fn read(repo: &Path, range: CommitRange) -> Result<Vec<Commit>, String> {
+pub async fn read(
+    files: Files<'_>,
+    repo: &Path,
+    range: CommitRange,
+) -> Result<Vec<Commit>, String> {
     let log = git::run(
+        files,
         repo,
         &[
             "log",
@@ -58,8 +64,13 @@ pub async fn read(repo: &Path, range: CommitRange) -> Result<Vec<Commit>, String
     Ok(log.lines().filter_map(commit).collect())
 }
 
-pub async fn version(repo: &Path) -> Result<String, String> {
-    let refs = git::run(repo, &["for-each-ref", "--format=%(objectname) %(refname)"]).await?;
+pub async fn version(files: Files<'_>, repo: &Path) -> Result<String, String> {
+    let refs = git::run(
+        files,
+        repo,
+        &["for-each-ref", "--format=%(objectname) %(refname)"],
+    )
+    .await?;
     let mut hasher = DefaultHasher::new();
     for line in refs.lines().filter(|l| !l.ends_with(STASH_REF)) {
         line.hash(&mut hasher);

@@ -86,7 +86,16 @@ pub(super) async fn spawn(
             let workspace = app.workspace(&repo).await?;
             let from = std::path::Path::new(&place.worktree);
             let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
-            let made = worktree::create(&repo, from, &workspace, branch, "HEAD", unowned).await?;
+            let made = worktree::create(
+                app.files(),
+                &repo,
+                from,
+                &workspace,
+                branch,
+                "HEAD",
+                unowned,
+            )
+            .await?;
             Some((repo, made))
         }
         None => None,

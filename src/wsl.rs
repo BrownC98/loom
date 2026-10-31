@@ -283,27 +283,64 @@ pub async fn end_shells(distro: &Distro, token: &str, shells: &[Identity]) -> Re
 
 fn end_shells_script() -> String {
     format!(
-        r#"started() {{ s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${{s##*) }}; shift {STAT_START}; echo "$1"; }}
+        r#"{}
+holds() {{
+  if [ -r /proc/self/environ ]; then
+    tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token"
+  else
+    case " $(ps -E -ww -o command= -p "$1" 2>/dev/null) " in *" LOOM_TOKEN=$token "*) ;; *) return 1 ;; esac
+  fi
+}}
 token=$1; shift
 for m; do
   pid=${{m%.*}}
   [ "$(started "$pid")" = "${{m#*.}}" ] || continue
-  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && echo "$pid"
+  holds "$pid" && echo "$pid"
 done
-exit 0"#
+exit 0"#,
+        started_script()
     )
 }
 
-const STAT_PARENT: usize = 1;
+fn started_script() -> String {
+    format!(
+        r#"started() {{
+  if [ -r /proc/self/stat ]; then
+    s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${{s##*) }}; shift {STAT_START}; echo "$1"
+  else
+    LC_ALL=C date -j -f '%a %b %d %T %Y' "$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)" +%s 2>/dev/null
+  fi
+}}"#
+    )
+}
+
 const STAT_START: usize = 19;
 
+#[cfg(unix)]
 pub fn parent_shell() -> Option<Identity> {
-    daemon_distro()?;
-    let pid: u32 = stat_field("self", STAT_PARENT)?;
-    let birth = stat_field(&pid.to_string(), STAT_START)?;
+    let pid = std::os::unix::process::parent_id();
+    let birth = stat_field(&pid.to_string(), STAT_START).or_else(|| started(pid))?;
     Some(Identity { pid, birth })
 }
 
+#[cfg(not(unix))]
+pub fn parent_shell() -> Option<Identity> {
+    None
+}
+
+#[cfg(unix)]
+fn started(pid: u32) -> Option<i64> {
+    let script = format!("{}\nstarted \"$1\"", started_script());
+    let out = std::process::Command::new("sh")
+        .args(["-c", &script, "sh", &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+#[cfg(unix)]
 fn stat_field<T: std::str::FromStr>(pid: &str, at: usize) -> Option<T> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     stat.rsplit_once(')')?
@@ -358,9 +395,13 @@ fn sh<'a>(script: &'a str, args: impl IntoIterator<Item = &'a str>) -> distro::C
     }
 }
 
-async fn run(distro: &Distro, command: distro::Command) -> Result<distro::Ran, String> {
+async fn run(
+    distro: &Distro,
+    command: distro::Command,
+    limit: std::time::Duration,
+) -> Result<distro::Ran, String> {
     let distro = distro.clone();
-    tokio::task::spawn_blocking(move || distro.run(command))
+    tokio::task::spawn_blocking(move || distro.run_within(command, limit))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -403,11 +444,9 @@ exit 0"#;
 const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 async fn bounded(distro: &Distro, command: distro::Command) -> Result<distro::Ran, String> {
-    match tokio::time::timeout(END_TOKEN_WAIT, run(distro, command)).await {
-        Err(_) => Err(format!("{}초 안에 끝나지 않았다", END_TOKEN_WAIT.as_secs())),
-        Ok(Err(e)) => Err(e),
-        Ok(Ok(ran)) if ran.code == Some(0) => Ok(ran),
-        Ok(Ok(ran)) => Err(ran_failure(&ran)),
+    match run(distro, command, END_TOKEN_WAIT).await? {
+        ran if ran.code == Some(0) => Ok(ran),
+        ran => Err(ran_failure(&ran)),
     }
 }
 
@@ -443,8 +482,26 @@ enum Seen {
     Ssh { url: String, loom: String },
 }
 
+pub enum Run {
+    Here(std::process::Command),
+    Host(Distro, distro::Command),
+}
+
+impl Run {
+    pub fn output(self, limit: std::time::Duration) -> Result<distro::Ran, String> {
+        match self {
+            Run::Here(cmd) => crate::timed::finished(cmd, limit).map(|out| distro::Ran {
+                code: out.status.code(),
+                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            }),
+            Run::Host(distro, command) => distro.run_within(command, limit),
+        }
+    }
+}
+
 const SEP: char = '\u{1e}';
-const SSH_PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
@@ -505,10 +562,7 @@ printf '\036%s\036' "$bin""#,
     ]
     .concat();
     let bin = format!("{}/{}/bin", remote.home, crate::ssh::REMOTE_DIR);
-    let shim = format!(
-        "#!/bin/sh\n[ \"$1\" = guard ] && exit 0\nexec {} \"$@\"",
-        word(&remote.current())
-    );
+    let shim = format!("#!/bin/sh\nexec {} \"$@\"", word(&remote.current()));
     let command = sh(
         &script,
         [shim.as_str(), bin.as_str()]
@@ -516,12 +570,7 @@ printf '\036%s\036' "$bin""#,
             .chain(find.iter().copied()),
     );
     let name = distro.name().to_owned();
-    let text = tokio::time::timeout(SSH_PROBE_WAIT, values(&distro, command))
-        .await
-        .map_err(|_| InsideError::Start {
-            distro: name.clone(),
-            cause: format!("{}초 안에 끝나지 않았다", SSH_PROBE_WAIT.as_secs()),
-        })??;
+    let text = values(&distro, command).await?;
     let seen = Seen::Ssh {
         url,
         loom: remote.program.clone(),
@@ -541,7 +590,7 @@ async fn values(distro: &Distro, command: distro::Command) -> Result<String, Ins
         distro: distro.name().into(),
         cause,
     };
-    let ran = run(distro, command).await.map_err(start)?;
+    let ran = run(distro, command, PROBE_WAIT).await.map_err(start)?;
     match ran.stdout.contains(SEP) {
         true => Ok(ran.stdout),
         false => Err(start(ran_failure(&ran))),
@@ -595,14 +644,11 @@ impl Inside {
         self.paths.get(i).map(String::as_str)
     }
 
-    pub fn wrap(&self, cmd: &CommandBuilder) -> CommandBuilder {
-        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
+    pub fn wrap(&self, cmd: &CommandBuilder) -> Result<CommandBuilder, String> {
         if let Seen::Ssh { .. } = self.seen {
-            let argv = self.ssh_argv(cmd.get_argv(), &env);
-            let mut ssh = CommandBuilder::new(&argv[0]);
-            ssh.args(&argv[1..]);
-            return ssh;
+            return Err(self.no_terminal());
         }
+        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
         let mut wsl = CommandBuilder::new("wsl.exe");
         wsl.args(self.prefix());
         wsl.args(cmd.get_argv());
@@ -613,24 +659,14 @@ impl Inside {
         if let Some(dir) = cmd.get_cwd() {
             wsl.cwd(dir);
         }
-        wsl
+        Ok(wsl)
     }
 
-    fn ssh_argv<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
-        &self,
-        argv: &[impl AsRef<std::ffi::OsStr>],
-        env: &[(K, V)],
-    ) -> Vec<String> {
-        let text = |value: &std::ffi::OsStr| word(&value.to_string_lossy());
-        let vars = passed(env)
-            .map(|(k, v)| format!("{}={}", k.as_ref(), v.as_ref().to_string_lossy()))
-            .chain([format!("PATH={}", self.node_path())]);
-        let line = std::iter::once(format!("cd {} && exec env", word(&self.cwd)))
-            .chain(vars.map(|var| word(&var)))
-            .chain(argv.iter().map(|arg| text(arg.as_ref())))
-            .collect::<Vec<_>>()
-            .join(" ");
-        crate::ssh::command(self.distro.name(), &line)
+    fn no_terminal(&self) -> String {
+        format!(
+            "loom does not open terminals or servers on the SSH host {}",
+            self.distro.name()
+        )
     }
 
     pub fn host_loom(&self, linux: Option<&Path>) -> Option<String> {
@@ -687,17 +723,39 @@ impl Inside {
         }
     }
 
-    pub fn wsl_command<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+    pub fn process<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+        &self,
+        argv: &[impl AsRef<std::ffi::OsStr>],
+        env: &[(K, V)],
+    ) -> Result<std::process::Command, String> {
+        match self.seen {
+            Seen::Unc(_) => Ok(self.wsl_command(argv, env)),
+            Seen::Ssh { .. } => Err(self.no_terminal()),
+        }
+    }
+
+    pub fn run<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+        &self,
+        argv: &[impl AsRef<std::ffi::OsStr>],
+        env: &[(K, V)],
+    ) -> Run {
+        match self.seen {
+            Seen::Unc(_) => Run::Here(self.wsl_command(argv, env)),
+            Seen::Ssh { .. } => {
+                let argv = argv
+                    .iter()
+                    .map(|arg| arg.as_ref().to_string_lossy().into_owned())
+                    .collect();
+                Run::Host(self.distro.clone(), self.command(argv, env))
+            }
+        }
+    }
+
+    fn wsl_command<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
         &self,
         argv: &[impl AsRef<std::ffi::OsStr>],
         env: &[(K, V)],
     ) -> std::process::Command {
-        if let Seen::Ssh { .. } = self.seen {
-            let argv = self.ssh_argv(argv, env);
-            let mut ssh = std::process::Command::new(&argv[0]);
-            ssh.args(&argv[1..]);
-            return ssh;
-        }
         let mut wsl = std::process::Command::new("wsl.exe");
         wsl.args(self.prefix()).args(argv);
         wsl.envs(passed(env).map(|(k, v)| (k.as_ref(), v)));

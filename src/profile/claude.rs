@@ -1,6 +1,5 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +21,7 @@ use crate::place::{self, Files, Machine};
 use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
+use crate::wsl::Run;
 
 mod accounts;
 mod usage;
@@ -259,21 +259,19 @@ impl Adapter for Claude {
             let (Some(session), account) = (&rec.session, rec.account.as_ref()) else {
                 return Ok(());
             };
-            let Ok(list) = site.command(&accounts::CLI, &["agents", "--json"], account) else {
+            let Some(out) = run(site.run(&accounts::CLI, &["agents", "--json"], account)).await
+            else {
                 return Ok(());
             };
-            let Some(out) = run(list).await else {
+            let Some(job) = background_job(out.as_bytes(), &super::session_id(session)) else {
                 return Ok(());
             };
-            let Some(job) = background_job(&out, &super::session_id(session)) else {
-                return Ok(());
-            };
-            let stop = site
-                .command(&accounts::CLI, &["stop", &job], account)
-                .map_err(|e| e.to_string())?;
-            run(stop).await.map(drop).ok_or_else(|| {
-                format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")
-            })
+            run(site.run(&accounts::CLI, &["stop", &job], account))
+                .await
+                .map(drop)
+                .ok_or_else(|| {
+                    format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")
+                })
         })
     }
 
@@ -331,16 +329,13 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn run(cmd: std::process::Command) -> Option<Vec<u8>> {
-    let mut cmd = tokio::process::Command::from(cmd);
-    cmd.stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let out = tokio::time::timeout(CLI_WAIT, cmd.output())
+async fn run(run: Option<Run>) -> Option<String> {
+    let run = run?;
+    let ran = tokio::task::spawn_blocking(move || run.output(CLI_WAIT))
         .await
         .ok()?
         .ok()?;
-    out.status.success().then_some(out.stdout)
+    (ran.code == Some(0)).then_some(ran.stdout)
 }
 
 #[derive(Deserialize)]

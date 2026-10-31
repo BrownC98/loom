@@ -238,7 +238,7 @@ fn program() -> String {
     crate::search_path::find("ssh").map_or_else(|| "ssh".into(), |p| p.display().to_string())
 }
 
-pub fn command(host: &str, remote: &str) -> Vec<String> {
+fn command(host: &str, remote: &str) -> Vec<String> {
     let alive = format!("ServerAliveInterval={}", ALIVE_EVERY.as_secs());
     let connect = format!("ConnectTimeout={}", CONNECT_WAIT.as_secs());
     let options = [

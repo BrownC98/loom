@@ -46,27 +46,54 @@ pub fn daemon_child(cmd: &mut Command) {
     own_session(cmd);
 }
 
-pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
+pub fn output(cmd: Command, limit: Duration) -> Option<Vec<u8>> {
+    let out = finished(cmd, limit).ok()?;
+    out.status.success().then_some(out.stdout)
+}
+
+pub struct Output {
+    pub status: std::process::ExitStatus,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+pub fn finished(mut cmd: Command, limit: Duration) -> Result<Output, String> {
     own_session(&mut cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
+        .map_err(|e| e.to_string())?;
+    let stdout = drained(child.stdout.take());
+    let stderr = drained(child.stderr.take());
+    let deadline = Instant::now() + limit;
+    let not_ended = || format!("did not end in {} s", limit.as_secs());
+    let (Ok(stdout), Ok(stderr)) = (
+        stdout.recv_timeout(limit),
+        stderr.recv_timeout(deadline.saturating_duration_since(Instant::now())),
+    ) else {
+        stop(child);
+        return Err(not_ended());
+    };
+    let status = wait_until(child, deadline).ok_or_else(not_ended)?;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn drained(from: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
+        if let Some(mut from) = from {
+            let _ = from.read_to_end(&mut bytes);
+        }
         let _ = tx.send(bytes);
     });
-    let deadline = Instant::now() + limit;
-    let Ok(bytes) = rx.recv_timeout(limit) else {
-        stop(child);
-        return None;
-    };
-    wait_until(child, deadline)?.success().then_some(bytes)
+    rx
 }
 
 pub fn wait_until(mut child: Child, deadline: Instant) -> Option<std::process::ExitStatus> {

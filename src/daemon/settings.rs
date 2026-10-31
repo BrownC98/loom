@@ -132,15 +132,14 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
 
 async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismatch> {
     let reads = profile::pinned().into_iter().filter_map(|(profile, cmd)| {
-        let program = inside.find(&[cmd.to_owned()])?.to_owned();
-        let mut cmd = tokio::process::Command::from(
-            inside.wsl_command(&[program.as_str(), "--version"], &[] as &[(&str, &str)]),
-        );
-        cmd.stdin(std::process::Stdio::null());
+        let program = inside.find(&[cmd.to_owned()])?;
+        let run = inside.run(&[program, "--version"], &[] as &[(&str, &str)]);
         Some(async move {
-            let out = cmd.output().await.ok()?;
-            profile::version_warning(profile, &String::from_utf8_lossy(&out.stdout))
-                .map(|w| (profile, w))
+            let ran = tokio::task::spawn_blocking(move || run.output(crate::usage::PROBE_TIMEOUT))
+                .await
+                .ok()?
+                .ok()?;
+            profile::version_warning(profile, &ran.stdout).map(|w| (profile, w))
         })
     });
     join_all(reads).await.into_iter().flatten().collect()

@@ -133,7 +133,6 @@ pub enum Unreached {
 struct Hosted {
     at: SocketAddr,
     pid: Option<u32>,
-    remote: Option<Remote>,
 }
 
 pub struct Distros {
@@ -141,6 +140,7 @@ pub struct Distros {
     linux: Option<PathBuf>,
     mac: MacRelease,
     gates: Mutex<HashMap<Host, Arc<Mutex<()>>>>,
+    remotes: Mutex<HashMap<Host, Remote>>,
     up: tokio::sync::Notify,
 }
 
@@ -173,6 +173,7 @@ impl Distros {
             linux,
             mac,
             gates: Mutex::default(),
+            remotes: Mutex::default(),
             up: tokio::sync::Notify::new(),
         }
     }
@@ -201,13 +202,6 @@ impl Distros {
     pub fn start(&self, host: &Host, start: Start) -> Result<SocketAddr, String> {
         match self.answer(host, &Ask::Start(start))? {
             Answer::Started(at) => Ok(at),
-            other => Err(unexpected(other)),
-        }
-    }
-
-    pub fn run(&self, host: &Host, command: Command) -> Result<Ran, String> {
-        match self.answer(host, &Ask::Run(command))? {
-            Answer::Ran(ran) => Ok(ran),
             other => Err(unexpected(other)),
         }
     }
@@ -292,12 +286,39 @@ impl Distros {
     }
 
     pub fn remote(&self, host: &Host) -> Result<Remote, Failure> {
-        let file = self.dir.join(file_name(host));
+        let Host::Ssh(name) = host else {
+            return Err(Failure::Failed(format!("{}: not an SSH host", host.name())));
+        };
         self.link(host)?;
-        std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|text| Hosted::read(&text)?.remote)
-            .ok_or_else(|| Failure::Failed(format!("{}: not an SSH host", file.display())))
+        let gate = self.gate(host);
+        let _one_start = gate.lock().unwrap();
+        if let Some(remote) = self.remotes.lock().unwrap().get(host) {
+            return Ok(remote.clone());
+        }
+        let outer = self.prepare(name)?;
+        self.remotes
+            .lock()
+            .unwrap()
+            .insert(host.clone(), outer.remote.clone());
+        Ok(outer.remote)
+    }
+
+    fn prepare(&self, name: &str) -> Result<ssh::Outer, Failure> {
+        let linux = self.linux.as_deref();
+        let file = linux
+            .map(linux_name)
+            .transpose()
+            .map_err(|e| Failure::Failed(format!("{name}: {e}")))?;
+        ssh::prepare(name, linux.zip(file.as_deref()), self.mac)
+    }
+
+    fn gate(&self, host: &Host) -> Arc<Mutex<()>> {
+        self.gates
+            .lock()
+            .unwrap()
+            .entry(host.clone())
+            .or_default()
+            .clone()
     }
 
     fn file_answer(&self, host: &Host, ask: &Ask) -> io::Result<Answer> {
@@ -324,13 +345,7 @@ impl Distros {
     }
 
     fn link(&self, host: &Host) -> Result<TcpStream, Failure> {
-        let gate = self
-            .gates
-            .lock()
-            .unwrap()
-            .entry(host.clone())
-            .or_default()
-            .clone();
+        let gate = self.gate(host);
         let _one_start = gate.lock().unwrap();
         let file = self.dir.join(file_name(host));
         let known = std::fs::read_to_string(&file)
@@ -345,22 +360,18 @@ impl Distros {
             }
         }
         let failed = |cause| Failure::Failed(format!("{}: {cause}", host.name()));
-        let (argv, remote, released) = match host {
-            Host::Distro(distro) => (self.through_wsl(distro).map_err(failed)?, None, false),
+        let (argv, released) = match host {
+            Host::Distro(distro) => (self.through_wsl(distro).map_err(failed)?, false),
             Host::Ssh(name) => {
-                let linux = self.linux.as_deref();
-                let file = linux
-                    .map(linux_name)
-                    .transpose()
-                    .map_err(|e| failed(e.to_string()))?;
-                let outer = ssh::prepare(name, linux.zip(file.as_deref()), self.mac)?;
-                (outer.argv, Some(outer.remote), outer.released)
+                let outer = self.prepare(name)?;
+                self.remotes
+                    .lock()
+                    .unwrap()
+                    .insert(host.clone(), outer.remote);
+                (outer.argv, outer.released)
             }
         };
-        let hosted = Hosted {
-            remote,
-            ..launch_outer(argv).map_err(failed)?
-        };
+        let hosted = launch_outer(argv).map_err(failed)?;
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(&file, hosted.text()))
             .map_err(|e| Failure::Failed(format!("{}: {e}", file.display())))?;
@@ -429,25 +440,17 @@ impl Held {
 
 impl Hosted {
     fn read(text: &str) -> Option<Hosted> {
-        let mut lines = text.lines();
-        let mut words = lines.next()?.split_whitespace();
+        let mut words = text.lines().next()?.split_whitespace();
         Some(Hosted {
             at: words.next()?.parse().ok()?,
             pid: words.next().and_then(|pid| pid.parse().ok()),
-            remote: lines
-                .next()
-                .and_then(|line| serde_json::from_str(line).ok()),
         })
     }
 
     fn text(&self) -> String {
-        let first = match self.pid {
+        match self.pid {
             Some(pid) => format!("{} {pid}", self.at),
             None => self.at.to_string(),
-        };
-        match self.remote.as_ref().map(serde_json::to_string) {
-            Some(Ok(remote)) => format!("{first}\n{remote}"),
-            Some(Err(_)) | None => first,
         }
     }
 }
@@ -465,8 +468,8 @@ impl Distro {
         &self.distros
     }
 
-    pub fn run(&self, command: Command) -> Result<Ran, String> {
-        self.distros.run(&self.host, command)
+    pub fn run_within(&self, command: Command, limit: Duration) -> Result<Ran, String> {
+        self.distros.run_within(&self.host, command, limit)
     }
 
     pub fn serve(&self, command: Command) -> Result<Serving, String> {

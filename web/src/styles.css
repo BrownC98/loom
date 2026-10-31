@@ -1015,12 +1015,12 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .composer-to .node-list[aria-expanded="true"] svg { transform: rotate(180deg); }
 .node-pick-at { position: absolute; left: 0; bottom: calc(100% + 6px); }
 .node-pick-at:not([data-above]) { top: calc(100% + 6px); bottom: auto; }
-.node-pick { zoom: var(--float-zoom); width: 380px; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; overflow: hidden; }
+.node-pick { zoom: var(--float-zoom); display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; overflow: hidden; }
 .node-pick .pick-find { flex: none; display: flex; align-items: center; gap: 6px; margin: 6px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); }
 .node-pick .pick-find:focus-within { border-color: var(--accent); }
 .node-pick .pick-find svg { flex: none; width: 14px; height: 14px; }
 .node-pick .pick-find input { flex: 1; min-width: 0; height: 32px; padding: 0; border: 0; outline: none; background: none; color: var(--ink); font: inherit; }
-.node-pick .pick-list { min-height: 0; overflow-y: auto; padding: 0 6px 6px; }
+.node-pick .pick-list { position: relative; min-height: 0; overflow-y: auto; padding: 0 6px 6px; }
 .node-pick h3 { padding: 6px 8px 2px; color: var(--ink-3); font-size: 11px; font-weight: 600; }
 .node-pick .pick-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
 .node-pick .pick-row[aria-selected="true"] { background: var(--surface-hover); }

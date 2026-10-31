@@ -14,6 +14,7 @@ export function NodePick(props: {
   repos: readonly RepoView[];
   current: NodeId;
   anchor: RefObject<HTMLElement | null>;
+  width: number;
   room: number;
   onPick: (id: NodeId) => void;
   onClose: () => void;
@@ -32,14 +33,19 @@ export function NodePick(props: {
   const [at, setAt] = useState(() => Math.max(0, rows.findIndex((v) => v.id === props.current)));
   const option = (n: number) => `${id}-${n}`;
   useEffect(() => {
-    document.getElementById(option(at))?.scrollIntoView({ block: 'nearest' });
+    const row = document.getElementById(option(at));
+    const list = row?.parentElement?.parentElement;
+    if (!row || !list) return;
+    const top = row.offsetTop;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (top + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + row.offsetHeight - list.clientHeight;
   }, [at]);
   const sections = [
     { key: 'marks', label: t('bookmark.title'), rows: marks, from: 0 },
     { key: 'all', label: t('composer.pickAll'), rows: all, from: marks.length },
   ].filter((s) => s.rows.length > 0);
   return (
-    <div ref={box} className="node-pick" style={{ maxHeight: props.room }} role="dialog" aria-label={t('composer.pickNode')}>
+    <div ref={box} className="node-pick" style={{ width: props.width, maxHeight: props.room }} role="dialog" aria-label={t('composer.pickNode')}>
       <label className="pick-find">
         <Search aria-hidden="true" />
         <input

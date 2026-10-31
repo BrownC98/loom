@@ -11,7 +11,7 @@ import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { COMPOSER_HOME, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
+import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import { nodeInput, useNodeInput, type NodeInput } from './nodeInputs';
 import { NodePick } from './NodePick';
 
@@ -26,6 +26,7 @@ export const deskKeys = (escape: () => void): ComposerKeys => ({
 export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blank: (input) => input.enter() };
 
 const COMPOSER_ROOM = '--composer-room';
+const PICK_WIDTH = 380;
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
 type FloatHead = { onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onName: () => void; list: { button: RefObject<HTMLButtonElement | null>; open: boolean; onToggle: () => void } };
@@ -90,17 +91,20 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
   const at = drag.at ?? (pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null);
   const zoom = { '--float-zoom': floatZoom(props.size) } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
+  const pickWidth = pane ? Math.min(PICK_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : 0;
+  const pickLeft = at && pane ? Math.max(FLOAT_MARGIN, Math.min(at.left, pane.w - FLOAT_MARGIN - pickWidth)) - at.left : 0;
   return (
     <div ref={layer} className="composer-layer">
       <div ref={float} className="composer-float" data-dragging={drag.at ? true : undefined} style={at ? { ...zoom, left: at.left, top: at.top } : { ...zoom, visibility: 'hidden' }} onClickCapture={drag.swallowClick}>
         <Composer {...props} float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null), onName: () => show([props.node]), list: { button: listButton, open: listing, onToggle: () => setListing(!listing) } }} />
         {listing && space && (
-          <div className="node-pick-at" data-above={space.above || undefined}>
+          <div className="node-pick-at" data-above={space.above || undefined} style={{ left: pickLeft }}>
             <NodePick
               views={props.views}
               repos={props.repos}
               current={props.node}
               anchor={listButton}
+              width={pickWidth / floatZoom(props.size)}
               room={space.room / floatZoom(props.size)}
               onPick={pick}
               onClose={() => setListing(false)}

@@ -45,12 +45,20 @@ fn read_brief(run: &SpawnRun, file: Option<&Path>) -> Result<String, String> {
     Ok(brief)
 }
 
-pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
+pub fn spawn(
+    run: SpawnRun,
+    worktree: Option<String>,
+    file: Option<PathBuf>,
+    agent: Option<AgentId>,
+    choice: ModelChoice,
+) -> Result<(), String> {
     let brief = read_brief(&run, file.as_deref())?;
     let request = SpawnRequest {
         run,
         brief,
         worktree,
+        agent,
+        choice,
     };
     let _: NodeId = match crate::wsl::to_windows_daemon() {
         true => match at_endpoint("spawn", &request) {

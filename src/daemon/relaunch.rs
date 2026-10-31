@@ -21,6 +21,7 @@ use crate::profile::adapter::{Carry, ResumeError};
 use crate::profile::process::Served;
 use crate::profile::{self, ModelRule, Profile, Start};
 use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
+use crate::roles::Roles;
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 
@@ -191,23 +192,11 @@ impl App {
     }
 
     fn chosen(&self, node: &Active, plan: Plan) -> Result<Plan, Problem> {
-        let Plan::Switch(NewAgent { agent, choice }) = plan else {
+        let Plan::Switch(to) = plan else {
             return Ok(plan);
         };
-        if profile::profile_of(&agent).is_none() {
-            return Err(profile::no_link(agent).into());
-        }
-        let choice = match &node.role {
-            Some(role) => self
-                .settings
-                .get()
-                .map_err(internal)?
-                .roles
-                .choice_for(role, &agent, choice),
-            None => choice,
-        };
-        profile::check_choice(&agent, &choice)?;
-        Ok(Plan::Switch(NewAgent { agent, choice }))
+        let roles = self.settings.get().map_err(internal)?.roles;
+        chosen_agent(&roles, node.role.as_deref(), to).map(Plan::Switch)
     }
 
     async fn revive_ended(self: &Arc<Self>, id: NodeId, plan: Plan) -> Result<Relaunched, Problem> {
@@ -881,6 +870,23 @@ impl App {
             .flat_map(|root| snapshot.session_leaders_under(root))
             .collect()
     }
+}
+
+pub(super) fn chosen_agent(
+    roles: &Roles,
+    role: Option<&str>,
+    to: NewAgent,
+) -> Result<NewAgent, Problem> {
+    let NewAgent { agent, choice } = to;
+    if profile::profile_of(&agent).is_none() {
+        return Err(profile::no_link(agent).into());
+    }
+    let choice = match role {
+        Some(role) => roles.choice_for(role, &agent, choice),
+        None => choice,
+    };
+    profile::check_choice(&agent, &choice)?;
+    Ok(NewAgent { agent, choice })
 }
 
 fn plan_written<R: Default>(node: NodeId, written: rusqlite::Result<R>) -> R {

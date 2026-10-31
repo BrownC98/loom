@@ -297,11 +297,9 @@ pub async fn script(
         Machine::Pc | Machine::Wsl(_) => {
             let mut cmd = crate::wsl::command(&dir.to_string_lossy(), "bash");
             cmd.arg("-c").arg(text).arg("loom-queue").args(args);
-            cmd.stdin(std::process::Stdio::null());
-            let out = tokio::process::Command::from(cmd)
-                .output()
+            let out = crate::timed::ended_within(tokio::process::Command::from(cmd), BATCH_WAIT)
                 .await
-                .map_err(|e| Refusal::Git(format!("could not run bash: {e}")))?;
+                .map_err(|e| Refusal::Git(format!("bash: {e}")))?;
             Ran {
                 code: out.status.code(),
                 stdout: String::from_utf8_lossy(&out.stdout).into_owned(),

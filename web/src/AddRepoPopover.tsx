@@ -1,7 +1,9 @@
+import type { TFunction } from 'i18next';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { addRepo, cloneRepo, createRepo } from './api';
 import { childPath, FolderPicker } from './FolderPicker';
+import type { PlaceView } from './gen/PlaceView';
 import type { RepoView } from './gen/RepoView';
 import { useDismiss } from './popover';
 
@@ -14,11 +16,22 @@ function repoName(url: string): string {
   return leaf.replace(/\.git$/, '');
 }
 
-export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClose: () => void }) {
+function runLine(place: PlaceView, t: TFunction): string {
+  switch (place.kind) {
+    case 'pc':
+      return t('place.run', { place: t('place.pc') });
+    case 'wsl':
+      return t('place.run', { place: t('place.wslDistro', { distro: place.distro }) });
+    case 'ssh':
+      return t('place.runSsh', { host: place.host });
+  }
+}
+
+export function AddRepoPopover(props: { hosts: string[]; onAdded: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('folder');
   const [path, setPath] = useState('');
-  const [place, setPlace] = useState<string | null>(null);
+  const [place, setPlace] = useState<PlaceView | null>(null);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -82,7 +95,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
             <input id="repo-name" name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-app" disabled={busy} spellCheck={false} autoComplete="off" autoFocus />
           </div>
         )}
-        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} onPick={setPath} onPlace={setPlace} />
+        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} hosts={props.hosts} onPick={setPath} onPlace={setPlace} />
       </div>
       {error ? (
         <p className="error" role="alert">
@@ -92,7 +105,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
         target && (
           <div className="target">
             <p className="hint">{t(tab === 'folder' ? 'repo.target' : 'repo.folder', { path: target })}</p>
-            {place !== null && <p className="hint">{t('place.run', { place })}</p>}
+            {place !== null && <p className="hint">{runLine(place, t)}</p>}
           </div>
         )
       )}

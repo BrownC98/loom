@@ -12,7 +12,7 @@ use super::{App, Problem, internal};
 use crate::distro::Host;
 use crate::place::{self, Machine};
 use crate::protocol::LaunchError;
-use crate::worktree::{self, Locations, RepoId, RepoView, WslPlace};
+use crate::worktree::{self, Locations, PlaceView, RepoId, RepoView};
 use crate::wsl;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -68,17 +68,16 @@ impl App {
     }
 
     pub(super) async fn repo_view(&self, id: RepoId, path: &FsPath) -> RepoView {
-        let wsl = match place::of(path) {
-            Machine::Wsl(at) => Some(WslPlace {
-                path: match self.home_inside(&at.distro).await {
-                    Ok(home) => wsl::tilde(&at.path, &home),
-                    Err(_) => at.path,
-                },
-                distro: at.distro,
-            }),
-            Machine::Pc | Machine::Ssh(_) => None,
+        let machine = place::of(path);
+        let shown = match &machine {
+            Machine::Pc => path.to_string_lossy().into_owned(),
+            Machine::Wsl(at) => match self.home_inside(&at.distro).await {
+                Ok(home) => wsl::tilde(&at.path, &home),
+                Err(_) => at.path.clone(),
+            },
+            Machine::Ssh(at) => at.path.clone(),
         };
-        worktree::view(id, path, wsl).await
+        worktree::view(id, path, PlaceView::of(&machine), shown).await
     }
 
     pub(super) async fn workspace(&self, repo: &FsPath) -> Result<PathBuf, Problem> {

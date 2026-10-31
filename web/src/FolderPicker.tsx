@@ -1,9 +1,10 @@
-import { ChevronLeft, ChevronRight, Folder, Monitor, Terminal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder, Globe, Monitor, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getDistro, getFolders, getLocations } from './api';
 import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
+import type { PlaceView } from './gen/PlaceView';
 import { useStarting } from './place';
 
 export function childPath(parent: string, name: string): string {
@@ -11,7 +12,10 @@ export function childPath(parent: string, name: string): string {
   return parent.endsWith(sep) ? parent + name : parent + sep + name;
 }
 
-export function FolderPicker(props: { id: string; label: string; disabled: boolean; autoFocus?: boolean; onPick: (path: string) => void; onPlace: (place: string | null) => void }) {
+const distroOf = (list: FolderList | null) => (list?.place.kind === 'wsl' ? list.place.distro : null);
+const hostOf = (list: FolderList | null) => (list?.place.kind === 'ssh' ? list.place.host : null);
+
+export function FolderPicker(props: { id: string; label: string; disabled: boolean; autoFocus?: boolean; hosts: string[]; onPick: (path: string) => void; onPlace: (place: PlaceView | null) => void }) {
   const { t } = useTranslation();
   const [dir, setDir] = useState('');
   const [list, setList] = useState<FolderList | null>(null);
@@ -20,10 +24,14 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const [open, setOpen] = useState(false);
   const [locations, setLocations] = useState<Locations | null>(null);
   const [waiting, setWaiting] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [host, setHost] = useState('');
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
   const { onPick, onPlace } = props;
   const places = (locations?.distros.length ?? 0) > 0;
+  const reached = hostOf(list);
+  const hosts = [...new Set(reached === null ? props.hosts : [...props.hosts, reached])];
 
   async function load(path?: string) {
     const ask = ++latest.current;
@@ -33,6 +41,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
       setList(next);
       setFailed('');
       setWaiting(null);
+      if (next.place.kind === 'ssh') setAsking(false);
       if (path === undefined) {
         setDir(next.path);
         onPick(next.path);
@@ -50,11 +59,12 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   }, []);
 
   useEffect(() => {
-    onPlace(places && list ? (list.distro === null ? t('place.pc') : t('place.wslDistro', { distro: list.distro })) : null);
-  }, [places, list, t]);
+    onPlace(list && (places || list.place.kind !== 'pc') ? list.place : null);
+  }, [places, list]);
 
   async function goHome(distro: string) {
     const ask = ++latest.current;
+    setAsking(false);
     setOpen(true);
     setList(null);
     setFailed('');
@@ -80,8 +90,21 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     else load(path.trim());
   }
 
-  const drivePressed = (drive: string) => list !== null && list.distro === null && list.path.toUpperCase().startsWith(drive.toUpperCase());
-  const distroPressed = (distro: string) => (list?.distro ?? waiting) === distro;
+  function askHost() {
+    setAsking(true);
+    setOpen(true);
+    go('');
+  }
+
+  function connect(name: string) {
+    if (name.trim() === '') return;
+    setOpen(true);
+    go(`ssh://${name.trim()}/`);
+  }
+
+  const drivePressed = (drive: string) => !asking && list !== null && list.place.kind === 'pc' && list.path.toUpperCase().startsWith(drive.toUpperCase());
+  const distroPressed = (distro: string) => !asking && (distroOf(list) ?? waiting) === distro;
+  const hostPressed = (name: string) => !asking && dir.toLowerCase().startsWith(`ssh://${name.toLowerCase()}/`);
 
   function select(path: string) {
     setSelected(path);
@@ -100,35 +123,75 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
           onFocus={() => setOpen(true)}
           onClick={() => setOpen(true)}
           disabled={props.disabled}
+          placeholder={asking ? t('place.sshPick') : undefined}
           spellCheck={false}
           autoComplete="off"
           autoFocus={props.autoFocus}
           translate="no"
         />
       </div>
-      {places && (
-        <div className="chips" role="group" aria-label={t('place.chips')}>
-          {locations!.drives.map((drive, i) => (
-            <button key={drive} type="button" className="chip" aria-pressed={drivePressed(drive)} disabled={props.disabled} onClick={() => (setOpen(true), go(drive))}>
+      <div className="chips" role="group" aria-label={t('place.chips')}>
+        {places &&
+          locations!.drives.map((drive, i) => (
+            <button key={drive} type="button" className="chip" aria-pressed={drivePressed(drive)} disabled={props.disabled} onClick={() => (setAsking(false), setOpen(true), go(drive))}>
               {i === 0 && <Monitor />}
               <span className="mono">{drive}</span>
             </button>
           ))}
-          {locations!.distros.map((distro) => (
+        {places &&
+          locations!.distros.map((distro) => (
             <button key={distro} type="button" className="chip" aria-pressed={distroPressed(distro)} disabled={props.disabled} onClick={() => goHome(distro)}>
               <Terminal />
               {t('place.wslDistro', { distro })}
             </button>
           ))}
+        {hosts.map((name) => (
+          <button key={name} type="button" className="chip" aria-pressed={hostPressed(name)} disabled={props.disabled} onClick={() => (setAsking(false), connect(name))} translate="no">
+            <Globe />
+            {t('place.sshHost', { host: name })}
+          </button>
+        ))}
+        <button type="button" className="chip" aria-pressed={asking} disabled={props.disabled} onClick={askHost}>
+          <Globe />
+          {t('place.ssh')}
+        </button>
+      </div>
+      {asking && (
+        <div className="ssh-host">
+          <div className="field">
+            <label htmlFor={`${props.id}-host`}>{t('place.hostField')}</label>
+            <div className="inrow">
+              <input
+                id={`${props.id}-host`}
+                className="mono"
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  connect(host);
+                }}
+                disabled={props.disabled}
+                spellCheck={false}
+                autoComplete="off"
+                autoFocus
+                translate="no"
+              />
+              <button type="button" className="btn primary" disabled={props.disabled || host.trim() === ''} onClick={() => connect(host)}>
+                {t('place.connect')}
+              </button>
+            </div>
+          </div>
+          <p className="hint">{t('place.sshHint')}</p>
         </div>
       )}
       {open && (
         <ul className="dirs" aria-label={t('repo.folders')} translate="no">
           {failed !== '' && <li className="hint">{failed}</li>}
-          {failed === '' && list === null && <li className="hint">{starting ? t('place.starting', { distro: waiting }) : dir.trim() === '' ? t('repo.noFolders') : t('repo.loading')}</li>}
+          {failed === '' && list === null && <li className="hint">{starting ? t('place.starting', { distro: waiting }) : dir.trim() === '' ? t(asking ? 'place.sshHome' : 'repo.noFolders') : t('repo.loading')}</li>}
           {failed === '' && list?.parent != null && (
             <li>
-              <button type="button" className="dir" disabled={props.disabled} aria-label={t('repo.up')} onClick={() => go(list.parent!, list.distro)}>
+              <button type="button" className="dir" disabled={props.disabled} aria-label={t('repo.up')} onClick={() => go(list.parent!, distroOf(list))}>
                 <ChevronLeft />
                 ..
               </button>
@@ -144,7 +207,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
                     <span className="dir-name">{folder.name}</span>
                     {folder.git && <span className="tag">git</span>}
                   </button>
-                  <button type="button" className="btn ghost sm" disabled={props.disabled} aria-label={t('repo.open', { name: folder.name })} title={t('repo.open', { name: folder.name })} onClick={() => go(path, list.distro)}>
+                  <button type="button" className="btn ghost sm" disabled={props.disabled} aria-label={t('repo.open', { name: folder.name })} title={t('repo.open', { name: folder.name })} onClick={() => go(path, distroOf(list))}>
                     <ChevronRight />
                   </button>
                 </li>
@@ -153,6 +216,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
           {failed === '' && list?.folders.length === 0 && <li className="hint">{t('repo.noFolders')}</li>}
         </ul>
       )}
+      {reached !== null && <p className="hint" translate="no">{t('place.sshReached', { host: reached })}</p>}
     </>
   );
 }

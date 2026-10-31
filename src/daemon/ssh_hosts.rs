@@ -35,13 +35,11 @@ impl App {
         }
     }
 
-    #[expect(dead_code)]
     pub(super) fn ssh_reach(&self, host: &str) -> Option<Reach> {
         let hosts = self.ssh_hosts.0.lock().unwrap();
         hosts.get(host).and_then(|watched| watched.reach.clone())
     }
 
-    #[expect(dead_code)]
     pub(super) fn reconnect_ssh(self: &Arc<Self>, host: &str) {
         self.watch_ssh(host.to_owned());
         if let Some(watched) = self.ssh_hosts.0.lock().unwrap().get(host) {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::place::{self, Machine};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -115,7 +116,7 @@ async fn add_repo(
     Json(req): Json<NewRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.add(req.path.trim()).await?;
-    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
+    added(&app, id).await
 }
 
 async fn clone_repo(
@@ -123,7 +124,7 @@ async fn clone_repo(
     Json(req): Json<CloneRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.clone(&req.url, req.parent.trim()).await?;
-    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
+    added(&app, id).await
 }
 
 async fn create_repo(
@@ -131,7 +132,15 @@ async fn create_repo(
     Json(req): Json<CreateRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.create(req.parent.trim(), &req.name).await?;
-    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
+    added(&app, id).await
+}
+
+async fn added(app: &Arc<App>, id: RepoId) -> Result<Json<RepoView>, Problem> {
+    let path = app.repos.path(id)?;
+    if let Machine::Ssh(at) = place::of(&path) {
+        app.reconnect_ssh(&at.host);
+    }
+    Ok(Json(app.repo_view(id, &path).await))
 }
 
 async fn remove_repo(

@@ -13,6 +13,9 @@ use crate::skills::Launch;
 
 const PLUGIN: &str = include_str!("dsh-loom.mjs");
 const PLUGIN_FILE: &str = "dsh-loom.mjs";
+const SHELL_START: &str = "unset NODE_ENV BASH_ENV\n";
+const SHELL_START_FILE: &str = "dsh-shell.sh";
+const SHELL_START_ENV: &str = "BASH_ENV";
 const IDLE_ENV: &str = "LOOM_DSH_IDLE";
 const MODEL_ENV: &str = "LOOM_DSH_MODEL";
 const EFFORT_ENV: &str = "LOOM_DSH_EFFORT";
@@ -136,6 +139,8 @@ impl Adapter for Dsh {
             format!("{plugin}/{}", patch(at.plugin, at.launch, at.choice).file),
             WORKSPACE.into(),
         ]);
+        let shell_start = format!("{plugin}/{SHELL_START_FILE}").replace('\\', "/");
+        cmd.env(SHELL_START_ENV, shell_start);
         if at.brief.trim().is_empty() {
             cmd.env(IDLE_ENV, "1");
         }
@@ -156,7 +161,8 @@ impl Adapter for Dsh {
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
-        std::fs::write(dir.join(PLUGIN_FILE), PLUGIN)
+        std::fs::write(dir.join(PLUGIN_FILE), PLUGIN)?;
+        std::fs::write(dir.join(SHELL_START_FILE), SHELL_START)
     }
 
     fn record<'a>(&'a self, _: &'a Record) -> BoxFuture<'a, Option<String>> {

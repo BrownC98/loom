@@ -8,9 +8,16 @@ import { groupParents, groupsOf, inGroup } from './repos';
 export type Found = Exclude<Spot, { kind: 'repo' | 'node' }> | { kind: 'node'; repo: RepoId; node: NodeId };
 
 export function findSpots(repos: readonly RepoView[], views: NodeView[], query: string): Found[] {
+  if (query.trim() === '') return [];
+  return spotsWhere(repos, views, nameHit(query));
+}
+
+export function nameHit(query: string): (name: string) => boolean {
   const needle = query.trim().toLocaleLowerCase();
-  if (needle === '') return [];
-  const hit = (name: string) => name.toLocaleLowerCase().includes(needle);
+  return (name) => name.toLocaleLowerCase().includes(needle);
+}
+
+export function spotsWhere(repos: readonly RepoView[], views: NodeView[], hit: (name: string) => boolean): Found[] {
   return repos.flatMap((repo) => {
     const groups = groupsOf(repo, views);
     const parents = groupParents(groups, views);

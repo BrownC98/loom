@@ -7,7 +7,7 @@ use crate::distro::{self, Command, Distros, Entry, Host, Ran, SSH_NOT_CONNECTED}
 use crate::wsl::{self, Inside, WslPath};
 
 const SSH_SCHEME: &str = "ssh://";
-const RUN_WAIT: Duration = Duration::from_secs(30);
+pub const RUN_WAIT: Duration = Duration::from_secs(30);
 const EXISTED: i32 = 3;
 const MISSING: i32 = 4;
 const MIRRORED: &str = ".loom-mirror";
@@ -133,13 +133,13 @@ impl<'a> Files<'a> {
         Self { hosts }
     }
 
-    pub async fn run(&self, host: &str, command: Command) -> Result<Ran, String> {
+    pub async fn run(&self, host: &str, command: Command, limit: Duration) -> Result<Ran, String> {
         let hosts = Arc::clone(
             self.hosts
                 .ok_or_else(|| format!("{host}: {SSH_NOT_CONNECTED}"))?,
         );
         let host = Host::Ssh(host.to_owned());
-        tokio::task::spawn_blocking(move || hosts.run(&host, command))
+        tokio::task::spawn_blocking(move || hosts.run_within(&host, command, limit))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -151,21 +151,30 @@ impl<'a> Files<'a> {
     pub fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         match of(path) {
             Machine::Pc | Machine::Wsl(_) => std::fs::read(path),
-            Machine::Ssh(at) => self.hosts(&at)?.read(&Host::Ssh(at.host), &at.path),
+            Machine::Ssh(at) => {
+                let hosts = self.hosts(&at)?;
+                off_worker(|| hosts.read(&Host::Ssh(at.host), &at.path))
+            }
         }
     }
 
     pub fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         match of(path) {
             Machine::Pc | Machine::Wsl(_) => distro::replace(path, bytes),
-            Machine::Ssh(at) => self.hosts(&at)?.write(&Host::Ssh(at.host), &at.path, bytes),
+            Machine::Ssh(at) => {
+                let hosts = self.hosts(&at)?;
+                off_worker(|| hosts.write(&Host::Ssh(at.host), &at.path, bytes))
+            }
         }
     }
 
     pub fn list(&self, dir: &Path) -> io::Result<Vec<Entry>> {
         match of(dir) {
             Machine::Pc | Machine::Wsl(_) => distro::list(dir),
-            Machine::Ssh(at) => self.hosts(&at)?.list(&Host::Ssh(at.host), &at.path),
+            Machine::Ssh(at) => {
+                let hosts = self.hosts(&at)?;
+                off_worker(|| hosts.list(&Host::Ssh(at.host), &at.path))
+            }
         }
     }
 
@@ -300,9 +309,8 @@ impl<'a> Files<'a> {
             cwd: "/".into(),
             env: Vec::new(),
         };
-        let ran = self
-            .hosts(at)?
-            .run_within(&Host::Ssh(at.host.clone()), command, RUN_WAIT)
+        let hosts = self.hosts(at)?;
+        let ran = off_worker(|| hosts.run_within(&Host::Ssh(at.host.clone()), command, RUN_WAIT))
             .map_err(io::Error::other)?;
         match ran.code {
             Some(0) => Ok(()),
@@ -319,6 +327,14 @@ impl<'a> Files<'a> {
     fn hosts(&self, at: &SshPath) -> io::Result<&'a Arc<Distros>> {
         self.hosts
             .ok_or_else(|| io::Error::other(format!("{}: {SSH_NOT_CONNECTED}", at.host)))
+    }
+}
+
+fn off_worker<T>(work: impl FnOnce() -> T) -> T {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current().map(|handle| handle.runtime_flavor()) {
+        Ok(RuntimeFlavor::MultiThread) => tokio::task::block_in_place(work),
+        _ => work(),
     }
 }
 

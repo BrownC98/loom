@@ -218,13 +218,27 @@ impl Distros {
         command: Command,
         limit: Duration,
     ) -> Result<Ran, String> {
+        let program = command.argv.first().cloned().unwrap_or_default();
         let mut link = self.ask(host, &Ask::Run(command))?;
         let answer = link
             .set_read_timeout(Some(limit))
             .and_then(|()| read_answer(&mut link));
-        match answer.map_err(|e| format!("distro host: {e}"))? {
-            Answer::Ran(ran) => Ok(ran),
-            other => Err(unexpected(other)),
+        match answer {
+            Ok(Answer::Ran(ran)) => Ok(ran),
+            Ok(other) => Err(unexpected(other)),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                Err(format!(
+                    "{program} on {} did not end in {} s, so loom ended it",
+                    host.name(),
+                    limit.as_secs()
+                ))
+            }
+            Err(e) => Err(format!("distro host: {e}")),
         }
     }
 
@@ -821,16 +835,9 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
             Ok(Err(e)) => Answer::Failed(e),
             Err(e) => Answer::Failed(e.to_string()),
         },
-        Ask::Run(command) => match process(&command).map(|mut cmd| cmd.output()) {
-            Ok(output) => match output.await {
-                Ok(out) => Answer::Ran(Ran {
-                    code: out.status.code(),
-                    stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-                    stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-                }),
-                Err(e) => Answer::Failed(format!("{}: {e}", command.argv[0])),
-            },
-            Err(e) => Answer::Failed(e),
+        Ask::Run(command) => match run_until_hung_up(&mut stream, &command).await {
+            Some(answer) => answer,
+            None => return,
         },
         Ask::End(roots) => match tokio::task::spawn_blocking(move || {
             process_tree::Snapshot::now().end_trees(roots)
@@ -863,6 +870,45 @@ async fn answer(mut stream: tunnel::Stream, start: Starter) {
         }
     };
     let _ = write_answer(&mut stream, &answer).await;
+}
+
+struct Running(Option<u32>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            process_tree::Snapshot::now().kill_trees([pid]);
+        }
+    }
+}
+
+async fn run_until_hung_up(stream: &mut tunnel::Stream, command: &Command) -> Option<Answer> {
+    let spawned = process(command).and_then(|mut cmd| {
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("{}: {e}", command.argv[0]))
+    });
+    let child = match spawned {
+        Ok(child) => child,
+        Err(e) => return Some(Answer::Failed(e)),
+    };
+    let mut running = Running(child.id());
+    let mut byte = [0u8; 1];
+    tokio::select! {
+        output = child.wait_with_output() => {
+            running.0 = None;
+            Some(match output {
+                Ok(out) => Answer::Ran(Ran {
+                    code: out.status.code(),
+                    stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                }),
+                Err(e) => Answer::Failed(format!("{}: {e}", command.argv[0])),
+            })
+        }
+        _ = stream.read(&mut byte) => None,
+    }
 }
 
 fn process(command: &Command) -> Result<tokio::process::Command, String> {

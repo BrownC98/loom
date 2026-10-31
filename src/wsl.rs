@@ -494,22 +494,23 @@ pub async fn inside_ssh(
     find: &[&str],
     paths: Vec<String>,
 ) -> Result<Inside, InsideError> {
-    let script = r#"sep=$(printf '\036')
-p=$("${SHELL:-/bin/sh}" -lic 'printf "\036%s\036" "$PATH"' </dev/null 2>/dev/null)
-case $p in *"$sep"*"$sep"*) p=${p#*"$sep"}; PATH=${p%%"$sep"*} ;; esac
-shim=$1 bin=$2
+    let script = [
+        crate::ssh::LOGIN_PATH,
+        r#"shim=$1 bin=$2
 shift 2
 [ "$(cat "$bin/loom" 2>/dev/null)" = "$shim" ] || { mkdir -p "$bin" && printf '%s\n' "$shim" >"$bin/loom.$$" && chmod 755 "$bin/loom.$$" && mv -f "$bin/loom.$$" "$bin/loom"; } || exit 1
 printf '\036%s' "$PATH" "$HOME"
 for c; do printf '\036%s' "$(command -v "$c")"; done
-printf '\036%s\036' "$bin""#;
+printf '\036%s\036' "$bin""#,
+    ]
+    .concat();
     let bin = format!("{}/{}/bin", remote.home, crate::ssh::REMOTE_DIR);
     let shim = format!(
         "#!/bin/sh\n[ \"$1\" = guard ] && exit 0\nexec {} \"$@\"",
         word(&remote.current())
     );
     let command = sh(
-        script,
+        &script,
         [shim.as_str(), bin.as_str()]
             .into_iter()
             .chain(find.iter().copied()),

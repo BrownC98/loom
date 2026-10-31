@@ -17,7 +17,7 @@ import type { Found } from './findSpots';
 import { useShowAll, useShowGroups, useShowNodes } from './camera';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
-import { ShortPlaceTag, wslDistro } from './place';
+import { ShortPlaceTag, sshHosts, wslDistro } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
@@ -447,7 +447,7 @@ export function Tree(props: {
   const popLabel: Record<Target['kind'], string> = { newWorktree: t('repo.newWorktree'), newNode: t('graph.newNode'), deleteWorktree: t('deleteWorktree.action') };
   const addRepo = (
     <AddRepoPopover
-      hosts={[...new Set(props.repos.flatMap((r) => (r.place.kind === 'ssh' ? [r.place.host] : [])))]}
+      hosts={sshHosts(props.repos)}
       onClose={() => setAdding(false)}
       onAdded={(repo) => {
         setAdding(false);

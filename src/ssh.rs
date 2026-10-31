@@ -19,7 +19,7 @@ const REMOTE_DIR: &str = ".loom/remote";
 const MAC_CPU: &str = "arm64";
 const NO_LINUX: &str = "this daemon has no Linux loom to copy";
 const MAX_TEXT: u64 = 64 * 1024;
-const SSH_DIR: &str = if cfg!(windows) {
+pub const SSH_DIR: &str = if cfg!(windows) {
     r"%USERPROFILE%\.ssh"
 } else {
     "~/.ssh"

@@ -13,16 +13,32 @@ struct Files;
 
 pub struct Plugin(PathBuf);
 
+const HASHES: &str = "skills.sha256";
+
 impl Plugin {
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
+        let now: BTreeMap<String, String> = Files::iter()
+            .map(|name| {
+                let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+                (name.into_owned(), hex(&file.metadata.sha256_hash()))
+            })
+            .collect();
+        let hashes = data.join(HASHES);
+        let written = std::fs::read_to_string(&hashes)
+            .ok()
+            .map(|text| read_hashes(&text))
+            .filter(|_| AlwaysOn::all().all(|on| plugin.skills(on).is_dir()));
+        if written.as_ref() == Some(&now) {
+            return Ok(plugin);
+        }
         for on in AlwaysOn::all() {
             let skills = plugin.skills(on);
-            let keep: BTreeMap<PathBuf, EmbeddedFile> = Files::iter()
+            let keep: BTreeMap<PathBuf, (String, EmbeddedFile)> = Files::iter()
                 .filter(|name| on.has(skill_of(name)))
                 .map(|name| {
                     let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-                    (skills.join(name.as_ref()), file)
+                    (skills.join(name.as_ref()), (name.into_owned(), file))
                 })
                 .collect();
             if let Err(e) = prune(&skills, &keep) {
@@ -31,12 +47,22 @@ impl Plugin {
                     skills.display()
                 );
             }
-            for (path, file) in &keep {
-                if std::fs::read(path).ok().as_deref() != Some(file.data.as_ref()) {
+            for (path, (name, file)) in &keep {
+                let same = match &written {
+                    Some(written) => written.get(name) == now.get(name),
+                    None => std::fs::read(path).ok().as_deref() == Some(file.data.as_ref()),
+                };
+                if !same {
                     write(path, &file.data)?;
                 }
             }
         }
+        std::fs::write(
+            hashes,
+            now.iter()
+                .map(|(name, hash)| format!("{hash}  {name}\n"))
+                .collect::<String>(),
+        )?;
         Ok(plugin)
     }
 
@@ -63,14 +89,17 @@ pub fn digest(parts: &[&str]) -> String {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
-    hex(hasher)
+    hex(&hasher.finalize())
 }
 
-fn hex(hasher: Sha256) -> String {
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn read_hashes(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| line.split_once("  "))
+        .map(|(hash, name)| (name.to_owned(), hash.to_owned()))
         .collect()
 }
 
@@ -90,7 +119,7 @@ fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }
 
-fn prune(dir: &Path, keep: &BTreeMap<PathBuf, EmbeddedFile>) -> io::Result<()> {
+fn prune<V>(dir: &Path, keep: &BTreeMap<PathBuf, V>) -> io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         entries => entries?,

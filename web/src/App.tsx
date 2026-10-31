@@ -56,6 +56,7 @@ import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { CanvasComposer, deskKeys } from './Composer';
+import type { Rect } from './floatPlace';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -160,6 +161,7 @@ export function App() {
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [chosenBox, setChosenBox] = useState<string | null>(null);
   const [graphCorner, setGraphCorner] = useState(0);
+  const [composerBox, setComposerBox] = useState<Rect | null>(null);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -539,7 +541,7 @@ export function App() {
                 <DownLine place={shown[0].place} />
               </div>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} composer={composerBox} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -562,7 +564,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} views={nodes} repos={repos} onPick={selectNode} />}
+            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} onBox={setComposerBox} views={nodes} repos={repos} onPick={selectNode} />}
           </main>
           {dockOpen ? (
             <Dock

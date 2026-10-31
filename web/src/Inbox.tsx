@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { QuestionPill } from './gen/QuestionPill';
-import { FLOAT_MARGIN, floatZoom, PILL_HOME, placeOf, popLeft, popSpace, useFloatDrag, useSize, type Size } from './floatPlace';
+import { FLOAT_MARGIN, floatZoom, PILL_HOME, placeOf, popLeft, popSpace, useFloatDrag, useSize, type Rect, type Size } from './floatPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
 import { ImageList, MB, useImages, ZoomImage } from './attachments';
 import { DocText } from './DocText';
@@ -28,7 +28,7 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
 
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; composer: Rect | null; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -56,6 +56,10 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
 
   const at = drag.at ?? (pane && box ? placeOf(props.place ?? PILL_HOME, pane, box) : null);
   const zoom = floatZoom(props.size);
+  const width = pane ? popWidth(pane, zoom) : 0;
+  const left = at && pane && box ? popLeft(at.left, box.w, width, pane.w) : 0;
+  const bar = props.composer;
+  const cover = bar && at && bar.left < at.left + left + width && at.left + left < bar.left + bar.w ? bar : null;
   return (
     <div className="inbox" ref={paneRef}>
       {first && shown && (
@@ -64,7 +68,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
             <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
           </PillFace>
           {open && n > 0 && at && pane && box && (
-            <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={popLeft(at.left, box.w, popWidth(pane, zoom), pane.w)} width={popWidth(pane, zoom)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
+            <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={left} width={width} {...popSpace(at.top, box, pane, cover)} onClose={() => setOpen(false)}>
               <WaitList
                 waiting={props.waiting}
                 onGo={go}

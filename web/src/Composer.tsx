@@ -11,7 +11,7 @@ import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
+import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize, type Rect } from './floatPlace';
 import { nodeInput, useNodeInput, type NodeInput } from './nodeInputs';
 import { NodePick } from './NodePick';
 
@@ -63,7 +63,7 @@ function holdUpload(key: string, upload: Promise<unknown>) {
   });
 }
 
-export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; corner: number; onPlace: (place: FloatPlace | null) => void; views: ReadonlyMap<NodeId, NodeView>; repos: readonly RepoView[]; onPick: (id: NodeId) => void }) {
+export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; corner: number; onPlace: (place: FloatPlace | null) => void; onBox: (box: Rect | null) => void; views: ReadonlyMap<NodeId, NodeView>; repos: readonly RepoView[]; onPick: (id: NodeId) => void }) {
   const input = useNodeInput(props.node);
   const layer = useRef<HTMLDivElement>(null);
   const float = useRef<HTMLDivElement>(null);
@@ -90,13 +90,19 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
     canvas.style.setProperty(COMPOSER_ROOM, `${box.h + 14}px`);
     return () => void canvas.style.removeProperty(COMPOSER_ROOM);
   }, [box?.h, home]);
-  if (!input) return null;
   const beside = home && !drag.at;
   const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
   const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
   const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
+  const { onBox } = props;
+  useLayoutEffect(() => {
+    if (drag.at) return;
+    onBox(at && box ? { left: at.left, top: at.top, ...box } : null);
+  }, [at?.left, at?.top, box?.w, box?.h, drag.at]);
+  useLayoutEffect(() => () => onBox(null), []);
+  if (!input) return null;
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
-  const space = at && box && pane ? popSpace(at.top, box, pane) : null;
+  const space = at && box && pane ? popSpace(at.top, box, pane, null) : null;
   const pickWidth = pane ? Math.min(PICK_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : 0;
   const pickLeft = at && pane ? Math.max(FLOAT_MARGIN, Math.min(at.left, pane.w - FLOAT_MARGIN - pickWidth)) - at.left : 0;
   return (

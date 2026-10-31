@@ -26,6 +26,15 @@ export function groupsOf(repo: RepoView, views: NodeView[]): Group[] {
   return groups;
 }
 
+export function placeName(repos: readonly RepoView[], views: NodeView[], view: NodeView): string {
+  const repo = repos.find((r) => r.id === view.place.repo);
+  if (!repo) return '';
+  const group = groupsOf(repo, views).find((g) => g.path === view.place.worktree);
+  return group ? `${repo.name} · ${group.label}` : repo.name;
+}
+
+export const bookmarked = (views: NodeView[]) => views.filter((v) => v.bookmark !== null).sort((a, b) => a.bookmark! - b.bookmark!);
+
 export function splitChips(groups: readonly Group[], views: readonly NodeView[]): { boxes: Group[]; chips: Group[] } {
   const chip = (g: Group) => g.kind === 'linked' && !views.some((v) => v.place.worktree === g.path);
   if (!groups.some((g) => g.kind !== 'linked')) return { boxes: [...groups], chips: [] };

@@ -103,6 +103,15 @@ enum Cli {
         /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다.
         #[arg(long)]
         role: String,
+        /// 역할의 에이전트 대신 띄울 카탈로그 에이전트 id. 메시지 연동이 없는 에이전트는 거절한다.
+        #[arg(long)]
+        agent: Option<String>,
+        /// 역할의 모델 대신 쓸 모델. 없으면 띄울 에이전트가 역할의 에이전트와 같을 때 역할의 모델, 아니면 CLI 설정의 모델이다.
+        #[arg(long)]
+        model: Option<String>,
+        /// 역할의 추론 강도 대신 쓸 강도. 없으면 `--model`과 같은 규칙이다.
+        #[arg(long)]
+        effort: Option<String>,
         /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
         #[arg(long, conflicts_with = "worktree")]
         review: Option<String>,
@@ -259,6 +268,9 @@ fn main() -> ExitCode {
             name,
             worktree,
             role,
+            agent,
+            model,
+            effort,
             review,
             file,
         } => cli::spawn(
@@ -269,6 +281,8 @@ fn main() -> ExitCode {
             },
             worktree,
             file.map(wsl::from_caller),
+            agent.map(protocol::AgentId),
+            ModelChoice { model, effort },
         ),
         Cli::Roles { action: None } => cli::roles(),
         Cli::Roles {

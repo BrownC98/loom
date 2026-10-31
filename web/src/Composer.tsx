@@ -1,5 +1,5 @@
-import { ArrowUp, Image as ImageIcon, Paperclip, RotateCcw, SquareTerminal } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ComponentProps, type CSSProperties, type DOMAttributes, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { ArrowUp, ChevronDown, Image as ImageIcon, Paperclip, RotateCcw, SquareTerminal } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ComponentProps, type CSSProperties, type DOMAttributes, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { savePastedFile } from './api';
 import { droppedFiles, ImageList, isImage, quotePath, tooBig, useImages } from './attachments';
@@ -9,8 +9,11 @@ import { editDraft, readDraft, useDraft } from './drafts';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
-import { COMPOSER_HOME, floatZoom, placeOf, useFloatDrag, useSize } from './floatPlace';
+import type { NodeView } from './gen/NodeView';
+import type { RepoView } from './gen/RepoView';
+import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import { nodeInput, useNodeInput, type NodeInput } from './nodeInputs';
+import { NodePick } from './NodePick';
 
 export type ComposerKeys = { sends: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean; escape: (() => void) | null; blank: ((input: NodeInput) => void) | null };
 
@@ -23,9 +26,12 @@ export const deskKeys = (escape: () => void): ComposerKeys => ({
 export const PHONE_KEYS: ComposerKeys = { sends: () => false, escape: null, blank: (input) => input.enter() };
 
 const COMPOSER_ROOM = '--composer-room';
+const PICK_WIDTH = 380;
 
 type ComposerProps = { node: NodeId; name: string; keys: ComposerKeys; onTyped?: (before: string, after: string) => boolean };
-type FloatHead = { onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onName: () => void };
+type FloatHead = { onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onName: () => void; list: { button: RefObject<HTMLButtonElement | null>; open: boolean; onToggle: () => void } };
+
+let focusOnMount: NodeId | null = null;
 
 function keyed<T>(none: T) {
   const values = new Map<string, T>();
@@ -56,15 +62,25 @@ function holdUpload(key: string, upload: Promise<unknown>) {
   });
 }
 
-export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void }) {
+export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; views: ReadonlyMap<NodeId, NodeView>; repos: readonly RepoView[]; onPick: (id: NodeId) => void }) {
   const input = useNodeInput(props.node);
   const layer = useRef<HTMLDivElement>(null);
   const float = useRef<HTMLDivElement>(null);
+  const listButton = useRef<HTMLButtonElement>(null);
+  const [listing, setListing] = useState(false);
   const pane = useSize(layer);
   const box = useSize(float);
   const drag = useFloatDrag(float, pane, box, props.onPlace);
   const show = useShowNodes();
   const home = props.place === null;
+  const focusField = () => float.current?.querySelector('textarea')?.focus();
+  const pick = (id: NodeId) => {
+    setListing(false);
+    show([id]);
+    if (id === props.node) return focusField();
+    focusOnMount = id;
+    props.onPick(id);
+  };
   useLayoutEffect(() => {
     const canvas = layer.current?.parentElement;
     if (!canvas || !box || !home) return;
@@ -74,10 +90,31 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
   if (!input) return null;
   const at = drag.at ?? (pane && box ? placeOf(props.place ?? COMPOSER_HOME, pane, box) : null);
   const zoom = { '--float-zoom': floatZoom(props.size) } as CSSProperties;
+  const space = at && box && pane ? popSpace(at.top, box, pane) : null;
+  const pickWidth = pane ? Math.min(PICK_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : 0;
+  const pickLeft = at && pane ? Math.max(FLOAT_MARGIN, Math.min(at.left, pane.w - FLOAT_MARGIN - pickWidth)) - at.left : 0;
   return (
     <div ref={layer} className="composer-layer">
       <div ref={float} className="composer-float" data-dragging={drag.at ? true : undefined} style={at ? { ...zoom, left: at.left, top: at.top } : { ...zoom, visibility: 'hidden' }} onClickCapture={drag.swallowClick}>
-        <Composer {...props} float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null), onName: () => show([props.node]) }} />
+        <Composer {...props} float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null), onName: () => show([props.node]), list: { button: listButton, open: listing, onToggle: () => setListing(!listing) } }} />
+        {listing && space && (
+          <div className="node-pick-at" data-above={space.above || undefined} style={{ left: pickLeft }}>
+            <NodePick
+              views={props.views}
+              repos={props.repos}
+              current={props.node}
+              anchor={listButton}
+              width={pickWidth / floatZoom(props.size)}
+              room={space.room / floatZoom(props.size)}
+              onPick={pick}
+              onClose={() => setListing(false)}
+              onEscape={() => {
+                setListing(false);
+                focusField();
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -93,6 +130,11 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
   const images = useImages(key, props.node, setRefusal);
   const area = useRef<HTMLTextAreaElement>(null);
   const composition = useRef<Composition | null>(null);
+  useEffect(() => {
+    const wanted = focusOnMount === props.node;
+    focusOnMount = null;
+    if (wanted) requestAnimationFrame(() => area.current?.focus());
+  }, []);
   useEffect(() => {
     if (!area.current) return;
     const watched = watchComposition(area.current);
@@ -265,9 +307,14 @@ export function ComposerFace(props: {
         <span className="target">
           <SquareTerminal aria-hidden="true" />
           {props.float ? (
-            <button type="button" className="node-name" title={t('composer.showNode')} onClick={props.float.onName}>
-              <b>{props.name}</b>
-            </button>
+            <>
+              <button type="button" className="node-name" title={t('composer.showNode')} onClick={props.float.onName}>
+                <b>{props.name}</b>
+              </button>
+              <button ref={props.float.list.button} type="button" className="node-list" aria-label={t('composer.pickNode')} title={t('composer.pickNode')} aria-haspopup="dialog" aria-expanded={props.float.list.open} onClick={props.float.list.onToggle}>
+                <ChevronDown aria-hidden="true" />
+              </button>
+            </>
           ) : (
             <b>{props.name}</b>
           )}

@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { filePass, fileViewUrl, openFile, openWebLink } from './api';
 import type { NodeId } from './gen/NodeId';
 import { filePath } from './links';
@@ -11,6 +12,8 @@ function remoteScreen(): boolean {
 export const openPass = (pass: Promise<string>, browser: PhoneBrowser) =>
   pass.then((url) => browser.open(new URL(url, location.href).href));
 
+export const appOpen = (url: string, daemonOpen: () => Promise<unknown>) => openUrl(url).catch(daemonOpen);
+
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
@@ -21,7 +24,7 @@ export function openLink(uri: string, node: NodeId | null) {
     if (remoteScreen()) return openPage(fileViewUrl(path, node));
     openFile(hostPath, node).catch((err: Error) => console.error(err));
   } else if (url?.protocol === 'http:' || url?.protocol === 'https:') {
-    if (isTauri()) openWebLink(url.href).catch((err: Error) => console.error(err));
+    if (isTauri()) appOpen(url.href, () => openWebLink(url.href)).catch((err: Error) => console.error(err));
     else window.open(url.href, '_blank', 'noopener');
   }
 }

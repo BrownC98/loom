@@ -20,6 +20,8 @@ import { paintSnapshot } from './terminalSnapshot';
 import { attachTouchGestures, type TouchSelection } from './touchTerminal';
 
 const SHIFT_ENTER_INPUT = '\n';
+const PASTE_START = '\x1b[200~';
+const PASTE_END = '\x1b[201~';
 function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
   return e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
@@ -324,7 +326,10 @@ export function SizingTerminal(props: TerminalProps) {
           ? () => {}
           : offerInput(node, {
               state: () => (ended ? 'gone' : link.connected() ? 'open' : 'offline'),
-              paste: (text) => xterm.paste(text),
+              paste: (text) => {
+                const lines = text.replace(/\r?\n/g, '\r');
+                xterm.input(xterm.modes.bracketedPasteMode ? `${PASTE_START}${lines}${PASTE_END}` : lines);
+              },
               enter: () => {
                 claim();
                 link.sendInput('\r');
@@ -378,7 +383,10 @@ export function SizingTerminal(props: TerminalProps) {
         flush();
         show(draw === 'snapshot' ? 'snapshot' : 'xterm');
       };
-      const resize = xterm.onResize(() => requestAnimationFrame(rescale));
+      const resize = xterm.onResize(() => {
+        dirty = true;
+        requestAnimationFrame(rescale);
+      });
       window.addEventListener('focus', claim);
       document.addEventListener('visibilitychange', onVisibility);
       const observer = new ResizeObserver(() => redecide.current());

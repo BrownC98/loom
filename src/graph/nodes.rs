@@ -478,6 +478,7 @@ impl Graph {
         model: &Model,
     ) -> rusqlite::Result<()> {
         self.restarted(id, launched, |tx| {
+            mailbox::queue_interrupts(tx, id)?;
             tx.execute(
                 "UPDATE nodes SET agent = ?2, model = ?3, effort = ?4, session = NULL WHERE id = ?1",
                 params![id.0, to_json(&Some(agent)), model.model, model.effort],

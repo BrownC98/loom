@@ -85,11 +85,14 @@ impl App {
         node: NodeId,
         prompt: Option<&str>,
     ) -> Result<Option<String>, Refusal> {
-        self.graph.human_input(node)?;
+        let injected = self.first_inputs.injected(node);
+        if !injected {
+            self.graph.human_input(node)?;
+        }
         self.draft_ended(node);
         self.turn_ends.human(node);
         if let Some(text) = prompt
-            && !self.first_inputs.injected(node)
+            && !injected
         {
             self.graph.human_typed(node, text)?;
         }

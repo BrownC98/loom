@@ -1,11 +1,17 @@
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::distro::{self, Command, Distros, Entry, Host, Ran, SSH_NOT_CONNECTED};
 use crate::wsl::{self, Inside, WslPath};
 
 const SSH_SCHEME: &str = "ssh://";
+const RUN_WAIT: Duration = Duration::from_secs(30);
+const EXISTED: i32 = 3;
+const MISSING: i32 = 4;
+const MIRRORED: &str = ".loom-mirror";
+const MIRROR_DIGEST: usize = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Machine {
@@ -163,8 +169,167 @@ impl<'a> Files<'a> {
         }
     }
 
+    pub fn create_dir_all(&self, dir: &Path) -> io::Result<()> {
+        match of(dir) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::create_dir_all(dir),
+            Machine::Ssh(at) => self.sh(&at, r#"mkdir -p -- "$1""#, &[]),
+        }
+    }
+
+    pub fn create_dir(&self, dir: &Path) -> io::Result<()> {
+        match of(dir) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::create_dir(dir),
+            Machine::Ssh(at) => self.sh(
+                &at,
+                &format!(
+                    r#"mkdir -- "$1" 2>/dev/null && exit 0; [ -e "$1" ] && exit {EXISTED}; mkdir -- "$1""#
+                ),
+                &[],
+            ),
+        }
+    }
+
+    pub fn create_new(&self, path: &Path, text: &str) -> io::Result<()> {
+        match of(path) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?
+                .write_all(text.as_bytes()),
+            Machine::Ssh(at) => {
+                self.sh(
+                    &at,
+                    &format!(
+                        r#"(set -C; : > "$1") 2>/dev/null && exit 0; [ -e "$1" ] && exit {EXISTED}; (set -C; : > "$1")"#
+                    ),
+                    &[],
+                )?;
+                match text.is_empty() {
+                    true => Ok(()),
+                    false => self.write(path, text.as_bytes()),
+                }
+            }
+        }
+    }
+
+    pub fn rewrite(&self, path: &Path, text: &str) -> io::Result<()> {
+        match of(path) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::write(path, text),
+            Machine::Ssh(at) => self.sh(&at, r#"printf %s "$2" > "$1""#, &[text]),
+        }
+    }
+
+    pub fn append(&self, path: &Path, text: &str) -> io::Result<()> {
+        match of(path) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::OpenOptions::new()
+                .append(true)
+                .open(path)?
+                .write_all(text.as_bytes()),
+            Machine::Ssh(at) => self.sh(
+                &at,
+                &format!(r#"[ -e "$1" ] || exit {MISSING}; printf %s "$2" >> "$1""#),
+                &[text],
+            ),
+        }
+    }
+
+    pub fn remove(&self, path: &Path) -> io::Result<()> {
+        match of(path) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::remove_file(path),
+            Machine::Ssh(at) => self.sh(
+                &at,
+                &format!(r#"[ -e "$1" ] || [ -L "$1" ] || exit {MISSING}; rm -f -- "$1""#),
+                &[],
+            ),
+        }
+    }
+
+    pub fn remove_dir_all(&self, dir: &Path) -> io::Result<()> {
+        match of(dir) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::remove_dir_all(dir),
+            Machine::Ssh(at) => self.sh(
+                &at,
+                &format!(r#"[ -e "$1" ] || exit {MISSING}; rm -rf -- "$1""#),
+                &[],
+            ),
+        }
+    }
+
+    pub fn mirror(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let mut files = Vec::new();
+        local_files(from, "", &mut files)?;
+        files.sort();
+        let digest = |bytes: &[u8]| -> String {
+            use sha2::Digest;
+            sha2::Sha256::digest(bytes)[..MIRROR_DIGEST]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        let lines: Vec<String> = files
+            .iter()
+            .map(|(name, bytes)| format!("{} {name}", digest(bytes)))
+            .collect();
+        let manifest = to.join(MIRRORED);
+        let old = match self.read(&manifest) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
+        let had: std::collections::HashSet<&str> = old.lines().collect();
+        for ((name, bytes), line) in files.iter().zip(&lines) {
+            if !had.contains(line.as_str()) {
+                self.write(&to.join(name), bytes)?;
+            }
+        }
+        let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        match text == old {
+            true => Ok(()),
+            false => self.write(&manifest, text.as_bytes()),
+        }
+    }
+
+    fn sh(&self, at: &SshPath, script: &str, args: &[&str]) -> io::Result<()> {
+        let argv = ["sh", "-c", script, "sh", &at.path]
+            .into_iter()
+            .chain(args.iter().copied())
+            .map(str::to_owned)
+            .collect();
+        let command = distro::Command {
+            argv,
+            cwd: "/".into(),
+            env: Vec::new(),
+        };
+        let ran = self
+            .hosts(at)?
+            .run_within(&Host::Ssh(at.host.clone()), command, RUN_WAIT)
+            .map_err(io::Error::other)?;
+        match ran.code {
+            Some(0) => Ok(()),
+            Some(EXISTED) => Err(io::ErrorKind::AlreadyExists.into()),
+            Some(MISSING) => Err(io::ErrorKind::NotFound.into()),
+            _ => Err(io::Error::other(format!(
+                "{}: {}",
+                at.url(&at.path),
+                ran.stderr.trim()
+            ))),
+        }
+    }
+
     fn hosts(&self, at: &SshPath) -> io::Result<&'a Arc<Distros>> {
         self.hosts
             .ok_or_else(|| io::Error::other(format!("{}: {SSH_NOT_CONNECTED}", at.host)))
     }
+}
+
+fn local_files(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) -> io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = format!("{prefix}{}", entry.file_name().to_string_lossy());
+        match entry.file_type()?.is_dir() {
+            true => local_files(&entry.path(), &format!("{name}/"), out)?,
+            false => out.push((name, std::fs::read(entry.path())?)),
+        }
+    }
+    Ok(())
 }

@@ -194,9 +194,7 @@ impl App {
                     })?;
                 let home = remote.home.trim_end_matches('/');
                 let dir = PathBuf::from(at.url(&worktree::workspace_under(home)));
-                worktree::make_dir(self.files(), &dir)
-                    .await
-                    .map_err(internal)?;
+                self.files().create_dir_all(&dir).map_err(internal)?;
                 Ok(dir)
             }
         }

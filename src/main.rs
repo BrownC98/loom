@@ -367,7 +367,7 @@ fn main() -> ExitCode {
                 false => user_doc::DocStep::Stamp,
                 true => user_doc::DocStep::Pass,
             };
-            match wsl::to_windows_daemon() {
+            match wsl::to_windows_daemon() || cli::only_endpoint() {
                 true => cli::show(file, step),
                 false => user_doc::show(&wsl::from_caller(file), step),
             }

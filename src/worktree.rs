@@ -237,7 +237,9 @@ impl Repos {
         if exists(files, &target).await.map_err(RepoProblem::Git)? {
             return Err(RepoProblem::Exists(text));
         }
-        make_dir(files, &target).await.map_err(RepoProblem::Git)?;
+        files
+            .create_dir_all(&target)
+            .map_err(|e| RepoProblem::Git(e.to_string()))?;
         if let Err(e) = git::run(files, &target, &["init", "-q"]).await {
             let _ = remove_dir(files, &target).await;
             return Err(RepoProblem::Git(e));
@@ -506,7 +508,9 @@ pub async fn create(
         ));
     }
     let parent = workspace.join(folder_name(repo));
-    make_dir(files, &parent).await.map_err(RepoProblem::Git)?;
+    files
+        .create_dir_all(&parent)
+        .map_err(|e| RepoProblem::Git(e.to_string()))?;
     let path = parent.join(leaf).to_string_lossy().into_owned();
     let target = git::to_git_path(from, &path);
     if let Err(e) = git::run(
@@ -686,19 +690,6 @@ async fn occupied(files: Files<'_>, path: &Path) -> Result<bool, String> {
 async fn remove_dir(files: Files<'_>, path: &Path) -> Result<bool, String> {
     let here = |path: &Path| std::fs::remove_dir(path).is_ok();
     test(files, path, here, r#"rmdir "$1""#).await
-}
-
-pub async fn make_dir(files: Files<'_>, path: &Path) -> Result<(), String> {
-    match place::of(path) {
-        Machine::Pc | Machine::Wsl(_) => std::fs::create_dir_all(path).map_err(|e| e.to_string()),
-        Machine::Ssh(at) => {
-            let made = shell(files, &at, r#"mkdir -p "$1""#).await?;
-            match made.code {
-                Some(0) => Ok(()),
-                _ => Err(format!("{}: {}", at.url(&at.path), made.stderr.trim())),
-            }
-        }
-    }
 }
 
 async fn real(files: Files<'_>, path: &str) -> Option<PathBuf> {

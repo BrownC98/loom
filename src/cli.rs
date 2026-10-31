@@ -60,20 +60,21 @@ pub fn spawn(
         agent,
         choice,
     };
-    let _: NodeId = match crate::wsl::to_windows_daemon() {
-        true => match at_endpoint("spawn", &request) {
+    let _: NodeId = match (
+        crate::wsl::to_windows_daemon(),
+        std::env::var("LOOM_SPAWN_URL"),
+    ) {
+        (true, _) => match at_endpoint("spawn", &request) {
             Err(CallError::Misdirected | CallError::NotConnected(_)) => {
                 std::process::exit(crate::wsl::SPAWN_AT_DAEMON_EXIT)
             }
             made => made?,
         },
-        false => {
-            let spawn = Daemon::Http {
-                url: env_var("LOOM_SPAWN_URL")?,
-                proxy: None,
-            };
+        (false, Ok(url)) => {
+            let spawn = Daemon::Http { url, proxy: None };
             post(&spawn, "spawn", &request, None, None)?
         }
+        (false, Err(_)) => at_endpoint("spawn", &request)?,
     };
     println!("Created node: {}", request.run.name());
     Ok(())
@@ -253,6 +254,10 @@ fn reconnecting<T>(
 
 fn through_endpoint() -> bool {
     std::env::var_os(ENDPOINT_ENV).is_some()
+}
+
+pub fn only_endpoint() -> bool {
+    through_endpoint() && std::env::var_os("LOOM_URL").is_none()
 }
 
 fn again_after_cut<T>(
@@ -534,8 +539,11 @@ fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>,
 
 fn task_dir() -> Result<PathBuf, String> {
     let dir: Option<String> = call("task", &(), None)?;
-    dir.map(crate::wsl::from_daemon)
-        .ok_or_else(|| "loom has no task folder for this node".to_owned())
+    dir.map(|dir| match crate::place::parse(&dir) {
+        crate::place::Machine::Ssh(at) => PathBuf::from(at.path),
+        crate::place::Machine::Pc | crate::place::Machine::Wsl(_) => crate::wsl::from_daemon(dir),
+    })
+    .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, String> {

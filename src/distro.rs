@@ -212,6 +212,22 @@ impl Distros {
         }
     }
 
+    pub fn run_within(
+        &self,
+        host: &Host,
+        command: Command,
+        limit: Duration,
+    ) -> Result<Ran, String> {
+        let mut link = self.ask(host, &Ask::Run(command))?;
+        let answer = link
+            .set_read_timeout(Some(limit))
+            .and_then(|()| read_answer(&mut link));
+        match answer.map_err(|e| format!("distro host: {e}"))? {
+            Answer::Ran(ran) => Ok(ran),
+            other => Err(unexpected(other)),
+        }
+    }
+
     pub fn serve(&self, host: &Host, command: Command) -> Result<Serving, String> {
         let mut link = self.ask(host, &Ask::Serve(command))?;
         match read_answer(&mut link).map_err(|e| format!("distro host: {e}"))? {

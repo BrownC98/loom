@@ -2,8 +2,6 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::task;
-
 /// 화면이 그리는 글 조각. 화면은 링크를 찾지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "part", rename_all = "camelCase")]
@@ -63,9 +61,9 @@ pub fn parts(text: &str) -> Vec<TextPart> {
 
 const PATH_RESERVED: &AsciiSet = &CONTROLS.add(b'%').add(b'#').add(b'?');
 
-pub fn path_link(path: &str) -> TextPart {
+pub fn path_link(path: &str, task_root: &[&str]) -> TextPart {
     let slashed = path.replace('\\', "/");
-    let marker = format!("/{}/", task::ROOT.join("/"));
+    let marker = format!("/{}/", task_root.join("/"));
     let label = slashed
         .split_once(&marker)
         .and_then(|(_, task)| task.split_once('/'))

@@ -15,7 +15,8 @@ const SSH_FAILED: i32 = 255;
 const HOST_KEY_FAILED: &str = "Host key verification failed";
 const AUTH_FAILED: &str = "Permission denied";
 const NEED: &str = "need";
-const REMOTE_DIR: &str = ".loom/remote";
+pub const REMOTE_DIR: &str = ".loom/remote";
+const CURRENT: &str = "loom";
 const MAC_CPU: &str = "arm64";
 const NO_LINUX: &str = "this daemon has no Linux loom to copy";
 const MAX_TEXT: u64 = 64 * 1024;
@@ -76,6 +77,12 @@ pub struct Remote {
     pub program: String,
     pub home: String,
     pub system: System,
+}
+
+impl Remote {
+    pub fn current(&self) -> String {
+        format!("{}/{REMOTE_DIR}/{CURRENT}", self.home)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -159,7 +166,7 @@ pub fn prepare(
         Probed::Mac { cpu } => return Err(Failure::UnsupportedMac { cpu: cpu.clone() }),
     };
     let script = format!(
-        "mkdir -p {REMOTE_DIR} && cd {REMOTE_DIR} && {{ [ -x {file} ] || {{ {fetch} && chmod 755 {file}.partial && mv {file}.partial {file}; }}; }} && {{ ls | grep ^loom- | grep -vxF {file} | xargs rm -f; {} pwd; }}",
+        "mkdir -p {REMOTE_DIR} && cd {REMOTE_DIR} && {{ [ -x {file} ] || {{ {fetch} && chmod 755 {file}.partial && mv {file}.partial {file}; }}; }} && ln -sf {file} {CURRENT}.new && mv -f {CURRENT}.new {CURRENT} && {{ ls | grep ^loom- | grep -vxF {file} | xargs rm -f; {} pwd; }}",
         probed.distro_line()
     );
     let ran = call(
@@ -227,7 +234,7 @@ fn program() -> String {
     crate::search_path::find("ssh").map_or_else(|| "ssh".into(), |p| p.display().to_string())
 }
 
-fn command(host: &str, remote: &str) -> Vec<String> {
+pub fn command(host: &str, remote: &str) -> Vec<String> {
     let alive = format!("ServerAliveInterval={}", ALIVE_EVERY.as_secs());
     let connect = format!("ConnectTimeout={}", CONNECT_WAIT.as_secs());
     let options = [

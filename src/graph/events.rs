@@ -466,7 +466,7 @@ fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
             _ => fields.push(FieldParts {
                 name,
                 parts: if name.is_file() {
-                    vec![path_link(&value)]
+                    vec![path_link(&value, &crate::task::ROOT)]
                 } else {
                     parts(&value)
                 },

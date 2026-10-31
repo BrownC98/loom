@@ -365,23 +365,34 @@ async fn run(distro: &Distro, command: distro::Command) -> Result<distro::Ran, S
         .map_err(|e| e.to_string())?
 }
 
-const END_TOKEN: &str = r#"token=$1 nl='
-'
+const END_TOKEN: &str = r#"token=$1
 shift
 names=$*
+envs() {
+  if [ -r /proc/self/environ ]; then
+    for f in $(grep -laF "=$token" /proc/[0-9]*/environ 2>/dev/null); do
+      pid=${f#/proc/}
+      printf '%s %s\n' "${pid%/environ}" "$(tr '\0\n' '  ' <"$f" 2>/dev/null)"
+    done
+  else
+    ps -E -ww -x -o pid= -o command= 2>/dev/null | grep -F "=$token"
+  fi
+}
 signal() {
   sent=1
-  for f in $(grep -laF "=$token" /proc/[0-9]*/environ 2>/dev/null); do
-    env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
+  found=$(envs)
+  while IFS= read -r line; do
+    line=${line#"${line%%[! ]*}"}
     held=1
     for name in $names; do
-      case $env in *"${nl}$name=$token$nl"*) held=0 ;; esac
+      case " $line " in *" $name=$token "*) held=0 ;; esac
     done
     [ "$held" = 0 ] || continue
-    case $env in *"${nl}HOME=$HOME$nl"*) ;; *) continue ;; esac
-    pid=${f#/proc/}
-    kill -"$1" "${pid%/environ}" 2>/dev/null && sent=0
-  done
+    case " $line " in *" HOME=$HOME "*) ;; *) continue ;; esac
+    kill -"$1" "${line%% *}" 2>/dev/null && sent=0
+  done <<EOF
+$found
+EOF
   return $sent
 }
 signal TERM || exit 0
@@ -416,7 +427,7 @@ fn ran_failure(ran: &distro::Ran) -> String {
 
 #[derive(Debug, PartialEq)]
 pub struct Inside {
-    host: String,
+    seen: Seen,
     pub distro: Distro,
     cwd: String,
     bin: String,
@@ -426,7 +437,14 @@ pub struct Inside {
     paths: Vec<String>,
 }
 
+#[derive(Debug, PartialEq)]
+enum Seen {
+    Unc(String),
+    Ssh { url: String, loom: String },
+}
+
 const SEP: char = '\u{1e}';
+const SSH_PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
@@ -463,7 +481,58 @@ printf '\036'"#;
     };
     let text = values(&distro, command).await?;
     let name = distro.name().to_owned();
-    read_inside(at, distro, find, &text).ok_or(InsideError::Interop { distro: name })
+    let seen = Seen::Unc(at.host.clone());
+    read_inside(seen, at.path.clone(), distro, find, &text)
+        .ok_or(InsideError::Interop { distro: name })
+}
+
+pub async fn inside_ssh(
+    url: String,
+    cwd: &str,
+    distro: Distro,
+    remote: &crate::ssh::Remote,
+    find: &[&str],
+    paths: Vec<String>,
+) -> Result<Inside, InsideError> {
+    let script = r#"sep=$(printf '\036')
+p=$("${SHELL:-/bin/sh}" -lic 'printf "\036%s\036" "$PATH"' </dev/null 2>/dev/null)
+case $p in *"$sep"*"$sep"*) p=${p#*"$sep"}; PATH=${p%%"$sep"*} ;; esac
+shim=$1 bin=$2
+shift 2
+[ "$(cat "$bin/loom" 2>/dev/null)" = "$shim" ] || { mkdir -p "$bin" && printf '%s\n' "$shim" >"$bin/loom.$$" && chmod 755 "$bin/loom.$$" && mv -f "$bin/loom.$$" "$bin/loom"; } || exit 1
+printf '\036%s' "$PATH" "$HOME"
+for c; do printf '\036%s' "$(command -v "$c")"; done
+printf '\036%s\036' "$bin""#;
+    let bin = format!("{}/{}/bin", remote.home, crate::ssh::REMOTE_DIR);
+    let shim = format!(
+        "#!/bin/sh\n[ \"$1\" = guard ] && exit 0\nexec {} \"$@\"",
+        word(&remote.current())
+    );
+    let command = sh(
+        script,
+        [shim.as_str(), bin.as_str()]
+            .into_iter()
+            .chain(find.iter().copied()),
+    );
+    let name = distro.name().to_owned();
+    let text = tokio::time::timeout(SSH_PROBE_WAIT, values(&distro, command))
+        .await
+        .map_err(|_| InsideError::Start {
+            distro: name.clone(),
+            cause: format!("{}초 안에 끝나지 않았다", SSH_PROBE_WAIT.as_secs()),
+        })??;
+    let seen = Seen::Ssh {
+        url,
+        loom: remote.program.clone(),
+    };
+    let mut inside = read_inside(seen, cwd.to_owned(), distro, find, &text)
+        .ok_or(InsideError::Interop { distro: name })?;
+    inside.paths = paths;
+    Ok(inside)
+}
+
+fn word(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 async fn values(distro: &Distro, command: distro::Command) -> Result<String, InsideError> {
@@ -478,7 +547,13 @@ async fn values(distro: &Distro, command: distro::Command) -> Result<String, Ins
     }
 }
 
-fn read_inside(at: &WslPath, distro: Distro, find: &[&str], text: &str) -> Option<Inside> {
+fn read_inside(
+    seen: Seen,
+    cwd: String,
+    distro: Distro,
+    find: &[&str],
+    text: &str,
+) -> Option<Inside> {
     let mut values = text.split(SEP).skip(1);
     let path = values.next()?;
     if path == INTEROP_OFF {
@@ -491,9 +566,9 @@ fn read_inside(at: &WslPath, distro: Distro, find: &[&str], text: &str) -> Optio
         .collect();
     let bin = values.next()?.to_owned();
     Some(Inside {
-        host: at.host.clone(),
+        seen,
         distro,
-        cwd: at.path.clone(),
+        cwd,
         bin,
         path: path.into(),
         home,
@@ -520,10 +595,16 @@ impl Inside {
     }
 
     pub fn wrap(&self, cmd: &CommandBuilder) -> CommandBuilder {
+        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
+        if let Seen::Ssh { .. } = self.seen {
+            let argv = self.ssh_argv(cmd.get_argv(), &env);
+            let mut ssh = CommandBuilder::new(&argv[0]);
+            ssh.args(&argv[1..]);
+            return ssh;
+        }
         let mut wsl = CommandBuilder::new("wsl.exe");
         wsl.args(self.prefix());
         wsl.args(cmd.get_argv());
-        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
         for (key, value) in passed(&env) {
             wsl.env(key, value);
         }
@@ -532,6 +613,33 @@ impl Inside {
             wsl.cwd(dir);
         }
         wsl
+    }
+
+    fn ssh_argv<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+        &self,
+        argv: &[impl AsRef<std::ffi::OsStr>],
+        env: &[(K, V)],
+    ) -> Vec<String> {
+        let text = |value: &std::ffi::OsStr| word(&value.to_string_lossy());
+        let vars = passed(env)
+            .map(|(k, v)| format!("{}={}", k.as_ref(), v.as_ref().to_string_lossy()))
+            .chain([format!("PATH={}", self.node_path())]);
+        let line = std::iter::once(format!("cd {} && exec env", word(&self.cwd)))
+            .chain(vars.map(|var| word(&var)))
+            .chain(argv.iter().map(|arg| text(arg.as_ref())))
+            .collect::<Vec<_>>()
+            .join(" ");
+        crate::ssh::command(self.distro.name(), &line)
+    }
+
+    pub fn host_loom(&self, linux: Option<&Path>) -> Option<String> {
+        match &self.seen {
+            Seen::Unc(_) => {
+                let name = linux?.file_name()?.to_string_lossy();
+                Some(self.bin_file(&name))
+            }
+            Seen::Ssh { loom, .. } => Some(loom.clone()),
+        }
     }
 
     pub fn start(
@@ -567,7 +675,9 @@ impl Inside {
                 )
             })
             .collect();
-        vars.push(("WSLENV".into(), names(env)));
+        if let Seen::Unc(_) = self.seen {
+            vars.push(("WSLENV".into(), names(env)));
+        }
         vars.push(("PATH".into(), self.node_path()));
         distro::Command {
             argv,
@@ -581,6 +691,12 @@ impl Inside {
         argv: &[impl AsRef<std::ffi::OsStr>],
         env: &[(K, V)],
     ) -> std::process::Command {
+        if let Seen::Ssh { .. } = self.seen {
+            let argv = self.ssh_argv(argv, env);
+            let mut ssh = std::process::Command::new(&argv[0]);
+            ssh.args(&argv[1..]);
+            return ssh;
+        }
         let mut wsl = std::process::Command::new("wsl.exe");
         wsl.args(self.prefix()).args(argv);
         wsl.envs(passed(env).map(|(k, v)| (k.as_ref(), v)));
@@ -605,16 +721,22 @@ impl Inside {
     }
 
     pub fn run_dir(&self) -> String {
-        format!("{}/.loom/run", self.home)
+        match self.seen {
+            Seen::Unc(_) => format!("{}/.loom/run", self.home),
+            Seen::Ssh { .. } => format!("{}/{}/run", self.home, crate::ssh::REMOTE_DIR),
+        }
     }
 
     pub fn local(&self, linux: &str) -> PathBuf {
-        PathBuf::from(format!(
-            r"\\{}\{}{}",
-            self.host,
-            self.distro.name(),
-            linux.trim_end_matches('/').replace('/', "\\")
-        ))
+        let linux = linux.trim_end_matches('/');
+        PathBuf::from(match &self.seen {
+            Seen::Unc(host) => format!(
+                r"\\{host}\{}{}",
+                self.distro.name(),
+                linux.replace('/', "\\")
+            ),
+            Seen::Ssh { url, .. } => format!("{url}{linux}"),
+        })
     }
 
     fn prefix(&self) -> [String; 7] {

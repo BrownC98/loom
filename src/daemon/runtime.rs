@@ -49,7 +49,7 @@ impl App {
                 &prepared.launched(),
                 |id| {
                     if let Some(dir) = dir {
-                        task::create(&dir.local, "")
+                        task::create(self.files(), &dir.local, "")
                             .map_err(|e| format!("{}: {e}", dir.local.display()))?;
                     }
                     self.launch(id, prepared)
@@ -62,20 +62,46 @@ impl App {
         Ok(id)
     }
 
-    pub(super) async fn tasks_for(&self, worktree: &str) -> Result<task::Tasks, Problem> {
+    pub(super) async fn tasks_for(&self, worktree: &str) -> Result<task::Tasks<'_>, Problem> {
         match place::of(std::path::Path::new(worktree)) {
             Machine::Wsl(at) => {
                 let distro = self
                     .host(Host::Distro(at.distro.clone()))
                     .map_err(LaunchError::Wsl)?;
                 let home = wsl::home(&distro).await.map_err(LaunchError::Wsl)?;
-                Ok(task::Tasks::wsl(&home, |linux| {
-                    PathBuf::from(wsl::windows_path(&at.distro, linux))
-                }))
+                Ok(task::Tasks::inside(
+                    &home,
+                    |linux| PathBuf::from(wsl::windows_path(&at.distro, linux)),
+                    self.files(),
+                ))
             }
-            Machine::Pc => task::Tasks::pc().ok_or_else(|| internal("홈 폴더를 찾지 못했다")),
-            Machine::Ssh(at) => Err(LaunchError::Wsl(unconnected(&at)).into()),
+            Machine::Pc => {
+                task::Tasks::pc(self.files()).ok_or_else(|| internal("홈 폴더를 찾지 못했다"))
+            }
+            Machine::Ssh(at) => {
+                let remote = self.remote(&at).await.map_err(LaunchError::Wsl)?;
+                Ok(task::Tasks::inside(
+                    &remote.home,
+                    |inner| PathBuf::from(at.url(inner)),
+                    self.files(),
+                ))
+            }
         }
+    }
+
+    async fn remote(
+        &self,
+        at: &SshPath,
+    ) -> Result<crate::ssh::Remote, crate::protocol::InsideError> {
+        let distros = self.distros.clone();
+        let host = Host::Ssh(at.host.clone());
+        tokio::task::spawn_blocking(move || distros.remote(&host).map_err(|e| e.to_string()))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()))
+            .map_err(|cause| crate::protocol::InsideError::Start {
+                distro: at.host.clone(),
+                cause,
+            })
     }
 
     pub(super) fn files(&self) -> Files<'_> {
@@ -98,7 +124,7 @@ impl App {
                 tasks.dir(&kept)
             }
         };
-        task::create(&dir.local, "")
+        task::create(self.files(), &dir.local, "")
             .map_err(|e| internal(format!("{}: {e}", dir.local.display())))?;
         Ok(dir)
     }
@@ -145,14 +171,15 @@ impl App {
         self.turn_ends.launched(id);
         let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, port.clone());
-        let at = match (&inside, &self.linux_loom) {
-            (Some(inside), Some(loom)) => {
-                let name = loom.file_name().unwrap_or_default().to_string_lossy();
-                let start = inside.start(inside.bin_file(&name), &cmd, setup.as_ref());
+        let at = match &inside {
+            Some(inside) => {
+                let loom = inside
+                    .host_loom(self.linux_loom.as_deref())
+                    .ok_or(LINUX_LOOM_MISSING)?;
+                let start = inside.start(loom, &cmd, setup.as_ref());
                 self.host.start_in(inside.distro.host(), start)?
             }
-            (Some(_), None) => return Err(LINUX_LOOM_MISSING.into()),
-            (None, _) => self.host.start(&cmd, setup.as_ref())?,
+            None => self.host.start(&cmd, setup.as_ref())?,
         };
         if let Err(e) = self.graph.set_host(id, &at.to_string()) {
             self.host.end_at(&at);
@@ -516,24 +543,47 @@ impl App {
         let token = new_token().map_err(internal)?;
         let mut env = self.node_env(&token)?.to_vec();
         let plugin_here = self.plugin.dir(launch.skills);
-        let site = match place::of(cwd) {
+        let machine = place::of(cwd);
+        let (site, mirror) = match &machine {
             Machine::Wsl(at) => {
                 let distro = self
                     .host(Host::Distro(at.distro.clone()))
                     .map_err(LaunchError::Wsl)?;
                 let commands = profile::commands(start);
                 let paths = [plugin_here.as_path()];
-                let inside = wsl::inside(&at, distro, &commands, &self.shim, &paths);
-                Site::wsl(inside.await.map_err(LaunchError::Wsl)?)
+                let inside = wsl::inside(at, distro, &commands, &self.shim, &paths);
+                env.extend(self.daemon_urls());
+                (Site::wsl(inside.await.map_err(LaunchError::Wsl)?), None)
             }
-            Machine::Pc => self.pc_site(),
-            Machine::Ssh(at) => return Err(LaunchError::Wsl(unconnected(&at)).into()),
+            Machine::Pc => {
+                env.extend(self.daemon_urls());
+                (self.pc_site(), None)
+            }
+            Machine::Ssh(at) => {
+                let distro = self
+                    .host(Host::Ssh(at.host.clone()))
+                    .map_err(LaunchError::Wsl)?;
+                let remote = self.remote(at).await.map_err(LaunchError::Wsl)?;
+                let root = format!("{}/{}", remote.home, crate::ssh::REMOTE_DIR);
+                let plugin = skills::Plugin::dir_under(&root, launch.skills);
+                let commands = profile::commands(start);
+                let paths = vec![plugin.clone()];
+                let inside =
+                    wsl::inside_ssh(at.url(""), &at.path, distro, &remote, &commands, paths);
+                let site = Site::wsl(inside.await.map_err(LaunchError::Wsl)?);
+                (site, Some(PathBuf::from(at.url(&plugin))))
+            }
         };
         let endpoint = self.endpoint(&token, site.inside());
         if let Some(at) = &endpoint {
             env.push((ENDPOINT_ENV, at.into()));
         }
-        let account = accounted.and_then(|a| settings.account(a.cli.provider, site.distro()));
+        let account = match machine {
+            Machine::Pc | Machine::Wsl(_) => {
+                accounted.and_then(|a| settings.account(a.cli.provider, site.distro()))
+            }
+            Machine::Ssh(_) => None,
+        };
         if let Some(dir) = task {
             env.push((task::ENV, dir.shown.clone().into()));
         }
@@ -571,6 +621,11 @@ impl App {
         };
         if let Some(p) = profile {
             profile::adapter(p).prepare(&at).map_err(internal)?;
+            if let Some(to) = &mirror {
+                self.files()
+                    .mirror(&plugin_here, to)
+                    .map_err(|e| internal(format!("{}: {e}", to.display())))?;
+            }
         }
         let port = AgentPort::new(self.clone(), token.clone());
         let launched = profile::command(start, &at, &settings.bypass_off, port.clone()).await;
@@ -680,13 +735,18 @@ impl App {
         }
     }
 
-    fn node_env(&self, token: &str) -> Result<[(&'static str, OsString); 4], Problem> {
+    fn node_env(&self, token: &str) -> Result<[(&'static str, OsString); 2], Problem> {
         Ok([
-            ("LOOM_URL", self.url.clone().into()),
-            ("LOOM_SPAWN_URL", self.spawn_url.clone().into()),
             (open::NODE_TOKEN_ENV, token.into()),
             ("PATH", node_path().map_err(internal)?),
         ])
+    }
+
+    fn daemon_urls(&self) -> [(&'static str, OsString); 2] {
+        [
+            ("LOOM_URL", self.url.clone().into()),
+            ("LOOM_SPAWN_URL", self.spawn_url.clone().into()),
+        ]
     }
 }
 

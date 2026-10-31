@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::adapter::Record;
-use crate::distro::Distro;
+use crate::distro::{Distro, Host};
 use crate::process_tree::{self, Listen, Snapshot};
 use crate::protocol::AdapterRecord;
 use crate::wsl::{self, Inside};
@@ -34,6 +34,11 @@ impl Served {
         at: &Listen,
         limit: Duration,
     ) -> Result<Served, String> {
+        if let Some(Host::Ssh(host)) = inside.map(|inside| inside.distro.host()) {
+            return Err(format!(
+                "loom cannot reach an agent server on the SSH host {host} yet. Start an agent with hooks there, such as Claude or Cursor"
+            ));
+        }
         let (served, listening) = match inside {
             Some(inside) => {
                 let command = inside.command(argv.to_vec(), env);

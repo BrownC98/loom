@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -11,6 +10,8 @@ use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, St
 use super::claude::Event;
 use super::process::Served;
 use super::{Handed, HookEvent, ModelRule, Shown, Signals, Take};
+use crate::distro::Distro;
+use crate::place::Files;
 use crate::protocol::{LaunchError, Model, ModelChoice, Report, Session};
 use crate::screen::{Dialog, Grammar};
 
@@ -90,7 +91,11 @@ impl Adapter for Qwen {
                     (file.display().to_string(), file)
                 }
             };
-            std::fs::write(&file, "").map_err(|e| failed(e.to_string()))?;
+            let files = Files::of(at.inside);
+            file.parent()
+                .map_or(Ok(()), |dir| files.create_dir_all(dir))
+                .and_then(|()| files.rewrite(&file, ""))
+                .map_err(|e| failed(e.to_string()))?;
             cmd.args(["--input-file", &seen]);
             cmd.env(INPUT_ENV, &seen);
             let record = Served {
@@ -98,7 +103,8 @@ impl Adapter for Qwen {
                 distro: None,
             }
             .record(Input { file: file.clone() });
-            tokio::spawn(wake(file, port));
+            let distro = at.inside.map(|inside| inside.distro.clone());
+            tokio::spawn(wake(file, distro, port));
             Ok(Started {
                 record: Some(record),
                 ..Started::default()
@@ -113,7 +119,7 @@ impl Adapter for Qwen {
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             if let Some((_, input)) = Served::stored::<Input>(rec) {
-                tokio::spawn(wake(input.file, port));
+                tokio::spawn(wake(input.file, rec.distro.clone(), port));
             }
             Ok(())
         })
@@ -172,28 +178,21 @@ struct Input {
     file: PathBuf,
 }
 
-async fn wake(file: PathBuf, port: Arc<dyn Port>) {
+async fn wake(file: PathBuf, distro: Option<Distro>, port: Arc<dyn Port>) {
+    let files = Files::new(distro.as_ref().map(Distro::hosts));
     let pending = file.with_extension("pending");
     let mut on = || {
-        let created = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&pending);
-        match created {
+        match files.create_new(&pending, "") {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return,
             Err(e) => {
                 eprintln!("loom: Qwen 깨움 표지를 쓰지 못했다: {e}");
                 return;
             }
-            Ok(_) => {}
+            Ok(()) => {}
         }
         let row = json!({"type": "submit", "text": WAKE_PROMPT});
-        let written = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&file)
-            .and_then(|mut out| writeln!(out, "{row}"));
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&pending);
+        if let Err(e) = files.append(&file, &format!("{row}\n")) {
+            let _ = files.remove(&pending);
             eprintln!("loom: Qwen 깨움을 쓰지 못했다: {e}");
         }
     };
@@ -202,7 +201,7 @@ async fn wake(file: PathBuf, port: Arc<dyn Port>) {
         () = port.ended() => {}
     }
     for path in [pending, file] {
-        if let Err(e) = std::fs::remove_file(&path)
+        if let Err(e) = files.remove(&path)
             && e.kind() != std::io::ErrorKind::NotFound
         {
             eprintln!("loom: {}을 지우지 못했다: {e}", path.display());

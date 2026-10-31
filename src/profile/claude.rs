@@ -17,6 +17,8 @@ use super::adapter::{
 use super::process::Served;
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
+use crate::distro::Distro;
+use crate::place::Files;
 use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
@@ -142,14 +144,15 @@ impl Adapter for Claude {
                     (wake.display().to_string(), wake)
                 }
             };
-            touch(&wake, 0).map_err(failed)?;
+            touch(Files::of(at.inside), &wake, 0).map_err(failed)?;
             cmd.env(WAKE_ENV, seen);
             let record = Served {
                 pid: None,
                 distro: None,
             }
             .record(State { wake: wake.clone() });
-            tokio::spawn(wake_on_mail(wake, port));
+            let distro = at.inside.map(|inside| inside.distro.clone());
+            tokio::spawn(wake_on_mail(wake, distro, port));
             Ok(Started {
                 record: Some(record),
                 ..Started::default()
@@ -164,7 +167,7 @@ impl Adapter for Claude {
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             if let Some((_, state)) = Served::stored::<State>(rec) {
-                tokio::spawn(wake_on_mail(state.wake, port));
+                tokio::spawn(wake_on_mail(state.wake, rec.distro.clone(), port));
             }
             Ok(())
         })
@@ -285,11 +288,11 @@ struct State {
     wake: PathBuf,
 }
 
-fn touch(file: &Path, times: u64) -> Result<(), String> {
+fn touch(files: Files<'_>, file: &Path, times: u64) -> Result<(), String> {
     let written = file
         .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(file, times.to_string()));
+        .map_or(Ok(()), |dir| files.create_dir_all(dir))
+        .and_then(|()| files.rewrite(file, &times.to_string()));
     written.map_err(|e| format!("{}: {e}", file.display()))
 }
 
@@ -297,11 +300,12 @@ fn is_wake_file(path: &Path) -> bool {
     std::env::var_os(WAKE_ENV).is_some_and(|wake| Path::new(&wake).file_name() == path.file_name())
 }
 
-async fn wake_on_mail(file: PathBuf, port: Arc<dyn Port>) {
+async fn wake_on_mail(file: PathBuf, distro: Option<Distro>, port: Arc<dyn Port>) {
+    let files = Files::new(distro.as_ref().map(Distro::hosts));
     let mut times = 0;
     let mut on = || {
         times += 1;
-        if let Err(e) = touch(&file, times) {
+        if let Err(e) = touch(files, &file, times) {
             eprintln!("loom: 에이전트를 깨우지 못했다: {e}");
         }
     };
@@ -309,7 +313,7 @@ async fn wake_on_mail(file: PathBuf, port: Arc<dyn Port>) {
         refused = port.wakes(&mut on) => eprintln!("loom: 에이전트 깨움을 멈췄다: {refused}"),
         () = port.ended() => {}
     }
-    if let Err(e) = std::fs::remove_file(&file) {
+    if let Err(e) = files.remove(&file) {
         eprintln!("loom: {}을 지우지 못했다: {e}", file.display());
     }
 }

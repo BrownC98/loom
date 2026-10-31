@@ -36,6 +36,10 @@ impl Plugin {
         if linked && written.as_ref() == Some(&now) {
             return Ok(plugin);
         }
+        match std::fs::remove_file(&hashes) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
         let mut done = sync(&store, written.as_ref(), &now)?;
         let same = |name: &str| {
             written

@@ -61,12 +61,15 @@ pub(super) struct Status {
 pub(super) fn status(
     site: &Site,
 ) -> impl FnOnce() -> Result<Status, UsageProblem> + Send + 'static {
-    let command = site.installed_command(COMMAND, STATUS_ARGS);
+    let run = site.run_installed(COMMAND, STATUS_ARGS);
     move || {
-        let command = command.ok_or_else(|| UsageProblem::NotInstalled(COMMAND.into()))?;
-        let out = crate::timed::output(command, PROBE_TIMEOUT)
+        let run = run.ok_or_else(|| UsageProblem::NotInstalled(COMMAND.into()))?;
+        let out = run
+            .output(PROBE_TIMEOUT)
+            .ok()
+            .filter(|ran| ran.code == Some(0))
             .ok_or_else(|| UsageProblem::NoReply(STATUS.into()))?;
-        serde_json::from_slice(&out).map_err(|_| UsageProblem::CliFormat(STATUS.into()))
+        serde_json::from_str(&out.stdout).map_err(|_| UsageProblem::CliFormat(STATUS.into()))
     }
 }
 

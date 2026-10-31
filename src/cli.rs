@@ -335,12 +335,16 @@ impl Outage {
 }
 
 pub fn guard() -> Result<(), String> {
-    let request = match crate::wsl::parent_shell() {
-        Some(shell) => GuardRequest::Inside {
-            shell: shell.pid,
-            birth: shell.birth,
-        },
-        None => GuardRequest::Pc {
+    let request = match crate::wsl::to_windows_daemon() || only_endpoint() {
+        true => {
+            let shell = crate::wsl::parent_shell()
+                .ok_or("loom guard could not read the shell that called it")?;
+            GuardRequest::Inside {
+                shell: shell.pid,
+                birth: shell.birth,
+            }
+        }
+        false => GuardRequest::Pc {
             caller: std::process::id(),
         },
     };

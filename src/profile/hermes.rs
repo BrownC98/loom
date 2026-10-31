@@ -9,6 +9,7 @@ use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, St
 use super::{LineEvent, ModelRule, Unserved};
 use crate::protocol::{LaunchError, ModelChoice, Session};
 use crate::screen::{Dialog, Grammar};
+use crate::wsl::Run;
 
 const PLUGIN: &str = include_str!("hermes-loom.py");
 const PLUGIN_DIR: &str = "hermes-loom";
@@ -119,7 +120,7 @@ impl Adapter for Hermes {
 async fn overlay(at: &LaunchAt<'_>) -> Result<String, LaunchError> {
     let hermes = at
         .site
-        .installed_command(COMMAND, &[RUNTIME_ARG])
+        .run_installed(COMMAND, &[RUNTIME_ARG])
         .ok_or_else(|| LaunchError::NotInstalled {
             agent: "Hermes".into(),
             command: COMMAND.into(),
@@ -144,7 +145,7 @@ async fn overlay(at: &LaunchAt<'_>) -> Result<String, LaunchError> {
     let script = format!("{plugin}/{BUNDLED_FILE}");
     let loom = format!("{plugin}/{PLUGIN_DIR}");
     let args = ["-I", "-c", &code, &script, &loom, &overlays];
-    let out = output(at.site.program_command(python, &args), BUNDLED_FILE).await?;
+    let out = output(at.site.run_program(python, &args), BUNDLED_FILE).await?;
     String::from_utf8_lossy(&out)
         .lines()
         .last()
@@ -154,26 +155,19 @@ async fn overlay(at: &LaunchAt<'_>) -> Result<String, LaunchError> {
         .ok_or_else(|| helper(BUNDLED_FILE, "응답에 폴더가 없다".into()))
 }
 
-async fn output(cmd: std::process::Command, program: &str) -> Result<Vec<u8>, LaunchError> {
-    let mut cmd = tokio::process::Command::from(cmd);
-    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
-    let out = tokio::time::timeout(PROBE_LIMIT, cmd.output())
+async fn output(run: Run, program: &str) -> Result<Vec<u8>, LaunchError> {
+    let ran = tokio::task::spawn_blocking(move || run.output(PROBE_LIMIT))
         .await
-        .map_err(|_| {
-            helper(
-                program,
-                format!("{}초 안에 응답하지 않았다", PROBE_LIMIT.as_secs()),
-            )
-        })?
-        .map_err(|e| helper(program, e.to_string()))?;
-    match out.status.success() {
-        true => Ok(out.stdout),
-        false => Err(helper(
+        .map_err(|e| helper(program, e.to_string()))?
+        .map_err(|e| helper(program, e))?;
+    match ran.code {
+        Some(0) => Ok(ran.stdout.into_bytes()),
+        code => Err(helper(
             program,
             format!(
                 "{}: {}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
+                code.map_or("no exit code".to_owned(), |c| format!("exit code {c}")),
+                ran.stderr.trim()
             ),
         )),
     }

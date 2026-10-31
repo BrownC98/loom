@@ -9,7 +9,7 @@ use ts_rs::TS;
 
 use crate::process_tree;
 use crate::protocol::{LaunchError, Provider};
-use crate::wsl::Inside;
+use crate::wsl::{Inside, Run};
 
 /// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
@@ -195,36 +195,32 @@ impl Site {
     ) -> Result<std::process::Command, LaunchError> {
         let program = self.program(cli)?;
         let env: Vec<_> = self.accounts.env(cli, id).into_iter().collect();
-        Ok(self.run(program, args, &env))
-    }
-
-    pub fn installed_command(&self, command: &str, args: &[&str]) -> Option<std::process::Command> {
-        Some(self.run(self.find(command)?, args, &[]))
-    }
-
-    pub fn program_command(&self, program: &str, args: &[&str]) -> std::process::Command {
-        self.run(program.into(), args, &[])
-    }
-
-    fn run(
-        &self,
-        program: OsString,
-        args: &[&str],
-        env: &[(&'static str, OsString)],
-    ) -> std::process::Command {
         match &self.wsl {
-            Some(inside) => {
-                let argv: Vec<OsString> = std::iter::once(program)
-                    .chain(args.iter().map(OsString::from))
-                    .collect();
-                inside.wsl_command(&argv, env)
-            }
-            None => {
-                let mut cmd = process_tree::command_at(Path::new(&program));
-                cmd.args(args);
-                cmd.envs(env.iter().map(|(k, v)| (k, v)));
-                cmd
-            }
+            Some(inside) => inside
+                .process(&argv(program, args), &env)
+                .map_err(|cause| helper(cli, cause)),
+            None => Ok(here(program, args, &env)),
+        }
+    }
+
+    pub fn run(&self, cli: &Cli, args: &[&str], id: Option<&AccountId>) -> Option<Run> {
+        let program = self.program(cli).ok()?;
+        let env: Vec<_> = self.accounts.env(cli, id).into_iter().collect();
+        Some(self.once(program, args, &env))
+    }
+
+    pub fn run_installed(&self, command: &str, args: &[&str]) -> Option<Run> {
+        Some(self.once(self.find(command)?, args, &[]))
+    }
+
+    pub fn run_program(&self, program: &str, args: &[&str]) -> Run {
+        self.once(program.into(), args, &[])
+    }
+
+    fn once(&self, program: OsString, args: &[&str], env: &[(&'static str, OsString)]) -> Run {
+        match &self.wsl {
+            Some(inside) => inside.run(&argv(program, args), env),
+            None => Run::Here(here(program, args, env)),
         }
     }
 
@@ -237,10 +233,10 @@ impl Site {
         cmd.args(cli.login);
         process_tree::color_terminal(&mut cmd);
         self.apply(&mut cmd, cli, id);
-        Ok(match &self.wsl {
-            Some(inside) => inside.wrap(&cmd),
-            None => cmd,
-        })
+        match &self.wsl {
+            Some(inside) => inside.wrap(&cmd).map_err(|cause| helper(cli, cause)),
+            None => Ok(cmd),
+        }
     }
 
     pub fn logout(&self, cli: &Cli) -> Result<std::process::Command, LaunchError> {
@@ -261,5 +257,29 @@ impl Site {
             Some(inside) => inside.find(&[command.to_owned()]).map(OsString::from),
             None => crate::search_path::find(command).map(PathBuf::into_os_string),
         }
+    }
+}
+
+fn argv(program: OsString, args: &[&str]) -> Vec<OsString> {
+    std::iter::once(program)
+        .chain(args.iter().map(OsString::from))
+        .collect()
+}
+
+fn here(
+    program: OsString,
+    args: &[&str],
+    env: &[(&'static str, OsString)],
+) -> std::process::Command {
+    let mut cmd = process_tree::command_at(Path::new(&program));
+    cmd.args(args);
+    cmd.envs(env.iter().map(|(k, v)| (k, v)));
+    cmd
+}
+
+fn helper(cli: &Cli, cause: String) -> LaunchError {
+    LaunchError::Helper {
+        program: cli.command.into(),
+        cause,
     }
 }

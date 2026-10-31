@@ -29,20 +29,37 @@ pub struct RepoView {
     pub branches: Vec<String>,
     /// 거짓이면 첫 커밋 전이다(`git init` 직후). 워크트리를 만들 수 없다.
     pub has_commits: bool,
-    /// WSL 폴더의 저장소면 그 배포판이다. 이 PC 저장소와 다른 OS의 데몬에서는 없다. 경로에서 나온 값이다.
-    pub wsl: Option<WslPlace>,
+    /// 저장소가 도는 곳. 경로에서 나온 값이다.
+    pub place: PlaceView,
+    /// 화면에 보일 경로. WSL은 배포판 안의 경로이고, 홈 아래면 `~/…`다. SSH는 그 PC 안의 경로다.
+    pub shown_path: String,
 }
 
-/// 저장소가 도는 WSL 배포판. 근거: 목업 docs/mockups/wsl-place.html ②·②′.
+/// 폴더가 있는 곳: 이 PC, WSL 배포판, SSH 호스트. 근거: 목업 docs/mockups/wsl-place.html ②·②′, docs/mockups/ssh-repo.html ④.
 #[derive(Serialize, TS, PartialEq, Debug, Clone)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
-pub struct WslPlace {
-    pub distro: String,
-    /// 화면에 보일 배포판 안의 경로. 홈 아래면 `~/…`다.
-    pub path: String,
+pub enum PlaceView {
+    Pc,
+    Wsl { distro: String },
+    Ssh { host: String },
 }
 
-/// [저장소 추가] 위치 칩: 이 PC의 드라이브와 WSL 배포판. 배포판이 없으면 화면이 칩을 보이지 않는다.
+impl PlaceView {
+    pub fn of(machine: &Machine) -> Self {
+        match machine {
+            Machine::Pc => PlaceView::Pc,
+            Machine::Wsl(at) => PlaceView::Wsl {
+                distro: at.distro.clone(),
+            },
+            Machine::Ssh(at) => PlaceView::Ssh {
+                host: at.host.clone(),
+            },
+        }
+    }
+}
+
+/// [저장소 추가] 위치 칩: 이 PC의 드라이브와 WSL 배포판. 배포판이 없으면 화면이 드라이브·배포판 칩을 보이지 않는다. [SSH] 칩은 늘 보인다.
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub struct Locations {
@@ -61,8 +78,8 @@ pub struct FolderList {
     pub parent: Option<String>,
     /// 이름 순이다. 점으로 시작하는 폴더는 뺀다.
     pub folders: Vec<Folder>,
-    /// WSL 폴더면 그 배포판이다. 화면의 「실행 위치」 줄이 쓴다.
-    pub distro: Option<String>,
+    /// 화면의 「실행 위치」 줄이 쓴다.
+    pub place: PlaceView,
 }
 
 #[derive(Serialize, TS)]
@@ -290,7 +307,7 @@ pub async fn branches(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
+pub async fn view(id: RepoId, path: &Path, place: PlaceView, shown_path: String) -> RepoView {
     let branches = branches(path).await;
     let worktrees = worktrees(path).await;
     RepoView {
@@ -300,7 +317,8 @@ pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
         has_commits: has_commits(&worktrees),
         worktrees,
         branches,
-        wsl,
+        place,
+        shown_path,
     }
 }
 
@@ -337,10 +355,7 @@ pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
         path: path.to_owned(),
         parent: place::parent(dir),
         folders,
-        distro: match place::of(dir) {
-            Machine::Wsl(at) => Some(at.distro),
-            Machine::Pc | Machine::Ssh(_) => None,
-        },
+        place: PlaceView::of(&place::of(dir)),
     })
 }
 

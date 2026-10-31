@@ -1,32 +1,46 @@
+import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18next from './i18n';
+import type { PlaceView } from './gen/PlaceView';
 import type { RepoView } from './gen/RepoView';
-import type { WslPlace } from './gen/WslPlace';
 
 const STARTING_MS = 800;
 
-export function PlaceTag({ wsl }: { wsl: WslPlace | null }) {
+export function placeLabel(place: PlaceView, t: TFunction): string | null {
+  switch (place.kind) {
+    case 'pc':
+      return null;
+    case 'wsl':
+      return t('place.wslDistro', { distro: place.distro });
+    case 'ssh':
+      return t('place.sshHost', { host: place.host });
+  }
+}
+
+export function PlaceTag({ place }: { place: PlaceView }) {
   const { t } = useTranslation();
-  if (!wsl) return null;
+  const label = placeLabel(place, t);
+  if (label === null) return null;
   return (
     <span className="place" translate="no">
-      {t('place.wslDistro', { distro: wsl.distro })}
+      {label}
     </span>
   );
 }
 
-export function ShortPlaceTag({ wsl }: { wsl: WslPlace | null }) {
+export function ShortPlaceTag({ place }: { place: PlaceView }) {
   const { t } = useTranslation();
-  if (!wsl) return null;
+  const label = placeLabel(place, t);
+  if (label === null) return null;
   return (
-    <span className="place" translate="no" title={t('place.wslDistro', { distro: wsl.distro })}>
-      {t('place.wsl')}
+    <span className="place" translate="no" title={label}>
+      {place.kind === 'wsl' ? t('place.wsl') : label}
     </span>
   );
 }
 
-export const shownPath = (repo: Pick<RepoView, 'path' | 'wsl'>) => repo.wsl?.path ?? repo.path;
+export const wslDistro = (repo: Pick<RepoView, 'place'> | null | undefined) => (repo?.place.kind === 'wsl' ? repo.place.distro : null);
 
 export function useStarting(busy: boolean): boolean {
   const [slow, setSlow] = useState(false);

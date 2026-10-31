@@ -15,7 +15,7 @@ import type { RepoId } from './gen/RepoId';
 import type { NodeView } from './gen/NodeView';
 import type { Placed } from './gen/Placed';
 import type { RepoView } from './gen/RepoView';
-import type { WslPlace } from './gen/WslPlace';
+import type { PlaceView } from './gen/PlaceView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
@@ -25,7 +25,7 @@ import { hopColor, hopParts, siblingLanes, type HopEndName, type HopPair } from 
 import { arrangeNested, bendCenter, edgeSides, followCard, FREE_GAP, GROUP_GAP, labelHeading, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
-import { PlaceTag, shownPath } from './place';
+import { PlaceTag, wslDistro } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
@@ -174,7 +174,7 @@ type Chip = { path: string; label: string; className: string | undefined; creati
 type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
-type RepoData = { name: string; path: string; wsl: WslPlace | null; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
+type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type RepoNode = Node<RepoData, 'repo'>;
 type CardNode = Node<CardData, 'card'>;
@@ -255,9 +255,9 @@ function Repo({ data }: NodeProps<RepoNode>) {
     <section className="repo-box" aria-label={data.name}>
       <div className="repo-head">
         <span className="name">{data.name}</span>
-        <PlaceTag wsl={data.wsl} />
+        <PlaceTag place={data.place} />
         <span className="sub" translate="no" title={data.path}>
-          {shownPath(data)}
+          {data.shownPath}
         </span>
         <span className="spacer" />
         <IconButton label={t('graph.arrangeRepo')} title={t('graph.arrangeRepo')} onClick={data.onArrange}>
@@ -785,7 +785,8 @@ export function Graph(props: {
           data: {
             name: r.repo.name,
             path: r.repo.path,
-            wsl: r.repo.wsl,
+            place: r.repo.place,
+            shownPath: r.repo.shownPath,
             hasCommits: r.repo.hasCommits,
             creating: branching?.key === r.key,
             onArrange: () => arrangeRepo(r),
@@ -1253,7 +1254,7 @@ export function Graph(props: {
                     <NewNodePopover
                       branch={group.label}
                       place={{ repo, worktree: group.path }}
-                      distro={props.repos.find((r) => r.id === repo)?.wsl?.distro ?? null}
+                      distro={wslDistro(props.repos.find((r) => r.id === repo))}
                       agents={props.agents}
                       onOpen={props.onRescanAgents}
                       recent={recentAgent(views)}

@@ -124,7 +124,7 @@ export function PinchImage(props: { src: string; alt: string; onClose: () => voi
         />
       </div>
       {shown && (
-        <div className="image-zoom-bar">
+        <div className="image-zoom-bar" onClick={(e) => e.stopPropagation()}>
           <button type="button" aria-label={t('inbox.zoomOut')} title={t('inbox.zoomOut')} disabled={zoom <= LIMITS.min} onClick={() => step(1 / BUTTON_STEP)}>
             <Minus aria-hidden="true" />
           </button>

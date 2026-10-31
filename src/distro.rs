@@ -285,6 +285,20 @@ impl Distros {
         self.link(host).map(Held)
     }
 
+    pub fn release(&self, host: &Host) {
+        let gate = self.gate(host);
+        let _one_start = gate.lock().unwrap();
+        self.remotes.lock().unwrap().remove(host);
+        let file = self.dir.join(file_name(host));
+        let known = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| Hosted::read(&text));
+        if let Some(pid) = known.and_then(|known| known.pid) {
+            process_tree::end_if_runs(pid, "distro-host");
+        }
+        let _ = std::fs::remove_file(&file);
+    }
+
     pub fn remote(&self, host: &Host) -> Result<Remote, Failure> {
         let Host::Ssh(name) = host else {
             return Err(Failure::Failed(format!("{}: not an SSH host", host.name())));

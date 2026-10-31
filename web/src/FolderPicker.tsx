@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Folder, Globe, LoaderCircle, Monitor, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { connectSsh, getDistro, getFolders, getLocations } from './api';
+import { connectSsh, getDistro, getFolders, getLocations, releaseSsh } from './api';
 import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { PlaceView } from './gen/PlaceView';
@@ -31,6 +31,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const [reach, setReach] = useState<{ host: string; view: ReachView } | null>(null);
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
+  const visited = useRef(new Set<string>());
   const { onPick, onPlace } = props;
   const places = (locations?.distros.length ?? 0) > 0;
   const reached = hostOf(list);
@@ -44,7 +45,10 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
       setList(next);
       setFailed('');
       setWaiting(null);
-      if (next.place.kind === 'ssh') setAsking(false);
+      if (next.place.kind === 'ssh') {
+        setAsking(false);
+        visited.current.add(next.place.host);
+      }
       if (path === undefined) {
         setDir(next.path);
         onPick(next.path);
@@ -59,6 +63,11 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   useEffect(() => {
     load();
     getLocations().then(setLocations, () => {});
+    const hosts = visited.current;
+    return () => {
+      hosts.forEach((name) => releaseSsh(name).catch(() => {}));
+      hosts.clear();
+    };
   }, []);
 
   useEffect(() => {
@@ -110,6 +119,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     setFailed('');
     setReach(null);
     setConnecting(at);
+    visited.current.add(at);
     try {
       const view = await connectSsh(at);
       if (ask !== latest.current) return;

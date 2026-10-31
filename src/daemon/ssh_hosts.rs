@@ -24,6 +24,7 @@ pub(super) struct SshHosts(Mutex<HashMap<String, Watched>>);
 
 struct Watched {
     reach: Option<Reach>,
+    home: Option<String>,
     now: Arc<Notify>,
 }
 
@@ -46,11 +47,29 @@ impl App {
             .and_then(|watched| watched.reach.clone())
     }
 
+    pub(super) fn ssh_home(&self, host: &str) -> Option<String> {
+        let hosts = self.ssh_hosts.0.lock().unwrap();
+        hosts
+            .get(&key(host))
+            .and_then(|watched| watched.home.clone())
+    }
+
     pub(super) fn reconnect_ssh(self: &Arc<Self>, host: &str) {
         self.watch_ssh(host.to_owned());
         if let Some(watched) = self.ssh_hosts.0.lock().unwrap().get(&key(host)) {
             watched.now.notify_one();
         }
+    }
+
+    pub(super) async fn release_ssh(&self, host: &str) {
+        match self.ssh_hosts_in_use() {
+            Ok(used) if used.iter().all(|name| key(name) != key(host)) => {}
+            Ok(_) => return,
+            Err(e) => return crate::log::logln!("loom: SSH 호스트를 읽지 못했다: {e}"),
+        }
+        let distros = self.distros.clone();
+        let host = Host::Ssh(host.to_owned());
+        let _ = tokio::task::spawn_blocking(move || distros.release(&host)).await;
     }
 
     fn watch_ssh(self: &Arc<Self>, host: String) {
@@ -59,6 +78,7 @@ impl App {
             Entry::Vacant(free) => free
                 .insert(Watched {
                     reach: None,
+                    home: None,
                     now: Arc::new(Notify::new()),
                 })
                 .now
@@ -121,8 +141,13 @@ impl App {
             return;
         }
         match &reach {
-            Reach::Reached(_) => eprintln!("loom: SSH {host}에 닿았다"),
-            Reach::Unreached(failure) => eprintln!("loom: SSH {host}에 닿지 않는다: {failure}"),
+            Reach::Reached(remote) => {
+                crate::log::logln!("loom: SSH {host}에 닿았다");
+                watched.home = Some(remote.home.clone());
+            }
+            Reach::Unreached(failure) => {
+                crate::log::logln!("loom: SSH {host}에 닿지 않는다: {failure}")
+            }
         }
         watched.reach = Some(reach);
     }

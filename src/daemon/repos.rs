@@ -153,7 +153,11 @@ async fn remove_repo(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
+    let path = app.repos.path(RepoId(id))?;
     app.repos.remove(RepoId(id))?;
+    if let Machine::Ssh(at) = place::of(&path) {
+        app.release_ssh(&at.host).await;
+    }
     Ok(Json(()))
 }
 

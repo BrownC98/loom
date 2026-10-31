@@ -277,19 +277,22 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             Err(e) => return Err((e, on_exit)),
         };
         let pid = greeted.pid;
-        let linked = match greeted.version >= wire::STREAMS_SINCE && self.links.is_some() {
+        let (linked, early) = match greeted.version >= wire::STREAMS_SINCE && self.links.is_some() {
             true => match self.connect(&at, |link| wire::greet_streams(link, greeted.version)) {
-                Ok((link, held)) => Linked::Streams { link, held },
-                Err(e) => {
-                    let _ = wire::write(&mut reader, &Frame::Kill);
-                    std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
-                    return Err((
-                        Unattached::Failed(format!("node endpoint link: {e}")),
-                        on_exit,
-                    ));
-                }
+                Ok((link, held)) => (Some(Linked::Streams { link, held }), Vec::new()),
+                Err(e) => match ended(&mut reader) {
+                    Some(early) => (None, early),
+                    None => {
+                        let _ = wire::write(&mut reader, &Frame::Kill);
+                        std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
+                        return Err((
+                            Unattached::Failed(format!("node endpoint link: {e}")),
+                            on_exit,
+                        ));
+                    }
+                },
             },
-            false => Linked::Terminal,
+            false => (Some(Linked::Terminal), Vec::new()),
         };
         let host = match reader.try_clone() {
             Ok(host) => host,
@@ -317,7 +320,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             ours
         };
         let links = self.links.clone().filter(|_| ours);
-        if let Some(links) = &links {
+        if let (Some(links), Some(linked)) = (&links, linked) {
             let _ = links.send((id, linked));
         }
         if !ours {
@@ -325,8 +328,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
         let host = self.clone();
         std::thread::spawn(move || {
+            let mut early = early.into_iter();
             let exit = loop {
-                match wire::read(&mut reader) {
+                match early.next().map_or_else(|| wire::read(&mut reader), Ok) {
                     Ok(Frame::Data(chunk)) => {
                         pty.output.lock().unwrap().push(&chunk);
                     }
@@ -592,6 +596,22 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     fn kept_file(&self, id: K) -> PathBuf {
         self.kept.join(id.to_string())
+    }
+}
+
+fn ended(reader: &mut TcpStream) -> Option<Vec<Frame>> {
+    let deadline = Instant::now() + GREET_TIMEOUT;
+    let mut frames = Vec::new();
+    loop {
+        let left = deadline.checked_duration_since(Instant::now())?;
+        reader.set_read_timeout(Some(left)).ok()?;
+        let frame = wire::read(reader).ok()?;
+        let last = matches!(frame, Frame::Exit(_) | Frame::SetupFailed(_));
+        frames.push(frame);
+        if last {
+            reader.set_read_timeout(None).ok()?;
+            return Some(frames);
+        }
     }
 }
 

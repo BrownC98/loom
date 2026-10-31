@@ -30,7 +30,9 @@ async fn check(app: &App, deploy: &Deploy) -> Result<(), String> {
         deploy.branch.clone(),
         deploy.sha.clone(),
     ];
-    let (code, out) = script(&dir, SHIP, &args).await.map_err(|e| e.to_string())?;
+    let (code, out) = script(app.files(), &dir, SHIP, &args)
+        .await
+        .map_err(|e| e.to_string())?;
     let log = Lines::read(&out)
         .log
         .unwrap_or_else(|| out.trim().to_owned());

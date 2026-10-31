@@ -138,14 +138,14 @@ impl App {
             target,
         } = left
         {
-            if let Err(e) = worktree::remove_clean(&dir, &own).await {
+            if let Err(e) = worktree::remove_clean(self.files(), &dir, &own).await {
                 swept.problems.push(format!(
                     "{name}: git did not remove the worktree {}: {e}. loom kept it and the branch {branch}.",
                     own.path
                 ));
                 return Ok(true);
             }
-            if let Err(e) = delete_local_merged(&dir, &branch, &target).await {
+            if let Err(e) = delete_local_merged(self.files(), &dir, &branch, &target).await {
                 swept.problems.push(format!(
                     "{name}: git did not delete the branch {branch}: {e}. loom kept it."
                 ));
@@ -174,13 +174,13 @@ impl App {
         if Path::new(&place.worktree) == dir {
             return Ok(Left::Nothing);
         }
-        let own = match worktree::find(&dir, &place.worktree).await {
+        let own = match worktree::find(self.files(), &dir, &place.worktree).await {
             Ok(own) if !own.original => own,
             Ok(_) | Err(RepoProblem::NotInRepo(_)) => return Ok(Left::Nothing),
             Err(e) => return Err(e.to_string()),
         };
         let path = own.path.clone();
-        if worktree::dirty(Path::new(&path))
+        if worktree::dirty(self.files(), Path::new(&path))
             .await
             .map_err(|e| e.to_string())?
         {
@@ -201,7 +201,7 @@ impl App {
                 )));
             }
         };
-        if !still_merged(&dir, Some(Some(&branch)), &branch, &target).await? {
+        if !still_merged(self.files(), &dir, Some(Some(&branch)), &branch, &target).await? {
             return Ok(Left::Work(format!(
                 "the branch {branch} has commits that {target} does not have. loom keeps the node, the worktree {path} and the branch until they are merged."
             )));

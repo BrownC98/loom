@@ -64,7 +64,7 @@ async fn create_node(
     Json(req): Json<NewNode>,
 ) -> Result<Json<NodeId>, Problem> {
     let repo = app.repos.path(req.place.repo)?;
-    worktree::find(&repo, &req.place.worktree).await?;
+    worktree::find(app.files(), &repo, &req.place.worktree).await?;
     Ok(Json(app.start_root(&req.place, &req.start).await?))
 }
 

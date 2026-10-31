@@ -7,7 +7,6 @@ use axum::{Json, Router};
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::runtime::unconnected;
 use super::{App, Problem, internal};
 use crate::distro::Host;
 use crate::place::{self, Machine};
@@ -77,7 +76,7 @@ impl App {
             },
             Machine::Ssh(at) => at.path.clone(),
         };
-        worktree::view(id, path, PlaceView::of(&machine), shown).await
+        worktree::view(self.files(), id, path, PlaceView::of(&machine), shown).await
     }
 
     pub(super) async fn workspace(&self, repo: &FsPath) -> Result<PathBuf, Problem> {
@@ -91,7 +90,25 @@ impl App {
                 Some(dir) => Ok(PathBuf::from(dir)),
                 None => wsl_workspace(&self.home(&at.distro).await?),
             },
-            Machine::Ssh(at) => Err(Problem::Launch(LaunchError::Wsl(unconnected(&at)))),
+            Machine::Ssh(at) => {
+                let distros = self.distros.clone();
+                let host = Host::Ssh(at.host.clone());
+                let remote = tokio::task::spawn_blocking(move || distros.remote(&host))
+                    .await
+                    .map_err(internal)?
+                    .map_err(|e| {
+                        Problem::Launch(LaunchError::Wsl(crate::protocol::InsideError::Start {
+                            distro: at.host.clone(),
+                            cause: e.to_string(),
+                        }))
+                    })?;
+                let home = remote.home.trim_end_matches('/');
+                let dir = PathBuf::from(at.url(&worktree::workspace_under(home)));
+                worktree::make_dir(self.files(), &dir)
+                    .await
+                    .map_err(internal)?;
+                Ok(dir)
+            }
         }
     }
 }

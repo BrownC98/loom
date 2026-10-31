@@ -127,7 +127,7 @@ impl App {
         tokio::spawn(async move {
             for owner in owners {
                 if let Err(e) = app.tell_new_gate(owner).await {
-                    eprintln!("loom: gate of node {}: {e}", owner.0);
+                    crate::log::logln!("loom: gate of node {}: {e}", owner.0);
                 }
             }
         });
@@ -149,14 +149,14 @@ impl App {
                     Err(e) => vec![e.to_string()],
                 };
                 for problem in problems {
-                    eprintln!("loom: reviewer of {branch}: {problem}");
+                    crate::log::logln!("loom: reviewer of {branch}: {problem}");
                 }
             }
             if let Err(e) = self
                 .tell_round(repo, &branch, gate_worktree.as_deref())
                 .await
             {
-                eprintln!("loom: gate of {branch}: {e}");
+                crate::log::logln!("loom: gate of {branch}: {e}");
             }
         }
         Ok(())

@@ -335,7 +335,7 @@ impl Server {
         };
         let shells = match self.call("GET", "/shell", None).await {
             Ok(reply) => reply,
-            Err(e) => return eprintln!("loom: OpenCode 2 셸 목록을 읽지 못했다: {e}"),
+            Err(e) => return crate::log::logln!("loom: OpenCode 2 셸 목록을 읽지 못했다: {e}"),
         };
         let pids: Vec<u32> = shells["data"]
             .as_array()

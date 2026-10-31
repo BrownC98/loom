@@ -84,6 +84,41 @@ pub fn finished(mut cmd: Command, limit: Duration) -> Result<Output, String> {
     })
 }
 
+pub async fn ended_within(
+    mut cmd: tokio::process::Command,
+    limit: Duration,
+) -> Result<Output, String> {
+    own_session(cmd.as_std_mut());
+    let child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    let group = child.id().and_then(|pid| i32::try_from(pid).ok());
+    match tokio::time::timeout(limit, child.wait_with_output()).await {
+        Ok(out) => out
+            .map(|out| Output {
+                status: out.status,
+                stdout: out.stdout,
+                stderr: out.stderr,
+            })
+            .map_err(|e| e.to_string()),
+        Err(_) => {
+            #[cfg(unix)]
+            if let Some(group) = group {
+                unsafe { libc::kill(-group, libc::SIGKILL) };
+            }
+            Err(format!(
+                "did not end in {} s, so loom ended it",
+                limit.as_secs()
+            ))
+        }
+    }
+}
+
 fn drained(from: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {

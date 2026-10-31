@@ -135,7 +135,7 @@ impl Served {
 
     pub fn stored<S: DeserializeOwned>(rec: &Record) -> Option<(Served, S)> {
         let stored = Stored::<S>::deserialize(&rec.state.as_ref()?.0)
-            .inspect_err(|e| eprintln!("loom: 어댑터 기록을 읽지 못했다: {e}"))
+            .inspect_err(|e| crate::log::logln!("loom: 어댑터 기록을 읽지 못했다: {e}"))
             .ok()?;
         let served = Served {
             pid: stored.pid,

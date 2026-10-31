@@ -492,7 +492,7 @@ impl Node {
         match open_permission(&self.server, &self.session).await {
             Ok(now) => now.map(|p| (WaitKind::Approval, p.summary(), Some(p.prompt()))),
             Err(e) => {
-                eprintln!("loom: OpenCode 2 승인 요청을 읽지 못했다: {e}");
+                crate::log::logln!("loom: OpenCode 2 승인 요청을 읽지 못했다: {e}");
                 let text = format!(
                     "Could not read the permission request: {e}. Answer it in the node terminal."
                 );
@@ -640,7 +640,7 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
                     note = taken.note;
                     rest = true;
                 }
-                Err(e) => eprintln!("loom: OpenCode 2 사람 입력을 처리하지 못했다: {e}"),
+                Err(e) => crate::log::logln!("loom: OpenCode 2 사람 입력을 처리하지 못했다: {e}"),
             },
             Some(Seen::Succeeded(reply)) => {
                 busy = None;
@@ -710,7 +710,7 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
                     }
                     Ok(reply) => answer(&node, &*port, reply).await,
                     Err(e) => {
-                        eprintln!("loom: OpenCode 2 쉬는 대기가 끝났다: {e}");
+                        crate::log::logln!("loom: OpenCode 2 쉬는 대기가 끝났다: {e}");
                         rest = true;
                         continue;
                     }
@@ -732,7 +732,7 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
                             break;
                         }
                     }
-                    Err(e) => eprintln!("loom: OpenCode 2 메일함을 읽지 못했다: {e}"),
+                    Err(e) => crate::log::logln!("loom: OpenCode 2 메일함을 읽지 못했다: {e}"),
                 }
             }
         }
@@ -772,7 +772,7 @@ async fn hand(
         return Err((ids, e));
     }
     if let Err(e) = port.ack(&ids) {
-        eprintln!("loom: OpenCode 2 받음 확인을 쓰지 못했다: {e}");
+        crate::log::logln!("loom: OpenCode 2 받음 확인을 쓰지 못했다: {e}");
     }
     Ok(())
 }
@@ -780,7 +780,7 @@ async fn hand(
 fn refused(node: &Node, port: &dyn Port, ids: Vec<MessageId>, cause: String) {
     node.server.stop();
     let cause = format!("{cause}; loom stopped the OpenCode 2 server");
-    eprintln!("loom: OpenCode 2에 메시지를 넘기지 못했다: {cause}");
+    crate::log::logln!("loom: OpenCode 2에 메시지를 넘기지 못했다: {cause}");
     if !ids.is_empty() {
         port.report(Report::Refused { ids, cause });
     }
@@ -807,7 +807,7 @@ async fn deliver(api: &Node, taken: &[Delivery]) -> Result<(), String> {
     if taken.iter().any(|d| d.kind == Kind::Interrupt)
         && let Err(e) = api.server.interrupt(&api.session).await
     {
-        eprintln!("loom: OpenCode 2 실행을 멈추지 못했다: {e}");
+        crate::log::logln!("loom: OpenCode 2 실행을 멈추지 못했다: {e}");
     }
     let inbox = match taken.iter().all(|d| d.kind == Kind::Queue) {
         true => Inbox::Queue,

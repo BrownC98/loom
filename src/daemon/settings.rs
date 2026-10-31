@@ -113,11 +113,10 @@ pub fn routes() -> Router<Arc<App>> {
 
 async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     let (sites, ssh) = tokio::join!(app.sites(), app.ssh_insides());
-    let wsl: Vec<_> = sites.iter().filter_map(Site::inside).collect();
+    let insides: Vec<_> = sites.iter().filter_map(Site::inside).chain(&ssh).collect();
     let warnings: Vec<_> = std::iter::once(profile::version_warnings(&app.versions))
-        .chain(join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await)
+        .chain(join_all(insides.iter().map(|inside| inside_version_warnings(inside))).await)
         .collect();
-    let insides: Vec<_> = wsl.into_iter().chain(&ssh).collect();
     let mut agents = profile::agents(&insides);
     agents.sort_by_cached_key(|a| a.label.to_lowercase());
     for agent in &mut agents {
@@ -129,7 +128,7 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     Json(agents)
 }
 
-async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismatch> {
+async fn inside_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismatch> {
     let reads = profile::pinned().into_iter().filter_map(|(profile, cmd)| {
         let program = inside.find(&[cmd.to_owned()])?;
         let run = inside.run(&[program, "--version"], &[] as &[(&str, &str)]);
@@ -378,7 +377,7 @@ impl App {
         for inside in join_all(read).await {
             match inside {
                 Ok(inside) => sites.push(Site::wsl(inside)),
-                Err(e) => eprintln!("loom: WSL 위치를 읽지 못했다: {e}"),
+                Err(e) => crate::log::logln!("loom: WSL 위치를 읽지 못했다: {e}"),
             }
         }
         sites
@@ -402,7 +401,7 @@ impl App {
         for inside in join_all(read).await {
             match inside {
                 Ok(inside) => insides.push(inside),
-                Err(e) => eprintln!("loom: SSH 위치를 읽지 못했다: {e}"),
+                Err(e) => crate::log::logln!("loom: SSH 위치를 읽지 못했다: {e}"),
             }
         }
         insides

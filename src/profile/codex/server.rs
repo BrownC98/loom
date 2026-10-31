@@ -323,7 +323,7 @@ impl CodexServer {
         if let Some(secret) = &listener.secret
             && let Err(e) = std::fs::remove_file(secret)
         {
-            eprintln!("loom: {}를 지우지 못했다: {e}", secret.display());
+            crate::log::logln!("loom: {}를 지우지 못했다: {e}", secret.display());
         }
         let process = started.map_err(failed)?;
         Self::connect(listener.address, process.clone())
@@ -351,7 +351,9 @@ impl CodexServer {
             .read(&id)
             .await
             .map(|read| read.thread.status)
-            .inspect_err(|e| eprintln!("loom: app-server 스레드 {id}의 상태를 읽지 못했다: {e}"))
+            .inspect_err(|e| {
+                crate::log::logln!("loom: app-server 스레드 {id}의 상태를 읽지 못했다: {e}")
+            })
             .unwrap_or(ThreadStatus::Idle);
         if let Some(tx) = self.thread_tx.upgrade() {
             tx.send_replace(Some(Thread::new(id, &status)));
@@ -408,7 +410,7 @@ impl CodexServer {
                     _ => None,
                 }),
             Err(e) => {
-                eprintln!(
+                crate::log::logln!(
                     "loom: app-server 스레드 {}의 진행 중인 턴을 읽지 못했다: {e}",
                     asked.thread_id
                 );

@@ -176,7 +176,7 @@ async fn pty(
 
 pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
     let answered = app.graph.typed(id).unwrap_or_else(|e| {
-        eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
+        crate::log::logln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         true
     });
     app.sleeps.knocked(id);
@@ -189,7 +189,7 @@ pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
     if has_text(bytes)
         && let Err(e) = app.graph.begin_draft(id)
     {
-        eprintln!("loom: 노드 {}의 입력 중 표시를 쓰지 못했다: {e}", id.0);
+        crate::log::logln!("loom: 노드 {}의 입력 중 표시를 쓰지 못했다: {e}", id.0);
     }
     if bytes.contains(&SUBMIT) && app.profile(id).is_some_and(Profile::idle_holds_input) {
         app.idle.submit_input(id);

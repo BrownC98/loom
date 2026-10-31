@@ -117,7 +117,7 @@ pub(super) async fn spawn(
     if let (Ok(id), Some(_)) = (&spawned, review)
         && let Err(e) = app.graph.introduce_reviewer(*id)
     {
-        eprintln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
+        crate::log::logln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
     }
     spawned
 }
@@ -383,7 +383,7 @@ pub(super) async fn agent_done(
     let word = app.kind_word(&req.summary);
     let warning = if word.is_ok() {
         app.unreadied(node).await.unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
+            crate::log::logln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
             None
         })
     } else {

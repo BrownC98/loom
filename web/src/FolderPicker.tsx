@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Folder, Globe, LoaderCircle, Monitor, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { connectSsh, getDistro, getFolders, getLocations } from './api';
+import { connectSsh, getDistro, getFolders, getLocations, releaseSsh } from './api';
 import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { PlaceView } from './gen/PlaceView';
@@ -31,7 +31,16 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const [reach, setReach] = useState<{ host: string; view: ReachView } | null>(null);
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
+  const visited = useRef(new Set<string>());
+  const inflight = useRef(new Set<Promise<unknown>>());
   const { onPick, onPlace } = props;
+
+  function track<T>(request: Promise<T>): Promise<T> {
+    inflight.current.add(request);
+    const done = () => inflight.current.delete(request);
+    request.then(done, done);
+    return request;
+  }
   const places = (locations?.distros.length ?? 0) > 0;
   const reached = hostOf(list);
   const hosts = uniqueHosts(reached === null ? props.hosts : [...props.hosts, reached]);
@@ -39,7 +48,9 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   async function load(path?: string) {
     const ask = ++latest.current;
     try {
-      const next = await getFolders(path);
+      const asked = path?.match(/^ssh:\/\/([^/]+)/i)?.[1];
+      if (asked) visited.current.add(asked);
+      const next = await track(getFolders(path));
       if (ask !== latest.current) return;
       setList(next);
       setFailed('');
@@ -59,6 +70,16 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   useEffect(() => {
     load();
     getLocations().then(setLocations, () => {});
+    const hosts = visited.current;
+    const requests = inflight.current;
+    return () => {
+      latest.current++;
+      Promise.allSettled([...requests]).then(() => {
+        const names = [...hosts];
+        hosts.clear();
+        names.forEach((name) => releaseSsh(name).catch(() => {}));
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -110,8 +131,9 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     setFailed('');
     setReach(null);
     setConnecting(at);
+    visited.current.add(at);
     try {
-      const view = await connectSsh(at);
+      const view = await track(connectSsh(at));
       if (ask !== latest.current) return;
       setConnecting(null);
       if (view.kind === 'reached') go(`ssh://${at}${view.home}`);

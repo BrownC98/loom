@@ -26,7 +26,7 @@ pub(super) async fn run(app: Arc<App>) {
             let gates = match app.graph.queued_gates() {
                 Ok(gates) => gates,
                 Err(e) => {
-                    eprintln!("loom: merge queue: {e}");
+                    crate::log::logln!("loom: merge queue: {e}");
                     break;
                 }
             };
@@ -34,7 +34,7 @@ pub(super) async fn run(app: Arc<App>) {
                 match batch(&app, repo, gate.as_deref(), CHECK_LOCK).await {
                     Ok(true) => continue 'next,
                     Ok(false) => {}
-                    Err(e) => eprintln!("loom: merge queue: {e}"),
+                    Err(e) => crate::log::logln!("loom: merge queue: {e}"),
                 }
             }
             break;
@@ -77,7 +77,7 @@ async fn batch(
 async fn recover(app: &Arc<App>, lock: &str) {
     let stale = match app.graph.stale_batches() {
         Ok(stale) => stale,
-        Err(e) => return eprintln!("loom: merge queue recovery: {e}"),
+        Err(e) => return crate::log::logln!("loom: merge queue recovery: {e}"),
     };
     for stale in stale {
         let dir = match repo_path(app, stale.repo) {
@@ -85,7 +85,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             Err(e) => {
                 fail_all(app, stale.repo, stale.id, &stale.members, &e.to_string());
                 if let Err(e) = app.graph.batch_close(stale.id) {
-                    eprintln!("loom: merge queue recovery: {e}");
+                    crate::log::logln!("loom: merge queue recovery: {e}");
                 }
                 continue;
             }
@@ -99,7 +99,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             lock,
         };
         if let Err(e) = script(app.files(), &run.dir, CLEAN, &[]).await {
-            eprintln!("loom: merge queue recovery: {e}");
+            crate::log::logln!("loom: merge queue recovery: {e}");
         }
         run.record(0, &stale.members, None, BatchResult::Interrupted, None);
         let done = match (stale.base, stale.tip) {
@@ -115,7 +115,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             fail_all(app, stale.repo, stale.id, &stale.members, &e.to_string());
         }
         if let Err(e) = app.graph.batch_close(stale.id) {
-            eprintln!("loom: merge queue recovery: {e}");
+            crate::log::logln!("loom: merge queue recovery: {e}");
         }
     }
 }
@@ -167,6 +167,12 @@ struct Batch<'a> {
 enum Dest {
     Base,
     Coordinator { worktree: String },
+}
+
+struct Landed {
+    own: Option<String>,
+    sha: Option<String>,
+    first_parents: Option<String>,
 }
 
 enum Trial {
@@ -342,8 +348,9 @@ impl Batch<'_> {
         step: u32,
         into: &Dest,
     ) -> Result<(), Refusal> {
+        let landed = self.landed(members, base, tip, into).await?;
         match into {
-            Dest::Base => self.publish_base(members, base, tip, step).await,
+            Dest::Base => self.publish_base(members, landed, base, tip, step).await,
             Dest::Coordinator { worktree } => {
                 let (code, out) = script(
                     self.app.files(),
@@ -353,7 +360,7 @@ impl Batch<'_> {
                 )
                 .await?;
                 match code {
-                    0 => self.merged(members, base, tip, None, into).await,
+                    0 => self.merged(members, landed, None, into),
                     DIRTY => {
                         self.dirty(members, worktree);
                         Ok(())
@@ -444,19 +451,18 @@ impl Batch<'_> {
     async fn publish_base(
         &self,
         members: &[Queued],
+        landed: Vec<Landed>,
         base: &str,
         tip: &str,
         step: u32,
     ) -> Result<(), Refusal> {
-        let mut last = None;
-        for m in members.iter().rev() {
-            if let Some(sha) = merge_commit(self.app.files(), &self.dir, &m.head, tip).await? {
-                last = Some((m, sha));
-                break;
-            }
-        }
+        let last = members
+            .iter()
+            .zip(&landed)
+            .rev()
+            .find_map(|(m, landed)| Some((m, landed.own.clone()?)));
         let Some((last, merged)) = last else {
-            return self.merged(members, base, tip, None, &Dest::Base).await;
+            return self.merged(members, landed, None, &Dest::Base);
         };
         let args = [
             format!("batch-{}-publish.log", self.id.0),
@@ -469,10 +475,10 @@ impl Batch<'_> {
         match code {
             0 => {
                 let unseen = match self.ships().await {
-                    Ok(false) => return self.merged(members, base, tip, None, &Dest::Base).await,
+                    Ok(false) => return self.merged(members, landed, None, &Dest::Base),
                     Ok(true) => None,
                     Err(e) => {
-                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        crate::log::logln!("loom: merge queue deploy {merged}: {e}");
                         Some(e)
                     }
                 };
@@ -482,7 +488,7 @@ impl Batch<'_> {
                     .graph
                     .deploy_started(self.repo, &self.target, &merged, &last.branch, &owners)
                     .unwrap_or_else(|e| {
-                        eprintln!("loom: merge queue deploy {merged}: {e}");
+                        crate::log::logln!("loom: merge queue deploy {merged}: {e}");
                         None
                     });
                 let line = match (&deploy, unseen) {
@@ -499,9 +505,7 @@ impl Batch<'_> {
                         protocol::SHIP_SCRIPT
                     ),
                 };
-                let settled = self
-                    .merged(members, base, tip, Some(line), &Dest::Base)
-                    .await;
+                let settled = self.merged(members, landed, Some(line), &Dest::Base);
                 if let Some(deploy) = deploy {
                     super::deploy::start(self.app, deploy);
                 }
@@ -519,35 +523,56 @@ impl Batch<'_> {
         }
     }
 
-    async fn merged(
+    async fn landed(
         &self,
         members: &[Queued],
         base: &str,
         tip: &str,
+        into: &Dest,
+    ) -> Result<Vec<Landed>, Refusal> {
+        let files = self.app.files();
+        let mut all = Vec::new();
+        for m in members {
+            let own = merge_commit(files, &self.dir, &m.head, tip).await?;
+            let sha = match &own {
+                Some(sha) => Some(sha.clone()),
+                None => bringing_merge(files, &self.dir, &m.head, base, tip).await?,
+            };
+            let first_parents = match (&sha, into) {
+                (Some(sha), Dest::Base) => Some(merge::first_parents(files, &self.dir, sha).await?),
+                _ => None,
+            };
+            all.push(Landed {
+                own,
+                sha,
+                first_parents,
+            });
+        }
+        Ok(all)
+    }
+
+    fn merged(
+        &self,
+        members: &[Queued],
+        landed: Vec<Landed>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
-        let settled = self.settle_merged(members, base, tip, deploy, into).await;
+        let settled = self.settle_merged(members, landed, deploy, into);
         tokio::spawn(super::reclaim::run(self.app.clone()));
         settled
     }
 
-    async fn settle_merged(
+    fn settle_merged(
         &self,
         members: &[Queued],
-        base: &str,
-        tip: &str,
+        landed: Vec<Landed>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
         let into_base = matches!(into, Dest::Base);
-        for m in members {
-            let own = merge_commit(self.app.files(), &self.dir, &m.head, tip).await?;
-            let sha = match own {
-                Some(sha) => Some(sha),
-                None => bringing_merge(self.app.files(), &self.dir, &m.head, base, tip).await?,
-            };
-            let Some(sha) = sha else {
+        for (m, landed) in members.iter().zip(landed) {
+            let Some(sha) = landed.sha else {
                 self.settle(
                     m,
                     self.failed(
@@ -567,12 +592,11 @@ impl Batch<'_> {
                 .into_iter()
                 .filter(|f| !f.stops())
                 .collect();
-            if into_base {
-                let listed = merge::first_parents(self.app.files(), &self.dir, &sha).await?;
+            if let Some(listed) = &landed.first_parents {
                 findings.extend(
                     self.app
                         .graph
-                        .out_of_gate(self.repo, &self.target, &listed)?,
+                        .out_of_gate(self.repo, &self.target, listed)?,
                 );
             }
             let mut lines = self.lines();
@@ -674,13 +698,13 @@ impl Batch<'_> {
 
     fn settle(&self, member: &Queued, ended: Ended) {
         if let Err(e) = self.app.graph.merge_end(self.repo, &member.branch, ended) {
-            eprintln!("loom: merge queue {}: {e}", member.branch);
+            crate::log::logln!("loom: merge queue {}: {e}", member.branch);
         }
     }
 
     fn requeue(&self, member: &Queued) {
         if let Err(e) = self.app.graph.requeue(self.repo, &member.branch) {
-            eprintln!("loom: merge queue {}: {e}", member.branch);
+            crate::log::logln!("loom: merge queue {}: {e}", member.branch);
         }
     }
 
@@ -710,7 +734,7 @@ impl Batch<'_> {
             log,
         };
         if let Err(e) = self.app.graph.record(&entry) {
-            eprintln!("loom: merge queue trace: {e}");
+            crate::log::logln!("loom: merge queue trace: {e}");
         }
     }
 

@@ -105,14 +105,14 @@ impl Door {
         let listener = TlsListener::start(tcp, TlsAcceptor::from(Arc::new(config)))?;
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, router.layer(axum::Extension(Lan))).await {
-                eprintln!("loom: phone door stopped: {e}");
+                crate::log::logln!("loom: phone door stopped: {e}");
             }
         });
         match UdpSocket::bind((Ipv4Addr::UNSPECIFIED, FIND_PORT)).await {
             Ok(socket) => {
                 tokio::spawn(answer_finds(socket, self.devices.clone(), open.clone()));
             }
-            Err(e) => eprintln!("loom: phone find port {FIND_PORT}: {e}"),
+            Err(e) => crate::log::logln!("loom: phone find port {FIND_PORT}: {e}"),
         }
         *opened = Some(open.clone());
         Ok(open)

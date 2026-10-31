@@ -22,6 +22,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/distros/{name}", get(distro))
         .route("/api/ssh/{host}", get(ssh_reach).post(ssh_connect))
         .route("/api/ssh/{host}/reconnect", post(ssh_reconnect))
+        .route("/api/ssh/{host}/release", post(ssh_release))
 }
 
 /// WSL 배포판 하나의 홈과 기본 워크스페이스 폴더. 둘 다 UNC 경로다.
@@ -119,6 +120,7 @@ async fn ssh_connect(
     State(app): State<Arc<App>>,
     Path(host): Path<String>,
 ) -> Result<Json<ReachView>, Problem> {
+    let _use = app.use_ssh(&host).await;
     let distros = app.distros.clone();
     let remote = tokio::task::spawn_blocking(move || distros.remote(&Host::Ssh(host)))
         .await
@@ -132,6 +134,11 @@ async fn ssh_connect(
 
 async fn ssh_reconnect(State(app): State<Arc<App>>, Path(host): Path<String>) -> Json<()> {
     app.reconnect_ssh(&host);
+    Json(())
+}
+
+async fn ssh_release(State(app): State<Arc<App>>, Path(host): Path<String>) -> Json<()> {
+    app.release_ssh(&host).await;
     Json(())
 }
 
@@ -161,9 +168,9 @@ impl App {
                 Ok(home) => wsl::tilde(&at.path, &home),
                 Err(_) => at.path.clone(),
             },
-            Machine::Ssh(at) => match self.ssh_reach(&at.host) {
-                Some(Reach::Reached(remote)) => wsl::tilde(&at.path, &remote.home),
-                _ => at.path.clone(),
+            Machine::Ssh(at) => match self.ssh_home(&at.host) {
+                Some(home) => wsl::tilde(&at.path, &home),
+                None => at.path.clone(),
             },
         };
         worktree::view(self.files(), id, path, PlaceView::of(&machine), shown).await

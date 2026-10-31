@@ -285,14 +285,14 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         let app = app.clone();
         tokio::spawn(async move {
             if let Err(e) = app.door.open().await {
-                eprintln!("loom: phone door: {e}");
+                crate::log::logln!("loom: phone door: {e}");
             }
         });
     }
     claim.announce(&node_url(listen), ready_to)?;
     tokio::spawn(app.update.clone().run());
     tokio::spawn(queue::run(app.clone()));
-    println!("loom: http://{listen}");
+    crate::log::logln!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     let endpoint = axum::serve(endpoint_door, endpoint_routes(&app)).into_future();
     let node_routes = node_routes
@@ -312,13 +312,13 @@ impl App {
         let app = self.clone();
         tokio::spawn(async move {
             if let Err(e) = app.resume().await {
-                eprintln!("loom: 노드에 다시 붙지 못했다: {e}");
+                crate::log::logln!("loom: 노드에 다시 붙지 못했다: {e}");
             }
             if let Err(e) = app.finish_stops() {
-                eprintln!("loom: 끝내던 다시 띄우기를 보지 못했다: {e}");
+                crate::log::logln!("loom: 끝내던 다시 띄우기를 보지 못했다: {e}");
             }
             if let Err(e) = app.relaunch_stale() {
-                eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
+                crate::log::logln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
             }
             app.watch_sleep();
             app.watch_agents();
@@ -388,7 +388,7 @@ impl App {
                 &std::env::current_exe()?.with_file_name(crate::distro::LINUX_LOOM),
             )
             .unwrap_or_else(|e| {
-                eprintln!("loom: WSL 노드용 Linux loom을 넣지 못했다: {e}");
+                crate::log::logln!("loom: WSL 노드용 Linux loom을 넣지 못했다: {e}");
                 None
             }),
             false => None,

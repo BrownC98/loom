@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_macros)]
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};

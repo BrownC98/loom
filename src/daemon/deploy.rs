@@ -8,7 +8,7 @@ use crate::worktree::merge::{Lines, SHIP, script};
 pub(super) fn recover(app: &Arc<App>) {
     match app.graph.deploys() {
         Ok(deploys) => deploys.into_iter().for_each(|d| start(app, d)),
-        Err(e) => eprintln!("loom: deploy recovery: {e}"),
+        Err(e) => crate::log::logln!("loom: deploy recovery: {e}"),
     }
 }
 
@@ -19,7 +19,7 @@ pub(super) fn start(app: &Arc<App>, deploy: Deploy) {
 async fn confirm(app: Arc<App>, deploy: Deploy) {
     let failure = check(&app, &deploy).await.err();
     if let Err(e) = app.graph.deploy_ended(&deploy, failure.as_deref()) {
-        eprintln!("loom: deploy {}: {e}", deploy.sha);
+        crate::log::logln!("loom: deploy {}: {e}", deploy.sha);
     }
 }
 

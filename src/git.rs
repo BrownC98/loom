@@ -47,7 +47,7 @@ async fn output(files: Files<'_>, dir: &Path, args: &[&str]) -> Result<Ran, Stri
         }
     };
     cmd.args(args);
-    ran(cmd).await
+    ran(cmd, GIT_WAIT).await
 }
 
 pub fn remote<'a>(
@@ -64,11 +64,10 @@ pub fn remote<'a>(
     }
 }
 
-async fn ran(mut cmd: Command) -> Result<Ran, String> {
-    let out = cmd
-        .output()
+async fn ran(cmd: Command, limit: Duration) -> Result<Ran, String> {
+    let out = crate::timed::ended_within(cmd, limit)
         .await
-        .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
+        .map_err(|e| format!("git: {e}"))?;
     Ok(Ran {
         code: out.status.code(),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -136,10 +135,8 @@ pub async fn clone(files: Files<'_>, url: &str, target: &Path) -> Result<(), Str
     };
     cmd.envs(NO_PROMPT)
         .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .stdin(std::process::Stdio::null());
-    crate::timed::own_session(cmd.as_std_mut());
-    succeeded(&ran(cmd).await?)
+        .env_remove("WAYLAND_DISPLAY");
+    succeeded(&ran(cmd, CLONE_WAIT).await?)
 }
 
 fn succeeded(out: &Ran) -> Result<(), String> {

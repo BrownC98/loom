@@ -48,13 +48,13 @@ fn link_claude_md(home_md: &Path, dir: &Path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             if std::fs::read_to_string(&file).ok().as_deref() != Some(CLAUDE_MD_IMPORT) {
-                eprintln!(
+                crate::log::logln!(
                     "loom: {}이 이미 있어 ~/.claude/CLAUDE.md를 잇지 않는다",
                     file.display()
                 );
             }
         }
-        Err(e) => eprintln!("loom: {}을 쓰지 못했다: {e}", file.display()),
+        Err(e) => crate::log::logln!("loom: {}을 쓰지 못했다: {e}", file.display()),
     }
 }
 

@@ -1,0 +1,3 @@
+disallowed-macros = [
+    { path = "std::eprintln", reason = "serve.log lines need a time: use crate::log::logln" },
+]

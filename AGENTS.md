@@ -13,18 +13,18 @@
 
 ## 개발 환경
 
-호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다. 단 cargo 검사·생성 명령은 `memcap -m 5G`다. 실측(2026-10-23, cgroup `memory.peak`, 처음부터 빌드, 단계마다 2회): clippy 2.2GiB, test 2.7GiB, Windows clippy 2.5GiB, Windows test 3.0GiB(최대 3076MiB). 이미 빌드한 `target/`은 130MiB 이하다. 5G는 최대값에 약 65%를 더한 값이다. 병합 관문(`scripts/gate/check.sh`)은 여유가 이 5G를 넘을 때만 단계를 띄운다. 여유가 2×5G 이상이면 cargo 단계를 Linux 갈래와 Windows 갈래로 함께 돌린다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드와 cargo 검사·생성 명령은 `memcap -m <예약량>` 아래에서 돌린다. memcap은 메모리가 예약량을 덮을 때만 명령을 띄우고, 아니면 stderr에 대기 줄을 쓰고 차례로 기다린다. 예약량은 그 명령의 상한이기도 하다: 넘으면 그 명령만 끊긴다. 예약량은 처음부터 빌드한 cgroup `memory.peak` 최대값을 512MiB 단위로 올린 값이다. 실측(2026-10-31): clippy 2771MiB, test 4411MiB, Windows clippy 2663MiB, `cargo build` 2289MiB. 그래서 clippy와 빌드는 3G, test는 4608M이다. 병합 관문(`scripts/gate/check.sh`)은 메모리를 보지 않고 cargo 단계를 Linux 갈래와 Windows 갈래로 늘 함께 돌린다.
 
 | 할 일 | 명령 |
 |---|---|
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
-| Rust 검사 | `memcap -m 5G cargo clippy --all-targets` |
-| 규칙 검사(주석, 레이어), TS 타입 생성 | `memcap -m 5G cargo test --bin loom --test comments --test layers`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 5G cargo test --test distro_host` |
-| Windows 검사 | `memcap -m 5G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
+| Rust 검사 | `memcap -m 3G cargo clippy --all-targets` |
+| 규칙 검사(주석, 레이어), TS 타입 생성 | `memcap -m 4608M cargo test --bin loom --test comments --test layers`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
+| Windows 검사 | `memcap -m 3G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 빌드 | `npm --prefix web run build` |
-| 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 임시 git 저장소 폴더에서 `HOME=/tmp/<이름> <워크트리>/target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. 데몬은 시작 폴더를 저장소로 등록하므로 이 저장소 폴더에서 띄우지 않는다(2026-10-23 실측: 이 저장소 폴더에서 띄운 시험 데몬에 사람의 loom 저장소가 들어갔다). `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다). WSL `~/loom/bin/loom`은 `HOME`을 무시하는 Windows `loom.exe`를 부르므로 다른 `HOME`의 `serve`·`start`·`stop`·`open`을 거부한다(`scripts/host.sh`·`install.sh`). 끝나면 `bash scripts/dev/stop-test-daemon.sh /tmp/<이름>`을 돌린다. 환경에 그 `HOME`이 있는 프로세스(데몬, pty-host, 훅)를 모두 끄고, 남으면 0이 아닌 코드로 끝난다. 보고에 그 출력을 넣는다. 근거: 시험 데몬의 pty-host가 워크트리를 지운 뒤 11시간 남았다(2026-10-25 사람 보고). Windows 시험 데몬의 `loom.exe`는 WSL에서 환경을 읽을 수 없어 이 스크립트가 찾지 못한다 |
+| 데몬 띄우기(시험) | `memcap -m 3G cargo build` 뒤 임시 git 저장소 폴더에서 `HOME=/tmp/<이름> <워크트리>/target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. 데몬은 시작 폴더를 저장소로 등록하므로 이 저장소 폴더에서 띄우지 않는다(2026-10-23 실측: 이 저장소 폴더에서 띄운 시험 데몬에 사람의 loom 저장소가 들어갔다). `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다). WSL `~/loom/bin/loom`은 `HOME`을 무시하는 Windows `loom.exe`를 부르므로 다른 `HOME`의 `serve`·`start`·`stop`·`open`을 거부한다(`scripts/host.sh`·`install.sh`). 끝나면 `bash scripts/dev/stop-test-daemon.sh /tmp/<이름>`을 돌린다. 환경에 그 `HOME`이 있는 프로세스(데몬, pty-host, 훅)를 모두 끄고, 남으면 0이 아닌 코드로 끝난다. 보고에 그 출력을 넣는다. 근거: 시험 데몬의 pty-host가 워크트리를 지운 뒤 11시간 남았다(2026-10-25 사람 보고). Windows 시험 데몬의 `loom.exe`는 WSL에서 환경을 읽을 수 없어 이 스크립트가 찾지 못한다 |
 | 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. WSL에서는 앱 옆 `%LOCALAPPDATA%\loom\loom.exe`(Windows 데몬)를, Linux에서는 `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
@@ -90,7 +90,7 @@
 - 주석을 쓰지 않는다(2026-10-23 사람 지시 "loom에서는 사용자가 명시하지 않은 한 주석 작성 금지"). 정한 이유와 실측 값은 커밋 본문에 쓴다.
  - 사람이 명시해 요청한 주석만 쓴다. 그 질문 번호로 시작한다(`// Q712: …`). 검사가 데몬에 사람이 받은편지함에서 답한 질문인지 묻는다.
  - 도구가 읽는 주석만 예외다: 셔뱅, tsc 지시(`@ts-expect-error` 등, `/// <reference`), `eslint-disable`, `# shellcheck`, clap·ts-rs가 읽는 Rust `///`(그 derive가 있는 타입과 그 필드·변형).
- - `memcap -m 5G cargo test --test comments`가 막는다. 질문 번호는 관문(`scripts/gate/check.sh`)만 데몬에 묻는다. 지우기: `memcap -m 5G cargo test --test comments -- --ignored strip && cargo fmt`.
+ - `memcap -m 4608M cargo test --test comments`가 막는다. 질문 번호는 관문(`scripts/gate/check.sh`)만 데몬에 묻는다. 지우기: `memcap -m 4608M cargo test --test comments -- --ignored strip && cargo fmt`.
 - 지시도 같다. 에이전트에게 맥락을 암묵으로 넘기지 않는다. 필요한 사실을 글로 적어 넘긴다.
 
 ## 5. 추상화 일관성

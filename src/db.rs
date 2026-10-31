@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 use rusqlite::Connection;
 use rusqlite_migration::{M, MigrationDefinitionError, Migrations};
@@ -457,8 +457,19 @@ pub struct Database(Arc<Mutex<Connection>>);
 
 impl Database {
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.0.lock().unwrap()
+        match self.0.try_lock() {
+            Ok(conn) => conn,
+            Err(TryLockError::WouldBlock) if on_workers() => {
+                tokio::task::block_in_place(|| self.0.lock()).unwrap()
+            }
+            Err(_) => self.0.lock().unwrap(),
+        }
     }
+}
+
+fn on_workers() -> bool {
+    tokio::runtime::Handle::try_current()
+        .is_ok_and(|rt| rt.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
 }
 
 pub fn open(path: &Path) -> std::io::Result<Database> {
@@ -473,6 +484,8 @@ pub fn open(path: &Path) -> std::io::Result<Database> {
     }
     let mut conn = Connection::open(path).map_err(std::io::Error::other)?;
     conn.pragma_update(None, "journal_mode", "WAL")
+        .map_err(std::io::Error::other)?;
+    conn.pragma_update(None, "synchronous", "NORMAL")
         .map_err(std::io::Error::other)?;
     upgrade(&mut conn, &names, path)?;
     Ok(Database(Arc::new(Mutex::new(conn))))

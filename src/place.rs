@@ -221,6 +221,19 @@ impl<'a> Files<'a> {
         }
     }
 
+    pub fn is_file(&self, path: &Path) -> io::Result<bool> {
+        match of(path) {
+            Machine::Pc | Machine::Wsl(_) => std::fs::metadata(path).map(|meta| meta.is_file()),
+            Machine::Ssh(at) => self
+                .sh(&at, &format!(r#"[ -f "$1" ] || exit {MISSING}"#), &[])
+                .map(|()| true),
+        }
+        .or_else(|e| match e.kind() {
+            io::ErrorKind::NotFound => Ok(false),
+            _ => Err(e),
+        })
+    }
+
     pub fn rewrite(&self, path: &Path, text: &str) -> io::Result<()> {
         match of(path) {
             Machine::Pc | Machine::Wsl(_) => std::fs::write(path, text),

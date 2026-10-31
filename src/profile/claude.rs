@@ -18,7 +18,7 @@ use super::process::Served;
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
 use crate::accounts::Site;
 use crate::distro::Distro;
-use crate::place::Files;
+use crate::place::{self, Files, Machine};
 use crate::protocol::{Delivery, Kind, LaunchError, Model, ModelChoice, Session, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
@@ -217,15 +217,14 @@ impl Adapter for Claude {
     fn carry(&self, session: &Session, to: &Carry<'_>) -> Result<(), ResumeError> {
         let site = to.site;
         let file = site.local(&session.0);
-        match std::fs::metadata(&file) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ResumeError::NoSession(NO_RECORD.into()));
-            }
-            Ok(meta) if meta.is_file() => {}
-            _ => return Err(NO_RECORD.to_owned().into()),
+        match Files::of(site.inside()).is_file(&file) {
+            Ok(true) => {}
+            Ok(false) => return Err(ResumeError::NoSession(NO_RECORD.into())),
+            Err(e) => return Err(format!("{NO_RECORD}: {e}").into()),
         }
-        if let Self::Open = self {
-            return Ok(());
+        match (self, place::of(&file)) {
+            (Self::Open, _) | (Self::Code, Machine::Ssh(_)) => return Ok(()),
+            (Self::Code, Machine::Pc | Machine::Wsl(_)) => {}
         }
         let new_root = site
             .login_dir(&accounts::CLI, to.to)

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "opener",
+  "description": "데몬이 내는 화면(127.0.0.1)이 문서 링크와 웹 링크를 기본 브라우저로 연다. 사람이 누른 앱이 열어야 브라우저 창이 앞에 뜬다. 근거: web/src/DocText.tsx, web/src/openLink.ts.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": [
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "http://*" }, { "url": "https://*" }]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import { docPageUrl, docPass, openDoc } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { TextPart } from './gen/TextPart';
 import type { WaitDoc } from './gen/WaitDoc';
-import { openLink, openPass } from './openLink';
+import { appOpen, openLink, openPass } from './openLink';
 
 export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null; node: NodeId | null; onRefusal: (message: string) => void }) {
   const { doc, parts } = props;
@@ -50,7 +50,7 @@ export function DocLink(props: { doc: WaitDoc; label: string; onRefusal: (messag
       title={t('inbox.openDocLabel', { id: doc.id, title: doc.title })}
       onClick={() => {
         const browser = window.loomBrowser;
-        (browser ? openPass(docPass(doc.id), browser) : openDoc(doc.id)).catch((err: Error) => props.onRefusal(err.message));
+        (browser ? openPass(docPass(doc.id), browser) : appOpen(new URL(docPageUrl(doc.id), location.href).href, () => openDoc(doc.id))).catch((err: Error) => props.onRefusal(err.message));
       }}
     >
       {props.label}

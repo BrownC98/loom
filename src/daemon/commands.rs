@@ -356,7 +356,8 @@ pub(super) async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    let shell = match (req, app.node_wsl(Some(node)).map_err(for_agent)?) {
+    let host = app.node_machine(Some(node)).map_err(for_agent)?.host();
+    let shell = match (req, host) {
         (GuardRequest::Pc { caller }, None) => app.host.guarded_shell(node, caller),
         (GuardRequest::Inside { shell, birth }, Some(_)) => Some(Identity { pid: shell, birth }),
         _ => None,

@@ -2,6 +2,8 @@ use futures_util::Sink;
 
 use super::pulse::{Beat, Heard, Pulse};
 use super::*;
+use crate::distro::SSH_NOT_CONNECTED;
+use crate::place::{self, Machine};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -72,17 +74,14 @@ async fn save_paste(
     Query(at): Query<PasteAt>,
     body: Bytes,
 ) -> Result<Json<String>, Problem> {
-    let wsl = app.node_wsl(at.node)?;
-    let root = match &wsl {
-        Some(wsl) => PathBuf::from(wsl.unc("/tmp")),
-        None => std::env::temp_dir(),
+    let machine = app.node_machine(at.node)?;
+    let root = match &machine {
+        Machine::Pc => std::env::temp_dir(),
+        Machine::Wsl(wsl) => PathBuf::from(wsl.unc("/tmp")),
+        Machine::Ssh(at) => return Err(internal(format!("{}: {SSH_NOT_CONNECTED}", at.host))),
     };
     let path = paste::save(&root, &name, &body).map_err(internal)?;
-    let path = path.to_string_lossy().into_owned();
-    Ok(Json(match wsl {
-        Some(_) => wsl::linux_of(&path),
-        None => path,
-    }))
+    Ok(Json(place::inner(&path.to_string_lossy())))
 }
 
 async fn remove_node(

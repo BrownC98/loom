@@ -191,7 +191,7 @@ async fn spawn_child(
 ) -> Result<NodeId, Problem> {
     let mut prepared = app.prepare(start, cwd, Position::Child, Some(dir)).await?;
     if child.worktree.is_some() {
-        prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
+        prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
     }
     let discard = prepared.discarder();
     let limits = app.tree_limits().inspect_err(|_| discard())?;
@@ -296,7 +296,7 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
             return Err(profile::not_steerable(req.to.clone()));
         }
         if req.mode == Kind::Interrupt {
-            let inside = app.wsl_at(to)?;
+            let inside = app.machine_at(to)?.host();
             let mut stopped = false;
             let (sent, shells) =
                 app.graph
@@ -306,7 +306,7 @@ fn note(app: &Arc<App>, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Se
                         }
                     })?;
             match inside {
-                Some(at) => app.end_guarded_inside(to, &at, shells),
+                Some(host) => app.end_guarded_inside(to, host, shells),
                 None if stopped => app.release_guarded(to, &shells),
                 None => {}
             }

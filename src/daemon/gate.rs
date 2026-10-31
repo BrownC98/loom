@@ -248,7 +248,7 @@ impl App {
                 target,
             });
         }
-        let worktree = crate::wsl::linux_of(&mine.path);
+        let worktree = crate::place::inner(&mine.path);
         let round = Round {
             branch,
             target: &target,

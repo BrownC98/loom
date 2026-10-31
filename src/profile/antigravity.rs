@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::{Handed, HookEvent, ModelRule, Report, Shown, Signals, Take};
+use crate::place::Files;
 use crate::protocol::{Kind, LaunchError, Model, ModelChoice, Session};
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
@@ -51,20 +52,17 @@ fn hooks() -> Value {
     })
 }
 
-fn write_workspace(dir: &Path, rules: &str, hooks: &str, skills: &str) -> std::io::Result<()> {
+fn write_workspace(
+    files: Files,
+    dir: &Path,
+    rules: &str,
+    hooks: &str,
+    skills: &str,
+) -> std::io::Result<()> {
     let customizations = dir.join(CUSTOMIZATIONS);
-    std::fs::create_dir_all(&customizations)?;
-    replace(&dir.join(RULES_FILE), rules)?;
-    replace(&customizations.join("hooks.json"), hooks)?;
-    replace(&customizations.join("skills.json"), skills)
-}
-
-fn replace(path: &Path, text: &str) -> std::io::Result<()> {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let draft = path.with_extension(format!("{}-{n}.new", std::process::id()));
-    std::fs::write(&draft, text)?;
-    std::fs::rename(&draft, path)
+    files.write(&dir.join(RULES_FILE), rules.as_bytes())?;
+    files.write(&customizations.join("hooks.json"), hooks.as_bytes())?;
+    files.write(&customizations.join("skills.json"), skills.as_bytes())
 }
 
 pub struct Antigravity;
@@ -127,12 +125,12 @@ impl Adapter for Antigravity {
                     (here.to_string_lossy().into_owned(), here)
                 }
             };
-            write_workspace(&here, &rules, &hooks, &skills).map_err(|error| {
-                LaunchError::Helper {
+            write_workspace(Files::of(at.inside), &here, &rules, &hooks, &skills).map_err(
+                |error| LaunchError::Helper {
                     program: FOLDER.into(),
                     cause: error.to_string(),
-                }
-            })?;
+                },
+            )?;
             cmd.args(["--add-dir", &seen]);
             Ok(Started::default())
         })
@@ -283,7 +281,7 @@ struct Step {
 
 fn last_step_typed(transcript: &str) -> bool {
     let here = std::env::current_dir().unwrap_or_default();
-    let path = crate::wsl::from_node(transcript.into(), &here);
+    let path = crate::place::from_node(transcript.into(), &here);
     match last_line(&path) {
         Ok(line) => serde_json::from_str::<Step>(&line).is_ok_and(|step| step.r#type == USER_INPUT),
         Err(e) => {

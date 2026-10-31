@@ -3,6 +3,8 @@ use futures_util::{Sink, Stream};
 use super::pulse::{Beat, Heard, Pulse};
 use super::waits::serve_file;
 use super::*;
+use crate::distro::SSH_NOT_CONNECTED;
+use crate::place::Machine;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -65,10 +67,12 @@ async fn open_link(Json(req): Json<OpenLink>) -> Result<Response, Problem> {
 }
 
 pub(super) fn host_path(app: &App, node: Option<NodeId>, path: String) -> Result<String, Problem> {
-    Ok(match app.node_wsl(node)? {
-        Some(wsl) if path.starts_with('/') && !path.starts_with("//") => wsl.shell_path(&path),
-        _ => path,
-    })
+    let linux = path.starts_with('/') && !path.starts_with("//");
+    match app.node_machine(node)? {
+        Machine::Wsl(wsl) if linux => Ok(wsl.shell_path(&path)),
+        Machine::Ssh(at) => Err(internal(format!("{}: {SSH_NOT_CONNECTED}", at.host))),
+        Machine::Pc | Machine::Wsl(_) => Ok(path),
+    }
 }
 
 async fn view_file(

@@ -54,6 +54,8 @@ export function useOutsidePress(box: RefObject<HTMLElement | null>, onClose: () 
     const outside = (e: PointerEvent) => {
       const target = e.target as Node;
       if (box.current?.querySelector('[aria-busy="true"]')) return;
+      const modal = document.querySelector('dialog:modal');
+      if (modal && !modal.contains(box.current)) return;
       if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
     };
     document.addEventListener('pointerdown', outside, true);

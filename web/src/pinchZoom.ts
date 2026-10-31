@@ -18,11 +18,21 @@ export function pinchView(
   return { x: mid.x - anchorX * zoom, y: mid.y - anchorY * zoom, zoom };
 }
 
-export function clampToBox(v: View, box: { width: number; height: number }): View {
+export type Size = { width: number; height: number };
+
+export function zoomAbout(v: View, zoom: number, at: Point, limits: { min: number; max: number }): View {
+  const next = Math.min(limits.max, Math.max(limits.min, zoom));
+  return { zoom: next, x: at.x - ((at.x - v.x) * next) / v.zoom, y: at.y - ((at.y - v.y) * next) / v.zoom };
+}
+
+const placeAxis = (pos: number, size: number, room: number) =>
+  size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, pos));
+
+export function containInBox(v: View, content: Size, box: Size): View {
   return {
     zoom: v.zoom,
-    x: Math.min(0, Math.max(box.width * (1 - v.zoom), v.x)),
-    y: Math.min(0, Math.max(box.height * (1 - v.zoom), v.y)),
+    x: placeAxis(v.x, content.width * v.zoom, box.width),
+    y: placeAxis(v.y, content.height * v.zoom, box.height),
   };
 }
 

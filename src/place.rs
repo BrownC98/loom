@@ -1,7 +1,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::distro::{self, Distros, Entry, Host, SSH_NOT_CONNECTED};
+use crate::distro::{self, Command, Distros, Entry, Host, Ran, SSH_NOT_CONNECTED};
 use crate::wsl::{self, Inside, WslPath};
 
 const SSH_SCHEME: &str = "ssh://";
@@ -118,12 +119,23 @@ pub fn parent(path: &Path) -> Option<String> {
 
 #[derive(Clone, Copy)]
 pub struct Files<'a> {
-    hosts: Option<&'a Distros>,
+    hosts: Option<&'a Arc<Distros>>,
 }
 
 impl<'a> Files<'a> {
-    pub fn new(hosts: Option<&'a Distros>) -> Self {
+    pub fn new(hosts: Option<&'a Arc<Distros>>) -> Self {
         Self { hosts }
+    }
+
+    pub async fn run(&self, host: &str, command: Command) -> Result<Ran, String> {
+        let hosts = Arc::clone(
+            self.hosts
+                .ok_or_else(|| format!("{host}: {SSH_NOT_CONNECTED}"))?,
+        );
+        let host = Host::Ssh(host.to_owned());
+        tokio::task::spawn_blocking(move || hosts.run(&host, command))
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     pub fn of(inside: Option<&'a Inside>) -> Self {
@@ -151,7 +163,7 @@ impl<'a> Files<'a> {
         }
     }
 
-    fn hosts(&self, at: &SshPath) -> io::Result<&'a Distros> {
+    fn hosts(&self, at: &SshPath) -> io::Result<&'a Arc<Distros>> {
         self.hosts
             .ok_or_else(|| io::Error::other(format!("{}: {SSH_NOT_CONNECTED}", at.host)))
     }

@@ -55,7 +55,7 @@ async fn batch(
     lock: &str,
 ) -> Result<bool, Refusal> {
     let dir = repo_path(app, repo)?;
-    let target = target_of(&dir, gate).await?;
+    let target = target_of(app.files(), &dir, gate).await?;
     let Some((id, queue)) = app.graph.batch_open(repo, gate, &target)? else {
         return Ok(false);
     };
@@ -98,7 +98,7 @@ async fn recover(app: &Arc<App>, lock: &str) {
             target: stale.target,
             lock,
         };
-        if let Err(e) = script(&run.dir, CLEAN, &[]).await {
+        if let Err(e) = script(app.files(), &run.dir, CLEAN, &[]).await {
             eprintln!("loom: merge queue recovery: {e}");
         }
         run.record(0, &stale.members, None, BatchResult::Interrupted, None);
@@ -189,17 +189,22 @@ impl Batch<'_> {
         let into = self.into().await?;
         match &into {
             Dest::Base => {
-                let (code, out) =
-                    script(&self.dir, SYNC, std::slice::from_ref(&self.target)).await?;
+                let (code, out) = script(
+                    self.app.files(),
+                    &self.dir,
+                    SYNC,
+                    std::slice::from_ref(&self.target),
+                )
+                .await?;
                 if code != 0 {
                     return Err(Refusal::Git(out.trim().to_owned()));
                 }
             }
             Dest::Coordinator { worktree } => {
-                let found = worktree::find(&self.dir, worktree)
+                let found = worktree::find(self.app.files(), &self.dir, worktree)
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?;
-                if worktree::dirty(Path::new(&found.path))
+                if worktree::dirty(self.app.files(), Path::new(&found.path))
                     .await
                     .map_err(|e| Refusal::Git(e.to_string()))?
                 {
@@ -208,7 +213,7 @@ impl Batch<'_> {
                 }
             }
         }
-        let base = merge::target_base(&self.dir, &self.target).await?;
+        let base = merge::target_base(self.app.files(), &self.dir, &self.target).await?;
         self.bisect(members, base.trim(), &into).await
     }
 
@@ -292,7 +297,7 @@ impl Batch<'_> {
             args.push(m.branch.clone());
             args.push(m.head.clone());
         }
-        let (code, out) = script(&self.dir, STACK, &args).await?;
+        let (code, out) = script(self.app.files(), &self.dir, STACK, &args).await?;
         let lines = Lines::read(&out);
         let (found, result) = match (code, lines.conflict, &lines.tip) {
             (CONFLICT, Some(index), _) if index < trial.len() => (
@@ -341,6 +346,7 @@ impl Batch<'_> {
             Dest::Base => self.publish_base(members, base, tip, step).await,
             Dest::Coordinator { worktree } => {
                 let (code, out) = script(
+                    self.app.files(),
                     Path::new(worktree),
                     ADVANCE,
                     &[self.target.clone(), tip.to_owned()],
@@ -367,16 +373,16 @@ impl Batch<'_> {
         let into = self.into().await?;
         let done = match &into {
             Dest::Base => {
-                merge::fetch(&self.dir, &self.target).await?;
+                merge::fetch(self.app.files(), &self.dir, &self.target).await?;
                 format!("refs/remotes/origin/{}", self.target)
             }
             Dest::Coordinator { .. } => format!("refs/heads/{}", self.target),
         };
-        let published = merge::published(&self.dir, tip, &done).await;
+        let published = merge::published(self.app.files(), &self.dir, tip, &done).await;
         if !published {
             if let Dest::Base = into {
                 let args = [self.target.clone(), base.to_owned(), tip.to_owned()];
-                let (code, out) = script(&self.dir, UNDO, &args).await?;
+                let (code, out) = script(self.app.files(), &self.dir, UNDO, &args).await?;
                 if code != 0 {
                     return Err(Refusal::Git(format!(
                         "{} needs repair: {} (batch base {base}, tip {tip}, not on origin)",
@@ -417,7 +423,10 @@ impl Batch<'_> {
             let Some((_, gate)) = held.iter().find(|(branch, _)| *branch == m.branch) else {
                 continue;
             };
-            if target_of(&self.dir, gate.as_deref()).await.ok().as_deref()
+            if target_of(self.app.files(), &self.dir, gate.as_deref())
+                .await
+                .ok()
+                .as_deref()
                 != Some(self.target.as_str())
             {
                 self.requeue(m);
@@ -441,7 +450,7 @@ impl Batch<'_> {
     ) -> Result<(), Refusal> {
         let mut last = None;
         for m in members.iter().rev() {
-            if let Some(sha) = merge_commit(&self.dir, &m.head, tip).await? {
+            if let Some(sha) = merge_commit(self.app.files(), &self.dir, &m.head, tip).await? {
                 last = Some((m, sha));
                 break;
             }
@@ -455,12 +464,10 @@ impl Batch<'_> {
             base.to_owned(),
             tip.to_owned(),
         ];
-        let (code, out) = script(&self.dir, PUBLISH, &args).await?;
+        let (code, out) = script(self.app.files(), &self.dir, PUBLISH, &args).await?;
         let log = Lines::read(&out).log;
         match code {
-            0 if !self.dir.join(protocol::SHIP_SCRIPT).is_file() => {
-                self.merged(members, base, tip, None, &Dest::Base).await
-            }
+            0 if !self.ships().await => self.merged(members, base, tip, None, &Dest::Base).await,
             0 => {
                 let owners: Vec<_> = members.iter().map(|m| m.owner).collect();
                 let deploy = self
@@ -524,10 +531,10 @@ impl Batch<'_> {
     ) -> Result<(), Refusal> {
         let into_base = matches!(into, Dest::Base);
         for m in members {
-            let own = merge_commit(&self.dir, &m.head, tip).await?;
+            let own = merge_commit(self.app.files(), &self.dir, &m.head, tip).await?;
             let sha = match own {
                 Some(sha) => Some(sha),
-                None => bringing_merge(&self.dir, &m.head, base, tip).await?,
+                None => bringing_merge(self.app.files(), &self.dir, &m.head, base, tip).await?,
             };
             let Some(sha) = sha else {
                 self.settle(
@@ -550,7 +557,7 @@ impl Batch<'_> {
                 .filter(|f| !f.stops())
                 .collect();
             if into_base {
-                let listed = merge::first_parents(&self.dir, &sha).await?;
+                let listed = merge::first_parents(self.app.files(), &self.dir, &sha).await?;
                 findings.extend(
                     self.app
                         .graph
@@ -584,7 +591,7 @@ impl Batch<'_> {
 
     async fn audit(&self, member: &Queued) -> Result<Vec<Finding>, Refusal> {
         let mut findings = self.app.graph.audit(member.owner, member.since)?;
-        if let Ok(now) = merge::branch_head(&self.dir, &member.branch).await
+        if let Ok(now) = merge::branch_head(self.app.files(), &self.dir, &member.branch).await
             && now.trim() != member.head
         {
             findings.push(Finding::HeadMoved {
@@ -593,7 +600,11 @@ impl Batch<'_> {
             });
         }
         let source = source_of(&self.dir, member);
-        if source.is_dir() && !merge::clean_at(&source, &member.head).await {
+        if worktree::is_dir(self.app.files(), &source)
+            .await
+            .unwrap_or(false)
+            && !merge::clean_at(self.app.files(), &source, &member.head).await
+        {
             findings.push(Finding::SourceDirty {
                 worktree: member.worktree.clone(),
             });
@@ -601,11 +612,18 @@ impl Batch<'_> {
         Ok(findings)
     }
 
+    async fn ships(&self) -> bool {
+        let ship = self.dir.join(protocol::SHIP_SCRIPT);
+        worktree::is_file(self.app.files(), &ship)
+            .await
+            .unwrap_or(false)
+    }
+
     async fn into(&self) -> Result<Dest, Refusal> {
-        if self.target == base_branch(&self.dir).await? {
+        if self.target == base_branch(self.app.files(), &self.dir).await? {
             return Ok(Dest::Base);
         }
-        worktree::worktrees(&self.dir)
+        worktree::worktrees(self.app.files(), &self.dir)
             .await
             .into_iter()
             .find(|w| w.branch.as_deref() == Some(self.target.as_str()))

@@ -11,6 +11,7 @@ use super::body::{self, Target};
 use super::field::{self, Field, FieldEvent};
 use super::ui::{self, GAP, PAD, SMALL};
 use super::{Dock, Inbox, Slot};
+use crate::link::Snapshot;
 use crate::strings::Str;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
@@ -37,33 +38,38 @@ pub fn key_label(key: &PromptKey, index: usize) -> String {
     }
 }
 
-struct Group {
-    node: NodeId,
-    name: String,
-    waits: Vec<ScreenWait>,
+pub(crate) struct Group {
+    pub node: NodeId,
+    pub name: String,
+    pub waits: Vec<ScreenWait>,
+}
+
+pub(crate) fn groups_of(snapshot: &Snapshot) -> Vec<Group> {
+    let mut groups: Vec<Group> = snapshot
+        .nodes
+        .iter()
+        .filter(|n| !n.waits.is_empty())
+        .map(|n| {
+            let mut waits = n.waits.clone();
+            waits.sort_by_key(|w| w.wait.since);
+            Group {
+                node: n.id,
+                name: n.name.clone(),
+                waits,
+            }
+        })
+        .collect();
+    groups.sort_by_key(|g| g.waits[0].wait.since);
+    groups
 }
 
 impl Dock {
     fn groups(&self, cx: &Context<Self>) -> Vec<Group> {
-        let Some(snapshot) = self.store.read(cx).snapshot() else {
-            return Vec::new();
-        };
-        let mut groups: Vec<Group> = snapshot
-            .nodes
-            .iter()
-            .filter(|n| !n.waits.is_empty())
-            .map(|n| {
-                let mut waits = n.waits.clone();
-                waits.sort_by_key(|w| w.wait.since);
-                Group {
-                    node: n.id,
-                    name: n.name.clone(),
-                    waits,
-                }
-            })
-            .collect();
-        groups.sort_by_key(|g| g.waits[0].wait.since);
-        groups
+        self.store
+            .read(cx)
+            .snapshot()
+            .map(groups_of)
+            .unwrap_or_default()
     }
 
     pub(super) fn find_wait(&self, id: u32, cx: &Context<Self>) -> Option<ScreenWait> {

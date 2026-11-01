@@ -266,6 +266,9 @@ impl Store {
         let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
         if key != self.settings_key {
             apply_settings(&loaded.settings, cx);
+            if loaded.settings.closed_panes.dock {
+                self.picked = None;
+            }
             self.settings = loaded.settings;
             self.settings_key = key;
         }

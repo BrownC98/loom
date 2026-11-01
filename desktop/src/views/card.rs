@@ -995,8 +995,7 @@ fn head_row(face: &Face, zoom: f32, colors: &Colors, layout: &HeadLayout) -> Div
     } else {
         (name, mark)
     };
-    let show_model =
-        !model.is_empty() && (layout.model_while_renaming || face.rename.is_none());
+    let show_model = !model.is_empty() && (layout.model_while_renaming || face.rename.is_none());
     div()
         .flex()
         .flex_none()

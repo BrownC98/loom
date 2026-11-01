@@ -1,3 +1,7 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
 use gpui::{Context, Entity};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -9,6 +13,31 @@ use crate::link;
 use crate::problem::Failure;
 use crate::store::Store;
 use crate::views::cardlink;
+
+const CLONE_LIMIT: Duration = Duration::from_secs(3600);
+const SSH_SETUP_LIMIT: Duration = Duration::from_secs(600);
+
+#[derive(Clone, Default)]
+pub struct Inflight(Arc<AtomicUsize>);
+
+pub struct Held(Arc<AtomicUsize>);
+
+impl Inflight {
+    pub fn hold(&self) -> Held {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Held(self.0.clone())
+    }
+
+    pub fn idle(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == 0
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 pub fn run<V: 'static, T: Send + 'static>(
     store: &Entity<Store>,
@@ -44,10 +73,11 @@ pub fn add_repo(base: &str, path: &str) -> Result<u32, Failure> {
 }
 
 pub fn clone_repo(base: &str, url: &str, parent: &str) -> Result<u32, Failure> {
-    added(sent(
+    added(link::post_within(
         base,
         "/api/repos/clone",
-        json!({ "url": url, "parent": parent }),
+        body(json!({ "url": url, "parent": parent })),
+        CLONE_LIMIT,
     )?)
 }
 
@@ -82,7 +112,12 @@ pub fn distro_home(base: &str, name: &str) -> Result<String, Failure> {
 }
 
 pub fn connect_ssh(base: &str, host: &str) -> Result<ReachView, Failure> {
-    link::post(base, &format!("/api/ssh/{}", link::escape(host)), None)
+    link::post_within(
+        base,
+        &format!("/api/ssh/{}", link::escape(host)),
+        None,
+        SSH_SETUP_LIMIT,
+    )
 }
 
 pub fn release_ssh(base: &str, host: &str) -> Result<(), Failure> {

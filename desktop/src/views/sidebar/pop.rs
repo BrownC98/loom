@@ -3,8 +3,6 @@ use gpui::{
     Pixels, Point, Styled, Window, anchored, deferred, div, point, px,
 };
 
-pub struct Closed;
-
 const EDGE: f32 = 8.0;
 
 pub fn overlay(

@@ -341,6 +341,8 @@ impl Render for Dialog {
             defaults: self.defaults.as_ref(),
             writer,
             query: &query,
+            store: &self.store,
+            dialog: cx.weak_entity(),
         };
         let shown: Vec<(Tab, Section)> = if searching {
             Tab::ALL

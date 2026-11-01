@@ -32,6 +32,8 @@ const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_THIN: f32 = 2.0;
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
+const FIT_SLACK: f32 = 0.001;
+const SCROLLBAR: f32 = 14.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputState {
@@ -57,6 +59,7 @@ struct Draw {
     style: Style,
     scale: f32,
     focused: bool,
+    touched: bool,
 }
 
 impl Style {
@@ -70,8 +73,11 @@ impl Style {
     }
 }
 
+fn byte(c: Rgba) -> vt::Rgb8 {
+    [c.r, c.g, c.b].map(|v| (v * 255.0).round() as u8)
+}
+
 fn palette(terminal: &Terminal) -> vt::Palette {
-    let byte = |c: Rgba| [c.r, c.g, c.b].map(|v| (v * 255.0).round() as u8);
     vt::Palette {
         ansi: terminal.ansi.map(byte),
         foreground: byte(terminal.foreground),
@@ -92,6 +98,8 @@ pub struct TerminalView {
     settled: bool,
     scale: f32,
     area: Bounds<Pixels>,
+    origin: gpui::Point<Pixels>,
+    touched: bool,
     cell: Option<Metrics>,
     sent: (u16, u16),
     ended: Option<String>,
@@ -129,7 +137,7 @@ fn metrics(window: &Window, face: &Face, scale: f32) -> Metrics {
     let em = px(face.size * scale);
     Metrics {
         cell_width: system.advance(id, em, 'm').map_or(em * 0.6, |a| a.width),
-        cell_height: em * LINE_HEIGHT,
+        cell_height: px((face.size * LINE_HEIGHT).ceil() * scale),
     }
 }
 
@@ -193,7 +201,10 @@ impl TerminalView {
         let style = Style::current(cx);
         let focus = cx.focus_handle();
         let focus_events = [
-            cx.on_focus_in(&focus, window, |this, _, _| this.report_focus(true)),
+            cx.on_focus_in(&focus, window, |this, _, _| {
+                this.touched = true;
+                this.report_focus(true);
+            }),
             cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
         ];
         Self {
@@ -206,6 +217,8 @@ impl TerminalView {
                 .and_then(|scale| scale.parse().ok())
                 .unwrap_or(1.0),
             area: Bounds::default(),
+            origin: gpui::Point::default(),
+            touched: false,
             cell: None,
             sent: (0, 0),
             ended,
@@ -344,8 +357,9 @@ impl TerminalView {
         }
     }
 
-    fn resized(&mut self, area: Bounds<Pixels>, cell: Metrics) {
+    fn resized(&mut self, area: Bounds<Pixels>, cell: Metrics, origin: gpui::Point<Pixels>) {
         self.area = area;
+        self.origin = origin;
         self.cell = Some(cell);
         self.claim();
     }
@@ -354,8 +368,11 @@ impl TerminalView {
         let (Some(cell), true) = (self.cell, self.area.size.width > px(0.0)) else {
             return;
         };
-        let cols = (self.area.size.width / self.scale / cell.cell_width).floor() as u16;
-        let rows = (self.area.size.height / self.scale / cell.cell_height).floor() as u16;
+        let cols = ((self.area.size.width / self.scale - px(SCROLLBAR)) / cell.cell_width
+            + FIT_SLACK)
+            .floor() as u16;
+        let rows =
+            (self.area.size.height / self.scale / cell.cell_height + FIT_SLACK).floor() as u16;
         let fit = (cols.max(2), rows.max(1));
         if fit != self.sent {
             self.sent = fit;
@@ -549,7 +566,7 @@ impl EntityInputHandler for TerminalView {
             + cursor.col;
         let (width, height) = (cell.cell_width * self.scale, cell.cell_height * self.scale);
         Some(Bounds::new(
-            self.area.origin + point(width * cols as f32, height * cursor.row as f32),
+            self.origin + point(width * cols as f32, height * cursor.row as f32),
             size(width, height),
         ))
     }
@@ -575,8 +592,11 @@ impl Render for TerminalView {
             style: self.style.clone(),
             scale: self.scale,
             focused: self.focus.is_focused(window),
+            touched: self.touched,
         };
         let pad = point(px(PAD_X * self.scale), px(PAD_Y * self.scale));
+        let grid = (frame.screen.cols, frame.screen.rows);
+        let scale = self.scale;
         let view = cx.entity();
         let view_input = view.clone();
         let view_pointer = view.clone();
@@ -613,8 +633,19 @@ impl Render for TerminalView {
                             outer.size - size(pad.x * 2.0, pad.y * 2.0),
                         );
                         let base = metrics(window, &face, 1.0);
-                        view.update(cx, |view, _| view.resized(bounds, base));
-                        bounds
+                        let cell = metrics(window, &face, scale);
+                        let spare = bounds.size
+                            - size(
+                                cell.cell_width * grid.0 as f32,
+                                cell.cell_height * grid.1 as f32,
+                            );
+                        let origin = bounds.origin
+                            + point(
+                                spare.width.max(px(0.0)) / 2.0,
+                                spare.height.max(px(0.0)) / 2.0,
+                            );
+                        view.update(cx, |view, _| view.resized(bounds, base, origin));
+                        Bounds::new(origin, bounds.size)
                     },
                     move |_, bounds, window, cx| {
                         window.handle_input(
@@ -652,12 +683,28 @@ impl Render for TerminalView {
     }
 }
 
-fn styled(face: &Face, cell: &vt::Cell, len: usize) -> TextRun {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Detail {
+    Full,
+    Colour,
+}
+
+impl Detail {
+    fn of(cheap: bool) -> Detail {
+        if cheap { Detail::Colour } else { Detail::Full }
+    }
+}
+
+fn styled(face: &Face, cell: &vt::Cell, len: usize, detail: Detail) -> TextRun {
+    let (bold, italic, underline, strike) = match detail {
+        Detail::Full => (cell.bold, cell.italic, cell.underline, cell.strike),
+        Detail::Colour => (false, false, false, false),
+    };
     let mut run_font = face.font.clone();
-    if cell.bold {
+    if bold {
         run_font.weight = FontWeight::BOLD;
     }
-    if cell.italic {
+    if italic {
         run_font.style = FontStyle::Italic;
     }
     let fg = hsla(cell.fg);
@@ -666,47 +713,38 @@ fn styled(face: &Face, cell: &vt::Cell, len: usize) -> TextRun {
         font: run_font,
         color: fg,
         background_color: None,
-        underline: cell.underline.then_some(UnderlineStyle {
+        underline: underline.then_some(UnderlineStyle {
             thickness: px(1.0),
             color: Some(fg),
             wavy: false,
         }),
-        strikethrough: cell.strike.then_some(StrikethroughStyle {
+        strikethrough: strike.then_some(StrikethroughStyle {
             thickness: px(1.0),
             color: Some(fg),
         }),
     }
 }
 
-fn same_style(a: &vt::Cell, b: &vt::Cell) -> bool {
+fn same_style(a: &vt::Cell, b: &vt::Cell, detail: Detail) -> bool {
+    if detail == Detail::Colour {
+        return b.ch == ' ' || a.fg == b.fg;
+    }
     (a.fg, a.bold, a.italic, a.underline, a.strike)
         == (b.fg, b.bold, b.italic, b.underline, b.strike)
 }
 
-fn row_runs(face: &Face, cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
-    if cheap {
-        let lead = cells.iter().find(|c| c.ch != ' ').unwrap_or(&cells[0]);
-        let plain = vt::Cell {
-            bold: false,
-            italic: false,
-            underline: false,
-            strike: false,
-            ..lead.clone()
-        };
-        let len = cells.iter().map(|c| c.ch.len_utf8()).sum();
-        return vec![styled(face, &plain, len)];
-    }
+fn row_runs(face: &Face, cells: &[vt::Cell], detail: Detail) -> Vec<TextRun> {
     let mut runs: Vec<TextRun> = Vec::new();
     let mut first = 0;
     for (i, c) in cells.iter().enumerate() {
-        if i > first && !same_style(&cells[first], c) {
+        if i > first && !same_style(&cells[first], c, detail) {
             let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
-            runs.push(styled(face, &cells[first], len));
+            runs.push(styled(face, &cells[first], len, detail));
             first = i;
         }
     }
     let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
-    runs.push(styled(face, &cells[first], len));
+    runs.push(styled(face, &cells[first], len, detail));
     runs
 }
 
@@ -722,8 +760,9 @@ fn paint(
         style,
         scale,
         focused,
+        touched,
     } = draw;
-    let (scale, focused) = (*scale, *focused);
+    let (scale, focused, touched) = (*scale, *focused, *touched);
     let face = &style.face;
     let screen = &frame.screen;
     let cheap = cheap(face, scale);
@@ -771,8 +810,29 @@ fn paint(
         {
             continue;
         }
+        let marked_cells;
+        let cells = match frame
+            .picked
+            .iter()
+            .filter(|p| p.row == row)
+            .collect::<Vec<_>>()
+        {
+            picks if picks.is_empty() => cells,
+            picks => {
+                let mut owned = cells.to_vec();
+                let ink = byte(style.terminal.selection_foreground);
+                for pick in picks {
+                    let to = pick.to.min(owned.len().saturating_sub(1));
+                    for cell in owned.iter_mut().take(to + 1).skip(pick.from) {
+                        cell.fg = ink;
+                    }
+                }
+                marked_cells = owned;
+                &marked_cells[..]
+            }
+        };
         let text: String = cells.iter().map(|c| c.ch).collect();
-        let runs = row_runs(face, cells, cheap);
+        let runs = row_runs(face, cells, Detail::of(cheap));
         let line = window.text_system().shape_line(
             text.into(),
             em,
@@ -788,7 +848,7 @@ fn paint(
             cx,
         );
     }
-    if let Some(cursor) = screen.cursor {
+    if let Some(cursor) = screen.cursor.filter(|_| touched) {
         let mut hue: Hsla = style.terminal.cursor.into();
         hue.a = CURSOR_ALPHA;
         let thin = px(CURSOR_THIN * scale);
@@ -851,7 +911,7 @@ fn paint_marked(
             underline: true,
             strike: false,
         };
-        let run = styled(&style.face, &mark, c.len_utf8());
+        let run = styled(&style.face, &mark, c.len_utf8(), Detail::Full);
         let line = window.text_system().shape_line(
             c.to_string().into(),
             em,

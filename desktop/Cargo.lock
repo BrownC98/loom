@@ -2791,6 +2791,7 @@ dependencies = [
  "gpui_platform",
  "serde",
  "serde_json",
+ "sys-locale",
  "tungstenite",
  "unicode-width",
  "ureq",

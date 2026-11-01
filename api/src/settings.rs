@@ -317,6 +317,12 @@ impl<'de> Deserialize<'de> for ThemedColor {
 #[ts(export, type = "string")]
 pub struct HexColor(String);
 
+impl HexColor {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl<'de> Deserialize<'de> for HexColor {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let text = String::deserialize(d)?;

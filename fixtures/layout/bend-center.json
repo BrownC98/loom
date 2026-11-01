@@ -1,0 +1,143 @@
+{
+  "kind": "bendCenter",
+  "input": [
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 0,
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 24,
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 0,
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 24,
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 0,
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 24,
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 0,
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "bend": 24,
+      "direction": "left"
+    }
+  ],
+  "output": [
+    {
+      "y": 200
+    },
+    {
+      "y": 224
+    },
+    {
+      "x": 300
+    },
+    {
+      "x": 324
+    },
+    {
+      "y": 100
+    },
+    {
+      "y": 76
+    },
+    {
+      "x": 100
+    },
+    {
+      "x": 76
+    }
+  ]
+}

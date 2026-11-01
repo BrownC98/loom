@@ -10,7 +10,8 @@ use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
 use gpui::{
-    App, AppContext, Context, EventEmitter, Image, ImageFormat, Task, Window, WindowAppearance,
+    App, AppContext, Bounds, Context, EventEmitter, Image, ImageFormat, Pixels, Task, Window,
+    WindowAppearance,
 };
 
 use crate::canvas::drag::Arrange;
@@ -20,6 +21,7 @@ use crate::views::dock::answers::Slot;
 use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
+const ROOM_GAP: f32 = 14.0;
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 pub struct Store {
@@ -39,12 +41,15 @@ pub struct Store {
     found: Option<HashSet<String>>,
     current: Option<String>,
     picked: Option<HashSet<String>>,
+    composer: Option<(Bounds<Pixels>, bool)>,
+    zoomed: bool,
     drafts: HashMap<(u32, Slot), String>,
     busy: HashSet<u32>,
 }
 
 pub struct ZoomTo(pub f32);
 
+pub struct ShowNode(pub u32);
 pub struct DraftChanged(pub u32, pub Slot);
 
 pub struct BusyChanged;
@@ -52,6 +57,7 @@ pub struct BusyChanged;
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
+impl EventEmitter<ShowNode> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
 
@@ -113,6 +119,8 @@ impl Store {
             found: None,
             current: None,
             picked: None,
+            composer: None,
+            zoomed: false,
             drafts: HashMap::new(),
             busy: HashSet::new(),
         }
@@ -225,6 +233,21 @@ impl Store {
     pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
         if self.picked != keys {
             self.picked = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
+        cx.emit(ShowNode(node));
+    }
+
+    pub fn zoomed(&self) -> bool {
+        self.zoomed
+    }
+
+    pub fn set_zoomed(&mut self, zoomed: bool, cx: &mut Context<Self>) {
+        if self.zoomed != zoomed {
+            self.zoomed = zoomed;
             cx.notify();
         }
     }
@@ -559,5 +582,41 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         self.call(cx, move |base| link::clear_sizes(base, &nodes))
+    }
+}
+
+impl Store {
+    pub fn composer_box(&self) -> Option<Bounds<Pixels>> {
+        self.composer.map(|(bounds, _)| bounds)
+    }
+
+    pub fn composer_room(&self) -> f32 {
+        self.composer
+            .filter(|(_, home)| *home)
+            .map_or(0.0, |(bounds, _)| f32::from(bounds.size.height) + ROOM_GAP)
+    }
+
+    pub fn set_composer(
+        &mut self,
+        composer: Option<(Bounds<Pixels>, bool)>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer != composer {
+            self.composer = composer;
+            cx.notify();
+        }
+    }
+
+    pub fn save_paste(
+        &self,
+        node: NodeId,
+        name: String,
+        mime: &'static str,
+        bytes: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<String, String>> {
+        self.call(cx, move |base| {
+            link::save_paste(base, node, &name, mime, &bytes)
+        })
     }
 }

@@ -1,7 +1,14 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use api::settings::{FloatPlace, FloatSize};
-use gpui::{Pixels, Point, Size, point, px};
+use gpui::{
+    App, Bounds, Context, Entity, EntityId, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, Styled, Window, canvas, point, px,
+};
 
 pub const MARGIN: f32 = 12.0;
+pub const POP_GAP: f32 = 6.0;
 const SLOP: f32 = 4.0;
 
 pub fn zoom(size: FloatSize) -> f32 {
@@ -90,4 +97,79 @@ pub fn patch(key: &str, place: Option<FloatPlace>) -> serde_json::Value {
         |p| serde_json::json!({ "x": p.x, "y": p.y }),
     );
     serde_json::json!({ key: value })
+}
+
+pub fn pop_space(
+    top: f32,
+    boxed: Size<Pixels>,
+    pane: Size<Pixels>,
+    cover: Option<Bounds<Pixels>>,
+    zoom: f32,
+) -> (bool, f32) {
+    let height = f32::from(boxed.height);
+    let (ceiling, floor) = cover.map_or((0.0, f32::from(pane.height)), |cover| {
+        let (cover_top, cover_bottom) = (f32::from(cover.origin.y), f32::from(cover.bottom()));
+        (
+            if cover_top < top {
+                top.min(cover_bottom)
+            } else {
+                0.0
+            },
+            if cover_bottom > top + height {
+                (top + height).max(cover_top)
+            } else {
+                f32::from(pane.height)
+            },
+        )
+    });
+    let above = top - ceiling - MARGIN;
+    let below = floor - (top + height) - MARGIN;
+    let use_above = above > below;
+    let room = (if use_above { above } else { below }) - POP_GAP * zoom;
+    if room <= 0.0 && cover.is_some() {
+        return pop_space(top, boxed, pane, None, zoom);
+    }
+    (use_above, room.max(0.0))
+}
+
+pub fn measure(cell: Rc<Cell<Size<Pixels>>>, owner: EntityId) -> impl IntoElement {
+    canvas(
+        move |bounds, _, cx| {
+            if cell.get() != bounds.size {
+                cell.set(bounds.size);
+                cx.notify(owner);
+            }
+        },
+        |_, _, _, _| (),
+    )
+    .absolute()
+    .size_full()
+}
+
+pub fn follow<T: 'static>(
+    view: Entity<T>,
+    slide: fn(&mut T, &MouseMoveEvent, &mut Context<T>),
+    release: fn(&mut T, &mut Context<T>),
+) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |_, _, window: &mut Window, _| {
+            let moves = view.clone();
+            window.on_mouse_event(move |e: &MouseMoveEvent, _, _, cx: &mut App| {
+                moves.update(cx, |this, cx| slide(this, e, cx));
+            });
+            let ups = view.clone();
+            window.on_mouse_event(move |e: &MouseUpEvent, _, _, cx: &mut App| {
+                if e.button == MouseButton::Left {
+                    ups.update(cx, release);
+                }
+            });
+        },
+    )
+    .absolute()
+    .size(px(1.0))
+}
+
+pub fn stop(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
+    cx.stop_propagation();
 }

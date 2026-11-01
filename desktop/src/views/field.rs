@@ -1,12 +1,12 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement, IntoElement,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels,
-    Point, Render, SharedString, Styled, StyledText, TextLayout, UTF16Selection, UnderlineStyle,
-    Window, div, fill, point, px, size,
+    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Element,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
+    IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Pixels, Point, Render, SharedString, Styled, StyledText, TextLayout,
+    UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
 };
 
 use crate::strings::{Lang, Str};
@@ -30,6 +30,8 @@ enum Hint {
     Text(SharedString),
 }
 
+type Files = Box<dyn Fn(Vec<ClipboardEntry>, &mut Window, &mut App)>;
+
 pub struct Field {
     focus: FocusHandle,
     text: String,
@@ -38,6 +40,7 @@ pub struct Field {
     multiline: bool,
     boxed: bool,
     scale: f32,
+    files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
     marked: Option<Range<usize>>,
@@ -72,6 +75,7 @@ impl Field {
             multiline,
             boxed,
             scale: 1.0,
+            files: None,
             selected: 0..0,
             reversed: false,
             marked: None,
@@ -118,6 +122,20 @@ impl Field {
         self.marked = None;
         cx.emit(FieldEvent::Changed);
         cx.notify();
+    }
+
+    pub fn on_files(
+        &mut self,
+        handler: impl Fn(Vec<ClipboardEntry>, &mut Window, &mut App) + 'static,
+    ) {
+        self.files = Some(Box::new(handler));
+    }
+
+    pub fn insert_token(&mut self, token: &str, window: &Window, cx: &mut Context<Self>) {
+        let at = self.selected.start.min(self.text.len());
+        let lead = at > 0 && !self.text[..at].ends_with(char::is_whitespace);
+        let typed = format!("{}{token} ", if lead { " " } else { "" });
+        self.put(at..at, &typed, window, cx);
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -301,8 +319,18 @@ impl Field {
                 true
             }
             (true, "v") => {
-                if let Some(pasted) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                    self.put(self.selected.clone(), &pasted, window, cx);
+                if let Some(item) = cx.read_from_clipboard() {
+                    let files: Vec<ClipboardEntry> = item
+                        .entries()
+                        .iter()
+                        .filter(|entry| !matches!(entry, ClipboardEntry::String(_)))
+                        .cloned()
+                        .collect();
+                    if let (false, Some(take)) = (files.is_empty(), &self.files) {
+                        take(files, window, cx);
+                    } else if let Some(pasted) = item.text() {
+                        self.put(self.selected.clone(), &pasted, window, cx);
+                    }
                 }
                 true
             }

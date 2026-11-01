@@ -30,7 +30,7 @@ use super::popover;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::link;
-use crate::store::{Store, ZoomTo};
+use crate::store::{ShowNode, Store, ZoomTo};
 use crate::strings::Lang;
 use crate::theme::Theme;
 use crate::views::card;
@@ -112,6 +112,10 @@ impl CanvasView {
         .detach();
         cx.subscribe(&store, |this, _, event: &ZoomTo, cx| {
             this.zoom_to(event.0, cx)
+        })
+        .detach();
+        cx.subscribe(&store, |this, _, event: &ShowNode, cx| {
+            this.show_node(event.0, cx)
         })
         .detach();
         cx.subscribe(&store, |this, _, event: &Arrange, cx| {
@@ -529,6 +533,17 @@ impl CanvasView {
         self.fit_pending = false;
     }
 
+    fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
+        let area = self.area.get().size;
+        let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
+            return;
+        };
+        if area.width > px(0.0) {
+            self.camera = Camera::fit(area, bounds_of(card.rect));
+            cx.notify();
+        }
+    }
+
     fn zoom_to(&mut self, zoom: f32, cx: &mut Context<Self>) {
         let area = self.area.get().size;
         let centre = point(area.width / 2.0, area.height / 2.0);
@@ -675,6 +690,8 @@ impl Render for CanvasView {
             window.request_animation_frame();
         }
         let zoomed = self.zoomed(cx);
+        self.store
+            .update(cx, |store, cx| store.set_zoomed(zoomed.is_some(), cx));
         self.mount(zoomed, window, cx);
         self.traffic.prune(Instant::now());
         if !self.traffic.is_empty() {
@@ -897,6 +914,7 @@ impl Render for CanvasView {
                 live.view.clone(),
                 &self.overlay,
                 collapse,
+                self.store.read(cx).composer_room(),
                 cx,
             ))
         });

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use api::graph::waits::{InputField, Prompt, PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::{NodeId, WaitId};
@@ -10,7 +10,7 @@ use gpui::{
 use super::body::{self, Target};
 use super::field::{self, Field, FieldEvent};
 use super::ui::{self, GAP, PAD, SMALL};
-use super::{Dock, Inbox, Slot};
+use super::{Dock, Draft, Inbox, Slot};
 use crate::link::Snapshot;
 use crate::strings::Str;
 
@@ -25,6 +25,35 @@ pub fn kind_label(kind: WaitKind) -> Str {
         WaitKind::Input => Str::WaitInput,
         WaitKind::Done => Str::WaitDone,
     }
+}
+
+pub(crate) fn shown_prompts(snapshot: Option<&Snapshot>) -> HashMap<u32, Prompt> {
+    snapshot
+        .map(|s| {
+            s.nodes
+                .iter()
+                .flat_map(|n| n.waits.iter())
+                .filter_map(|w| Some((w.wait.id.0, w.wait.prompt.clone()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn drop_absent_slots(
+    fields: &mut HashMap<(u32, Slot), Draft>,
+    id: u32,
+    prompt: Option<&Prompt>,
+) {
+    fields.retain(|&(wait_id, slot), _| {
+        wait_id != id
+            || match slot {
+                Slot::Answer => true,
+                Slot::Option(index) => prompt
+                    .and_then(|p| p.options.get(index))
+                    .is_some_and(|o| o.writes),
+                Slot::Field => prompt.is_some_and(|p| p.field.is_some()),
+            }
+    });
 }
 
 pub fn key_label(key: &PromptKey, index: usize) -> String {
@@ -72,16 +101,6 @@ impl Dock {
             .unwrap_or_default()
     }
 
-    pub(super) fn find_wait(&self, id: u32, cx: &Context<Self>) -> Option<ScreenWait> {
-        let snapshot = self.store.read(cx).snapshot()?;
-        snapshot
-            .nodes
-            .iter()
-            .flat_map(|n| n.waits.iter())
-            .find(|w| w.wait.id.0 == id)
-            .cloned()
-    }
-
     pub(super) fn sync(&mut self, cx: &mut Context<Self>) {
         let waits: Vec<ScreenWait> = self
             .store
@@ -108,6 +127,10 @@ impl Dock {
         cx.notify();
     }
 
+    pub(super) fn remember(&mut self, cx: &Context<Self>) {
+        self.shown = shown_prompts(self.store.read(cx).snapshot());
+    }
+
     fn ensure_fields(&mut self, wait: &ScreenWait, cx: &mut Context<Self>) {
         let id = wait.wait.id.0;
         if wait.wait.answerable {
@@ -122,24 +145,27 @@ impl Dock {
             );
             self.make_field(id, Slot::Answer, hint, false, true, cx);
         }
-        if let Some(prompt) = &wait.wait.prompt {
-            for (index, option) in prompt.options.iter().enumerate() {
-                if option.writes {
-                    self.make_field(id, Slot::Option(index), &option.label, false, false, cx);
-                }
+        let prompt = wait.wait.prompt.as_ref();
+        drop_absent_slots(&mut self.fields, id, prompt);
+        let Some(prompt) = prompt else {
+            return;
+        };
+        for (index, option) in prompt.options.iter().enumerate() {
+            if option.writes {
+                self.make_field(id, Slot::Option(index), &option.label, false, false, cx);
             }
-            if let Some(kind) = prompt.field {
-                let secret = kind == InputField::Secret;
-                let hint = ui::say(
-                    cx,
-                    if secret {
-                        Str::InboxSecretLabel
-                    } else {
-                        Str::InboxTextLabel
-                    },
-                );
-                self.make_field(id, Slot::Field, hint, secret, false, cx);
-            }
+        }
+        if let Some(kind) = prompt.field {
+            let secret = kind == InputField::Secret;
+            let hint = ui::say(
+                cx,
+                if secret {
+                    Str::InboxSecretLabel
+                } else {
+                    Str::InboxTextLabel
+                },
+            );
+            self.make_field(id, Slot::Field, hint, secret, false, cx);
         }
     }
 
@@ -152,16 +178,27 @@ impl Dock {
         multiline: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.fields.contains_key(&(id, slot)) {
+        if self
+            .fields
+            .get(&(id, slot))
+            .is_some_and(|draft| draft.secret == secret)
+        {
             return;
         }
-        let entity = field::boxed(hint, secret, multiline, cx);
-        let sub = cx.subscribe(&entity, move |dock, _, event: &FieldEvent, cx| {
+        let field = field::boxed(hint, secret, multiline, cx);
+        let sub = cx.subscribe(&field, move |dock, _, event: &FieldEvent, cx| {
             if matches!(event, FieldEvent::Enter) {
                 dock.submit(id, slot, cx);
             }
         });
-        self.fields.insert((id, slot), (entity, sub));
+        self.fields.insert(
+            (id, slot),
+            Draft {
+                field,
+                secret,
+                _sub: sub,
+            },
+        );
     }
 
     pub(super) fn follow(&mut self, target: Target, cx: &mut Context<Self>) {
@@ -211,7 +248,7 @@ impl Dock {
         let Some(field) = self
             .fields
             .get(&(wait, slot))
-            .map(|(field, _)| field.clone())
+            .map(|draft| draft.field.clone())
         else {
             return;
         };
@@ -226,7 +263,7 @@ impl Dock {
                 store.update(cx, |store, cx| store.answer_wait(id, text, cx))
             }
             Slot::Option(index) => {
-                let Some(prompt) = self.prompt_of(wait, cx) else {
+                let Some(prompt) = self.shown.get(&wait).cloned() else {
                     return;
                 };
                 store.update(cx, |store, cx| {
@@ -234,7 +271,7 @@ impl Dock {
                 })
             }
             Slot::Field => {
-                let Some(prompt) = self.prompt_of(wait, cx) else {
+                let Some(prompt) = self.shown.get(&wait).cloned() else {
                     return;
                 };
                 store.update(cx, |store, cx| store.type_text(id, prompt, text, None, cx))
@@ -243,15 +280,11 @@ impl Dock {
         self.run(wait, Some(field), task, cx);
     }
 
-    fn prompt_of(&self, wait: u32, cx: &Context<Self>) -> Option<Prompt> {
-        self.find_wait(wait, cx)?.wait.prompt
-    }
-
     fn pick(&mut self, wait: u32, option: usize, cx: &mut Context<Self>) {
         if self.busy.contains(&wait) {
             return;
         }
-        let Some(prompt) = self.prompt_of(wait, cx) else {
+        let Some(prompt) = self.shown.get(&wait).cloned() else {
             return;
         };
         let id = WaitId(wait);
@@ -463,8 +496,8 @@ impl Dock {
                     }),
                 ));
             }
-            if let Some((field, _)) = self.fields.get(&(id, Slot::Answer)) {
-                body = body.child(self.send_row(id, Slot::Answer, field, cx));
+            if let Some(draft) = self.fields.get(&(id, Slot::Answer)) {
+                body = body.child(self.send_row(id, Slot::Answer, &draft.field, cx));
             }
         } else if wait.wait.prompt.is_none() {
             body = body.child(
@@ -536,7 +569,7 @@ impl Dock {
             ));
         }
         for (index, option) in prompt.options.iter().enumerate() {
-            if let Some((field, _)) = option
+            if let Some(draft) = option
                 .writes
                 .then(|| self.fields.get(&(id, Slot::Option(index))))
                 .flatten()
@@ -556,12 +589,12 @@ impl Dock {
                                     option.label
                                 )),
                         )
-                        .child(self.send_row(id, Slot::Option(index), field, cx)),
+                        .child(self.send_row(id, Slot::Option(index), &draft.field, cx)),
                 );
             }
         }
-        if let Some((field, _)) = self.fields.get(&(id, Slot::Field)) {
-            body = body.child(self.send_row(id, Slot::Field, field, cx));
+        if let Some(draft) = self.fields.get(&(id, Slot::Field)) {
+            body = body.child(self.send_row(id, Slot::Field, &draft.field, cx));
         }
         body.into_any_element()
     }

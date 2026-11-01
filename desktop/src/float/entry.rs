@@ -10,8 +10,8 @@ use gpui::{
 
 use super::pill::Pill;
 use crate::strings::Str;
-use crate::views::dock::Slot;
-use crate::views::dock::questions::{key_label, kind_label};
+use crate::views::dock::{Draft, Slot};
+use crate::views::dock::questions::{drop_absent_slots, key_label, kind_label};
 use crate::views::dock::ui::{self, GAP, PAD, SMALL};
 use crate::views::field::{self, Field, FieldEvent};
 
@@ -62,7 +62,9 @@ impl Pill {
             );
             self.make_field(id, Slot::Answer, hint, false, true, cx);
         }
-        let Some(prompt) = &wait.wait.prompt else {
+        let prompt = wait.wait.prompt.as_ref();
+        drop_absent_slots(&mut self.fields, id, prompt);
+        let Some(prompt) = prompt else {
             return;
         };
         for (index, option) in prompt.options.iter().enumerate() {
@@ -93,31 +95,27 @@ impl Pill {
         multiline: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.fields.contains_key(&(id, slot)) {
+        if self
+            .fields
+            .get(&(id, slot))
+            .is_some_and(|draft| draft.secret == secret)
+        {
             return;
         }
-        let entity = field::boxed(hint, secret, multiline, cx);
-        let sub = cx.subscribe(&entity, move |pill, _, event: &FieldEvent, cx| {
+        let field = field::boxed(hint, secret, multiline, cx);
+        let sub = cx.subscribe(&field, move |pill, _, event: &FieldEvent, cx| {
             if matches!(event, FieldEvent::Enter) {
                 pill.submit(id, slot, cx);
             }
         });
-        self.fields.insert((id, slot), (entity, sub));
-    }
-
-    fn find_wait(&self, id: u32, cx: &Context<Self>) -> Option<ScreenWait> {
-        self.store
-            .read(cx)
-            .snapshot()?
-            .nodes
-            .iter()
-            .flat_map(|n| n.waits.iter())
-            .find(|w| w.wait.id.0 == id)
-            .cloned()
-    }
-
-    fn prompt_of(&self, wait: u32, cx: &Context<Self>) -> Option<Prompt> {
-        self.find_wait(wait, cx)?.wait.prompt
+        self.fields.insert(
+            (id, slot),
+            Draft {
+                field,
+                secret,
+                _sub: sub,
+            },
+        );
     }
 
     fn run(
@@ -157,7 +155,7 @@ impl Pill {
         let Some(field) = self
             .fields
             .get(&(wait, slot))
-            .map(|(field, _)| field.clone())
+            .map(|draft| draft.field.clone())
         else {
             return;
         };
@@ -172,7 +170,7 @@ impl Pill {
                 store.update(cx, |store, cx| store.answer_wait(id, text, cx))
             }
             Slot::Option(index) => {
-                let Some(prompt) = self.prompt_of(wait, cx) else {
+                let Some(prompt) = self.shown.get(&wait).cloned() else {
                     return;
                 };
                 store.update(cx, |store, cx| {
@@ -180,7 +178,7 @@ impl Pill {
                 })
             }
             Slot::Field => {
-                let Some(prompt) = self.prompt_of(wait, cx) else {
+                let Some(prompt) = self.shown.get(&wait).cloned() else {
                     return;
                 };
                 store.update(cx, |store, cx| store.type_text(id, prompt, text, None, cx))
@@ -193,7 +191,7 @@ impl Pill {
         if self.busy.contains(&wait) {
             return;
         }
-        let Some(prompt) = self.prompt_of(wait, cx) else {
+        let Some(prompt) = self.shown.get(&wait).cloned() else {
             return;
         };
         let id = WaitId(wait);
@@ -335,8 +333,8 @@ impl Pill {
                     }),
                 ));
             }
-            if let Some((field, _)) = self.fields.get(&(id, Slot::Answer)) {
-                body = body.child(self.send_row(id, Slot::Answer, field, z, cx));
+            if let Some(draft) = self.fields.get(&(id, Slot::Answer)) {
+                body = body.child(self.send_row(id, Slot::Answer, &draft.field, z, cx));
             }
         } else if wait.wait.prompt.is_none() {
             body = body.child(
@@ -420,7 +418,7 @@ impl Pill {
             ));
         }
         for (index, option) in prompt.options.iter().enumerate() {
-            if let Some((field, _)) = option
+            if let Some(draft) = option
                 .writes
                 .then(|| self.fields.get(&(id, Slot::Option(index))))
                 .flatten()
@@ -434,12 +432,12 @@ impl Pill {
                             .child(div().text_size(px(SMALL * z)).text_color(c.ink_3).child(
                                 format!("{} {}", key_label(&option.key, index), option.label),
                             ))
-                            .child(self.send_row(id, Slot::Option(index), field, z, cx)),
+                            .child(self.send_row(id, Slot::Option(index), &draft.field, z, cx)),
                     );
             }
         }
-        if let Some((field, _)) = self.fields.get(&(id, Slot::Field)) {
-            body = body.child(self.send_row(id, Slot::Field, field, z, cx));
+        if let Some(draft) = self.fields.get(&(id, Slot::Field)) {
+            body = body.child(self.send_row(id, Slot::Field, &draft.field, z, cx));
         }
         body.into_any_element()
     }

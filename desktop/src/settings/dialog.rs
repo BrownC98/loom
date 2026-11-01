@@ -14,7 +14,7 @@ use super::widgets::confirm;
 use super::{Ctx, Section, search};
 use crate::link;
 use crate::store::Store;
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, button, colors, say, say_with};
 use crate::views::field::{self, Field, FieldEvent};
@@ -189,7 +189,7 @@ impl Dialog {
                 }
                 Err(error) => {
                     let _ = this.update(cx, |dialog, cx| {
-                        dialog.error = Some(error);
+                        dialog.error = Some(error.text(*cx.global::<Lang>()));
                         cx.notify();
                     });
                 }
@@ -228,7 +228,7 @@ impl Dialog {
                     Ok(fresh) if dialog.inflight == 0 => dialog.view = fresh,
                     Ok(_) => {}
                     Err(error) => {
-                        dialog.error = Some(error);
+                        dialog.error = Some(error.text(*cx.global::<Lang>()));
                         if dialog.inflight == 0 {
                             dialog.view = dialog.store.read(cx).settings().clone();
                         }

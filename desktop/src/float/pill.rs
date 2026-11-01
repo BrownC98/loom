@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use api::graph::waits::{ScreenWait, WaitTone};
+use api::graph::waits::{Prompt, ScreenWait, WaitTone};
 use api::ids::WaitId;
 use api::settings::{FloatPlace, FloatSize, QuestionPill};
 use gpui::prelude::FluentBuilder;
@@ -16,10 +16,9 @@ use gpui::{
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
-use crate::views::dock::Slot;
-use crate::views::dock::questions::{Group, groups_of, kind_label};
+use crate::views::dock::{Draft, Slot};
+use crate::views::dock::questions::{Group, groups_of, kind_label, shown_prompts};
 use crate::views::dock::ui::{self, GAP};
-use crate::views::field::Field;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
 const WIDTH: f32 = 520.0;
@@ -40,7 +39,8 @@ pub struct Pill {
     seen_place: Option<FloatPlace>,
     shut: Option<WaitId>,
     seen_shut: Option<WaitId>,
-    pub(super) fields: HashMap<(u32, Slot), (Entity<Field>, Subscription)>,
+    pub(super) fields: HashMap<(u32, Slot), Draft>,
+    pub(super) shown: HashMap<u32, Prompt>,
     pub(super) notes: HashMap<u32, String>,
     pub(super) busy: HashSet<u32>,
     subscriptions: Vec<Subscription>,
@@ -64,6 +64,7 @@ pub fn pill(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Pill> 
             shut: None,
             seen_shut,
             fields: HashMap::new(),
+            shown: HashMap::new(),
             notes: HashMap::new(),
             busy: HashSet::new(),
             subscriptions: Vec::new(),
@@ -214,6 +215,7 @@ fn stop(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
 
 impl Render for Pill {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.shown = shown_prompts(self.store.read(cx).snapshot());
         let id = cx.entity_id();
         let (pane_cell, box_cell) = (self.pane.clone(), self.boxed.clone());
         let measure = canvas(

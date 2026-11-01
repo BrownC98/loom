@@ -579,7 +579,18 @@ fn strings(ko_source: &str, en_source: &str) -> String {
     for (key, english) in &en {
         writeln!(code, "    [{:?}, {english:?}],", ko[key]).unwrap();
     }
+    code.push_str("];\n\n");
+    writeln!(code, "static KEYS: [&str; {}] = [", en.len()).unwrap();
+    for key in en.keys() {
+        writeln!(code, "    {key:?},").unwrap();
+    }
+    code.push_str("];\n\n");
+    writeln!(code, "const ALL: [Str; {}] = [", en.len()).unwrap();
+    for key in en.keys() {
+        writeln!(code, "    Str::{},", variant(key)).unwrap();
+    }
     code.push_str("];\n\n#[allow(dead_code)]\nimpl Str {\n");
+    code.push_str("    pub fn find(key: &str) -> Option<Str> {\n        KEYS.iter().position(|k| *k == key).map(|at| ALL[at])\n    }\n\n");
     code.push_str("    pub fn text(self, lang: Lang) -> &'static str {\n        TEXTS[self as usize][lang as usize]\n    }\n\n");
     code.push_str("    pub fn with(self, lang: Lang, args: &[(&str, &str)]) -> String {\n        fill(self.text(lang), args)\n    }\n}\n");
     code

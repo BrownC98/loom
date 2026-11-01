@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use api::graph::docs::{DocGroup, DocRow};
-use api::graph::waits::ClosedWait;
+use api::graph::waits::{ClosedWait, Prompt};
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
@@ -46,7 +46,15 @@ struct History {
     error: Option<String>,
 }
 
+pub(crate) struct Draft {
+    pub(crate) field: Entity<Field>,
+    pub(crate) secret: bool,
+    pub(crate) _sub: Subscription,
+}
+
 struct Docs {
+    order: u64,
+    loaded: u64,
     rows: Option<Vec<DocRow>>,
     error: Option<String>,
     hidden: Vec<DocGroup>,
@@ -57,7 +65,8 @@ pub struct Dock {
     store: Entity<Store>,
     tab: Tab,
     inbox: Inbox,
-    fields: HashMap<(u32, Slot), (Entity<Field>, Subscription)>,
+    fields: HashMap<(u32, Slot), Draft>,
+    shown: HashMap<u32, Prompt>,
     notes: HashMap<u32, String>,
     busy: HashSet<u32>,
     open_key: String,
@@ -77,11 +86,14 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             tab: Tab::Questions,
             inbox: Inbox::New,
             fields: HashMap::new(),
+            shown: HashMap::new(),
             notes: HashMap::new(),
             busy: HashSet::new(),
             open_key: String::new(),
             history: History::default(),
             docs: Docs {
+                order: 0,
+                loaded: 0,
                 rows: None,
                 error: None,
                 hidden: Vec::new(),
@@ -132,6 +144,7 @@ impl Dock {
 impl Render for Dock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ui::colors(cx);
+        self.remember(cx);
         let waiting = self.waiting(cx);
         let tab = |id: &'static str,
                    label: &'static str,

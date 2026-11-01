@@ -4,7 +4,15 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
+[features]
+axum = ["dep:axum"]
+clap = ["dep:clap"]
+sqlite = ["dep:rusqlite"]
+
 [dependencies]
+axum = { workspace = true, optional = true }
+clap = { workspace = true, features = ["derive"], optional = true }
+rusqlite = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 ts-rs.workspace = true

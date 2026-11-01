@@ -1,6 +1,8 @@
 use axum::http::HeaderValue;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
+pub use api::graph::waits::{AnswerWait, ChooseOption, TypeText};
+
 use super::runtime::bearer;
 use super::*;
 use crate::graph::{ClosedPage, DocQuestion};
@@ -23,36 +25,6 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/docs/{id}/question", get(doc_question))
         .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
-}
-
-/// 사람이 화면에서 `loom ask` 질문에 쓴 답. `images`는 답에 붙인 그림의 데몬 기계 경로다(`POST /api/pastes`가 준 값, 목업 M30).
-#[derive(Deserialize, TS)]
-#[ts(export)]
-pub struct AnswerWait {
-    pub text: String,
-    #[serde(default)]
-    pub images: Vec<PathBuf>,
-}
-
-/// 사람이 알림에서 고른 승인 창 선택지. `prompt`는 화면이 보인 창 그대로, `option`은 그 `options`의 차례다.
-#[derive(Deserialize, TS)]
-#[ts(export)]
-pub struct ChooseOption {
-    pub prompt: Prompt,
-    #[ts(type = "number")]
-    pub option: usize,
-}
-
-/// 사람이 알림의 입력칸에 쓴 글. 데몬은 `prompt`가 지금 화면과 같을 때만 그 글과 Enter를 치고, 글을 저장하거나 로그에 쓰지 않는다.
-#[derive(Deserialize, TS)]
-#[ts(export)]
-pub struct TypeText {
-    pub prompt: Prompt,
-    pub text: String,
-    /// 글로 답하는 선택지(`PromptOption::writes`)의 차례. 없으면 창의 입력칸(`Prompt::field`)이다.
-    #[serde(default)]
-    #[ts(optional, type = "number")]
-    pub option: Option<usize>,
 }
 
 #[derive(Deserialize)]

@@ -3,36 +3,14 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// 카탈로그의 `id`.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct AgentId(pub String);
-
-/// 계정과 사용량이 있는 공급자. 근거: docs/design/에이전트-실행.md 「계정과 사용량」.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum Provider {
-    Claude,
-    Codex,
-}
+pub use api::ids::AgentId;
+pub use api::profile::Provider;
+pub use api::start::ModelChoice;
 
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Model {
     pub model: Option<String>,
     pub effort: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
-pub struct ModelChoice {
-    pub model: Option<String>,
-    pub effort: Option<String>,
-}
-
-impl ModelChoice {
-    pub fn is_empty(&self) -> bool {
-        self.model.is_none() && self.effort.is_none()
-    }
 }
 
 /// 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.

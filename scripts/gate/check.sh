@@ -9,7 +9,7 @@ step() { echo "== $*"; "$@"; }
 
 linux() {
   step memcap -m "$CLIPPY_SIZE" cargo clippy --all-targets
-  step memcap -m "$TEST_SIZE" cargo test --bin loom --test comments --test layers --test contract
+  step memcap -m "$TEST_SIZE" cargo test --lib --bin loom --test comments --test layers --test contract
   echo "== web/src/gen equals the commit"
   [ -z "$(git status --porcelain -- web/src/gen)" ] || { git status --short -- web/src/gen; return 1; }
   step memcap -m "$TEST_SIZE" cargo test --test comments -- --ignored --exact asked_questions_were_answered

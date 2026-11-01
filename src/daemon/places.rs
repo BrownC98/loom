@@ -13,7 +13,7 @@ use crate::distro::Host;
 use crate::place::{self, Machine};
 use crate::protocol::LaunchError;
 use crate::ssh::{Failure, SSH_DIR, System};
-use crate::worktree::{self, Locations, PlaceView, RepoId, RepoView};
+use crate::worktree::{self, Locations, RepoId, RepoView};
 use crate::wsl;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -173,7 +173,14 @@ impl App {
                 None => at.path.clone(),
             },
         };
-        worktree::view(self.files(), id, path, PlaceView::of(&machine), shown).await
+        worktree::view(
+            self.files(),
+            id,
+            path,
+            worktree::place_view(&machine),
+            shown,
+        )
+        .await
     }
 
     pub(super) async fn workspace(&self, repo: &FsPath) -> Result<PathBuf, Problem> {

@@ -185,7 +185,6 @@ fn role_start(
         agent: chosen.agent,
         brief: assigned.brief,
         choice: chosen.choice,
-        resume: None,
     })
 }
 
@@ -198,7 +197,9 @@ async fn spawn_child(
     dir: &task::TaskDir,
     brief: &str,
 ) -> Result<NodeId, Problem> {
-    let mut prepared = app.prepare(start, cwd, Position::Child, Some(dir)).await?;
+    let mut prepared = app
+        .prepare(start, None, cwd, Position::Child, Some(dir))
+        .await?;
     if child.worktree.is_some() {
         prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
     }

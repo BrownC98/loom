@@ -20,7 +20,7 @@
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
 | Rust 검사 | `memcap -m 3G cargo clippy --all-targets` |
-| 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
+| 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --lib --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--lib`(`api/`)와 `--bin loom`(데몬)은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
 | API 계약 기준 올리기 | `memcap -m 4608M cargo test --test contract -- --ignored bump`. `tests/contract`는 데몬 경로(메서드+경로)와 `web/src/gen/` 타입을 `tests/contract/released.txt`와 맞춘다. 경로·타입·필드·변형이 빠지거나 바뀌거나, 입력 타입(`Deserialize`)에 필수 필드가 생기면 실패한다. 더하기만 한 변경은 통과한다. 깨짐을 의도하면 이 명령으로 기준을 다시 쓰고 그 diff를 커밋한다. 더한 것은 기준을 다시 쓸 때 기준에 들어간다 |
 | Windows 검사 | `memcap -m 3G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
 | 데스크톱(`desktop/`, GPUI) Linux 검사 | `cd desktop && memcap -m 3584M cargo clippy --all-targets`. 루트와 다른 `Cargo.lock`이고 루트 패키지가 아니다. 실측(2026-11-01, 처음부터): clippy 3351MiB(36초), msvc clippy 3440MiB(51초), `cargo build` 4347MiB(116초). 그래서 clippy는 3584M(3.5G), 빌드는 4608M이다 |
@@ -41,7 +41,7 @@
 
 - `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(docs/design/에이전트-실행.md 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
-- API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
+- API 타입은 Rust에만 선언한다. 데몬·화면·데스크톱이 함께 읽는 타입은 `api/` 크레이트(serde·serde_json·ts-rs만 쓴다)에 두고, 데몬은 옛 모듈의 `pub use`로 읽는다. 루트 `Cargo.toml`은 작업 공간이고 기본 멤버는 데몬과 `api/`다. 그래서 위 cargo 명령이 둘을 함께 검사한다. `app/`·`desktop/`은 잠금 파일이 따로인 패키지라 작업 공간에서 뺀다. `web/src/gen/`은 위 `cargo test --lib --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
 
 ## 목표
 

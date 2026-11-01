@@ -9,6 +9,8 @@ const GEN: &str = "web/src/gen";
 
 const SOURCES: &str = "src";
 
+const API_SOURCES: &str = "api/src";
+
 const RELEASED: &str = "tests/contract/released.txt";
 
 const METHODS: [&str; 5] = ["get", "post", "put", "delete", "patch"];
@@ -329,7 +331,10 @@ fn field_key(name: &str) -> String {
 fn input_types() -> BTreeMap<String, Input> {
     let language: Language = tree_sitter_rust::LANGUAGE.into();
     let mut inputs = BTreeMap::new();
-    for path in files(&repo().join(SOURCES), "rs") {
+    let paths = [SOURCES, API_SOURCES]
+        .into_iter()
+        .flat_map(|dir| files(&repo().join(dir), "rs"));
+    for path in paths {
         let source = read(&path);
         let tree = parse(language.clone(), &source);
         walk(tree.root_node(), &mut |node| {

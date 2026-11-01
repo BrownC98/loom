@@ -5,7 +5,7 @@ use crate::graph::{Active, Entry};
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
-use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
+use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER, Session};
 use crate::tunnel::ENDPOINT_ENV;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
@@ -31,7 +31,7 @@ impl App {
             None => None,
         };
         let dir = made.as_ref().map(|(dir, _)| dir);
-        let prepared = self.prepare(start, cwd, Position::Root, dir).await?;
+        let prepared = self.prepare(start, None, cwd, Position::Root, dir).await?;
         let discard = prepared.discarder();
         let id = self
             .graph
@@ -136,7 +136,9 @@ impl App {
             return Ok(());
         };
         let start = Start::Command { line };
-        let prepared = self.prepare(&start, cwd, Position::Root, None).await?;
+        let prepared = self
+            .prepare(&start, None, cwd, Position::Root, None)
+            .await?;
         let discard = prepared.discarder();
         self.graph
             .add_setup(place, &prepared.launched(), |id| self.launch(id, prepared))
@@ -529,12 +531,13 @@ impl App {
     pub(super) async fn prepare(
         self: &Arc<Self>,
         start: &Start,
+        resume: Option<&Session>,
         cwd: &std::path::Path,
         position: Position,
         task: Option<&task::TaskDir>,
     ) -> Result<Prepared, Problem> {
-        let profile = start.profile();
-        let accounted = profile.and_then(Profile::accounts);
+        let profile = profile::start_profile(start);
+        let accounted = profile.and_then(profile::accounts);
         let settings = self.settings.get().map_err(internal)?;
         let launch = Launch {
             position,
@@ -625,7 +628,8 @@ impl App {
             }
         }
         let port = AgentPort::new(self.clone(), token.clone());
-        let launched = profile::command(start, &at, &settings.bypass_off, port.clone()).await;
+        let launched =
+            profile::command(start, resume, &at, &settings.bypass_off, port.clone()).await;
         let (mut cmd, started) = launched.inspect_err(|_| port.end())?;
         for (key, value) in &env {
             cmd.env(key, value);
@@ -646,7 +650,7 @@ impl App {
             position,
             first_input: match start {
                 Start::Agent { brief, .. } => {
-                    !brief.trim().is_empty() && profile.is_some_and(Profile::echoes_brief)
+                    !brief.trim().is_empty() && profile.is_some_and(profile::echoes_brief)
                 }
                 Start::Command { .. } => false,
             },

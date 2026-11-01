@@ -11,7 +11,6 @@ mod relaunch_plans;
 mod turns;
 mod waits;
 
-use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 
@@ -22,6 +21,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 use ts_rs::TS;
+
+pub use api::ids::NodeId;
 
 pub use agent_state::{AgentChange, AgentEvent, AgentState};
 pub use closed::ClosedPage;
@@ -43,16 +44,6 @@ use crate::protocol::{AgentId, Kind, MessageKind, Refusal};
 use crate::worktree::RepoId;
 
 pub(crate) const EVENT_QUEUE: usize = 256;
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct NodeId(pub u32);
-
-impl fmt::Display for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]

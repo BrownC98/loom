@@ -643,9 +643,8 @@ impl App {
             agent: to.agent.clone(),
             brief: handoff(from, node.role.as_deref(), record.as_deref()),
             choice: to.choice.clone(),
-            resume: None,
         };
-        self.prepare_start(node.id, &start).await
+        self.prepare_start(node.id, &start, None).await
     }
 
     async fn old_record(&self, node: &Active) -> Option<String> {
@@ -735,7 +734,7 @@ impl App {
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
         let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let Some(provider) = profile.provider() else {
+        let Some(provider) = profile::provider(profile) else {
             return Ok((session, site));
         };
         let from = node.account.clone();
@@ -777,22 +776,28 @@ impl App {
                 ModelRule::EffortNeedsModel if choice.model.is_some() => choice,
                 ModelRule::Fixed | ModelRule::EffortNeedsModel => ModelChoice::default(),
             },
-            resume: Some(resume.clone()),
         };
-        self.prepare_start(node.id, &start).await
+        self.prepare_start(node.id, &start, Some(resume)).await
     }
 
     async fn prepare_start(
         self: &Arc<Self>,
         id: NodeId,
         start: &Start,
+        resume: Option<&Session>,
     ) -> Result<super::Prepared, String> {
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
         let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
-        self.prepare(start, Path::new(&place.worktree), position, Some(&task))
-            .await
-            .map_err(|e| format!("{e:?}"))
+        self.prepare(
+            start,
+            resume,
+            Path::new(&place.worktree),
+            position,
+            Some(&task),
+        )
+        .await
+        .map_err(|e| format!("{e:?}"))
     }
 
     async fn run_resumed(
@@ -834,7 +839,7 @@ impl App {
             crate::log::logln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
             true
         });
-        let opens_no_wait = !profile.listens_at_start();
+        let opens_no_wait = !profile::listens_at_start(profile);
         let first = match limited {
             true => Some(CONTINUE_PROMPT),
             false => (cut || unread || !stopped.is_empty() || opens_no_wait)
@@ -907,7 +912,7 @@ pub(super) fn profile_of(node: &Active) -> Option<Profile> {
 }
 
 pub(super) fn provider_of(node: &Active) -> Option<Provider> {
-    profile_of(node).and_then(Profile::provider)
+    profile_of(node).and_then(profile::provider)
 }
 
 fn switch_of(node: &Active, plan: &Plan) -> Option<AgentSwitch> {

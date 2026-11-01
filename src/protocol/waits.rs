@@ -1,7 +1,7 @@
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+pub use api::ids::WaitId;
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -20,18 +20,6 @@ pub enum WaitKind {
     Input,
     /// 사람이 띄운 노드가 맡은 일을 끝냈다(`loom done --asked`). 사람은 [확인]하거나 이어서 맡긴다.
     Done,
-}
-
-/// 대기 번호. 사람은 `Q12`로 읽고 쓴다. 데몬 전체에서 늘기만 하고(DB `wait_ids`) 다시 쓰지 않는다.
-/// 근거: 2026-10-21 사람 지시 "질문에 id 부여하고 복사하기 편하게 만들어서".
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct WaitId(pub u32);
-
-impl fmt::Display for WaitId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Q{}", self.0)
-    }
 }
 
 /// 질문·완료에 붙은 문서(user-doc 목업·보고서 HTML). 화면은 ID와 제목만 받고 문서 페이지 `/docs/{id}`로 연다. 파일 경로는 데몬의 문서 ID 표(`user_doc::doc_file`)만 안다.

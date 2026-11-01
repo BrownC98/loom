@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tungstenite::Message;
 
-use crate::wire::{self, Node, Notice};
+use crate::wire::{self, Notice, Snapshot};
 
 const POLL: Duration = Duration::from_millis(10);
 const HTTP: &str = "http://";
@@ -44,14 +44,69 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-pub fn nodes(base: &str) -> Result<Vec<Node>, String> {
-    let body = ureq::get(format!("{base}/api/nodes"))
+fn get(base: &str, path: &str) -> Result<String, String> {
+    ureq::get(format!("{base}{path}"))
         .call()
         .map_err(|e| e.to_string())?
         .body_mut()
         .read_to_string()
+        .map_err(|e| e.to_string())
+}
+
+pub fn load(base: &str) -> Result<Snapshot, String> {
+    wire::snapshot(
+        &get(base, "/api/nodes")?,
+        &get(base, "/api/repos")?,
+        &get(base, "/api/spots")?,
+        &get(base, "/api/sizes")?,
+    )
+}
+
+pub enum Graph {
+    Loaded(Box<Snapshot>),
+    Failed(String),
+}
+
+pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), String> {
+    let base = base.to_owned();
+    let host = host(&base)?.to_owned();
+    std::thread::Builder::new()
+        .name("events".to_owned())
+        .spawn(move || {
+            let reason = follow(&base, &host, &graph).err().unwrap_or_default();
+            let _ = graph.send_blocking(Graph::Failed(reason));
+        })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn follow(base: &str, host: &str, graph: &async_channel::Sender<Graph>) -> Result<(), String> {
+    let mut socket = socket(host, "/api/events")?;
+    socket
+        .send(Message::text(wire::pace_front()))
         .map_err(|e| e.to_string())?;
-    wire::nodes(&body)
+    loop {
+        match socket.read().map_err(|e| e.to_string())? {
+            Message::Text(text) if wire::reloads(&text) => {
+                let event = match load(base) {
+                    Ok(snapshot) => Graph::Loaded(Box::new(snapshot)),
+                    Err(error) => Graph::Failed(error),
+                };
+                if graph.send_blocking(event).is_err() {
+                    return Ok(());
+                }
+            }
+            Message::Close(_) => return Ok(()),
+            _ => {}
+        }
+    }
+}
+
+fn socket(host: &str, path: &str) -> Result<tungstenite::WebSocket<TcpStream>, String> {
+    let stream = TcpStream::connect(host).map_err(|e| e.to_string())?;
+    let (socket, _) =
+        tungstenite::client(format!("ws://{host}{path}"), stream).map_err(|e| e.to_string())?;
+    Ok(socket)
 }
 
 pub fn attach(base: &str, id: u32, events: async_channel::Sender<Event>) -> Result<Pty, String> {
@@ -73,9 +128,7 @@ fn run(
     events: &async_channel::Sender<Event>,
     queue: &mpsc::Receiver<Out>,
 ) -> Result<(), String> {
-    let stream = TcpStream::connect(host).map_err(|e| e.to_string())?;
-    let (mut socket, _) = tungstenite::client(format!("ws://{host}/api/nodes/{id}/pty"), stream)
-        .map_err(|e| e.to_string())?;
+    let mut socket = socket(host, &format!("/api/nodes/{id}/pty"))?;
     socket
         .get_ref()
         .set_read_timeout(Some(POLL))

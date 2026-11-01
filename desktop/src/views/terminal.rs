@@ -8,7 +8,6 @@ use gpui::{
 use crate::link::{self, Event, Pty};
 use crate::vt::{self, Key, Screen, Shape, Vt};
 
-pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
 #[cfg(target_os = "linux")]
 const FONT_FAMILY: &str = "DejaVu Sans Mono";
@@ -59,23 +58,11 @@ fn metrics(window: &Window, scale: f32) -> Metrics {
     }
 }
 
-pub fn show(
-    started: Result<String, String>,
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<TerminalView> {
-    let opened = started.and_then(|base| {
-        let nodes = link::nodes(&base)?;
-        let wanted = std::env::var(NODE_ENV)
-            .ok()
-            .and_then(|id| id.parse::<u32>().ok());
-        let node = nodes
-            .iter()
-            .find(|n| wanted.is_none_or(|id| n.id == id))
-            .ok_or("no node to show")?;
+pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+    let opened = (|| -> Result<_, String> {
         let (events, inbox) = async_channel::unbounded();
-        Ok((link::attach(&base, node.id, events)?, inbox))
-    });
+        Ok((link::attach(base, node, events)?, inbox))
+    })();
     cx.new(|cx| TerminalView::new(opened, window, cx))
 }
 
@@ -115,6 +102,10 @@ impl TerminalView {
             sent: (0, 0),
             ended,
         }
+    }
+
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale;
     }
 
     fn apply(&mut self, event: Event, cx: &mut Context<Self>) {

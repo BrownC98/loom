@@ -1,41 +1,41 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Div, Entity, EventEmitter, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render, ScrollHandle,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
+    AnyElement, AnyView, AppContext, Bounds, Context, Div, Entity, EventEmitter, FontWeight,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
 };
 
-use api::graph::{NewNode, Place};
-use api::ids::AgentId;
+use api::graph::{NewNode, NodeState, Place};
+use api::ids::{AgentId, RepoId};
 use api::profile::AgentView;
 use api::repos::PlaceView;
 use api::start::{ModelChoice, Start};
 
-use super::arrange;
 use super::view::CanvasView;
+use crate::fonts;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
+use crate::views::scrollbar::Bar;
+use crate::views::worktree::{
+    self, Closed as WorktreeClosed, DeleteWorktreeView, Doomed, Member, NewWorktreeView,
+};
 
-const WIDTH: f32 = 288.0;
-const HEIGHT: f32 = 320.0;
+const WIDTH: f32 = 340.0;
+const HEIGHT: f32 = 385.0;
 const EDGE: f32 = 8.0;
 const GAP: f32 = 6.0;
-const LIST: f32 = 200.0;
-const HEAD_MIN_ZOOM: f32 = 0.3;
-const HEAD_HEIGHT: f32 = 22.0;
-const HEAD_INSET: f32 = 8.0;
-const HEAD_TOP: f32 = 4.0;
-const HEAD_TEXT: f32 = 12.0;
+const LIST: f32 = 264.0;
 
 pub struct Popped {
-    view: Entity<NewNodeView>,
-    place: Place,
+    view: AnyView,
+    key: String,
     at: Point<f32>,
     end: bool,
-    _closed: Subscription,
+    size: (f32, f32),
+    _closed: Vec<Subscription>,
 }
 
 struct Closed;
@@ -58,7 +58,7 @@ pub struct NewNodeView {
     error: Option<String>,
     busy: bool,
     reveal: bool,
-    scroll: ScrollHandle,
+    scroll: Bar,
 }
 
 impl EventEmitter<Closed> for NewNodeView {}
@@ -100,7 +100,8 @@ impl NewNodeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let field = field::new(Str::NewNodeSearch, cx);
+        let lang = *cx.global::<Lang>();
+        let field = field::form(Str::NewNodeSearch.text(lang), false, false, Form::Plain, cx);
         cx.subscribe(&field, |this, _, event: &FieldEvent, cx| match event {
             FieldEvent::Changed => cx.notify(),
             FieldEvent::Step(step) => this.step(*step, cx),
@@ -152,7 +153,7 @@ impl NewNodeView {
             error: None,
             busy: false,
             reveal: false,
-            scroll: ScrollHandle::new(),
+            scroll: Bar::new(),
         }
     }
 
@@ -331,6 +332,7 @@ impl Render for NewNodeView {
                 .pt(px(6.0))
                 .pb(px(2.0))
                 .text_size(px(11.0))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.ink_3)
                 .child(text)
         };
@@ -396,10 +398,12 @@ impl Render for NewNodeView {
                         .id(("choice", rows.len()))
                         .flex()
                         .items_center()
-                        .gap(px(6.0))
+                        .gap(px(8.0))
                         .px(px(8.0))
-                        .py(px(4.0))
-                        .rounded(px(6.0))
+                        .py(px(5.0))
+                        .rounded(px(5.0))
+                        .text_size(px(13.0))
+                        .line_height(px(19.5))
                         .text_color(ink)
                         .when(choice.installed, |row| {
                             row.cursor_pointer()
@@ -417,7 +421,11 @@ impl Render for NewNodeView {
                         .when(recent, |row| {
                             row.child(
                                 div()
+                                    .px(px(6.0))
+                                    .rounded(px(9.0))
+                                    .bg(colors.accent_wash)
                                     .text_size(px(11.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(colors.accent)
                                     .child(Str::NewNodeRecent.text(lang)),
                             )
@@ -435,15 +443,17 @@ impl Render for NewNodeView {
         }
         if self.reveal {
             self.reveal = false;
-            self.scroll.scroll_to_item(scroll_to.saturating_sub(1));
+            self.scroll
+                .handle()
+                .scroll_to_item(scroll_to.saturating_sub(1));
         }
         let close = div()
             .id("close")
-            .size(px(20.0))
+            .size(px(26.0))
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(4.0))
+            .rounded(px(6.0))
             .cursor_pointer()
             .hover(move |style| style.bg(colors.surface_hover))
             .on_mouse_down(
@@ -458,56 +468,76 @@ impl Render for NewNodeView {
             .w(px(WIDTH))
             .flex()
             .flex_col()
-            .gap(px(8.0))
-            .p(px(12.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(colors.line_strong)
-            .bg(colors.panel)
+            .gap(px(12.0))
+            .p(px(14.0))
+            .rounded(px(10.0))
+            .bg(colors.surface)
+            .shadow_lg()
+            .occlude()
             .text_size(px(13.0))
             .text_color(colors.ink)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.0))
-                    .child(div().child(Str::GraphNewNode.text(lang)))
-                    .child(div().text_color(colors.ink_3).child(self.branch.clone()))
-                    .child(div().ml_auto().child(close)),
+                    .my(px(-4.0))
+                    .mr(px(-6.0))
+                    .child(
+                        div()
+                            .flex()
+                            .items_baseline()
+                            .min_w_0()
+                            .text_size(px(14.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(Str::GraphNewNode.text(lang))
+                            .child(
+                                div()
+                                    .ml(px(6.0))
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_size(px(12.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .font_family(fonts::TERMINAL_FAMILY)
+                                    .text_color(colors.ink_3)
+                                    .child(self.branch.clone()),
+                            ),
+                    )
+                    .child(div().ml_auto().flex_none().child(close)),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(4.0))
+                    .gap(px(5.0))
                     .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(colors.ink_3)
+                            .text_size(px(12.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(colors.ink_2)
                             .child(Str::NewNodeProfile.text(lang)),
                     )
-                    .child(
-                        div()
-                            .h(px(28.0))
-                            .px(px(8.0))
-                            .flex()
-                            .items_center()
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(colors.line_strong)
-                            .bg(colors.surface)
-                            .child(self.field.clone()),
-                    ),
+                    .child(self.field.clone()),
             )
             .child(
-                div()
-                    .id("choices")
-                    .max_h(px(LIST))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .flex()
-                    .flex_col()
-                    .children(rows),
+                self.scroll
+                    .on_overflow(
+                        div()
+                            .id("choices")
+                            .max_h(px(LIST))
+                            .p(px(4.0))
+                            .overflow_y_scroll()
+                            .track_scroll(self.scroll.handle())
+                            .flex()
+                            .flex_col()
+                            .children(rows),
+                    )
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(colors.line_strong)
+                    .bg(colors.bg)
+                    .overflow_hidden(),
             )
             .children(match (&at, self.busy) {
                 (PlaceView::Wsl { distro }, true) => Some(
@@ -537,31 +567,151 @@ pub fn dismiss(canvas: &mut CanvasView, cx: &mut Context<CanvasView>) {
     }
 }
 
-fn open(
+pub enum Anchor {
+    Below(Bounds<Pixels>),
+    At(Point<Pixels>),
+}
+
+fn show(
     canvas: &mut CanvasView,
-    place: Place,
-    branch: String,
-    anchor: Point<Pixels>,
-    end: bool,
-    window: &mut Window,
+    key: String,
+    view: AnyView,
+    anchor: Anchor,
+    size: (f32, f32),
+    closed: Vec<Subscription>,
     cx: &mut Context<CanvasView>,
 ) {
-    if canvas.pop.as_ref().is_some_and(|p| p.place == place) {
-        dismiss(canvas, cx);
-        return;
-    }
-    let store = canvas.store.clone();
-    let wanted = place.clone();
-    let view = cx.new(|cx| NewNodeView::new(store, wanted, branch, window, cx));
-    let closed = cx.subscribe(&view, |this, _, _: &Closed, cx| dismiss(this, cx));
+    let (point, end) = match anchor {
+        Anchor::Below(button) => (point(button.right(), button.bottom() + px(GAP)), true),
+        Anchor::At(point) => (point, false),
+    };
     canvas.pop = Some(Popped {
         view,
-        place,
-        at: local(canvas, anchor),
+        key,
+        at: local(canvas, point),
         end,
+        size,
         _closed: closed,
     });
     cx.notify();
+}
+
+fn toggled(canvas: &mut CanvasView, key: &str, cx: &mut Context<CanvasView>) -> bool {
+    if canvas.pop.as_ref().is_some_and(|p| p.key == key) {
+        dismiss(canvas, cx);
+        return true;
+    }
+    false
+}
+
+pub fn new_node(
+    canvas: &mut CanvasView,
+    place: Place,
+    branch: String,
+    anchor: Anchor,
+    window: &mut Window,
+    cx: &mut Context<CanvasView>,
+) {
+    let key = format!("new:{}", place.worktree);
+    if matches!(anchor, Anchor::Below(_)) && toggled(canvas, &key, cx) {
+        return;
+    }
+    let store = canvas.store.clone();
+    let view = cx.new(|cx| NewNodeView::new(store, place, branch, window, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &Closed, cx| dismiss(this, cx));
+    show(
+        canvas,
+        key,
+        view.into(),
+        anchor,
+        (WIDTH, HEIGHT),
+        vec![closed],
+        cx,
+    );
+}
+
+pub fn delete_worktree(
+    canvas: &mut CanvasView,
+    repo: RepoId,
+    path: String,
+    label: String,
+    button: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut Context<CanvasView>,
+) {
+    let key = format!("del:{path}");
+    if toggled(canvas, &key, cx) {
+        return;
+    }
+    let store = canvas.store.clone();
+    let snapshot = store.read(cx).snapshot();
+    let branch = snapshot
+        .and_then(|s| s.repos.iter().find(|r| r.id == repo))
+        .and_then(|r| r.worktrees.iter().find(|w| w.path == path))
+        .and_then(|w| w.branch.clone());
+    let members = snapshot
+        .map(|s| {
+            s.nodes
+                .iter()
+                .filter(|n| n.place.repo == repo && n.place.worktree == path)
+                .map(|n| Member {
+                    name: n.name.clone(),
+                    running: matches!(n.state, NodeState::Running),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let doomed = Doomed {
+        repo,
+        path,
+        label,
+        branch,
+        members,
+    };
+    let view = cx.new(|cx| DeleteWorktreeView::new(store, doomed, window, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &WorktreeClosed, cx| dismiss(this, cx));
+    show(
+        canvas,
+        key,
+        view.into(),
+        Anchor::Below(button),
+        (worktree::DELETE_WIDTH, 300.0),
+        vec![closed],
+        cx,
+    );
+}
+
+pub fn new_worktree(
+    canvas: &mut CanvasView,
+    repo: RepoId,
+    button: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut Context<CanvasView>,
+) {
+    let key = format!("wt:{}", repo.0);
+    if toggled(canvas, &key, cx) {
+        return;
+    }
+    let store = canvas.store.clone();
+    let Some(info) = store
+        .read(cx)
+        .snapshot()
+        .and_then(|s| s.repos.iter().find(|r| r.id == repo))
+        .cloned()
+    else {
+        return;
+    };
+    let view = cx.new(|cx| NewWorktreeView::new(store, info, window, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &WorktreeClosed, cx| dismiss(this, cx));
+    show(
+        canvas,
+        key,
+        view.into(),
+        Anchor::Below(button),
+        (worktree::NEW_WIDTH, 260.0),
+        vec![closed],
+        cx,
+    );
 }
 
 pub fn context(frame: Div, place: Option<Place>, label: String, cx: &Context<CanvasView>) -> Div {
@@ -578,12 +728,11 @@ pub fn context(frame: Div, place: Option<Place>, label: String, cx: &Context<Can
                     && at.y <= y + c.rect.size.height as f32
             });
             if !over_card {
-                open(
+                new_node(
                     this,
                     place.clone(),
                     label.clone(),
-                    e.position,
-                    false,
+                    Anchor::At(e.position),
                     window,
                     cx,
                 );
@@ -593,79 +742,14 @@ pub fn context(frame: Div, place: Option<Place>, label: String, cx: &Context<Can
     )
 }
 
-pub fn heads(canvas: &CanvasView, cx: &Context<CanvasView>) -> Vec<Div> {
-    let zoom = canvas.camera.zoom;
-    if zoom < HEAD_MIN_ZOOM {
-        return Vec::new();
-    }
-    let lang = *cx.global::<Lang>();
-    let colors = cx.global::<Theme>().colors;
-    let area = canvas.area.get().origin;
-    canvas
-        .scene
-        .groups
-        .iter()
-        .filter_map(|frame| {
-            let place = frame.place.clone()?;
-            let label = frame.label.clone();
-            let at = canvas.camera.to_screen(point(
-                (frame.rect.at.x + frame.rect.size.width) as f32,
-                frame.rect.at.y as f32,
-            ));
-            let height = HEAD_HEIGHT * zoom;
-            let right = at.x - px(HEAD_INSET * zoom);
-            let top = at.y + px(HEAD_TOP * zoom);
-            let anchor = point(area.x + right, area.y + top + px(height + GAP));
-            let path = frame.key.clone();
-            let new_node = div()
-                .h(px(height))
-                .flex()
-                .items_center()
-                .px(px(8.0 * zoom))
-                .rounded(px(6.0 * zoom))
-                .border(px(zoom.max(0.5)))
-                .border_color(colors.line_strong)
-                .text_size(px((HEAD_TEXT * zoom).max(1.0)))
-                .text_color(colors.ink_2)
-                .cursor_pointer()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                        open(this, place.clone(), label.clone(), anchor, true, window, cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .child(format!("+ {}", Str::GraphNewNode.text(lang)));
-            Some(
-                div()
-                    .absolute()
-                    .right(canvas.area.get().size.width - right)
-                    .top(top)
-                    .h(px(height))
-                    .flex()
-                    .items_center()
-                    .gap(px(4.0 * zoom))
-                    .child(arrange::button(
-                        zoom,
-                        colors,
-                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                            this.arrange_group(&path, cx);
-                            cx.stop_propagation();
-                        }),
-                    ))
-                    .child(new_node),
-            )
-        })
-        .collect()
-}
-
 pub fn element(canvas: &CanvasView) -> Option<Div> {
     let pop = canvas.pop.as_ref()?;
     let area = canvas.area.get().size;
     let at = canvas.camera.to_screen(pop.at);
-    let left = if pop.end { at.x - px(WIDTH) } else { at.x };
-    let left = left.min(area.width - px(WIDTH + EDGE)).max(px(EDGE));
-    let top = at.y.min(area.height - px(HEIGHT + EDGE)).max(px(EDGE));
+    let (width, height) = pop.size;
+    let left = if pop.end { at.x - px(width) } else { at.x };
+    let left = left.min(area.width - px(width + EDGE)).max(px(EDGE));
+    let top = at.y.min(area.height - px(height + EDGE)).max(px(EDGE));
     Some(
         div()
             .absolute()

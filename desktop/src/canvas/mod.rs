@@ -1,4 +1,3 @@
-pub mod arrange;
 pub mod camera;
 pub mod connect;
 pub mod drag;

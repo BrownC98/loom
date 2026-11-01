@@ -185,7 +185,7 @@ pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), Failure
     put(base, "/api/settings", patch)
 }
 
-fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
+pub fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
     let text = serde_json::to_string(body).map_err(|e| Failure::Other(e.to_string()))?;
     answer(
         agent()

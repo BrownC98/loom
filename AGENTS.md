@@ -41,7 +41,7 @@
 
 - `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(docs/design/에이전트-실행.md 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
-- API 타입은 Rust에만 선언한다. 데몬·화면·데스크톱이 함께 읽는 타입은 `api/` 크레이트(serde·serde_json·ts-rs만 쓴다. 데몬만 켜는 기능 `axum`·`clap`·`sqlite`가 `Problem` 응답, `Judgment` 인자, rusqlite 오류 변환을 더한다)에 두고, 데몬은 옛 모듈의 `pub use`로 읽는다. 루트 `Cargo.toml`은 작업 공간이고 기본 멤버는 데몬과 `api/`다. 그래서 위 cargo 명령이 둘을 함께 검사한다. `app/`·`desktop/`은 잠금 파일이 따로인 패키지라 작업 공간에서 뺀다. `web/src/gen/`은 위 `cargo test --lib --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
+- API 타입은 Rust에만 선언한다. 데몬·화면·데스크톱이 함께 읽는 타입은 `api/` 크레이트(serde·serde_json·ts-rs만 쓴다. 데몬만 켜는 기능 `axum`·`clap`·`sqlite`가 `Problem` 응답, `Judgment` 인자, rusqlite 오류 변환을 더한다)에 두고, 데몬은 `api::…` 경로로 직접 읽는다. 루트 `Cargo.toml`은 작업 공간이고 기본 멤버는 데몬과 `api/`다. 그래서 위 cargo 명령이 둘을 함께 검사한다. `app/`·`desktop/`은 잠금 파일이 따로인 패키지라 작업 공간에서 뺀다. `web/src/gen/`은 위 `cargo test --lib --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
 
 ## 목표
 

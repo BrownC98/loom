@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::distro::Ran;
 use crate::git;
 use crate::place::{self, Files, Machine};
-use crate::protocol::Refusal;
+use api::graph::errors::Refusal;
 
 pub const CONFLICT: i32 = 10;
 pub const CHECK_FAILED: i32 = 14;

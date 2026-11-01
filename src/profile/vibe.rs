@@ -7,9 +7,12 @@ use serde_json::json;
 
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::process::Served;
-use super::{LineEvent, ModelRule, Unserved, VersionMismatch};
-use crate::protocol::{LaunchError, ModelChoice, Session};
+use super::{LineEvent, Unserved};
+use crate::protocol::Session;
 use crate::screen::{Dialog, Grammar};
+use api::graph::errors::LaunchError;
+use api::profile::{ModelRule, VersionMismatch};
+use api::start::ModelChoice;
 
 const BRIDGE: &str = include_str!("vibe-loom.py");
 const FILE: &str = "vibe-loom.py";

@@ -7,13 +7,14 @@ use axum::routing::{delete, get, post};
 use axum::{Extension, Json, Router};
 use serde::Deserialize;
 
-pub use api::settings::phone::{InviteView, PhoneAddress, PhoneView};
+use api::settings::phone::{DeviceId, InviteView, PhoneAddress, PhoneView, Served, Tailnet};
 
 use super::lan;
 use super::origin::{DEVICE_COOKIE, ViaRemote};
-use super::{App, Problem, internal};
-use crate::devices::{DeviceId, PairRefused};
-use crate::tailscale::{Served, Tailnet, Tailscale};
+use super::{App, internal};
+use crate::devices::PairRefused;
+use crate::tailscale::Tailscale;
+use api::graph::errors::Problem;
 
 pub const PAIR_PATH: &str = "/api/pair";
 pub const JSQR_PATH: &str = "/jsQR.js";

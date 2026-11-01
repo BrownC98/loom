@@ -7,11 +7,12 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
-pub use api::graph::docs::{DocGroup, DocRow};
+use api::graph::docs::{DocGroup, DocRow};
 
 use crate::link_text::DOC_LINK;
 use crate::place::{Files, Machine};
-use crate::protocol::{Refusal, WaitDoc};
+use api::graph::errors::Refusal;
+use api::graph::waits::WaitDoc;
 
 mod share;
 pub use share::{Shared, shareable, with_bridge};

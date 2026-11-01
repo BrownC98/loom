@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use rust_embed::{Embed, EmbeddedFile};
 use sha2::{Digest, Sha256};
 
-pub use api::settings::AlwaysOn;
+use api::settings::AlwaysOn;
 
 #[derive(Embed)]
 #[folder = "skills"]

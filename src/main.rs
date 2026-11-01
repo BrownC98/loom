@@ -45,7 +45,8 @@ use clap::Parser;
 use crate::daemon::SpawnRun;
 use crate::graph::Kept;
 use crate::profile::HookEntry;
-use crate::protocol::{Kind, ModelChoice};
+use api::graph::messages::Kind;
+use api::start::ModelChoice;
 
 #[derive(clap::Subcommand)]
 enum RolesAction {
@@ -201,7 +202,7 @@ enum Cli {
         branch: String,
         /// 판정한 커밋. loom이 검토자에게 보낸 차례 메시지의 `head`를 적는다(앞 7자 이상). 열린 차례의 커밋이 아니면 거절한다.
         head: String,
-        judgment: protocol::Judgment,
+        judgment: api::graph::messages::Judgment,
         /// 결함 파일. block이면 꼭 준다.
         #[arg(long)]
         findings: Option<PathBuf>,
@@ -285,7 +286,7 @@ fn main() -> ExitCode {
             },
             worktree,
             file.map(wsl::from_caller),
-            agent.map(protocol::AgentId),
+            agent.map(api::ids::AgentId),
             ModelChoice { model, effort },
         ),
         Cli::Roles { action: None } => cli::roles(),
@@ -299,7 +300,7 @@ fn main() -> ExitCode {
                 }),
         } => cli::set_role(roles::SetRole {
             role,
-            agent: protocol::AgentId(agent),
+            agent: api::ids::AgentId(agent),
             model,
             effort,
         }),

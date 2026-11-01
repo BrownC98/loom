@@ -2,15 +2,16 @@ mod policy;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-use super::events::{self, Entry, GateTrace, Via};
+use super::events;
 use super::mailbox::{self, Stamp};
-use super::{Graph, NodeId, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
-use crate::protocol::{
-    self, AgentId, Deploy, Finding, GateState, GateVerb, Judgment, Kind, MessageKind, Refusal,
-};
-use crate::roles::REVIEWER_ROLES;
+use super::{Graph, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
+use crate::protocol::{self, Deploy};
 use crate::task;
-use crate::worktree::RepoId;
+use api::graph::errors::Refusal;
+use api::graph::events::{Entry, GateTrace, Via};
+use api::graph::messages::{Finding, GateState, GateVerb, Judgment, Kind, MessageKind};
+use api::ids::{AgentId, NodeId, RepoId};
+use api::settings::roles::REVIEWER_ROLES;
 use policy::{GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
@@ -361,7 +362,10 @@ impl Graph {
             else {
                 continue;
             };
-            if what.as_ref().is_some_and(protocol::MessageKind::by_loom) {
+            if what
+                .as_ref()
+                .is_some_and(api::graph::messages::MessageKind::by_loom)
+            {
                 continue;
             }
             let in_tree = from.id.is_some_and(|id| tree.contains(&id));

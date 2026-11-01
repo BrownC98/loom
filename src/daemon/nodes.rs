@@ -1,7 +1,7 @@
 use futures_util::Sink;
 
-pub use api::graph::pty::{PtyNotice, PtyRequest, Resize};
-pub use api::graph::{NewNode, RenameNode};
+use api::graph::pty::{PtyNotice, PtyRequest, Resize};
+use api::graph::{NewNode, RenameNode};
 
 use super::pulse::{Beat, Heard, Pulse};
 use super::*;

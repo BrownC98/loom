@@ -1,8 +1,7 @@
-pub use api::canvas::{Arranged, CardSize, Layout, Placed, Point, Spot};
+use api::canvas::{Arranged, CardSize, Layout, Placed, Point, Spot};
 
 use crate::db::Database;
-use crate::graph::NodeId;
-use crate::worktree::RepoId;
+use api::ids::{NodeId, RepoId};
 
 pub struct Spots {
     db: Database,

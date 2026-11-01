@@ -8,13 +8,19 @@ use tokio::sync::{broadcast, watch};
 use super::idle::Wait;
 use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
-use crate::graph::{AgentEvent, AgentState, Entry, GraphEvent, Hold, IdleEnd, NodeId, WaitSource};
+use crate::graph::{Hold, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
-use crate::profile::{self, BATCH_LIMIT_BYTES, Profile};
+use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
-    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
-    MessageId, Refusal, Report, Session, TakeRequest, Taken, WakeReply,
+    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, ListenAt, ListenRequest, MessageId,
+    Report, Session, TakeRequest, Taken, WakeReply,
 };
+use api::graph::GraphEvent;
+use api::graph::errors::Refusal;
+use api::graph::events::{AgentEvent, AgentState, Entry, IdleEnd};
+use api::graph::messages::Kind;
+use api::ids::NodeId;
+use api::profile::Profile;
 use axum::http::StatusCode;
 
 const WATCH_START: Duration = Duration::from_secs(2);
@@ -458,7 +464,7 @@ impl App {
         }
     }
 
-    fn provider(&self, node: NodeId) -> Option<crate::protocol::Provider> {
+    fn provider(&self, node: NodeId) -> Option<api::profile::Provider> {
         self.profile(node).and_then(profile::provider)
     }
 

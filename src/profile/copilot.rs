@@ -5,10 +5,12 @@ use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 use serde_json::json;
 
-use super::ModelRule;
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
-use crate::protocol::{LaunchError, ModelChoice, Session};
+use crate::protocol::Session;
 use crate::screen::{Dialog, Grammar};
+use api::graph::errors::LaunchError;
+use api::profile::ModelRule;
+use api::start::ModelChoice;
 
 const HOOK: &str = "loom hook copilot";
 const EXTENSION: &str = include_str!("copilot-loom.mjs");

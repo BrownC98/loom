@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-pub use api::settings::phone::{Served, Tailnet};
+use api::settings::phone::{Served, Tailnet};
 
 const INSTALLED: &[&str] = &[
     r"C:\Program Files\Tailscale\tailscale.exe",

@@ -10,20 +10,22 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
+use super::{AgentError, App, RelaunchRequest, for_agent, internal};
 use crate::accounts::Site;
-use crate::graph::{
-    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, Next, NodeId, Phase,
-    Plan, ProcessOutcome, Who,
-};
+use crate::graph::{Active, NewAgent, Next, Phase, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
+use crate::profile;
 use crate::profile::adapter::{Carry, ResumeError};
 use crate::profile::process::Served;
-use crate::profile::{self, ModelRule, Profile, Start};
-use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
-use crate::roles::Roles;
+use crate::protocol::{Model, Session};
 use crate::screen::Screen;
-use crate::settings::SettingsView;
+use api::graph::errors::{Problem, Refusal};
+use api::graph::events::{AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, Who};
+use api::ids::{AgentId, NodeId};
+use api::profile::{ModelRule, Profile, Provider};
+use api::settings::SettingsView;
+use api::settings::roles::Roles;
+use api::start::{ModelChoice, Start};
 
 pub(super) const EXIT_WAIT: Duration = crate::node_host::STOP_WAIT;
 const CONTINUE_PROMPT: &str =

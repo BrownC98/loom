@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::watch;
 
-pub use api::settings::phone::{DeviceId, DeviceView};
+use api::settings::phone::{DeviceId, DeviceView};
 
 use crate::db::Database;
 use crate::pake;

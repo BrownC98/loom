@@ -5,16 +5,19 @@ use gpui::{
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
     IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Point, Render, SharedString, Styled, StyledText, TextLayout,
+    ParentElement, Pixels, Point, Render, Rgba, SharedString, Styled, StyledText, TextLayout,
     UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
 };
 
+use crate::fonts::TERMINAL_FAMILY;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 
 const MASK: char = '\u{2022}';
 const FONT_SIZE: f32 = 13.0;
 const LINE: f32 = 18.0;
+const FORM_HEIGHT: f32 = 34.0;
+const FORM_LINE: f32 = 20.0;
 const CARET: f32 = 1.5;
 const ROUND: f32 = 6.0;
 
@@ -23,6 +26,13 @@ pub enum FieldEvent {
     Step(isize),
     Enter,
     Escape,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    Chat,
+    Plain,
+    Mono,
 }
 
 enum Hint {
@@ -39,7 +49,9 @@ pub struct Field {
     secret: bool,
     multiline: bool,
     boxed: bool,
+    form: Form,
     scale: f32,
+    tone: Option<Rgba>,
     files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
@@ -69,6 +81,15 @@ pub fn boxed_label(label: Str, secret: bool, multiline: bool, cx: &mut App) -> E
     cx.new(|cx| Field::new(Hint::Label(label), secret, multiline, true, cx))
 }
 
+pub fn form(hint: &str, secret: bool, multiline: bool, kind: Form, cx: &mut App) -> Entity<Field> {
+    let hint = Hint::Text(SharedString::from(hint.to_owned()));
+    cx.new(|cx| {
+        let mut field = Field::new(hint, secret, multiline, true, cx);
+        field.form = kind;
+        field
+    })
+}
+
 impl Field {
     fn new(hint: Hint, secret: bool, multiline: bool, boxed: bool, cx: &mut Context<Self>) -> Self {
         Self {
@@ -78,7 +99,9 @@ impl Field {
             secret,
             multiline,
             boxed,
+            form: Form::Chat,
             scale: 1.0,
+            tone: None,
             files: None,
             selected: 0..0,
             reversed: false,
@@ -91,6 +114,13 @@ impl Field {
     pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
         if self.scale != scale {
             self.scale = scale;
+            cx.notify();
+        }
+    }
+
+    pub fn set_tone(&mut self, tone: Rgba, cx: &mut Context<Self>) {
+        if self.tone != Some(tone) {
+            self.tone = Some(tone);
             cx.notify();
         }
     }
@@ -723,7 +753,7 @@ impl Render for Field {
                     ..Default::default()
                 },
             ));
-        } else if !self.selected.is_empty() {
+        } else if focused && !self.selected.is_empty() {
             highlights.push((
                 self.shown_at(self.selected.start)..self.shown_at(self.selected.end),
                 HighlightStyle {
@@ -746,7 +776,24 @@ impl Render for Field {
         };
         if self.boxed {
             let z = self.scale;
-            skin(base, z, focused, colors).child(text)
+            let skinned = skin(base, z, focused, colors);
+            let skinned = match self.tone.filter(|_| focused) {
+                Some(tone) => skinned.border_color(tone),
+                None => skinned,
+            };
+            let web = |el: Div| {
+                el.min_h(px(FORM_HEIGHT * z))
+                    .px(px(9.0 * z))
+                    .py(px(6.0 * z))
+                    .line_height(px(FORM_LINE * z))
+                    .bg(colors.bg)
+            };
+            match self.form {
+                Form::Chat => skinned,
+                Form::Plain => web(skinned),
+                Form::Mono => web(skinned).font_family(TERMINAL_FAMILY),
+            }
+            .child(text)
         } else {
             base.flex_1()
                 .min_w_0()

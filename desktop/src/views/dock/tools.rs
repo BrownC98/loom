@@ -3,6 +3,7 @@ use gpui::{Context, Div, FontWeight, ParentElement, StatefulInteractiveElement, 
 
 use super::ui;
 use super::{Dock, ui::SMALL};
+use crate::settings::widgets::{Label, segmented_wide};
 use crate::strings::Str;
 use crate::views::icons::Lucide;
 use crate::views::rail;
@@ -31,9 +32,9 @@ impl Dock {
         });
         let items = VIEWS
             .iter()
-            .map(|&(value, label)| (value, ui::say(cx, label).to_owned(), 0))
+            .map(|&(value, label)| (value, Label::counted(ui::say(cx, label).into(), 0)))
             .collect();
-        let switch = ui::choice(
+        let switch = segmented_wide(
             "card-view",
             items,
             current,

@@ -88,24 +88,20 @@ pub fn section(ctx: &Ctx, cx: &App) -> Section {
                         .child(switch(
                             ("agents-skill", index),
                             on,
+                            state,
                             move |next, _, cx| {
                                 writer
                                     .edit(cx, move |settings| write(&mut settings.always_on, next))
                             },
                             cx,
-                        ))
-                        .child(state),
+                        )),
                 )
                 .into_any_element()
         })
         .collect();
     let note = section.text(say(cx, Str::SettingsSkillsHint), cx);
     section
-        .child(
-            div()
-                .flex()
-                .children(field_reset("agents-skills-reset", &["alwaysOn"], ctx, cx)),
-        )
+        .beside(field_reset("agents-skills-reset", &["alwaysOn"], ctx, cx))
         .child(rows(items, cx))
         .child(hint(note, cx))
 }

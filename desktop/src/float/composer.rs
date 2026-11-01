@@ -190,10 +190,12 @@ impl Composer {
         Look {
             size: settings.composer_size,
             saved: self.kept.unwrap_or(settings.composer_place),
-            corner: if settings.minimap_folded || store.zoomed() {
+            corner: if store.zoomed() {
                 0.0
+            } else if settings.minimap_folded {
+                minimap::CORNER_FOLDED
             } else {
-                minimap::WIDTH + MARGIN
+                minimap::CORNER
             },
         }
     }

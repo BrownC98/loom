@@ -5,7 +5,7 @@ use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::NodeId;
 use gpui::{
     App, Context, Div, Entity, FontWeight, InteractiveElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use super::answers::{self, Answers};
@@ -14,6 +14,7 @@ use super::entry;
 use super::ui::{self, GAP};
 use super::{Dock, Inbox};
 use crate::link::Snapshot;
+use crate::settings::widgets::{Label, segmented_wide};
 use crate::strings::Str;
 
 pub fn kind_label(kind: WaitKind) -> Str {
@@ -38,7 +39,7 @@ pub fn key_label(key: &PromptKey, index: usize) -> String {
     }
 }
 
-pub(crate) type Visit = Rc<dyn Fn(NodeId, &mut App)>;
+pub(crate) type Visit = Rc<dyn Fn(NodeId, &mut Window, &mut App)>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mood {
@@ -113,6 +114,7 @@ impl Dock {
                 self.load_history(cx);
             }
         }
+        self.drop_pick(cx);
         cx.notify();
     }
 
@@ -129,7 +131,7 @@ impl Dock {
     }
 
     pub(super) fn jump(&mut self, node: NodeId, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| store.select(node.0, cx));
+        self.store.update(cx, |store, cx| store.go(node.0, cx));
     }
 
     pub(super) fn questions(&self, cx: &mut Context<Self>) -> Div {
@@ -137,8 +139,14 @@ impl Dock {
         let groups = self.groups(cx);
         let count: usize = groups.iter().map(|g| g.waits.len()).sum();
         let items = vec![
-            (Inbox::New, ui::say(cx, Str::InboxNew).to_owned(), count),
-            (Inbox::History, ui::say(cx, Str::InboxHistory).to_owned(), 0),
+            (
+                Inbox::New,
+                Label::counted(ui::say(cx, Str::InboxNew).into(), count),
+            ),
+            (
+                Inbox::History,
+                Label::counted(ui::say(cx, Str::InboxHistory).into(), 0),
+            ),
         ];
         let owner = cx.entity();
         let switch = div()
@@ -147,7 +155,7 @@ impl Dock {
             .py(px(8.0))
             .border_b_1()
             .border_color(c.line)
-            .child(ui::choice(
+            .child(segmented_wide(
                 "inbox-tabs",
                 items,
                 self.inbox,
@@ -168,10 +176,15 @@ impl Dock {
                 ui::empty(ui::say(cx, Str::InboxEmpty).to_owned(), false, cx)
             }
             Inbox::New => {
-                let store = self.store.clone();
+                let (store, inputs) = (self.store.clone(), self.shared.clone());
                 let go: Visit =
-                    Rc::new(move |node, cx| store.update(cx, |store, cx| store.select(node.0, cx)));
-                let list = wait_list(&self.answers, &groups, 1.0, go.clone(), go, cx);
+                    Rc::new(move |node, _, cx| store.update(cx, |store, cx| store.go(node.0, cx)));
+                let (store, focus) = (self.store.clone(), inputs);
+                let jump: Visit = Rc::new(move |node, window, cx| {
+                    store.update(cx, |store, cx| store.go(node.0, cx));
+                    focus.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
+                });
+                let list = wait_list(&self.answers, &groups, 1.0, go, jump, cx);
                 ui::scroller(&self.panel_bar, div().p(px(6.0)).child(list))
             }
         };
@@ -238,7 +251,7 @@ pub(crate) fn wait_list(
                 entry::notice_badges(asks, group.waits.len() - asks, z, &c)
             })
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(move |_, _, cx| open(node, cx));
+            .on_click(move |_, window, cx| open(node, window, cx));
         let rows = group.waits.iter().enumerate().map(|(row, w)| {
             let jump = focus.clone();
             let mut item = div()
@@ -252,7 +265,7 @@ pub(crate) fn wait_list(
                 .pb(px(10.0 * z))
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover).rounded(px(6.0 * z)))
-                .on_click(move |_, _, cx| jump(node, cx));
+                .on_click(move |_, window, cx| jump(node, window, cx));
             if row > 0 {
                 item = item.border_t_1().border_dashed().border_color(c.line);
             }

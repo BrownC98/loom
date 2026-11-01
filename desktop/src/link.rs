@@ -137,7 +137,7 @@ fn agent() -> ureq::Agent {
     agent_within(HTTP_LIMIT)
 }
 
-fn escape(value: &str) -> String {
+pub fn escape(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {
@@ -185,7 +185,7 @@ pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), Failure
     put(base, "/api/settings", patch)
 }
 
-fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
+pub fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
     let text = serde_json::to_string(body).map_err(|e| Failure::Other(e.to_string()))?;
     answer(
         agent()
@@ -308,7 +308,11 @@ pub fn adopt(base: &str, child: u32, parent: u32) -> Result<(), Failure> {
 }
 
 fn get(base: &str, path: &str) -> Result<String, Failure> {
-    answer(agent().get(format!("{base}{path}")).call())?
+    get_with(agent(), base, path)
+}
+
+fn get_with(agent: ureq::Agent, base: &str, path: &str) -> Result<String, Failure> {
+    answer(agent.get(format!("{base}{path}")).call())?
         .body_mut()
         .read_to_string()
         .map_err(|e| Failure::Other(e.to_string()))
@@ -356,6 +360,15 @@ pub fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T,
     serde_json::from_str(&get(base, path)?).map_err(|e| Failure::Other(format!("GET {path}: {e}")))
 }
 
+pub fn read_within<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    limit: Duration,
+) -> Result<T, Failure> {
+    serde_json::from_str(&get_with(agent_within(limit), base, path)?)
+        .map_err(|e| Failure::Other(format!("GET {path}: {e}")))
+}
+
 pub fn commits(
     base: &str,
     repo: RepoId,
@@ -396,7 +409,7 @@ pub enum Graph {
     Loaded(Box<Loaded>),
     Feed(Box<GraphEvent>),
     Failed { order: u64, error: Failure },
-    Link(LinkState),
+    Link,
 }
 
 pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), String> {
@@ -542,7 +555,7 @@ impl Conn {
         }
         self.state = state;
         match &self.target {
-            Target::Events { graph, .. } => graph.send_blocking(Graph::Link(state)).is_ok(),
+            Target::Events { graph, .. } => graph.send_blocking(Graph::Link).is_ok(),
             Target::Pty { .. } => true,
         }
     }

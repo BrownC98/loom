@@ -12,6 +12,7 @@ use gpui::{
     Styled, Subscription, Window, canvas, div, point, px,
 };
 
+use super::inputs::Inputs;
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
@@ -44,6 +45,7 @@ pub struct Pill {
     seen_shut: Option<WaitId>,
     answers: Entity<Answers>,
     focus: FocusHandle,
+    inputs: Entity<Inputs>,
     face_box: Rc<Cell<Bounds<Pixels>>>,
     list_bar: Bar,
     subscriptions: Vec<Subscription>,
@@ -52,6 +54,7 @@ pub struct Pill {
 pub fn pill(
     store: Entity<Store>,
     shelf: Entity<Shelf>,
+    inputs: Entity<Inputs>,
     _: &mut Window,
     cx: &mut App,
 ) -> Entity<Pill> {
@@ -73,6 +76,7 @@ pub fn pill(
             seen_shut,
             answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
             focus: cx.focus_handle(),
+            inputs,
             face_box: Rc::new(Cell::new(Bounds::default())),
             list_bar: Bar::new(),
             subscriptions: Vec::new(),
@@ -355,9 +359,11 @@ impl Pill {
             f32::from(pane.width),
         );
         let title = ui::say_with(cx, Str::InboxTitle, &[("count", &count.to_string())]);
-        let store = self.store.clone();
-        let go: Visit =
-            Rc::new(move |node, cx| store.update(cx, |store, cx| store.select(node.0, cx)));
+        let (store, inputs) = (self.store.clone(), self.inputs.clone());
+        let go: Visit = Rc::new(move |node, window, cx| {
+            store.update(cx, |store, cx| store.go(node.0, cx));
+            inputs.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
+        });
         let list = wait_list(&self.answers, groups, z, go.clone(), go, cx);
         let scroller = div()
             .id("pill-list")

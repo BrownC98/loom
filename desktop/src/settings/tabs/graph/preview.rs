@@ -1,7 +1,8 @@
 use api::graph::waits::{WaitKind, WaitTone};
 use api::settings::FloatSize;
 use gpui::{
-    App, Div, IntoElement, ParentElement, Styled, Window, canvas, div, fill, point, px, size,
+    App, Div, IntoElement, ParentElement, Stateful, Styled, Window, canvas, div, fill, point, px,
+    size,
 };
 
 use crate::float::composer::{self, ComposerView, ComposerWire};
@@ -18,7 +19,11 @@ const COMPOSER_W: f32 = 440.0;
 struct Still;
 
 impl PillWire for Still {}
-impl ComposerWire for Still {}
+impl ComposerWire for Still {
+    fn chevron(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el.hidden()
+    }
+}
 
 pub fn pill(size: FloatSize, name: &str, text: &str, cx: &App) -> Div {
     let z = place::zoom(size);

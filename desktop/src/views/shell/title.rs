@@ -1,13 +1,16 @@
 use gpui::{
-    App, Bounds, Div, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Rgba, Styled, Window, canvas, div, fill, point, px, size,
+    Bounds, Div, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Styled, Window,
+    canvas, div, fill, point, px, size,
 };
 
 use crate::platform;
+use crate::strings::Lang;
 use crate::theme::Colors;
 
 pub const HEIGHT: f32 = 36.0;
 const MARK: f32 = 16.0;
+const MARK_BEFORE: f32 = 14.0;
+const MARK_AFTER: f32 = 10.0;
 const CELLS: usize = 3;
 const PITCH: f32 = 5.0;
 const LONG: f32 = 4.0;
@@ -39,13 +42,7 @@ fn mark(color: Rgba) -> impl IntoElement {
     .h(px(MARK))
 }
 
-pub fn bar(
-    window: &Window,
-    colors: &Colors,
-    settings: &'static str,
-    open: impl Fn(&mut Window, &mut App) + 'static,
-) -> Div {
-    let hover = colors.surface_hover;
+pub fn bar(window: &Window, colors: &Colors, lang: Lang) -> Div {
     platform::drag_area(
         div()
             .h(px(HEIGHT))
@@ -56,8 +53,6 @@ pub fn bar(
             .bg(colors.panel)
             .border_b_1()
             .border_color(colors.line)
-            .text_color(colors.ink_2)
-            .text_size(px(13.0))
             .on_mouse_down(MouseButton::Left, |event, window, _| {
                 if event.click_count >= 2 {
                     window.titlebar_double_click();
@@ -65,29 +60,13 @@ pub fn bar(
                     window.start_window_move();
                 }
             })
-            .child(div().mx(px(12.0)).child(mark(colors.ink_2)))
             .child(
                 div()
-                    .text_color(colors.ink)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("loom"),
+                    .ml(px(MARK_BEFORE))
+                    .mr(px(MARK_AFTER))
+                    .child(mark(colors.ink_2)),
             )
             .child(div().flex_1())
-            .child(
-                div()
-                    .id("title-settings")
-                    .px(px(10.0))
-                    .py(px(4.0))
-                    .mr(px(8.0))
-                    .rounded(px(6.0))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(hover))
-                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                        cx.stop_propagation();
-                        open(window, cx);
-                    })
-                    .child(settings),
-            )
-            .children(platform::captions(window, colors)),
+            .children(platform::captions(window, colors, lang)),
     )
 }

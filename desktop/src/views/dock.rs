@@ -133,6 +133,7 @@ pub struct Dock {
     tab_focus: Vec<FocusHandle>,
     terminal: Option<(u32, Entity<TerminalView>)>,
     inputs: Entity<Inputs>,
+    shared: Entity<Inputs>,
     history: History,
     docs: Docs,
     commits: commits::Commits,
@@ -146,6 +147,7 @@ pub struct Dock {
 pub fn dock(
     store: Entity<Store>,
     shelf: Entity<Shelf>,
+    shared: Entity<Inputs>,
     _: &mut Window,
     cx: &mut gpui::App,
 ) -> Entity<Dock> {
@@ -165,6 +167,7 @@ pub fn dock(
             tab_focus: (0..Tab::ALL.len()).map(|_| cx.focus_handle()).collect(),
             terminal: None,
             inputs: cx.new(|_| Inputs::default()),
+            shared,
             history: History::default(),
             docs: Docs {
                 order: 0,

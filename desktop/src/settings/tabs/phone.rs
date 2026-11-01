@@ -13,10 +13,11 @@ use gpui::{
 
 use crate::link;
 use crate::problem::Failure;
+use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
-use crate::views::dock::ui::{SMALL, TEXT, button, colors, open_url, say, say_with};
+use crate::views::dock::ui::{SMALL, TEXT, colors, open_url, say, say_with};
 
 const QR: f32 = 148.0;
 const QR_PAD: f32 = 4.0;
@@ -325,7 +326,7 @@ fn action(
     .self_start()
     .child(label);
     if busy {
-        base.opacity(0.5).cursor_not_allowed()
+        inert(base).opacity(0.5).cursor_not_allowed()
     } else {
         base.on_click(move |_, _, cx| run(cx))
     }

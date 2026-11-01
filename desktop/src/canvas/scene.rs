@@ -12,8 +12,10 @@ use super::layout::{
 use super::repos::{Group, GroupKind, attach_cards, group_parents, groups_of, split_chips};
 use api::graph::{CardView, NodeView, Place};
 use api::repos::RepoView;
+use api::settings::DefaultCardView;
 
 use crate::link::Snapshot;
+use crate::views::card;
 
 const CARD_X: f64 = 20.0;
 const CARD_TOP: f64 = 60.0;
@@ -46,6 +48,8 @@ pub struct Frame {
     pub label: String,
     pub rect: Rect,
     pub place: Option<Place>,
+    pub kind: Option<GroupKind>,
+    pub empty: bool,
 }
 
 pub struct Card {
@@ -68,6 +72,8 @@ pub struct Scene {
     pub group_autos: HashMap<String, BTreeMap<String, Point>>,
     pub autos: HashMap<u32, BTreeMap<String, Point>>,
     pub repo_autos: BTreeMap<String, Point>,
+    pub chips: HashMap<String, String>,
+    pub chip_rows: HashMap<String, Vec<(String, String)>>,
 }
 
 struct Laid {
@@ -276,6 +282,8 @@ impl Level<'_> {
                 repo: self.repo,
                 worktree: self.groups[g.group].path.clone(),
             }),
+            kind: Some(self.groups[g.group].kind),
+            empty: g.members.is_empty(),
         });
         for &id in &g.members {
             let p = g.local[&id.to_string()];
@@ -349,7 +357,13 @@ pub fn cover(contents: &[Rect], inset: Inset) -> Rect {
     }
 }
 
-pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -> Scene {
+pub fn build(
+    snap: &Snapshot,
+    shown: &[RepoId],
+    card_view: DefaultCardView,
+    resized: &HashMap<u32, Size>,
+    overlay: &Overlay,
+) -> Scene {
     let repo_of = |spot: &Spot| match spot {
         Spot::Repo { repo } | Spot::Worktree { repo, .. } => Some(repo.0),
         Spot::Node { node } => snap
@@ -403,7 +417,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
     let simple: HashSet<u32> = snap
         .nodes
         .iter()
-        .filter(|n| n.card_view == Some(CardView::Simple))
+        .filter(|n| card::view_of(n, card_view) == CardView::Simple)
         .map(|n| n.id.0)
         .collect();
     let size_of = |id: NodeId| {
@@ -430,13 +444,13 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
     });
     let by_id: HashMap<u32, &NodeView> = views.iter().map(|v| (v.id.0, *v)).collect();
     let parent_of = |id: NodeId| by_id.get(&id).and_then(|v| v.parent.map(|p| p.0));
-    let framed = snap.repos.len() > 1;
+    let framed = shown.len() > 1;
     let mut built: Vec<Built> = Vec::new();
     let mut scene = Scene {
         direction,
         ..Scene::default()
     };
-    for repo in &snap.repos {
+    for repo in snap.repos.iter().filter(|r| shown.contains(&r.id)) {
         let repo_views: Vec<&NodeView> = views
             .iter()
             .copied()
@@ -450,6 +464,16 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
             && !chips.is_empty()
         {
             chip_hosts.insert(host.path.clone());
+            scene
+                .chips
+                .extend(chips.iter().map(|c| (c.path.clone(), host.path.clone())));
+            scene.chip_rows.insert(
+                host.path.clone(),
+                chips
+                    .iter()
+                    .map(|c| (c.path.clone(), c.label.clone()))
+                    .collect(),
+            );
         }
         let parents = group_parents(&groups, &repo_views);
         let cards = attach_cards(&groups, &repo_views, &parents);
@@ -684,6 +708,8 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
                 label: b.repo.name.clone(),
                 rect: Rect { at, size: b.size },
                 place: None,
+                kind: None,
+                empty: false,
             });
             Point {
                 x: at.x - b.lead.x,
@@ -702,6 +728,13 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
                 },
                 &mut scene,
             );
+        }
+    }
+    for placed in &mut scene.cards {
+        if simple.contains(&placed.node)
+            && let Some(view) = by_id.get(&placed.node)
+        {
+            placed.rect.size.height = card::simple_height(view);
         }
     }
     scene

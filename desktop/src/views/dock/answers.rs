@@ -507,11 +507,16 @@ fn scaled(
     answers: &Entity<Answers>,
     id: u32,
     slot: Slot,
+    tone: WaitTone,
     z: f32,
     cx: &mut App,
 ) -> Option<Entity<Field>> {
     let field = answers.read(cx).fields.get(&(id, slot))?.field.clone();
-    field.update(cx, |field, cx| field.set_scale(z, cx));
+    let color = entry::tone_of(tone, &ui::colors(cx));
+    field.update(cx, |field, cx| {
+        field.set_scale(z, cx);
+        field.set_tone(color, cx);
+    });
     Some(field)
 }
 
@@ -736,7 +741,7 @@ fn wait_body(
                 cx,
             ));
         }
-        let field = scaled(answers, id, Slot::Answer, z, cx);
+        let field = scaled(answers, id, Slot::Answer, wait.tone, z, cx);
         if let Some(field) = field {
             body = body.child(send_row(
                 answers,
@@ -818,7 +823,7 @@ fn wait_body(
                 .child(icon(Lucide::ArrowRight, 12.0 * z, c.ink_2))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, _, cx| {
-                    store.update(cx, |store, cx| store.select(node.0, cx));
+                    store.update(cx, |store, cx| store.go(node.0, cx));
                 }),
         );
     }
@@ -955,7 +960,7 @@ fn prompt_body(
     for (index, option) in prompt.options.iter().enumerate() {
         let field = option
             .writes
-            .then(|| scaled(answers, id, Slot::Option(index), z, cx))
+            .then(|| scaled(answers, id, Slot::Option(index), tone, z, cx))
             .flatten();
         if let Some(field) = field {
             body = body.child(send_row(
@@ -969,7 +974,7 @@ fn prompt_body(
             ));
         }
     }
-    let field = scaled(answers, id, Slot::Field, z, cx);
+    let field = scaled(answers, id, Slot::Field, tone, z, cx);
     if let Some(field) = field {
         body = body.child(send_row(answers, id, Slot::Field, tone, &field, z, cx));
     }

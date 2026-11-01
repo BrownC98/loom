@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
 use chrono::{Local, TimeZone, Timelike};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    Stateful, StatefulInteractiveElement, Styled, div, px,
 };
 
 use crate::strings::{Lang, Str};
@@ -234,63 +232,6 @@ pub fn search(field: &Entity<Field>, cx: &App) -> Div {
         .text_color(c.ink)
         .focus(move |style| style.border_color(c.accent))
         .child(field.clone())
-}
-
-type Pick<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
-
-pub fn choice<T: Copy + PartialEq + 'static>(
-    id: &'static str,
-    items: Vec<(T, String, usize)>,
-    current: T,
-    change: impl Fn(T, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> Div {
-    let c = colors(cx);
-    let change: Pick<T> = Rc::new(change);
-    let last = items.len().saturating_sub(1);
-    div()
-        .flex()
-        .w_full()
-        .overflow_hidden()
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(c.line_strong)
-        .bg(c.bg)
-        .children(
-            items
-                .into_iter()
-                .enumerate()
-                .map(|(at, (value, label, n))| {
-                    let on = value == current;
-                    let change = change.clone();
-                    div()
-                        .id(ElementId::NamedInteger(id.into(), at as u64))
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(6.0))
-                        .px(px(14.0))
-                        .py(px(5.0))
-                        .line_height(px(19.5))
-                        .border_color(c.line)
-                        .when(at != last, |item| item.border_r_1())
-                        .text_size(px(TEXT))
-                        .whitespace_nowrap()
-                        .font_weight(if on {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::MEDIUM
-                        })
-                        .text_color(if on { c.ink } else { c.ink_2 })
-                        .when(on, |item| item.bg(c.accent_wash))
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(c.surface_hover))
-                        .child(label)
-                        .children((n > 0).then(|| count(n, &c)))
-                        .on_click(move |_, window, cx| change(value, window, cx))
-                }),
-        )
 }
 
 pub fn empty(text: String, error: bool, cx: &App) -> Div {

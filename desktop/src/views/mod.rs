@@ -1,8 +1,11 @@
+pub mod anchor;
 pub mod card;
+pub mod cardlink;
 pub mod dock;
 pub mod expanded;
 pub mod field;
 pub mod icons;
+pub mod menu;
 pub mod notice;
 pub mod pictures;
 pub mod rail;
@@ -13,3 +16,4 @@ pub mod terminal;
 pub mod tooltip;
 pub mod usage;
 pub mod viewer;
+pub mod worktree;

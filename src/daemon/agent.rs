@@ -328,7 +328,7 @@ impl App {
             return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
         }
         self.opened(node, open);
-        if self.profile(node).is_some_and(Profile::idle_holds_input) {
+        if self.profile(node).is_some_and(profile::idle_holds_input) {
             self.idle.release_submitted(node);
         }
         Ok(Opened::Wait(wait))
@@ -459,7 +459,7 @@ impl App {
     }
 
     fn provider(&self, node: NodeId) -> Option<crate::protocol::Provider> {
-        self.profile(node).and_then(Profile::provider)
+        self.profile(node).and_then(profile::provider)
     }
 
     pub(super) fn profile(&self, node: NodeId) -> Option<Profile> {

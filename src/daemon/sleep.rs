@@ -13,7 +13,7 @@ use crate::graph::{
     ProcessOutcome,
 };
 use crate::process_tree::Snapshot;
-use crate::profile::{self, Profile};
+use crate::profile;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
@@ -379,7 +379,7 @@ impl App {
         if self.relaunch_planned(node.id) || !self.listening(node.id) {
             return false;
         }
-        profile_of(node).is_some_and(Profile::sleeps) && node.session.is_some()
+        profile_of(node).is_some_and(profile::sleeps) && node.session.is_some()
     }
 
     fn listening(&self, node: NodeId) -> bool {

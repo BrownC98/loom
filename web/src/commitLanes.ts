@@ -33,3 +33,14 @@ export function lanes(commits: Commit[], from: LaneState): { rows: Row[]; end: L
   });
   return { rows, end: { open: prev, color } };
 }
+
+export function circleOf({ commit, input, output }: Row): { lane: number; color: number } {
+  const inputIndex = input.findIndex((l) => l.id === commit.hash);
+  const lane = inputIndex !== -1 ? inputIndex : input.length;
+  const color = lane < output.length ? output[lane].color : lane < input.length ? input[lane].color : 0;
+  return { lane, color };
+}
+
+export function laneCount(row: Row): number {
+  return Math.max(row.input.length, row.output.length, 1);
+}

@@ -1,0 +1,170 @@
+{
+  "kind": "commitLanes",
+  "input": {
+    "commits": [
+      {
+        "hash": "m",
+        "parents": [
+          "f2",
+          "f1"
+        ]
+      },
+      {
+        "hash": "f2",
+        "parents": [
+          "f1"
+        ]
+      },
+      {
+        "hash": "x",
+        "parents": [
+          "f1"
+        ]
+      },
+      {
+        "hash": "f1",
+        "parents": [
+          "base"
+        ]
+      },
+      {
+        "hash": "base",
+        "parents": []
+      }
+    ],
+    "from": {
+      "open": [],
+      "color": -1
+    }
+  },
+  "output": {
+    "rows": [
+      {
+        "hash": "m",
+        "input": [],
+        "output": [
+          {
+            "id": "f2",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 2
+      },
+      {
+        "hash": "f2",
+        "input": [
+          {
+            "id": "f2",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          }
+        ],
+        "output": [
+          {
+            "id": "f1",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 2
+      },
+      {
+        "hash": "x",
+        "input": [
+          {
+            "id": "f1",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          }
+        ],
+        "output": [
+          {
+            "id": "f1",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          },
+          {
+            "id": "f1",
+            "color": 2
+          }
+        ],
+        "circle": {
+          "lane": 2,
+          "color": 2
+        },
+        "count": 3
+      },
+      {
+        "hash": "f1",
+        "input": [
+          {
+            "id": "f1",
+            "color": 0
+          },
+          {
+            "id": "f1",
+            "color": 1
+          },
+          {
+            "id": "f1",
+            "color": 2
+          }
+        ],
+        "output": [
+          {
+            "id": "base",
+            "color": 0
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 3
+      },
+      {
+        "hash": "base",
+        "input": [
+          {
+            "id": "base",
+            "color": 0
+          }
+        ],
+        "output": [],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      }
+    ],
+    "end": {
+      "open": [],
+      "color": 2
+    }
+  }
+}

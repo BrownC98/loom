@@ -5,6 +5,11 @@ mod layout;
 #[path = "../src/canvas/repos.rs"]
 mod repos;
 
+#[path = "../src/views/dock/lanes.rs"]
+mod lanes;
+
+#[path = "layout/commit_lanes.rs"]
+mod commit_lanes;
 #[path = "layout/hop_repo.rs"]
 mod hop_repo;
 
@@ -279,6 +284,11 @@ enum Case {
     RepoPlaces {
         input: hop_repo::PlacesIn,
         output: hop_repo::PlacesOut,
+    },
+    #[serde(rename = "commitLanes")]
+    CommitLanes {
+        input: commit_lanes::LanesIn,
+        output: commit_lanes::LanesOut,
     },
     #[serde(rename = "push")]
     Push {
@@ -557,6 +567,14 @@ fn layout_fixtures_match_the_web() {
             }
             Case::RepoPlaces { input, output } => {
                 assert_eq!(hop_repo::places(&input), output, "{}", file.display())
+            }
+            Case::CommitLanes { input, output } => {
+                assert_eq!(
+                    commit_lanes::commit_lanes(&input),
+                    output,
+                    "{}",
+                    file.display()
+                )
             }
             Case::Push { input, output } => {
                 let got = layout::push(

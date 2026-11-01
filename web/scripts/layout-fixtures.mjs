@@ -2,6 +2,7 @@ import { deepStrictEqual } from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { circleOf, laneCount, lanes } from '../src/commitLanes.ts';
 import { hopParts, pickHue, siblingLanes } from '../src/hopLanes.ts';
 import {
   arrangeNested,
@@ -101,7 +102,17 @@ const hopAndRepoRuns = {
     };
   },
 };
-Object.assign(run, hopAndRepoRuns);
+const commitRuns = {
+  commitLanes: (i) => {
+    const commits = i.commits.map((c) => ({ hash: c.hash, parents: c.parents, subject: '', author: '', time: 0, refs: [] }));
+    const out = lanes(commits, i.from);
+    return {
+      rows: out.rows.map((row) => ({ hash: row.commit.hash, input: row.input, output: row.output, circle: circleOf(row), count: laneCount(row) })),
+      end: out.end,
+    };
+  },
+};
+Object.assign(run, hopAndRepoRuns, commitRuns);
 
 let failed = false;
 for (const name of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {

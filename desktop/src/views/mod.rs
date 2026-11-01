@@ -6,3 +6,4 @@ pub mod notice;
 pub mod shell;
 pub mod sidebar;
 pub mod terminal;
+pub mod tooltip;

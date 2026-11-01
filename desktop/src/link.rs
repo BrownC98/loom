@@ -534,8 +534,14 @@ impl Conn {
                         self.limit = Duration::from_millis(quiet_ms.into());
                         None
                     }
-                    Ok(GraphEvent::Nodes | GraphEvent::ViewChanged) => {
-                        reload.send(()).err().map(|_| Fate::Dead)
+                    Ok(GraphEvent::Nodes) => reload.send(()).err().map(|_| Fate::Dead),
+                    Ok(GraphEvent::ViewChanged) => {
+                        let reloaded = reload.send(()).err().map(|_| Fate::Dead);
+                        let fed = graph
+                            .send_blocking(Graph::Feed(Box::new(GraphEvent::ViewChanged)))
+                            .err()
+                            .map(|_| Fate::Dead);
+                        reloaded.or(fed)
                     }
                     Ok(event) => graph
                         .send_blocking(Graph::Feed(Box::new(event)))

@@ -100,7 +100,7 @@ impl Dialog {
             focus,
             restore,
             search,
-            tab: Tab::General,
+            tab: super::take_wanted(cx).unwrap_or(Tab::General),
             ask: None,
             view,
             defaults: None,

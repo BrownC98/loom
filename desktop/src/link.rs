@@ -5,7 +5,11 @@ use std::time::Duration;
 
 use tungstenite::Message;
 
-use crate::wire::{self, Node, Notice};
+use api::canvas::{CardSize, Layout};
+use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
+use api::graph::{GraphEvent, NodeView};
+use api::repos::RepoView;
+use serde::Serialize;
 
 const POLL: Duration = Duration::from_millis(10);
 const HTTP: &str = "http://";
@@ -44,14 +48,91 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-pub fn nodes(base: &str) -> Result<Vec<Node>, String> {
-    let body = ureq::get(format!("{base}/api/nodes"))
+fn get(base: &str, path: &str) -> Result<String, String> {
+    ureq::get(format!("{base}{path}"))
         .call()
         .map_err(|e| e.to_string())?
         .body_mut()
         .read_to_string()
+        .map_err(|e| e.to_string())
+}
+
+pub struct Snapshot {
+    pub nodes: Vec<NodeView>,
+    pub repos: Vec<RepoView>,
+    pub layout: Layout,
+    pub sizes: Vec<CardSize>,
+}
+
+fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
+    serde_json::from_str(&get(base, path)?).map_err(|e| format!("GET {path}: {e}"))
+}
+
+fn frame(request: &impl Serialize) -> Result<Message, String> {
+    serde_json::to_string(request)
+        .map(Message::text)
+        .map_err(|e| e.to_string())
+}
+
+pub fn load(base: &str) -> Result<Snapshot, String> {
+    Ok(Snapshot {
+        nodes: read(base, "/api/nodes")?,
+        repos: read(base, "/api/repos")?,
+        layout: read(base, "/api/spots")?,
+        sizes: read(base, "/api/sizes")?,
+    })
+}
+
+pub enum Graph {
+    Loaded(Box<Snapshot>),
+    Failed(String),
+}
+
+pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), String> {
+    let base = base.to_owned();
+    let host = host(&base)?.to_owned();
+    std::thread::Builder::new()
+        .name("events".to_owned())
+        .spawn(move || {
+            let reason = follow(&base, &host, &graph).err().unwrap_or_default();
+            let _ = graph.send_blocking(Graph::Failed(reason));
+        })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn follow(base: &str, host: &str, graph: &async_channel::Sender<Graph>) -> Result<(), String> {
+    let mut socket = socket(host, "/api/events")?;
+    socket
+        .send(frame(&Pace::Front)?)
         .map_err(|e| e.to_string())?;
-    wire::nodes(&body)
+    loop {
+        match socket.read().map_err(|e| e.to_string())? {
+            Message::Text(text)
+                if matches!(
+                    serde_json::from_str(&text),
+                    Ok(GraphEvent::Nodes | GraphEvent::ViewChanged)
+                ) =>
+            {
+                let event = match load(base) {
+                    Ok(snapshot) => Graph::Loaded(Box::new(snapshot)),
+                    Err(error) => Graph::Failed(error),
+                };
+                if graph.send_blocking(event).is_err() {
+                    return Ok(());
+                }
+            }
+            Message::Close(_) => return Ok(()),
+            _ => {}
+        }
+    }
+}
+
+fn socket(host: &str, path: &str) -> Result<tungstenite::WebSocket<TcpStream>, String> {
+    let stream = TcpStream::connect(host).map_err(|e| e.to_string())?;
+    let (socket, _) =
+        tungstenite::client(format!("ws://{host}{path}"), stream).map_err(|e| e.to_string())?;
+    Ok(socket)
 }
 
 pub fn attach(base: &str, id: u32, events: async_channel::Sender<Event>) -> Result<Pty, String> {
@@ -73,15 +154,13 @@ fn run(
     events: &async_channel::Sender<Event>,
     queue: &mpsc::Receiver<Out>,
 ) -> Result<(), String> {
-    let stream = TcpStream::connect(host).map_err(|e| e.to_string())?;
-    let (mut socket, _) = tungstenite::client(format!("ws://{host}/api/nodes/{id}/pty"), stream)
-        .map_err(|e| e.to_string())?;
+    let mut socket = socket(host, &format!("/api/nodes/{id}/pty"))?;
     socket
         .get_ref()
         .set_read_timeout(Some(POLL))
         .map_err(|e| e.to_string())?;
     socket
-        .send(Message::text(wire::pace_front()))
+        .send(frame(&Pace::Front)?)
         .map_err(|e| e.to_string())?;
     let mut backlog = true;
     loop {
@@ -93,7 +172,7 @@ fn run(
                         std::io::stderr(),
                         "loom-desktop: pty {id} resize {cols}x{rows}"
                     );
-                    socket.send(Message::text(wire::resize(cols, rows)))
+                    socket.send(frame(&PtyRequest::Resize(Resize { cols, rows }))?)
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
@@ -109,11 +188,11 @@ fn run(
                     Event::Output(bytes)
                 }
             }
-            Ok(Message::Text(text)) => match wire::notice(&text) {
-                Some(Notice::Size { cols, rows }) => Event::Size { cols, rows },
-                Some(Notice::Settled) => Event::Settled,
-                Some(Notice::Gone) => Event::Gone,
-                Some(Notice::Beat) | None => continue,
+            Ok(Message::Text(text)) => match serde_json::from_str(&text) {
+                Ok(PtyNotice::Size(Resize { cols, rows })) => Event::Size { cols, rows },
+                Ok(PtyNotice::Settled) => Event::Settled,
+                Ok(PtyNotice::Gone) => Event::Gone,
+                Ok(PtyNotice::Beat { .. }) | Err(_) => continue,
             },
             Ok(Message::Close(_)) => return Ok(()),
             Ok(_) => continue,

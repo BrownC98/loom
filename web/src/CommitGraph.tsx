@@ -2,7 +2,7 @@ import { Folder } from 'lucide-react';
 import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
-import { FIRST_LANES, lanes, type LaneState, type Row } from './commitLanes';
+import { circleOf, FIRST_LANES, laneCount, lanes, type LaneState, type Row } from './commitLanes';
 import type { Commit } from './gen/Commit';
 import type { CommitGraph as Graph } from './gen/CommitGraph';
 import type { RepoId } from './gen/RepoId';
@@ -34,17 +34,6 @@ function loaded(page: Graph, limit: number, before?: Loaded): Loaded {
 
 const x = (lane: number) => LANE_WIDTH * (lane + 1);
 const stroke = (color: number) => `var(--lane-${color + 1})`;
-
-function circleOf({ commit, input, output }: Row): { lane: number; color: number } {
-  const inputIndex = input.findIndex((l) => l.id === commit.hash);
-  const lane = inputIndex !== -1 ? inputIndex : input.length;
-  const color = lane < output.length ? output[lane].color : lane < input.length ? input[lane].color : 0;
-  return { lane, color };
-}
-
-function laneCount(row: Row): number {
-  return Math.max(row.input.length, row.output.length, 1);
-}
 
 function LaneSvg({ row, width }: { row: Row; width: number }) {
   const { commit, input, output } = row;

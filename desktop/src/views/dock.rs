@@ -12,15 +12,19 @@ use crate::store::Store;
 use crate::strings::Str;
 
 mod body;
+mod commits;
 mod docs;
 mod history;
+mod lanes;
 mod questions;
+mod strokes;
 mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Questions,
     Docs,
+    Commits,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,6 +65,7 @@ pub struct Dock {
     open_key: String,
     history: History,
     docs: Docs,
+    commits: commits::Commits,
     fault: Option<String>,
     subscriptions: Vec<Subscription>,
 }
@@ -84,11 +89,14 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
                 hidden: Vec::new(),
                 query: query.clone(),
             },
+            commits: commits::Commits::default(),
             fault: None,
             subscriptions: Vec::new(),
         };
         dock.subscriptions
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.sync(cx)));
+        dock.subscriptions
+            .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.commits_follow(cx)));
         dock.subscriptions
             .push(cx.observe(&query, |_, _, cx| cx.notify()));
         dock.sync(cx);
@@ -102,6 +110,9 @@ impl Dock {
         self.fault = None;
         if tab == Tab::Docs {
             self.load_docs(cx);
+        }
+        if tab == Tab::Commits {
+            self.commits_enter(cx);
         }
         cx.notify();
     }
@@ -118,12 +129,13 @@ impl Render for Dock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ui::colors(cx);
         let waiting = self.waiting(cx);
+        let current = self.tab;
         let tab = |id: &'static str,
                    label: &'static str,
                    tab: Tab,
                    count: usize,
                    cx: &mut Context<Self>| {
-            let on = self.tab == tab;
+            let on = current == tab;
             div()
                 .id(id)
                 .flex()
@@ -159,9 +171,11 @@ impl Render for Dock {
         };
         let questions = ui::say(cx, Str::WaitQuestion);
         let documents = ui::say(cx, Str::DocsTitle);
+        let graph = ui::say(cx, Str::AppCommitGraph);
         let panel = match self.tab {
             Tab::Questions => self.questions(cx).into_any_element(),
             Tab::Docs => self.documents(cx).into_any_element(),
+            Tab::Commits => self.commits_panel(cx).into_any_element(),
         };
         div()
             .size_full()
@@ -177,7 +191,8 @@ impl Render for Dock {
                     .border_b_1()
                     .border_color(c.line)
                     .child(tab("tab-questions", questions, Tab::Questions, waiting, cx))
-                    .child(tab("tab-docs", documents, Tab::Docs, 0, cx)),
+                    .child(tab("tab-docs", documents, Tab::Docs, 0, cx))
+                    .child(tab("tab-commits", graph, Tab::Commits, 0, cx)),
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
             .child(

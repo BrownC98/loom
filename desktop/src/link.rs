@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, Layout};
+use api::canvas::{CardSize, CommitGraph, Layout};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
+use api::ids::RepoId;
 use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
@@ -199,6 +200,13 @@ pub struct Loaded {
 
 pub fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
     serde_json::from_str(&get(base, path)?).map_err(|e| format!("GET {path}: {e}"))
+}
+
+pub fn commits(base: &str, repo: RepoId, skip: usize, limit: usize) -> Result<CommitGraph, String> {
+    read(
+        base,
+        &format!("/api/repos/{}/commits?skip={skip}&limit={limit}", repo.0),
+    )
 }
 
 fn frame(request: &impl Serialize) -> Message {

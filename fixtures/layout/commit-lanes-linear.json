@@ -1,0 +1,85 @@
+{
+  "kind": "commitLanes",
+  "input": {
+    "commits": [
+      {
+        "hash": "c",
+        "parents": [
+          "b"
+        ]
+      },
+      {
+        "hash": "b",
+        "parents": [
+          "a"
+        ]
+      },
+      {
+        "hash": "a",
+        "parents": []
+      }
+    ],
+    "from": {
+      "open": [],
+      "color": -1
+    }
+  },
+  "output": {
+    "rows": [
+      {
+        "hash": "c",
+        "input": [],
+        "output": [
+          {
+            "id": "b",
+            "color": 0
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      },
+      {
+        "hash": "b",
+        "input": [
+          {
+            "id": "b",
+            "color": 0
+          }
+        ],
+        "output": [
+          {
+            "id": "a",
+            "color": 0
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      },
+      {
+        "hash": "a",
+        "input": [
+          {
+            "id": "a",
+            "color": 0
+          }
+        ],
+        "output": [],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      }
+    ],
+    "end": {
+      "open": [],
+      "color": 0
+    }
+  }
+}

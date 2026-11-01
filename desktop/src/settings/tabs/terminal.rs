@@ -379,6 +379,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
     let match_dark = switch(
         "terminal-match-dark",
         saved.match_dark,
+        light.text(say(cx, Str::ThemeMatchDark), cx),
         move |on, _, cx| writer.edit(cx, |view| view.terminal_theme.match_dark = on),
         cx,
     );
@@ -389,8 +390,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
         .text_size(px(TEXT))
         .font_weight(FontWeight::NORMAL)
         .text_color(c.ink_2)
-        .child(match_dark)
-        .child(light.text(say(cx, Str::ThemeMatchDark), cx));
+        .child(match_dark);
     let writer = ctx.writer.clone();
     let light_chosen = index_of(chosen_terminal_name(saved.light.as_deref(), Scheme::Light));
     let light_list = picker_block(

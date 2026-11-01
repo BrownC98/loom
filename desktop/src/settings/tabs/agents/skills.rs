@@ -88,13 +88,13 @@ pub fn section(ctx: &Ctx, cx: &App) -> Section {
                         .child(switch(
                             ("agents-skill", index),
                             on,
+                            state,
                             move |next, _, cx| {
                                 writer
                                     .edit(cx, move |settings| write(&mut settings.always_on, next))
                             },
                             cx,
-                        ))
-                        .child(state),
+                        )),
                 )
                 .into_any_element()
         })

@@ -224,10 +224,10 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
         .child(switch(
             "os-notify",
             on,
+            label,
             move |value, _, cx| writer.edit(cx, |settings| settings.os_notify = value),
             cx,
-        ))
-        .child(label);
+        ));
     notify = notify.beside(field_reset("reset-os-notify", &["osNotify"], ctx, cx));
     out.push(notify.child(row));
     out

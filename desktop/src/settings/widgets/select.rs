@@ -4,8 +4,8 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Anchor, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
-    Styled, Window, anchored, deferred, div, point, px,
+    Keystroke, MouseButton, ParentElement, Pixels, Render, SharedString, Size,
+    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
 
 use crate::float::place::measure;
@@ -64,6 +64,27 @@ impl Select {
         cx.notify();
     }
 
+    fn jump(&self, stroke: &Keystroke) -> Option<usize> {
+        if stroke.modifiers.modified() {
+            return None;
+        }
+        let mut typed = stroke.key_char.as_deref()?.chars();
+        let letter = typed.next().filter(|c| !c.is_whitespace())?;
+        if typed.next().is_some() {
+            return None;
+        }
+        let first = |label: &SharedString| {
+            label
+                .chars()
+                .next()
+                .is_some_and(|c| c.to_lowercase().eq(letter.to_lowercase()))
+        };
+        let count = self.items.len();
+        (1..=count)
+            .map(|step| (self.current + step) % count)
+            .find(|&at| first(&self.items[at]))
+    }
+
     fn key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         match event.keystroke.key.as_str() {
             "escape" if self.open => self.open = false,
@@ -72,7 +93,12 @@ impl Select {
                 return self.pick(self.current + 1, cx);
             }
             "up" if self.current > 0 => return self.pick(self.current - 1, cx),
-            _ => return,
+            _ => {
+                let Some(at) = self.jump(&event.keystroke) else {
+                    return;
+                };
+                return self.pick(at, cx);
+            }
         }
         cx.stop_propagation();
         cx.notify();

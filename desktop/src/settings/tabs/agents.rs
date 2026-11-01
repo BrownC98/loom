@@ -260,6 +260,7 @@ fn agent_row(
             .child(crate::settings::widgets::switch(
                 ("agent-bypass", index),
                 on,
+                label,
                 move |next, _, cx| {
                     let id = id.clone();
                     writer.edit(cx, move |settings| {
@@ -271,7 +272,6 @@ fn agent_row(
                 },
                 cx,
             ))
-            .child(label)
             .into_any_element()
     } else {
         let text = section.text(say(cx, Str::SettingsBypassUnsupported), cx);

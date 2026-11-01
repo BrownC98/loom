@@ -254,10 +254,10 @@ fn auto_switch(multi: bool, local: Bound<Local>, ctx: &Ctx, cx: &mut App) -> Sec
         .child(switch(
             "accounts-auto-switch",
             ctx.view.auto_switch,
+            label,
             move |next, _, cx| writer.edit(cx, move |settings| settings.auto_switch = next),
             cx,
-        ))
-        .child(label);
+        ));
     let section = section
         .carded()
         .beside(field_reset("accounts-auto-reset", &["autoSwitch"], ctx, cx))

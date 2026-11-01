@@ -177,6 +177,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
     let toggle = switch(
         "graph-composer",
         !ctx.view.composer_off,
+        composer.text(say(cx, Str::ComposerShow), cx),
         move |on, _, cx| writer.edit(cx, |view| view.composer_off = !on),
         cx,
     );
@@ -186,8 +187,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
         .gap(px(8.0))
         .text_size(px(TEXT))
         .text_color(c.ink_2)
-        .child(toggle)
-        .child(composer.text(say(cx, Str::ComposerShow), cx));
+        .child(toggle);
     let composer_hint = hint(&mut composer, Str::ComposerHint, cx);
     let composer = with_reset(
         composer.child(toggle_row).child(composer_hint),

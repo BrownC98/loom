@@ -1164,7 +1164,6 @@ impl Render for CanvasView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(colors.bg)
             .track_focus(&self.focus)
             .capture_key_down(
                 cx.listener(|this, e: &KeyDownEvent, window, cx| this.on_key(e, window, cx)),

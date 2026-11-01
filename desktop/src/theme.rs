@@ -228,13 +228,13 @@ fn luminance(l: f64, c: f64, h: f64) -> f64 {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
-fn luminance_of(color: Rgba) -> f64 {
+pub fn luminance_of(color: Rgba) -> f64 {
     0.2126 * linear(f64::from(color.r))
         + 0.7152 * linear(f64::from(color.g))
         + 0.0722 * linear(f64::from(color.b))
 }
 
-fn ratio(a: f64, b: f64) -> f64 {
+pub fn ratio(a: f64, b: f64) -> f64 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 

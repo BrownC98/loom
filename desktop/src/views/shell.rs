@@ -18,6 +18,8 @@ use crate::theme::Theme;
 
 use pane::{Pane, Widths};
 
+gpui::actions!(loom, [OpenSettings]);
+
 const GRIP: f32 = 7.0;
 const GRIP_BEFORE: f32 = 3.0;
 const GRIP_ALPHA: f32 = 0.55;
@@ -255,6 +257,9 @@ impl Render for Shell {
                 }
             }))
             .font_family(fonts::UI_FAMILY)
+            .on_action(
+                cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)),
+            )
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))

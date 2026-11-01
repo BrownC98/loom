@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use super::field::{self, Field, FieldEvent};
+use super::shell::OpenSettings;
 use icons::{Glyph, icon};
 use tree::{Body, Built, Dot, Found, Key, Row, Tag, Tone};
 
@@ -787,6 +788,36 @@ impl Render for Sidebar {
                     .child(expand),
             )
             .child(tree_rows)
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(8.0))
+                    .py(px(6.0))
+                    .border_t_1()
+                    .border_color(c.line)
+                    .child(
+                        div()
+                            .id("side-settings")
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .px(px(8.0))
+                            .h(px(28.0))
+                            .rounded(px(6.0))
+                            .text_size(px(12.0))
+                            .text_color(c.ink_2)
+                            .cursor_pointer()
+                            .hover({
+                                let hover = c.surface_hover;
+                                move |s| s.bg(hover)
+                            })
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(OpenSettings), cx)
+                            })
+                            .child(icon(Glyph::Gear, ICON, c.ink_2))
+                            .child(Str::SettingsTitle.text(lang)),
+                    ),
+            )
     }
 }
 

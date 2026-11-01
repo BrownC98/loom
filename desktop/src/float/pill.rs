@@ -1,8 +1,7 @@
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use api::graph::waits::{Prompt, ScreenWait, WaitTone};
+use api::graph::waits::{ScreenWait, WaitTone};
 use api::ids::WaitId;
 use api::settings::{FloatPlace, FloatSize, QuestionPill};
 use gpui::prelude::FluentBuilder;
@@ -16,9 +15,10 @@ use gpui::{
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
-use crate::views::dock::questions::{Group, groups_of, kind_label, shown_prompts};
+use crate::views::dock::answers::{self, Answers};
+use crate::views::dock::questions::{Group, groups_of, kind_label};
 use crate::views::dock::ui::{self, GAP};
-use crate::views::dock::{Draft, Slot};
+use crate::views::tooltip::tip;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
 const WIDTH: f32 = 520.0;
@@ -28,7 +28,7 @@ const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
 
 pub struct Pill {
-    pub(super) store: Entity<Store>,
+    store: Entity<Store>,
     pane: Rc<Cell<Size<Pixels>>>,
     boxed: Rc<Cell<Size<Pixels>>>,
     open: bool,
@@ -39,10 +39,7 @@ pub struct Pill {
     seen_place: Option<FloatPlace>,
     shut: Option<WaitId>,
     seen_shut: Option<WaitId>,
-    pub(super) fields: HashMap<(u32, Slot), Draft>,
-    pub(super) shown: HashMap<u32, Prompt>,
-    pub(super) notes: HashMap<u32, String>,
-    pub(super) busy: HashSet<u32>,
+    answers: Entity<Answers>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -63,14 +60,13 @@ pub fn pill(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Pill> 
             seen_place,
             shut: None,
             seen_shut,
-            fields: HashMap::new(),
-            shown: HashMap::new(),
-            notes: HashMap::new(),
-            busy: HashSet::new(),
+            answers: cx.new(|cx| Answers::new(store.clone(), cx)),
             subscriptions: Vec::new(),
         };
         pill.subscriptions
             .push(cx.observe(&store, |pill: &mut Pill, _, cx| pill.sync(cx)));
+        pill.subscriptions
+            .push(cx.observe(&pill.answers, |_, _, cx| cx.notify()));
         pill.sync(cx);
         pill
     })
@@ -103,7 +99,6 @@ impl Pill {
             self.seen_shut = shut;
             self.shut = None;
         }
-        self.sync_answers(cx);
         cx.notify();
     }
 
@@ -180,6 +175,10 @@ impl Pill {
         cx.notify();
     }
 
+    fn jump(&mut self, node: api::ids::NodeId, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| store.select(node.0, cx));
+    }
+
     fn toggle(&mut self, cx: &mut Context<Self>) {
         if self.dragged {
             return;
@@ -215,7 +214,6 @@ fn stop(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
 
 impl Render for Pill {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.shown = shown_prompts(self.store.read(cx).snapshot());
         let id = cx.entity_id();
         let (pane_cell, box_cell) = (self.pane.clone(), self.boxed.clone());
         let measure = canvas(
@@ -330,7 +328,7 @@ impl Pill {
                 .justify_center()
                 .child(format!("{mark}{n}"))
         };
-        let tool = |id: &'static str, glyph: &'static str| {
+        let tool = |id: &'static str, glyph: &'static str, label: String| {
             div()
                 .id(id)
                 .flex_none()
@@ -343,6 +341,7 @@ impl Pill {
                 .cursor_pointer()
                 .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
                 .on_mouse_down(MouseButton::Left, stop)
+                .tooltip(tip(label))
                 .child(glyph)
         };
         let head_text = if line && !first.summary.is_empty() {
@@ -372,6 +371,11 @@ impl Pill {
             .cursor_pointer()
             .when(self.open, |d| d.bg(c.surface_hover))
             .hover(move |s| s.bg(c.surface_hover))
+            .tooltip(tip(ui::say_with(
+                cx,
+                Str::InboxListLabel,
+                &[("count", &waits.len().to_string())],
+            )))
             .on_click(cx.listener(|pill, _, _, cx| pill.toggle(cx)))
             .child(label);
         let head = div()
@@ -390,8 +394,12 @@ impl Pill {
                 cx.listener(move |pill, e: &MouseDownEvent, _, cx| pill.grab(e, at, cx)),
             )
             .child(
-                tool("pill-close", "\u{00d7}")
-                    .on_click(cx.listener(move |pill, _, _, cx| pill.close(newest, cx))),
+                tool(
+                    "pill-close",
+                    "\u{00d7}",
+                    ui::say(cx, Str::InboxClosePill).to_owned(),
+                )
+                .on_click(cx.listener(move |pill, _, _, cx| pill.close(newest, cx))),
             )
             .child(
                 div()
@@ -418,15 +426,25 @@ impl Pill {
             )
             .child(go)
             .children(self.reset_shown(cx).then(|| {
-                tool("pill-reset", "\u{21ba}")
-                    .on_click(cx.listener(|pill, _, _, cx| pill.reset(cx)))
+                tool(
+                    "pill-reset",
+                    "\u{21ba}",
+                    ui::say(cx, Str::InboxResetPlace).to_owned(),
+                )
+                .on_click(cx.listener(|pill, _, _, cx| pill.reset(cx)))
             }));
         let body = (!line).then(|| {
             div()
                 .px(px(12.0 * z))
                 .pt(px(10.0 * z))
                 .pb(px(12.0 * z))
-                .child(self.entry(oldest_node(groups), first, z, cx))
+                .child(answers::entry(
+                    &self.answers,
+                    oldest_node(groups),
+                    first,
+                    z,
+                    cx,
+                ))
         });
         div()
             .flex()
@@ -531,7 +549,12 @@ impl Pill {
                     .items_center()
                     .on_click(cx.listener(move |pill, _, _, cx| pill.jump(node, cx))),
             )
-            .children(group.waits.iter().map(|w| self.entry(node, w, z, cx)))
+            .children(
+                group
+                    .waits
+                    .iter()
+                    .map(|w| answers::entry(&self.answers, node, w, z, cx)),
+            )
     }
 }
 

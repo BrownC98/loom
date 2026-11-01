@@ -165,6 +165,8 @@ jobs:
             desktop: loom-desktop
             asset: loom-desktop-macos-arm64.tar.gz
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/desktop/target
     defaults:
       run:
         shell: bash

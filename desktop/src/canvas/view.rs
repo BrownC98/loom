@@ -298,6 +298,7 @@ impl CanvasView {
     }
 
     fn grab(&mut self, key: &str, at: Point<Pixels>, cx: &App) {
+        self.glide = None;
         if self
             .moves
             .begin(key, &self.scene, self.store.read(cx).settings())
@@ -326,6 +327,7 @@ impl CanvasView {
     }
 
     fn grab_card(&mut self, node: u32, e: &MouseDownEvent, simple: bool, cx: &App) {
+        self.glide = None;
         let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
             return;
         };
@@ -377,6 +379,7 @@ impl CanvasView {
         at: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        self.glide = None;
         let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
             return;
         };
@@ -792,6 +795,7 @@ impl Render for CanvasView {
                     port.on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.glide = None;
                             this.connect.start(id, e.position);
                             cx.stop_propagation();
                             cx.notify();

@@ -219,12 +219,14 @@ export function attachPty(
   let backlogNext = false;
   const held: Uint8Array<ArrayBuffer>[] = [];
   let heldBytes = 0;
+  let overflowed = false;
   const link = reconnecting(socketUrl(path), {
     onOpen: () => {
       backlogNext = true;
       handlers.onAttach();
       for (const bytes of held.splice(0)) link.send(bytes);
       heldBytes = 0;
+      overflowed = false;
     },
     onMessage: (e) => {
       if (typeof e.data === 'string') {
@@ -244,7 +246,8 @@ export function attachPty(
     sendInput: (data) => {
       const bytes = typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data);
       if (link.connected()) return link.send(bytes);
-      if (heldBytes + bytes.length > HELD_INPUT_LIMIT) return;
+      overflowed ||= heldBytes + bytes.length > HELD_INPUT_LIMIT;
+      if (overflowed) return;
       held.push(bytes);
       heldBytes += bytes.length;
     },

@@ -180,20 +180,21 @@ pub(super) enum Typed {
 }
 
 fn live_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) -> Typed {
-    if app.sleeps.keep_more(id, bytes) {
-        return Typed::Kept;
-    }
-    if app
+    let asleep = app
         .graph
         .process(id)
-        .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep))
-    {
-        app.sleeps.keep(id, bytes);
-        app.sleeps.knocked(id);
-        return Typed::Kept;
+        .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep));
+    if !asleep && !app.sleeps.holds(id) {
+        human_typed(app, id, bytes);
+        return Typed::Write;
     }
-    human_typed(app, id, bytes);
-    Typed::Write
+    if has_text(bytes) {
+        app.sleeps.keep(id, bytes);
+    }
+    if asleep {
+        app.sleeps.knocked(id);
+    }
+    Typed::Kept
 }
 
 pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
@@ -281,10 +282,11 @@ fn coming_pty(
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
                         Heard::Frame(Some(Ok(Message::Binary(bytes)))) if !gone => {
-                            if node_host::typed(&bytes) {
+                            if has_text(&bytes) {
                                 app.sleeps.keep(id, &bytes);
                             }
                             app.sleeps.knocked(id);
+                            app.give_kept_keys(id);
                         }
                         Heard::Frame(Some(Ok(Message::Text(text)))) => {
                             if pulse.paced(&text) && send_beat(&mut socket, &pulse).await.is_err() {

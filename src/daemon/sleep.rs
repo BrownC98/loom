@@ -45,16 +45,7 @@ impl Sleeps {
         add_kept(self.kept.lock().unwrap().entry(node).or_default(), bytes);
     }
 
-    pub fn keep_more(&self, node: NodeId, bytes: &[u8]) -> bool {
-        let mut kept = self.kept.lock().unwrap();
-        let Some(keys) = kept.get_mut(&node) else {
-            return false;
-        };
-        add_kept(keys, bytes);
-        true
-    }
-
-    fn has_kept(&self, node: NodeId) -> bool {
+    pub fn holds(&self, node: NodeId) -> bool {
         self.kept.lock().unwrap().contains_key(&node)
     }
 
@@ -151,9 +142,7 @@ impl App {
 
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
-        if change.to == Some(AgentState::Listening) {
-            self.give_kept_keys(change.node);
-        }
+        self.give_kept_keys(change.node);
         match change.to {
             Some(AgentState::Deaf) => {}
             Some(AgentState::Blocked { .. }) => return,
@@ -230,15 +219,19 @@ impl App {
     }
 
     pub(super) fn give_kept_keys(self: &Arc<Self>, id: NodeId) {
-        if !self.sleeps.has_kept(id) || !self.listening(id) {
+        if !self.sleeps.holds(id) {
+            return;
+        }
+        let state = self.agent_state(id);
+        if matches!(state, None | Some(AgentState::Starting)) {
             return;
         }
         let profile = self.profile(id);
         let mut given = Vec::new();
         let _ = self.host.strokes_if(id, Duration::ZERO, |keys| {
-            if keys.open()
-                && profile::input_seen(profile, &keys.screen()).is_none_or(|seen| seen.empty)
-            {
+            let ready = state != Some(AgentState::Listening)
+                || profile::input_seen(profile, &keys.screen()).is_none_or(|seen| seen.empty);
+            if keys.open() && ready {
                 given = self.sleeps.take_kept(id);
             }
             Ok::<_, Infallible>(Vec::from_iter((!given.is_empty()).then(|| given.clone())))

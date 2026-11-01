@@ -8,6 +8,7 @@ use crate::accounts::{AccountId, Site};
 use crate::profile::adapter::Meter;
 use crate::usage::{
     self, Limits, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent, run_failed,
+    usage_failed, usage_now,
 };
 
 const SESSION_WINDOW_MAX_MINS: u64 = 300;
@@ -30,15 +31,15 @@ impl Meter for Codex {
 fn account(cmd: Command) -> Usage {
     let replies = match app_server(cmd) {
         Ok(replies) => replies,
-        Err(problem) => return Usage::failed(problem),
+        Err(problem) => return usage_failed(problem),
     };
     let [account, limits] = replies;
     let account = &account["account"];
     if account.is_null() {
-        return Usage::new(None, None, Limits::NeedsLogin);
+        return usage_now(None, None, Limits::NeedsLogin);
     }
     let text = |v: &Value| v.as_str().map(str::to_owned);
-    Usage::new(
+    usage_now(
         text(&account["email"]),
         text(&account["planType"]),
         rate_limits(&limits["rateLimits"]),

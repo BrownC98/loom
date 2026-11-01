@@ -76,32 +76,27 @@
       {
         "path": "/home/u/loom",
         "label": "main",
-        "kind": "original",
-        "branch": "main"
+        "kind": "original"
       },
       {
         "path": "/home/u/wt/a",
         "label": "a",
-        "kind": "linked",
-        "branch": "a"
+        "kind": "linked"
       },
       {
         "path": "/home/u/wt/b",
         "label": "b",
-        "kind": "linked",
-        "branch": "b"
+        "kind": "linked"
       },
       {
         "path": "/home/u/wt/c",
         "label": "c",
-        "kind": "linked",
-        "branch": null
+        "kind": "linked"
       },
       {
         "path": "C:\\Users\\u\\wt\\d",
         "label": "d",
-        "kind": "linked",
-        "branch": null
+        "kind": "linked"
       }
     ],
     "boxes": [

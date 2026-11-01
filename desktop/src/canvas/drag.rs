@@ -5,8 +5,8 @@ use api::canvas::{self, Arranged, Placed, Spot};
 use api::ids::RepoId;
 use api::settings::{ArrangeDirection, SettingsView};
 
-use super::layout::{self, Direction, FREE_GAP, Inset, Point, Rect, Sibling, Swap};
-use super::scene::{REPO_INSET, Scene, cover};
+use super::layout::{self, Direction, Inset, Point, Rect, Sibling, Swap};
+use super::scene::{FREE_GAP, REPO_INSET, Scene, cover};
 use crate::link::{self, Snapshot};
 use crate::problem::Failure;
 

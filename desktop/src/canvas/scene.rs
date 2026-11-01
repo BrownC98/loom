@@ -6,8 +6,8 @@ use api::ids::RepoId;
 
 use super::drag::{Overlay, Tier};
 use super::layout::{
-    self, Direction, FREE_GAP, GROUP_GAP, Inset, Kid, NestGroup, Nested, NodeId, Point, Rect,
-    SettleItem, Sibling, Size,
+    self, Direction, GROUP_GAP, Inset, Kid, NestGroup, Nested, NodeId, Point, Rect, SettleItem,
+    Sibling, Size,
 };
 use super::repos::{Group, GroupKind, attach_cards, group_parents, groups_of, split_chips};
 use api::graph::{CardView, NodeView, Place};
@@ -22,6 +22,7 @@ const EMPTY_GROUP: Size = Size {
     width: 320.0,
     height: 100.0,
 };
+pub const FREE_GAP: f64 = 32.0;
 pub const REPO_INSET: Inset = Inset {
     top: 62.0,
     side: 16.0,

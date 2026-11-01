@@ -33,14 +33,12 @@
       {
         "path": "/home/u/odd/x",
         "label": "x",
-        "kind": "linked",
-        "branch": "x"
+        "kind": "linked"
       },
       {
         "path": "/home/u/odd/y",
         "label": "y",
-        "kind": "linked",
-        "branch": "y"
+        "kind": "linked"
       }
     ],
     "boxes": [

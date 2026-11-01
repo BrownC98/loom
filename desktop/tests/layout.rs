@@ -18,8 +18,8 @@ use std::fs;
 use std::path::Path;
 
 use layout::{
-    Camera, CenterSide, Direction, EdgeEnd, Inset, Kid, NestGroup, Point, Rect, SettleItem,
-    Sibling, Side, Size, Swap,
+    CenterSide, Direction, EdgeEnd, Inset, Kid, NestGroup, Point, Rect, SettleItem, Sibling, Side,
+    Size, Swap,
 };
 use serde::Deserialize;
 
@@ -239,20 +239,6 @@ struct HeadingOut {
     heading: Dir,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Clone, Copy)]
-struct Cam {
-    x: f64,
-    y: f64,
-    zoom: f64,
-}
-
-#[derive(Deserialize)]
-struct FollowIn {
-    old: P,
-    now: P,
-    camera: Cam,
-}
-
 #[derive(Deserialize)]
 #[serde(tag = "kind")]
 enum Case {
@@ -341,11 +327,6 @@ enum Case {
     LabelHeading {
         input: Vec<HeadingIn>,
         output: Vec<HeadingOut>,
-    },
-    #[serde(rename = "followCard")]
-    FollowCard {
-        input: Vec<FollowIn>,
-        output: Vec<Cam>,
     },
 }
 
@@ -675,28 +656,6 @@ fn layout_fixtures_match_the_web() {
                     .collect();
                 let want: Vec<Dir> = output.into_iter().map(|h| h.heading).collect();
                 assert_eq!(got, want, "{}", file.display())
-            }
-            Case::FollowCard { input, output } => {
-                let got: Vec<Cam> = input
-                    .iter()
-                    .map(|c| {
-                        let k = layout::follow_card(
-                            p(&c.old),
-                            p(&c.now),
-                            Camera {
-                                x: c.camera.x,
-                                y: c.camera.y,
-                                zoom: c.camera.zoom,
-                            },
-                        );
-                        Cam {
-                            x: k.x,
-                            y: k.y,
-                            zoom: k.zoom,
-                        }
-                    })
-                    .collect();
-                assert_eq!(got, output, "{}", file.display())
             }
         }
     }

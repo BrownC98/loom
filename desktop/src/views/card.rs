@@ -954,37 +954,68 @@ fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElem
     out
 }
 
-fn head_row(face: &Face, zoom: f32, colors: &Colors, dock: bool) -> Div {
+struct HeadLayout {
+    height: Option<f32>,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    left: f32,
+    mark_first: bool,
+    expand: bool,
+    model_while_renaming: bool,
+}
+
+const CANVAS_HEAD: HeadLayout = HeadLayout {
+    height: Some(HEAD),
+    top: 0.0,
+    right: 6.0,
+    bottom: 0.0,
+    left: 10.0,
+    mark_first: false,
+    expand: true,
+    model_while_renaming: true,
+};
+
+const DOCK_HEAD: HeadLayout = HeadLayout {
+    height: None,
+    top: 12.0,
+    right: 10.0,
+    bottom: 12.0,
+    left: 16.0,
+    mark_first: true,
+    expand: false,
+    model_while_renaming: false,
+};
+
+fn head_row(face: &Face, zoom: f32, colors: &Colors, layout: &HeadLayout) -> Div {
     let model = model_text(face.node);
     let (mark, name) = (mark_of(face, zoom, colors), name_slot(face, zoom, colors));
-    let (first, second) = if dock { (mark, name) } else { (name, mark) };
-    let frame = div()
+    let (first, second) = if layout.mark_first {
+        (mark, name)
+    } else {
+        (name, mark)
+    };
+    let show_model =
+        !model.is_empty() && (layout.model_while_renaming || face.rename.is_none());
+    div()
         .flex()
         .flex_none()
         .items_center()
         .gap(px(8.0 * zoom))
         .w_full()
+        .when_some(layout.height, |d, height| d.h(px(height * zoom)))
+        .pt(px(layout.top * zoom))
+        .pr(px(layout.right * zoom))
+        .pb(px(layout.bottom * zoom))
+        .pl(px(layout.left * zoom))
         .bg(colors.surface)
         .border_b(px(zoom.max(0.5)))
         .border_color(colors.line)
         .text_size(text_px(NAME, zoom))
-        .text_color(colors.ink);
-    let frame = if dock {
-        frame
-            .pt(px(12.0 * zoom))
-            .pb(px(12.0 * zoom))
-            .pl(px(16.0 * zoom))
-            .pr(px(10.0 * zoom))
-    } else {
-        frame
-            .h(px(HEAD * zoom))
-            .pl(px(10.0 * zoom))
-            .pr(px(6.0 * zoom))
-    };
-    frame
+        .text_color(colors.ink)
         .child(first)
         .child(second)
-        .when(!model.is_empty() && !(dock && face.rename.is_some()), |d| {
+        .when(show_model, |d| {
             d.child(
                 div()
                     .min_w_0()
@@ -999,15 +1030,15 @@ fn head_row(face: &Face, zoom: f32, colors: &Colors, dock: bool) -> Div {
         })
         .child(div().flex_1())
         .children(badges(face, zoom, colors))
-        .children(actions(face, !dock, zoom, colors))
+        .children(actions(face, layout.expand, zoom, colors))
 }
 
 pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
-    head_row(face, zoom, colors, false)
+    head_row(face, zoom, colors, &CANVAS_HEAD)
 }
 
 pub fn dock_head(face: &Face, colors: &Colors) -> Div {
-    head_row(face, 1.0, colors, true)
+    head_row(face, 1.0, colors, &DOCK_HEAD)
 }
 
 fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {

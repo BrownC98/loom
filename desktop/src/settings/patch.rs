@@ -3,6 +3,7 @@ use gpui::{App, WeakEntity};
 use serde_json::{Map, Value};
 
 use super::dialog::Dialog;
+use crate::problem::Failure;
 
 fn diff(before: Option<&Value>, after: &Value) -> Option<Value> {
     if let (Some(Value::Object(old)), Value::Object(new)) = (before, after) {
@@ -52,6 +53,17 @@ impl Writer {
 
     pub fn edit(&self, cx: &mut App, change: impl FnOnce(&mut SettingsView)) {
         let _ = self.0.update(cx, |dialog, cx| dialog.edit(change, cx));
+    }
+
+    pub fn edit_then(
+        &self,
+        cx: &mut App,
+        change: impl FnOnce(&mut SettingsView),
+        done: impl FnOnce(Result<(), &Failure>, &mut App) + 'static,
+    ) {
+        let _ = self
+            .0
+            .update(cx, |dialog, cx| dialog.edit_then(change, done, cx));
     }
 
     pub fn reset(&self, cx: &mut App, path: &[&str]) {

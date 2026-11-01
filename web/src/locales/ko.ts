@@ -362,6 +362,8 @@ const ko: typeof en = {
     remaining: '{{left}} 남음',
     soon: '곧',
     fetched: '{{ago}} 갱신',
+    ago: { now: '방금', minute: '{{n}}분 전', hour: '{{n}}시간 전', day: '{{n}}일 전' },
+    unit: { minute: '{{n}}분', hour: '{{n}}시간', day: '{{n}}일' },
   },
   switch: {
     provider: { claude: 'Claude', codex: 'Codex' },

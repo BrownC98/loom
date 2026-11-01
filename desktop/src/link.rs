@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, CommitGraph, Layout, Placed};
+use api::canvas::{Arranged, CardSize, CommitGraph, Layout, Placed};
 use api::graph::errors::Problem;
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
@@ -136,6 +136,29 @@ fn agent() -> ureq::Agent {
     agent_within(HTTP_LIMIT)
 }
 
+pub fn query(pairs: &[(&str, Option<&str>)]) -> String {
+    let escape = |value: &str| -> String {
+        value
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    char::from(b).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    };
+    let joined: Vec<String> = pairs
+        .iter()
+        .filter_map(|(key, value)| Some(format!("{key}={}", escape((*value)?))))
+        .collect();
+    if joined.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", joined.join("&"))
+    }
+}
+
 fn answer(
     sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<ureq::http::Response<ureq::Body>, Failure> {
@@ -184,6 +207,14 @@ pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), Failure> {
             .send(text),
     )
     .map(|_| ())
+}
+
+pub fn put_arranged(base: &str, arranged: &Arranged) -> Result<(), Failure> {
+    put(base, "/api/spots/arranged", arranged)
+}
+
+pub fn clear_spots(base: &str, repo: u32) -> Result<(), Failure> {
+    delete(base, &format!("/api/repos/{repo}/spots"))
 }
 
 pub fn post<T: serde::de::DeserializeOwned>(
@@ -271,6 +302,10 @@ pub struct Snapshot {
 
 static LOADS: AtomicU64 = AtomicU64::new(0);
 
+pub fn issued() -> u64 {
+    LOADS.load(Ordering::Relaxed)
+}
+
 pub struct Loaded {
     pub order: u64,
     pub snapshot: Snapshot,
@@ -346,11 +381,27 @@ pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), Stri
 }
 
 pub fn attach(base: &str, id: u32, events: async_channel::Sender<Event>) -> Result<Pty, String> {
+    attach_route(base, format!("/api/nodes/{id}/pty"), events)
+}
+
+pub fn attach_login(
+    base: &str,
+    id: u32,
+    events: async_channel::Sender<Event>,
+) -> Result<Pty, String> {
+    attach_route(base, format!("/api/logins/{id}/pty"), events)
+}
+
+fn attach_route(
+    base: &str,
+    route: String,
+    events: async_channel::Sender<Event>,
+) -> Result<Pty, String> {
     let host = host(base)?.to_owned();
     let key = add(Conn::new(
         host,
         Target::Pty {
-            id,
+            route,
             events,
             backlog: true,
         },
@@ -393,7 +444,7 @@ enum Target {
         reload: mpsc::Sender<()>,
     },
     Pty {
-        id: u32,
+        route: String,
         events: async_channel::Sender<Event>,
         backlog: bool,
     },
@@ -441,7 +492,7 @@ impl Conn {
     fn path(&self) -> String {
         match &self.target {
             Target::Events { .. } => "/api/events".to_owned(),
-            Target::Pty { id, .. } => format!("/api/nodes/{id}/pty"),
+            Target::Pty { route, .. } => route.clone(),
         }
     }
 
@@ -488,10 +539,10 @@ impl Conn {
         let message = match out {
             Out::Input(bytes) => Message::binary(bytes),
             Out::Resize(cols, rows) => {
-                if let Target::Pty { id, .. } = &self.target {
+                if let Target::Pty { route, .. } = &self.target {
                     let _ = writeln!(
                         std::io::stderr(),
-                        "loom-desktop: pty {id} resize {cols}x{rows}"
+                        "loom-desktop: pty {route} resize {cols}x{rows}"
                     );
                 }
                 frame(&PtyRequest::Resize(Resize { cols, rows }))

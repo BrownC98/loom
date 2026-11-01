@@ -391,7 +391,6 @@ fn terminals(source: &str) -> String {
             ("background", "background"),
             ("foreground", "foreground"),
             ("cursor", "cursor"),
-            ("cursor_accent", "cursorAccent"),
             ("selection_background", "selectionBackground"),
             ("selection_foreground", "selectionForeground"),
         ] {

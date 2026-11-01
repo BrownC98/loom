@@ -10,7 +10,6 @@ import {
   centerSide,
   crossed,
   edgeSides,
-  followCard,
   freeSpot,
   labelHeading,
   push,
@@ -56,7 +55,6 @@ const run = {
   bendCenter: (cases) => cases.map((c) => bendCenter(c.parent, c.bend, c.direction)),
   edgeSides: (cases) => cases.map((c) => edgeSides(c.parent, c.child, c.direction)),
   labelHeading: (cases) => cases.map((c) => ({ heading: labelHeading(c.from, c.to, c.step) })),
-  followCard: (cases) => cases.map((c) => followCard(c.old, c.now, c.camera)),
 };
 
 const place = (v) => ({ repo: v.repo, worktree: v.worktree });
@@ -84,7 +82,7 @@ const hopAndRepoRuns = {
     const parents = groupParents(groups, views);
     const { boxes, chips } = splitChips(groups, views);
     return {
-      groups,
+      groups: groups.map((g) => ({ path: g.path, label: g.label, kind: g.kind })),
       boxes: boxes.map((g) => g.path),
       chips: chips.map((g) => g.path),
       parents,

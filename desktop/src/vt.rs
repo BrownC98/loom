@@ -231,12 +231,7 @@ impl Vt {
     }
 }
 
-#[allow(dead_code)]
 impl Vt {
-    pub fn encode_key(&self, key: &Key) -> Option<Vec<u8>> {
-        self.encode_key_as(key, KeyKind::Press)
-    }
-
     pub fn encode_key_as(&self, key: &Key, kind: KeyKind) -> Option<Vec<u8>> {
         let mode = *self.term.mode();
         let mods = 1 + u8::from(key.shift) + 2 * u8::from(key.alt) + 4 * u8::from(key.ctrl);
@@ -343,7 +338,6 @@ impl Vt {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
     Press,
@@ -351,7 +345,6 @@ pub enum KeyKind {
     Release,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left = 0,
@@ -359,7 +352,6 @@ pub enum MouseButton {
     Right = 2,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MouseAction {
     Press(MouseButton),
@@ -369,7 +361,6 @@ pub enum MouseAction {
     Wheel { up: bool, lines: usize },
 }
 
-#[allow(dead_code)]
 pub struct Mouse {
     pub action: MouseAction,
     pub col: usize,

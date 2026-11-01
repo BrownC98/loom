@@ -6,15 +6,16 @@ use std::time::{Duration, Instant};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
     EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, TextAlign, TextRun, UTF16Selection,
-    UnderlineStyle, Window, canvas, div, fill, font, point, px, rgb, size,
+    IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription,
+    TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, font, point, px,
+    rgb, size,
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::link::{self, Event, Pty};
 use crate::vt::view::Picked;
-use crate::vt::{self, Key, Screen, Shape, Vt};
+use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
 
 mod pointer;
 
@@ -67,7 +68,10 @@ pub struct TerminalView {
     taken: Instant,
     refresh: bool,
     picking: bool,
+    reporting: Option<MouseButton>,
+    last_cell: Option<(usize, usize)>,
     wheel_rest: f32,
+    _focus_events: [Subscription; 2],
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -92,17 +96,18 @@ fn metrics(window: &Window, scale: f32) -> Metrics {
     }
 }
 
-pub fn open(base: &str, node: u32, _window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
     let opened = (|| -> Result<_, String> {
         let (events, inbox) = async_channel::unbounded();
         Ok((link::attach(base, node, events)?, inbox))
     })();
-    cx.new(|cx| TerminalView::new(opened, cx))
+    cx.new(|cx| TerminalView::new(opened, window, cx))
 }
 
 impl TerminalView {
     fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let (pty, ended) = match opened {
@@ -131,6 +136,10 @@ impl TerminalView {
             cx.set_global(FontsLoaded);
         }
         let focus = cx.focus_handle();
+        let focus_events = [
+            cx.on_focus_in(&focus, window, |this, _, _| this.report_focus(true)),
+            cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
+        ];
         Self {
             vt: Vt::new(START.0, START.1),
             pty,
@@ -151,7 +160,10 @@ impl TerminalView {
             taken: Instant::now(),
             refresh: false,
             picking: false,
+            reporting: None,
+            last_cell: None,
             wheel_rest: 0.0,
+            _focus_events: focus_events,
         }
     }
 
@@ -291,7 +303,7 @@ impl TerminalView {
 
     fn paste(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let bytes = self.vt.paste_bytes(&text);
+            let bytes = self.vt.encode_paste(&text);
             self.type_in(bytes);
             self.changed(cx);
         }
@@ -311,6 +323,15 @@ impl TerminalView {
             cx.stop_propagation();
             return;
         }
+        let kind = if event.is_held {
+            KeyKind::Repeat
+        } else {
+            KeyKind::Press
+        };
+        self.press_key(stroke, kind, cx);
+    }
+
+    fn press_key(&mut self, stroke: &Keystroke, kind: KeyKind, cx: &mut Context<Self>) {
         if stroke.modifiers.platform {
             return;
         }
@@ -321,10 +342,20 @@ impl TerminalView {
             alt: stroke.modifiers.alt,
             shift: stroke.modifiers.shift,
         };
-        if let Some(bytes) = self.vt.encode_key(&key) {
-            self.type_in(bytes);
-            self.changed(cx);
+        if let Some(bytes) = self.vt.encode_key_as(&key, kind) {
+            if kind == KeyKind::Release {
+                self.send(bytes);
+            } else {
+                self.type_in(bytes);
+                self.changed(cx);
+            }
             cx.stop_propagation();
+        }
+    }
+
+    fn report_focus(&self, focused: bool) {
+        if let Some(bytes) = self.vt.encode_focus(focused) {
+            self.send(bytes);
         }
     }
 
@@ -454,8 +485,19 @@ impl Render for TerminalView {
             .bg(color(vt::BACKGROUND))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
+            .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+                this.press_key(&event.keystroke, KeyKind::Release, cx);
+            }))
             .on_mouse_down(
                 MouseButton::Left,
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
                 cx.listener(|this, event, window, cx| this.press(event, window, cx)),
             )
             .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
@@ -481,10 +523,9 @@ impl Render for TerminalView {
                             }
                         });
                         let releasing = view_pointer.clone();
-                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
-                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
-                            {
-                                releasing.update(cx, |view, cx| view.release(cx));
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                            if phase == DispatchPhase::Capture {
+                                releasing.update(cx, |view, cx| view.release(event, window, cx));
                             }
                         });
                         paint(

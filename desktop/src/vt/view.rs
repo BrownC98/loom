@@ -1,25 +1,15 @@
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
-use alacritty_terminal::term::{TermMode, viewport_to_point};
+use alacritty_terminal::term::viewport_to_point;
 
 use super::Vt;
-
-const PASTE_START: &str = "\x1b[200~";
-const PASTE_END: &str = "\x1b[201~";
 
 #[derive(Clone, Copy)]
 pub enum Grain {
     Cell,
     Word,
     Line,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Wheel {
-    Report,
-    Arrows { app_cursor: bool },
-    History,
 }
 
 pub struct Picked {
@@ -39,28 +29,6 @@ impl Vt {
 
     pub fn scroll_to_bottom(&mut self) {
         self.term.scroll_display(Scroll::Bottom);
-    }
-
-    pub fn wheel(&self) -> Wheel {
-        let mode = self.term.mode();
-        if mode.intersects(TermMode::MOUSE_MODE) {
-            Wheel::Report
-        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
-            Wheel::Arrows {
-                app_cursor: mode.contains(TermMode::APP_CURSOR),
-            }
-        } else {
-            Wheel::History
-        }
-    }
-
-    pub fn paste_bytes(&self, text: &str) -> Vec<u8> {
-        let lines = text.replace("\r\n", "\r").replace('\n', "\r");
-        if self.term.mode().contains(TermMode::BRACKETED_PASTE) {
-            format!("{PASTE_START}{lines}{PASTE_END}").into_bytes()
-        } else {
-            lines.into_bytes()
-        }
     }
 
     pub fn select_start(&mut self, grain: Grain, col: usize, row: usize, right: bool) {

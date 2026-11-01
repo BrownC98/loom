@@ -1,17 +1,26 @@
 use gpui::{
-    Context, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, ScrollEvent, Window,
+    Context, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollEvent, Window,
 };
 
 use super::{TerminalView, metrics};
-use crate::vt::view::{Grain, Wheel};
-
-const ARROW_LIMIT: usize = 8;
+use crate::vt::view::Grain;
+use crate::vt::{self, Mouse, MouseAction};
 
 struct Spot {
     col: usize,
     row: usize,
     right: bool,
     beyond: i32,
+}
+
+fn reported(button: MouseButton) -> Option<vt::MouseButton> {
+    match button {
+        MouseButton::Left => Some(vt::MouseButton::Left),
+        MouseButton::Middle => Some(vt::MouseButton::Middle),
+        MouseButton::Right => Some(vt::MouseButton::Right),
+        _ => None,
+    }
 }
 
 impl TerminalView {
@@ -37,6 +46,23 @@ impl TerminalView {
         })
     }
 
+    fn report(&mut self, action: MouseAction, spot: &Spot, keys: &Modifiers) -> bool {
+        let mouse = Mouse {
+            action,
+            col: spot.col,
+            row: spot.row,
+            ctrl: keys.control,
+            alt: keys.alt,
+            shift: keys.shift,
+        };
+        let bytes = self.vt.encode_mouse(&mouse);
+        let sent = bytes.is_some();
+        if let Some(bytes) = bytes {
+            self.send(bytes);
+        }
+        sent
+    }
+
     pub(super) fn press(
         &mut self,
         event: &MouseDownEvent,
@@ -48,6 +74,17 @@ impl TerminalView {
         let Some(spot) = self.spot(event.position, window) else {
             return;
         };
+        if self.vt.mouse_reporting() && !event.modifiers.shift {
+            if let Some(button) = reported(event.button) {
+                self.reporting = Some(event.button);
+                self.last_cell = Some((spot.col, spot.row));
+                self.report(MouseAction::Press(button), &spot, &event.modifiers);
+            }
+            return;
+        }
+        if event.button != MouseButton::Left {
+            return;
+        }
         let grain = match event.click_count {
             1 => Grain::Cell,
             2 => Grain::Word,
@@ -64,22 +101,59 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.picking {
-            return;
-        }
-        if event.pressed_button != Some(MouseButton::Left) {
-            self.release(cx);
-            return;
-        }
         let Some(spot) = self.spot(event.position, window) else {
             return;
         };
-        self.vt.scroll_display(spot.beyond);
-        self.vt.select_extend(spot.col, spot.row, spot.right);
-        self.changed(cx);
+        let cell = Some((spot.col, spot.row));
+        if let Some(held) = self.reporting {
+            if event.pressed_button != Some(held) {
+                self.reporting = None;
+            } else if self.last_cell != cell
+                && let Some(button) = reported(held)
+            {
+                self.last_cell = cell;
+                self.report(MouseAction::Drag(button), &spot, &event.modifiers);
+            }
+            return;
+        }
+        if self.picking {
+            if event.pressed_button != Some(MouseButton::Left) {
+                self.finish_picking(cx);
+                return;
+            }
+            self.vt.scroll_display(spot.beyond);
+            self.vt.select_extend(spot.col, spot.row, spot.right);
+            self.changed(cx);
+        } else if event.pressed_button.is_none()
+            && self.area.contains(&event.position)
+            && self.last_cell != cell
+            && self.vt.mouse_reporting()
+            && !event.modifiers.shift
+        {
+            self.last_cell = cell;
+            self.report(MouseAction::Move, &spot, &event.modifiers);
+        }
     }
 
-    pub(super) fn release(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn release(
+        &mut self,
+        event: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.reporting == Some(event.button) {
+            self.reporting = None;
+            if let (Some(button), Some(spot)) =
+                (reported(event.button), self.spot(event.position, window))
+            {
+                self.report(MouseAction::Release(button), &spot, &event.modifiers);
+            }
+        } else if event.button == MouseButton::Left {
+            self.finish_picking(cx);
+        }
+    }
+
+    fn finish_picking(&mut self, cx: &mut Context<Self>) {
         if self.picking {
             self.picking = false;
             self.vt.select_end();
@@ -105,19 +179,18 @@ impl TerminalView {
         if lines == 0 {
             return;
         }
-        match self.vt.wheel() {
-            Wheel::History => {
-                self.vt.scroll_display(lines);
-                self.changed(cx);
+        if !event.modifiers.shift
+            && let Some(spot) = self.spot(event.position, window)
+        {
+            let action = MouseAction::Wheel {
+                up: lines > 0,
+                lines: lines.unsigned_abs() as usize,
+            };
+            if self.report(action, &spot, &event.modifiers) {
+                return;
             }
-            Wheel::Arrows { app_cursor } => {
-                let letter = if lines > 0 { 'A' } else { 'B' };
-                let lead = if app_cursor { "\x1bO" } else { "\x1b[" };
-                let steps = lines.unsigned_abs() as usize;
-                let bytes = format!("{lead}{letter}").repeat(steps.min(ARROW_LIMIT));
-                self.send(bytes.into_bytes());
-            }
-            Wheel::Report => {}
         }
+        self.vt.scroll_display(lines);
+        self.changed(cx);
     }
 }

@@ -30,6 +30,8 @@ const START: (u16, u16) = (80, 24);
 const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_IDLE_ALPHA: f32 = 0.3;
 const CURSOR_THIN: f32 = 2.0;
+const PAD_X: f32 = 10.0;
+const PAD_Y: f32 = 8.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputState {
@@ -574,6 +576,7 @@ impl Render for TerminalView {
             scale: self.scale,
             focused: self.focus.is_focused(window),
         };
+        let pad = point(px(PAD_X * self.scale), px(PAD_Y * self.scale));
         let view = cx.entity();
         let view_input = view.clone();
         let view_pointer = view.clone();
@@ -604,7 +607,11 @@ impl Render for TerminalView {
             }))
             .child(
                 canvas(
-                    move |bounds, window, cx| {
+                    move |outer, window, cx| {
+                        let bounds = Bounds::new(
+                            outer.origin + pad,
+                            outer.size - size(pad.x * 2.0, pad.y * 2.0),
+                        );
                         let base = metrics(window, &face, 1.0);
                         view.update(cx, |view, _| view.resized(bounds, base));
                         bounds

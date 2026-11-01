@@ -1,7 +1,6 @@
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
-use api::graph::text::is_url;
-pub use api::graph::text::{TextPart, drawable_form};
+use api::graph::text::{TextPart, drawable_form, is_url};
 
 pub fn parts(text: &str) -> Vec<TextPart> {
     let mut parts = Vec::new();

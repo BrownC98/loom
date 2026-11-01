@@ -5,12 +5,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::Cursor;
-use crate::accounts::{AccountId, Site};
+use crate::accounts::Site;
 use crate::profile::adapter::Meter;
-use crate::usage::{
-    Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent, usage_failed,
-    usage_now,
-};
+use crate::usage::{PROBE_TIMEOUT, failed, percent, usage_failed, usage_now};
+use api::ids::AccountId;
+use api::settings::usage::{Limits, ModelWindow, Usage, UsageProblem, Window};
 
 const ORIGIN: &str = "https://cursor.com";
 const USAGE_URL: &str = "https://cursor.com/api/usage-summary";

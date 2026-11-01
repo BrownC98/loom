@@ -32,7 +32,7 @@ mod usage_cache;
 mod verbs;
 mod waits;
 
-pub use api::graph::errors::Problem;
+use api::graph::errors::{IMAGE_EXTENSIONS, LaunchError, Problem, Refusal};
 pub use commands::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
     DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, ShowRequest,
@@ -63,35 +63,45 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
 use ts_rs::TS;
 
-use crate::accounts::{AccountId, Site};
+use crate::accounts::Site;
 use crate::commit_graph;
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    AgentEvent, CardView, EventLog, Graph, GraphEvent, IdleEnd, Kept, Launched, Listed, NewChild,
-    NodeId, NodeView, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
+    Graph, Kept, Launched, Listed, NewChild, PARENT, Relations, Report, Sent, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
+use crate::profile;
 use crate::profile::adapter::Chosen;
-use crate::profile::{self, Profile, Start};
 use crate::protocol::{
-    AckRequest, Delivery, EndedTurn, IMAGE_EXTENSIONS, IdleReply, IdleRequest, Kind, LaunchError,
-    MessageId, MessageKind, Model, Prompt, Question, REVIEW_RULES, Refusal, Strokes, TakeRequest,
-    Taken, TreeLimits, WaitDoc, WaitId, entered,
+    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, MessageId, Model, REVIEW_RULES,
+    TakeRequest, Taken,
 };
-use crate::roles::{RoleProblem, Roles, SetRole};
+use crate::roles::{RoleProblem, SetRole};
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
-use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
+use crate::spots::Spots;
 use crate::task;
 use crate::tunnel;
-use crate::update::{UpdateView, Updater};
+use crate::update::Updater;
 use crate::user_doc;
-use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos};
+use crate::worktree::{self, Repos};
 use crate::wsl;
+use api::canvas::{Arranged, CardSize, Layout, Placed};
+use api::graph::events::{AgentEvent, EventLog, IdleEnd, Via};
+use api::graph::messages::{Kind, MessageKind, Question};
+use api::graph::waits::{Prompt, Strokes, WaitDoc, entered};
+use api::graph::{CardView, GraphEvent, NodeView, Place};
+use api::ids::{AccountId, NodeId, RepoId, WaitId};
+use api::limits::TreeLimits;
+use api::profile::Profile;
+use api::repos::{FolderList, RepoProblem, RepoView};
+use api::settings::roles::Roles;
+use api::settings::update::UpdateView;
+use api::start::Start;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
     agent_note, agent_remove, agent_set_role, agent_spawn, endpoint_spawn, traced,

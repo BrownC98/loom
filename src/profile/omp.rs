@@ -3,11 +3,12 @@ use std::path::Path;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::ModelRule;
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Record, TurnTake};
-use crate::protocol::{ModelChoice, Session};
+use crate::protocol::Session;
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
+use api::profile::ModelRule;
+use api::start::ModelChoice;
 
 const EXTENSION: &str = include_str!("omp-loom.ts");
 const EXTENSION_FILE: &str = "omp-loom.ts";

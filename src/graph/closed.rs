@@ -1,11 +1,10 @@
 use rusqlite::{Connection, Row, params};
 
-pub use api::graph::waits::{Closed, ClosedPage, ClosedWait};
+use api::graph::waits::{Closed, ClosedPage, ClosedWait, HumanWait};
 
-use super::events::Who;
-use super::waits::HumanWait;
-use super::{Graph, NodeId, from_json, name_of, to_json};
-use crate::protocol::WaitId;
+use super::{Graph, from_json, name_of, to_json};
+use api::graph::events::Who;
+use api::ids::{NodeId, WaitId};
 
 const KEEP_SECS: i64 = 30 * 24 * 60 * 60;
 const PAGE: u32 = 100;

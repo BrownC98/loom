@@ -1,6 +1,5 @@
+use api::ids::NodeId;
 use std::sync::{Arc, Mutex};
-
-use crate::graph::NodeId;
 
 #[derive(Clone)]
 pub struct Caller {

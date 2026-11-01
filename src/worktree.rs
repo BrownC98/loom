@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::OptionalExtension;
 
-pub use api::ids::RepoId;
-pub use api::repos::{Folder, FolderList, Locations, PlaceView, RepoProblem, RepoView, Worktree};
+use api::ids::RepoId;
+use api::repos::{Folder, FolderList, PlaceView, RepoProblem, RepoView, Worktree};
 
 use crate::db::Database;
 use crate::distro::Ran;

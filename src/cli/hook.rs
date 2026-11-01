@@ -13,10 +13,12 @@ use crate::profile::{
     Unserved,
 };
 use crate::protocol::{
-    AckRequest, EndedTurn, Handoff, IdleReply, IdleRequest, Kind, ListenAt, ListenRequest,
-    MessageId, PromptKey, TakeRequest, Taken, WakeReply,
+    AckRequest, EndedTurn, Handoff, IdleReply, IdleRequest, ListenAt, ListenRequest, MessageId,
+    TakeRequest, Taken, WakeReply,
 };
 use crate::wsl::REWAKE_EXIT;
+use api::graph::messages::Kind;
+use api::graph::waits::PromptKey;
 
 const CALL_LIMIT: Duration = Duration::from_secs(5);
 

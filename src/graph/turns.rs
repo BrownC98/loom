@@ -1,8 +1,10 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::Graph;
 use super::waits::unreported_root;
-use super::{Graph, NodeId, TurnCheck};
 use crate::protocol::kind_line;
+use api::graph::events::TurnCheck;
+use api::ids::NodeId;
 
 #[derive(Clone, Copy)]
 enum Bit {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::place::{self, Machine};
-pub use api::canvas::CommitGraph;
+use api::canvas::CommitGraph;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()

@@ -1,4 +1,4 @@
-use crate::protocol::{GateState, GateVerb, IllegalStep, Judgment};
+use api::graph::messages::{GateState, GateVerb, IllegalStep, Judgment};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum MergeEnd {

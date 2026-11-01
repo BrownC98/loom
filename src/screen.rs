@@ -1,4 +1,4 @@
-use crate::protocol::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
+use api::graph::waits::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
 
 #[derive(Default)]
 pub struct Screen {

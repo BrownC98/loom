@@ -7,14 +7,17 @@ use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 
 use super::verbs::{role_refusal, spawn};
-use super::{AgentError, App, Problem, SpawnRequest, SpawnRun, for_agent};
-use crate::graph::{GateChoice, NodeId, Round, Via};
+use super::{AgentError, App, SpawnRequest, SpawnRun, for_agent};
+use crate::graph::{GateChoice, Round};
 use crate::place::Files;
-use crate::protocol::{self, Deploy, GateState, GateVerb, Judgment, Refusal};
-use crate::roles::REVIEWER_ROLES;
+use crate::protocol::{self, Deploy};
 use crate::worktree;
-use crate::worktree::RepoId;
 use crate::worktree::merge::{base_branch, contains};
+use api::graph::errors::{Problem, Refusal};
+use api::graph::events::Via;
+use api::graph::messages::{GateState, GateVerb, Judgment};
+use api::ids::{NodeId, RepoId};
+use api::settings::roles::REVIEWER_ROLES;
 
 pub const TOOL_HEADER: &str = "loom-tool";
 pub const VERSION_HEADER: &str = "loom-version";
@@ -304,7 +307,7 @@ async fn owned_worktree(
     registered: &str,
     branch: &str,
     cwd: &Path,
-) -> Result<worktree::Worktree, Refusal> {
+) -> Result<api::repos::Worktree, Refusal> {
     let mine = worktree::find(files, repo, registered)
         .await
         .map_err(git_problem)?;
@@ -348,7 +351,7 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(8)]
 }
 
-fn git_problem(e: worktree::RepoProblem) -> Refusal {
+fn git_problem(e: api::repos::RepoProblem) -> Refusal {
     Refusal::Git(e.to_string())
 }
 

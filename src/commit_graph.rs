@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::Deserialize;
 use ts_rs::TS;
 
-pub use api::canvas::{Commit, GitRef};
+use api::canvas::{Commit, GitRef};
 
 use crate::git;
 use crate::place::Files;

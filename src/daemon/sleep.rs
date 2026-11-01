@@ -8,13 +8,12 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
-use crate::graph::{
-    Active, AgentChange, AgentEvent, AgentState, Attempt, DeafClaim, IdleEnd, NodeId, Plan,
-    ProcessOutcome,
-};
+use crate::graph::{Active, AgentChange, Attempt, DeafClaim, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
 use crate::profile;
 use crate::screen::Screen;
+use api::graph::events::{AgentEvent, AgentState, IdleEnd};
+use api::ids::NodeId;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 

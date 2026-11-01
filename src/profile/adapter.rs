@@ -6,18 +6,22 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
-use super::{ModelRule, VersionMismatch};
-use crate::accounts::{AccountId, Cli, Site};
+use crate::accounts::{Cli, Site};
 use crate::distro::Distro;
 use crate::protocol::{
-    AdapterRecord, Delivery, IdleReply, IdleRequest, Kind, LaunchError, MessageId, ModelChoice,
-    Prompt, Refusal, Report, Session, TakeRequest, Taken,
+    AdapterRecord, Delivery, IdleReply, IdleRequest, MessageId, Report, Session, TakeRequest, Taken,
 };
 use crate::screen::{Dialog, Grammar, Screen};
 use crate::skills::Launch;
 use crate::task::TaskDir;
-use crate::usage::Usage;
 use crate::wsl::Inside;
+use api::graph::errors::{LaunchError, Refusal};
+use api::graph::messages::Kind;
+use api::graph::waits::Prompt;
+use api::ids::AccountId;
+use api::profile::{ModelRule, VersionMismatch};
+use api::settings::usage::Usage;
+use api::start::ModelChoice;
 
 pub struct Facts {
     pub logins: Logins,

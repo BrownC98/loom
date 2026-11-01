@@ -9,11 +9,14 @@ use serde_json::{Value, json};
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::claude::Event;
 use super::process::Served;
-use super::{Handed, HookEvent, ModelRule, Shown, Signals, Take};
+use super::{Handed, HookEvent, Shown, Signals, Take};
 use crate::distro::Distro;
 use crate::place::Files;
-use crate::protocol::{LaunchError, Model, ModelChoice, Report, Session};
+use crate::protocol::{Model, Report, Session};
 use crate::screen::{Dialog, Grammar};
+use api::graph::errors::LaunchError;
+use api::profile::ModelRule;
+use api::start::ModelChoice;
 
 const HOOK: &str = "loom hook qwen";
 const HOOK_TIMEOUT_SECS: u64 = 10;

@@ -5,11 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::CommandBuilder;
 
-pub use api::ids::AccountId;
+use api::ids::AccountId;
 
 use crate::process_tree;
-use crate::protocol::{LaunchError, Provider};
 use crate::wsl::{Inside, Run};
+use api::graph::errors::LaunchError;
+use api::profile::Provider;
 
 fn checked(id: &AccountId) -> io::Result<&str> {
     let ok = id.0.len() == 16 && id.0.bytes().all(|b| b.is_ascii_hexdigit());

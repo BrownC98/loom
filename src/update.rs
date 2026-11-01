@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-pub use api::settings::update::{UpdateStep, UpdateView};
+use api::settings::update::{UpdateStep, UpdateView};
 
 use crate::launch;
 

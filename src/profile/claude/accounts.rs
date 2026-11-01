@@ -1,8 +1,9 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use crate::accounts::{AccountId, Cli, Site};
-use crate::protocol::Provider;
+use crate::accounts::{Cli, Site};
+use api::ids::AccountId;
+use api::profile::Provider;
 
 pub static CLI: Cli = Cli {
     provider: Provider::Claude,

@@ -6,7 +6,8 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use super::{lan, passes, phone};
-use crate::devices::{DeviceId, Devices};
+use crate::devices::Devices;
+use api::settings::phone::DeviceId;
 
 const TAILSCALE_LOGIN: &str = "tailscale-user-login";
 const FORWARDED_HOST: &str = "x-forwarded-host";

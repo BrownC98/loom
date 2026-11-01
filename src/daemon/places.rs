@@ -1,19 +1,21 @@
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
-pub use api::settings::places::{DistroView, ReachView, SystemView};
+use api::settings::places::{DistroView, ReachView, SystemView};
 use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 
 use super::ssh_hosts::Reach;
-use super::{App, Problem, internal};
+use super::{App, internal};
 use crate::distro::Host;
 use crate::place::{self, Machine};
-use crate::protocol::LaunchError;
 use crate::ssh::{Failure, SSH_DIR, System};
-use crate::worktree::{self, Locations, RepoId, RepoView};
+use crate::worktree;
 use crate::wsl;
+use api::graph::errors::{LaunchError, Problem};
+use api::ids::RepoId;
+use api::repos::{Locations, RepoView};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -120,7 +122,7 @@ impl App {
         Ok(PathBuf::from(wsl::windows_path(distro, &home)))
     }
 
-    async fn home_inside(&self, distro: &str) -> Result<String, crate::protocol::InsideError> {
+    async fn home_inside(&self, distro: &str) -> Result<String, api::graph::errors::InsideError> {
         wsl::home(&self.host(Host::Distro(distro.to_owned()))?).await
     }
 
@@ -165,7 +167,7 @@ impl App {
                     .await
                     .map_err(internal)?
                     .map_err(|e| {
-                        Problem::Launch(LaunchError::Wsl(crate::protocol::InsideError::Start {
+                        Problem::Launch(LaunchError::Wsl(api::graph::errors::InsideError::Start {
                             distro: at.host.clone(),
                             cause: e.to_string(),
                         }))

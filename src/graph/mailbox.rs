@@ -4,19 +4,22 @@ use std::pin::pin;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use super::events::{self, Entry, GateTrace, Step, Via};
+use super::events;
 use super::{
-    Graph, HUMAN, Hold, NodeId, NodeState, REACHABLE, Toward, Work, ambiguous, from_json,
-    optional_json, parent_of, set_work, state_of, to_json,
+    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, from_json, optional_json, parent_of, set_work,
+    state_of, to_json,
 };
 use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::process_tree::Identity;
-use crate::protocol::{
-    AgentId, BATCH_SEPARATOR, BRIEF_LIMIT_BYTES, Delivery, Kind, LOOM, MAILBOX_LIMIT, MessageId,
-    MessageKind, Question, Refusal, SUMMARY_LIMIT_BYTES, WaitDoc,
-};
+use crate::protocol::{BATCH_SEPARATOR, Delivery, LOOM, MessageId};
+use api::graph::errors::{BRIEF_LIMIT_BYTES, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES};
+use api::graph::events::{Entry, GateTrace, Step, Via};
+use api::graph::messages::{Kind, MessageKind, Question};
+use api::graph::waits::WaitDoc;
+use api::graph::{NodeState, Toward};
+use api::ids::{AgentId, NodeId};
 
 const NOTICE: &str = "what ->> 'kind' IN ('exited', 'removed', 'adopted')";
 
@@ -675,7 +678,7 @@ pub(super) fn read(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
         let entry = Entry::Message {
             how,
             what,
-            from: events::Who { id: sender, name },
+            from: api::graph::events::Who { id: sender, name },
             to: Some(to.clone()),
             step: Step::Delivered,
             via: None,
@@ -879,7 +882,7 @@ pub(super) fn enqueue_from_loom(
     let entry = Entry::Message {
         how: kind,
         what: Some(what.clone()),
-        from: events::Who {
+        from: api::graph::events::Who {
             id: None,
             name: LOOM.to_owned(),
         },

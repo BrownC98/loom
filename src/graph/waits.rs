@@ -4,20 +4,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-pub use api::graph::docs::DocQuestion;
-pub use api::graph::waits::{HumanWait, ScreenWait, WaitTone};
+use api::graph::docs::DocQuestion;
+use api::graph::waits::{Closed, HumanWait, Prompt, ScreenWait, WaitDoc, WaitKind, WaitTone};
 
-use super::agent_state::{self, AgentEvent};
-use super::closed::{self, Closed, Open};
-use super::events::{self, ClosedBy, Entry};
+use super::agent_state;
+use super::closed::{self, Open};
+use super::events;
 use super::mailbox;
 use crate::choices::{choices, offers_choices_without_tail};
-use crate::link_text::{TextPart, bare_link, parts};
-use crate::protocol::{
-    AgentId, MessageKind, OpenQuestion, Prompt, Question, Refusal, WaitDoc, WaitId, WaitKind,
-};
+use crate::link_text::{bare_link, parts};
+use crate::protocol::OpenQuestion;
+use api::graph::NodeState;
+use api::graph::errors::Refusal;
+use api::graph::events::{AgentEvent, ClosedBy, Entry};
+use api::graph::messages::{MessageKind, Question};
+use api::graph::text::TextPart;
+use api::ids::{AgentId, NodeId, WaitId};
 
-use super::{Graph, NodeId, NodeState, from_json, parent_of, state_of, to_json};
+use super::{Graph, from_json, parent_of, state_of, to_json};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,7 +222,7 @@ impl Graph {
                 format!("\nImages: {}", quoted.join(" "))
             }
         };
-        type Record = fn(events::Who, WaitId, String, u32) -> Entry;
+        type Record = fn(api::graph::events::Who, WaitId, String, u32) -> Entry;
         let (node, what, body, record): (NodeId, MessageKind, String, Record) = match open_ask(
             &db, wait,
         ) {

@@ -4,8 +4,9 @@ use std::sync::Arc;
 use api::graph::waits::{InputField, Prompt, ScreenWait, WaitKind, WaitTone};
 use api::ids::{NodeId, WaitId};
 use gpui::{
-    AnyElement, App, Context, Div, Entity, Image, IntoElement, ObjectFit, ParentElement,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, div, img, px,
+    AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, Image, InteractiveElement,
+    IntoElement, ObjectFit, ParentElement, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, Task, Window, div, img, px,
 };
 
 use super::body::{self, Target};
@@ -14,6 +15,10 @@ use super::ui::{self, GAP, PAD, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::pictures::{self, Pictures, PicturesEvent};
+use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::tooltip::tip;
+use crate::views::viewer::Viewer;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
 const SHOT_HEIGHT: f32 = 96.0;
@@ -25,6 +30,17 @@ struct Draft {
     _sub: Subscription,
 }
 
+struct Attach {
+    pictures: Entity<Pictures>,
+    _sub: Subscription,
+}
+
+type Done = Box<dyn FnOnce(&mut App)>;
+
+fn cleared(field: Entity<Field>) -> Done {
+    Box::new(move |cx| field.update(cx, |field, cx| field.clear(cx)))
+}
+
 pub(crate) struct Answers {
     store: Entity<Store>,
     fields: HashMap<(u32, Slot), Draft>,
@@ -32,6 +48,10 @@ pub(crate) struct Answers {
     notes: HashMap<u32, String>,
     images: HashMap<(u32, usize), Arc<Image>>,
     loading: HashSet<(u32, usize)>,
+    attached: HashMap<u32, Attach>,
+    waiting: HashMap<u32, (String, Option<Done>)>,
+    viewer: Entity<Viewer>,
+    zoomed: Option<u32>,
     _subs: Vec<Subscription>,
 }
 
@@ -57,6 +77,10 @@ impl Answers {
             notes: HashMap::new(),
             images: HashMap::new(),
             loading: HashSet::new(),
+            attached: HashMap::new(),
+            waiting: HashMap::new(),
+            viewer: cx.new(Viewer::new),
+            zoomed: None,
             _subs: Vec::new(),
         };
         answers
@@ -83,21 +107,29 @@ impl Answers {
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let waits: Vec<ScreenWait> = self
+        let waits: Vec<(NodeId, ScreenWait)> = self
             .store
             .read(cx)
             .snapshot()
-            .map(|s| s.nodes.iter().flat_map(|n| n.waits.clone()).collect())
+            .map(|s| {
+                s.nodes
+                    .iter()
+                    .flat_map(|n| n.waits.iter().map(|w| (n.id, w.clone())))
+                    .collect()
+            })
             .unwrap_or_default();
-        let live: HashSet<u32> = waits.iter().map(|w| w.wait.id.0).collect();
+        let live: HashSet<u32> = waits.iter().map(|(_, w)| w.wait.id.0).collect();
         self.shown.retain(|id, _| live.contains(id));
         self.fields.retain(|(id, _), _| live.contains(id));
         self.notes.retain(|id, _| live.contains(id));
         self.images.retain(|(id, _), _| live.contains(id));
         self.loading.retain(|(id, _)| live.contains(id));
+        self.attached.retain(|id, _| live.contains(id));
+        self.waiting.retain(|id, _| live.contains(id));
         self.store
             .update(cx, |store, cx| store.keep_waits(&live, cx));
-        for wait in &waits {
+        for (node, wait) in &waits {
+            self.ensure_pictures(*node, wait, cx);
             self.ensure_fields(wait, cx);
             self.load_images(wait, cx);
         }
@@ -134,6 +166,48 @@ impl Answers {
         }
     }
 
+    fn ensure_pictures(&mut self, node: NodeId, wait: &ScreenWait, cx: &mut Context<Self>) {
+        let id = wait.wait.id.0;
+        if !wait.wait.answerable {
+            self.attached.remove(&id);
+            return;
+        }
+        if !self.attached.contains_key(&id) {
+            let pictures = self
+                .store
+                .update(cx, |store, cx| store.pictures(node, id, cx));
+            let sub =
+                cx.subscribe(
+                    &pictures,
+                    move |answers, _, event: &PicturesEvent, cx| match event {
+                        PicturesEvent::Settled => answers.settled(id, cx),
+                        PicturesEvent::Refused(text) => {
+                            answers.notes.insert(id, text.clone());
+                            cx.notify();
+                        }
+                        PicturesEvent::Other(name, _) => {
+                            let text = ui::say_with(cx, Str::InboxNotImage, &[("name", name)]);
+                            answers.notes.insert(id, text);
+                            cx.notify();
+                        }
+                    },
+                );
+            self.attached.insert(
+                id,
+                Attach {
+                    pictures,
+                    _sub: sub,
+                },
+            );
+        }
+    }
+
+    fn settled(&mut self, wait: u32, cx: &mut Context<Self>) {
+        if let Some((text, done)) = self.waiting.remove(&wait) {
+            self.send(wait, text, done, cx);
+        }
+    }
+
     fn ensure_fields(&mut self, wait: &ScreenWait, cx: &mut Context<Self>) {
         let id = wait.wait.id.0;
         if wait.wait.answerable {
@@ -147,6 +221,7 @@ impl Answers {
                 },
             );
             self.make_field(id, Slot::Answer, hint, false, true, cx);
+            self.hook_files(id, cx);
         }
         let prompt = wait.wait.prompt.as_ref();
         drop_absent_slots(&mut self.fields, id, prompt);
@@ -169,6 +244,20 @@ impl Answers {
                 },
             );
             self.make_field(id, Slot::Field, hint, secret, false, cx);
+        }
+    }
+
+    fn hook_files(&mut self, id: u32, cx: &mut Context<Self>) {
+        let Some(attach) = self.attached.get(&id) else {
+            return;
+        };
+        let pictures = attach.pictures.clone();
+        if let Some(draft) = self.fields.get(&(id, Slot::Answer)) {
+            draft.field.update(cx, |field, _| {
+                field.on_files(move |entries, _, cx| {
+                    pictures.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
+                });
+            });
         }
     }
 
@@ -218,6 +307,12 @@ impl Answers {
         );
     }
 
+    fn zoom(&mut self, wait: u32, image: Arc<Image>, window: &mut Window, cx: &mut Context<Self>) {
+        self.zoomed = Some(wait);
+        self.viewer
+            .update(cx, |viewer, cx| viewer.open(image, window, cx));
+    }
+
     fn follow(&mut self, wait: u32, target: Target, cx: &mut Context<Self>) {
         let task = body::open(&self.store, target, cx);
         cx.spawn(async move |this, cx| {
@@ -236,7 +331,7 @@ impl Answers {
     fn run(
         &mut self,
         wait: u32,
-        clear: Option<Entity<Field>>,
+        done: Option<Done>,
         task: Task<Result<(), String>>,
         cx: &mut Context<Self>,
     ) {
@@ -252,8 +347,8 @@ impl Answers {
                     .update(cx, |store, cx| store.set_busy(wait, false, cx));
                 match result {
                     Ok(()) => {
-                        if let Some(field) = clear {
-                            field.update(cx, |field, cx| field.clear(cx));
+                        if let Some(done) = done {
+                            done(cx);
                         }
                     }
                     Err(error) => {
@@ -282,10 +377,15 @@ impl Answers {
         let store = self.store.clone();
         let task = match slot {
             Slot::Answer => {
-                if field.read(cx).is_blank() {
+                let bare = self
+                    .attached
+                    .get(&wait)
+                    .is_none_or(|a| a.pictures.read(cx).is_empty());
+                if field.read(cx).is_blank() && bare {
                     return;
                 }
-                store.update(cx, |store, cx| store.answer_wait(id, text, cx))
+                self.send(wait, text, Some(cleared(field)), cx);
+                return;
             }
             Slot::Option(index) => {
                 let Some(prompt) = self.shown.get(&wait).cloned() else {
@@ -302,7 +402,42 @@ impl Answers {
                 store.update(cx, |store, cx| store.type_text(id, prompt, text, None, cx))
             }
         };
-        self.run(wait, Some(field), task, cx);
+        self.run(wait, Some(cleared(field)), task, cx);
+    }
+
+    fn send(&mut self, wait: u32, text: String, done: Option<Done>, cx: &mut Context<Self>) {
+        let pictures = self.attached.get(&wait).map(|a| a.pictures.clone());
+        if pictures.as_ref().is_some_and(|p| p.read(cx).busy()) {
+            self.store
+                .update(cx, |store, cx| store.set_busy(wait, true, cx));
+            self.waiting.insert(wait, (text, done));
+            return;
+        }
+        let saved = pictures
+            .as_ref()
+            .map(|p| p.read(cx).saved())
+            .unwrap_or_default();
+        if text.trim().is_empty() && saved.is_empty() {
+            let note = ui::say(cx, Str::ComposerNothingSaved).to_owned();
+            self.notes.insert(wait, note);
+            self.store
+                .update(cx, |store, cx| store.set_busy(wait, false, cx));
+            cx.notify();
+            return;
+        }
+        let (ids, paths): (Vec<u32>, Vec<String>) = saved.into_iter().unzip();
+        let task = self.store.update(cx, |store, cx| {
+            store.answer_wait(WaitId(wait), text, paths, cx)
+        });
+        let done: Done = Box::new(move |cx| {
+            if let Some(done) = done {
+                done(cx);
+            }
+            if let Some(pictures) = pictures {
+                pictures.update(cx, |pictures, cx| pictures.forget(&ids, cx));
+            }
+        });
+        self.run(wait, Some(done), task, cx);
     }
 
     fn pick(&mut self, wait: u32, option: usize, cx: &mut Context<Self>) {
@@ -323,11 +458,7 @@ impl Answers {
         if self.store.read(cx).is_busy(wait) {
             return;
         }
-        let id = WaitId(wait);
-        let task = self
-            .store
-            .update(cx, |store, cx| store.answer_wait(id, text, cx));
-        self.run(wait, None, task, cx);
+        self.send(wait, text, None, cx);
     }
 
     fn dismiss(&mut self, wait: u32, cx: &mut Context<Self>) {
@@ -413,6 +544,11 @@ pub(crate) fn entry(
         );
     }
     entry = entry.child(wait_body(answers, node, wait, z, cx));
+    let viewer = {
+        let state = answers.read(cx);
+        (state.zoomed == Some(id) && state.viewer.read(cx).is_open()).then(|| state.viewer.clone())
+    };
+    entry = entry.children(viewer);
     if let Some(note) = answers.read(cx).notes.get(&id) {
         entry = entry.child(
             div()
@@ -435,17 +571,38 @@ fn wait_body(
     let id = wait.wait.id.0;
     let done = matches!(wait.tone, WaitTone::Done);
     let mut body = div().flex().flex_col().gap(px(GAP * z));
-    let shots: Vec<Arc<Image>> = (0..wait.wait.images.len())
-        .filter_map(|index| answers.read(cx).images.get(&(id, index)).cloned())
+    let shots: Vec<(usize, Arc<Image>)> = (0..wait.wait.images.len())
+        .filter_map(|index| Some((index, answers.read(cx).images.get(&(id, index))?.clone())))
         .collect();
     if !shots.is_empty() {
         body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
-            shots.into_iter().map(|image| {
-                img(image)
-                    .w(px(SHOT_WIDTH * z))
-                    .h(px(SHOT_HEIGHT * z))
-                    .object_fit(ObjectFit::Contain)
-                    .rounded(px(4.0 * z))
+            shots.into_iter().map(|(index, image)| {
+                let owner = answers.clone();
+                let opened = image.clone();
+                let name = wait.wait.images[index]
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                div()
+                    .id(("shot", id as usize * 256 + index % 256))
+                    .cursor_pointer()
+                    .tooltip(tip(ui::say_with(
+                        cx,
+                        Str::InboxZoomImage,
+                        &[("name", &name)],
+                    )))
+                    .on_click(move |_, window, cx| {
+                        let opened = opened.clone();
+                        owner.update(cx, |answers, cx| answers.zoom(id, opened, window, cx))
+                    })
+                    .child(
+                        img(image)
+                            .w(px(SHOT_WIDTH * z))
+                            .h(px(SHOT_HEIGHT * z))
+                            .object_fit(ObjectFit::Contain)
+                            .rounded(px(4.0 * z)),
+                    )
             }),
         ));
     }
@@ -495,9 +652,40 @@ fn wait_body(
                 }),
             ));
         }
+        let pictures = answers
+            .read(cx)
+            .attached
+            .get(&id)
+            .map(|a| a.pictures.clone());
+        if let Some(pictures) = &pictures {
+            let owner = answers.clone();
+            body = body.children(pictures::chips(
+                pictures,
+                move |picture, window, cx| {
+                    owner.update(cx, |answers, cx| answers.zoom(id, picture, window, cx))
+                },
+                "answer-chip",
+                id,
+                z,
+                cx,
+            ));
+        }
         let field = scaled(answers, id, Slot::Answer, z, cx);
         if let Some(field) = field {
             body = body.child(send_row(answers, id, Slot::Answer, &field, z, cx));
+        }
+        if let Some(pictures) = pictures {
+            let drop_edge = c.warn;
+            body = body
+                .rounded(px(6.0 * z))
+                .drag_over::<ExternalPaths>(move |style, _, _, _| {
+                    style.border_1().border_color(drop_edge)
+                })
+                .on_drop(move |paths: &ExternalPaths, _, cx| {
+                    pictures.update(cx, |pictures, cx| {
+                        pictures.take_paths(paths.paths().to_vec(), cx)
+                    })
+                });
         }
     } else if wait.wait.prompt.is_none() {
         let store = answers.read(cx).store.clone();
@@ -527,11 +715,31 @@ fn send_row(
         Slot::Option(index) => index + 1,
         Slot::Field => 255,
     };
+    let pictures = (slot == Slot::Answer)
+        .then(|| {
+            answers
+                .read(cx)
+                .attached
+                .get(&id)
+                .map(|a| a.pictures.clone())
+        })
+        .flatten();
+    let attach = pictures.map(|pictures| {
+        ui::button_at(("attach", id as usize), z, cx)
+            .w(px(28.0 * z))
+            .h(px(28.0 * z))
+            .justify_center()
+            .px(px(0.0))
+            .tooltip(tip(ui::say(cx, Str::InboxAttachImage).to_owned()))
+            .child(icon(Glyph::Image, 14.0 * z, c.ink_2))
+            .on_click(move |_, _, cx| pictures.update(cx, |pictures, cx| pictures.pick_files(cx)))
+    });
     div()
         .flex()
         .items_end()
         .gap(px(GAP * z))
         .child(div().flex_1().min_w_0().child(field.clone()))
+        .children(attach)
         .child(
             ui::button_at(("send", id as usize * 256 + slot_id), z, cx)
                 .w(px(28.0 * z))

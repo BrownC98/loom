@@ -11,14 +11,15 @@ use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
 use gpui::{
-    App, AppContext, Bounds, Context, EventEmitter, Image, ImageFormat, Pixels, Task, Window,
-    WindowAppearance,
+    App, AppContext, Bounds, Context, Entity, EventEmitter, Image, ImageFormat, Pixels, Task,
+    Window, WindowAppearance,
 };
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::strings::Str;
+use crate::views::pictures::Pictures;
 use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
@@ -46,6 +47,7 @@ pub struct Store {
     zoomed: bool,
     drafts: HashMap<(u32, Slot), String>,
     busy: HashSet<u32>,
+    pictures: HashMap<u32, Entity<Pictures>>,
 }
 
 const NOTICE_FOR: Duration = Duration::from_secs(6);
@@ -148,6 +150,7 @@ impl Store {
             zoomed: false,
             drafts: HashMap::new(),
             busy: HashSet::new(),
+            pictures: HashMap::new(),
         }
     }
 
@@ -201,11 +204,25 @@ impl Store {
 
     pub fn keep_waits(&mut self, live: &HashSet<u32>, cx: &mut Context<Self>) {
         self.drafts.retain(|(wait, _), _| live.contains(wait));
+        self.pictures.retain(|wait, _| live.contains(wait));
         let before = self.busy.len();
         self.busy.retain(|wait| live.contains(wait));
         if self.busy.len() != before {
             cx.emit(BusyChanged);
         }
+    }
+
+    pub fn pictures(
+        &mut self,
+        node: NodeId,
+        wait: u32,
+        cx: &mut Context<Self>,
+    ) -> Entity<Pictures> {
+        let store = cx.entity();
+        self.pictures
+            .entry(wait)
+            .or_insert_with(|| cx.new(|_| Pictures::new(store, node)))
+            .clone()
     }
 
     pub fn is_busy(&self, wait: u32) -> bool {
@@ -485,11 +502,12 @@ impl Store {
         &self,
         wait: WaitId,
         text: String,
+        images: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         let body = AnswerWait {
             text,
-            images: Vec::new(),
+            images: images.into_iter().map(Into::into).collect(),
         };
         self.call(cx, move |base| {
             let path = format!("/api/waits/{}/answer", wait.0);

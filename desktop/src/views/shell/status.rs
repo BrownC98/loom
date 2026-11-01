@@ -1,4 +1,6 @@
-use gpui::{Div, Entity, ParentElement, Styled, div, px};
+mod usage;
+
+use gpui::{App, Div, Entity, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px};
 
 use api::graph::NodeState;
 
@@ -20,7 +22,25 @@ fn link_text(link: LinkState) -> Str {
     }
 }
 
-pub fn bar(store: &Store, colors: &Colors, lang: Lang, zoom: &Entity<Zoom>) -> Div {
+#[derive(IntoElement)]
+struct Usage(Entity<Store>);
+
+impl RenderOnce for Usage {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let store = self.0;
+        window.use_keyed_state("status-usage", cx, |_, cx| usage::Usage::new(store, cx))
+    }
+}
+
+pub fn bar(
+    store: &Entity<Store>,
+    cx: &App,
+    colors: &Colors,
+    lang: Lang,
+    zoom: &Entity<Zoom>,
+) -> Div {
+    let usage = Usage(store.clone());
+    let store = store.read(cx);
     let (dot, text) = match store.base() {
         None => (colors.err, None),
         Some(_) => {
@@ -52,22 +72,24 @@ pub fn bar(store: &Store, colors: &Colors, lang: Lang, zoom: &Entity<Zoom>) -> D
         .flex()
         .items_center()
         .gap(px(10.0))
-        .px(px(8.0))
+        .px(px(4.0))
         .bg(colors.panel)
         .border_t_1()
         .border_color(colors.line)
         .text_size(px(12.0))
         .text_color(colors.ink_2)
-        .child(div().size(px(DOT)).rounded_full().bg(dot))
-        .children(text.map(|text| div().child(text)))
+        .child(usage)
+        .child(div().size(px(DOT)).flex_none().rounded_full().bg(dot))
+        .children(text.map(|text| div().flex_none().child(text)))
         .child(
             div()
                 .min_w_0()
-                .overflow_hidden()
+                .truncate()
                 .text_color(colors.ink_3)
                 .child(store.status().to_owned()),
         )
         .child(div().flex_1())
-        .children(counts.map(|counts| div().child(counts)))
+        .children(counts.map(|counts| div().flex_none().child(counts)))
         .child(zoom.clone())
+        .child(usage::version())
 }

@@ -2,6 +2,7 @@ pub mod anchor;
 pub mod card;
 pub mod cardlink;
 pub mod dock;
+pub mod dotted;
 pub mod expanded;
 pub mod field;
 pub mod icons;

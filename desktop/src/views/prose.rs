@@ -139,15 +139,28 @@ fn width(window: &Window, font: FontId, font_size: Pixels, ch: char) -> Pixels {
 struct Breaker {
     bytes: Vec<u8>,
     limit: Pixels,
+    clamp: Option<usize>,
     line: Pixels,
     filled: bool,
     word: Pixels,
     gap: Pixels,
     first_gap: Option<usize>,
+    lines: usize,
+    start: usize,
     changed: bool,
+    cut: Option<(usize, usize)>,
 }
 
 impl Breaker {
+    fn next_line(&mut self, at: usize) {
+        let before = self.start;
+        self.lines += 1;
+        self.start = at + 1;
+        if self.cut.is_none() && self.clamp.is_some_and(|clamp| self.lines > clamp) {
+            self.cut = Some((at, before));
+        }
+    }
+
     fn settle(&mut self) {
         if self.word <= Pixels::ZERO {
             return;
@@ -157,6 +170,7 @@ impl Breaker {
                 self.bytes[at] = b'\n';
                 self.changed = true;
                 self.line = self.word;
+                self.next_line(at);
             }
             _ => self.line += self.gap + self.word,
         }
@@ -168,12 +182,13 @@ impl Breaker {
         self.gap = Pixels::ZERO;
     }
 
-    fn newline(&mut self) {
+    fn newline(&mut self, at: usize) {
         self.settle();
         self.line = Pixels::ZERO;
         self.filled = false;
         self.gap = Pixels::ZERO;
         self.first_gap = None;
+        self.next_line(at);
     }
 
     fn space(&mut self, at: usize, advance: Pixels) {
@@ -187,42 +202,110 @@ impl Breaker {
     }
 }
 
-fn keep_all(
+struct Wrapped {
+    text: String,
+    runs: Vec<TextRun>,
+}
+
+fn ending(runs: &[TextRun], len: usize) -> Vec<TextRun> {
+    let mut kept = Vec::new();
+    let mut left = len;
+    for run in runs {
+        if left == 0 {
+            break;
+        }
+        let take = run.len.min(left);
+        kept.push(TextRun {
+            len: take,
+            ..run.clone()
+        });
+        left -= take;
+    }
+    kept
+}
+
+fn wrap(
     text: &str,
     runs: &[TextRun],
     font_size: Pixels,
     limit: Pixels,
+    clamp: Option<usize>,
     window: &Window,
-) -> Option<String> {
-    let mut fonts = runs
-        .iter()
-        .flat_map(|run| std::iter::repeat_n(window.text_system().resolve_font(&run.font), run.len));
+) -> Option<Wrapped> {
+    let mut ends = Vec::new();
+    let mut end = 0;
+    for run in runs {
+        end += run.len;
+        ends.push((end, window.text_system().resolve_font(&run.font)));
+    }
+    let font_at = |at: usize| {
+        ends.iter()
+            .find(|(end, _)| at < *end)
+            .or(ends.last())
+            .map(|(_, font)| *font)
+    };
     let mut breaker = Breaker {
         bytes: text.as_bytes().to_vec(),
         limit,
+        clamp,
         line: Pixels::ZERO,
         filled: false,
         word: Pixels::ZERO,
         gap: Pixels::ZERO,
         first_gap: None,
+        lines: 1,
+        start: 0,
         changed: false,
+        cut: None,
     };
     for (at, ch) in text.char_indices() {
-        let font = fonts.next()?;
-        for _ in 1..ch.len_utf8() {
-            fonts.next();
+        if breaker.cut.is_some() {
+            break;
         }
-        let advance = width(window, font, font_size, ch);
+        let advance = width(window, font_at(at)?, font_size, ch);
         match ch {
-            '\n' => breaker.newline(),
+            '\n' => breaker.newline(at),
             ' ' => breaker.space(at, advance),
             _ => breaker.word += advance,
         }
     }
-    breaker.settle();
-    breaker
-        .changed
-        .then(|| String::from_utf8(breaker.bytes).unwrap_or_default())
+    if breaker.cut.is_none() {
+        breaker.settle();
+    }
+    let Some((end, start)) = breaker.cut else {
+        return breaker.changed.then(|| Wrapped {
+            text: String::from_utf8(breaker.bytes).unwrap_or_default(),
+            runs: runs.to_vec(),
+        });
+    };
+    let body = String::from_utf8(breaker.bytes[..end].to_vec()).unwrap_or_default();
+    let mut shown = body[start..].trim_end().to_owned();
+    let font = font_at(end.saturating_sub(1))?;
+    let dots = width(window, font, font_size, '\u{2026}');
+    let mut used = Pixels::ZERO;
+    for (offset, ch) in shown.char_indices() {
+        used += width(window, font_at(start + offset)?, font_size, ch);
+    }
+    while used + dots > limit
+        && let Some(ch) = shown.pop()
+    {
+        used -= width(window, font_at(start + shown.len())?, font_size, ch);
+    }
+    let kept = start + shown.len();
+    let mut out = body[..kept].to_owned();
+    out.push('\u{2026}');
+    let mut kept_runs = ending(runs, kept);
+    match kept_runs.last_mut() {
+        Some(last) => last.len += '\u{2026}'.len_utf8(),
+        None => kept_runs.push(TextRun {
+            len: '\u{2026}'.len_utf8(),
+            ..runs.first()?.clone()
+        }),
+    }
+    Some(Wrapped {
+        text: out,
+        runs: kept_runs,
+    })
 }
 
 impl IntoElement for Prose {
@@ -278,15 +361,20 @@ impl Element for Prose {
                 {
                     return laid.size;
                 }
-                let shown = match wrap_width {
-                    Some(limit) if korean => keep_all(&text, &runs, font_size, limit, window)
-                        .map_or_else(|| text.clone(), SharedString::from),
-                    _ => text.clone(),
+                let wrapped = match wrap_width {
+                    Some(limit) if korean || style.line_clamp.is_some() => {
+                        wrap(&text, &runs, font_size, limit, style.line_clamp, window)
+                    }
+                    _ => None,
+                };
+                let (shown, used) = match wrapped {
+                    Some(wrapped) => (SharedString::from(wrapped.text), wrapped.runs),
+                    None => (text.clone(), runs.clone()),
                 };
                 let Ok(lines) = window.text_system().shape_text(
                     shown,
                     font_size,
-                    &runs,
+                    &used,
                     wrap_width,
                     style.line_clamp,
                 ) else {

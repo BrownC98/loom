@@ -20,6 +20,7 @@ use crate::fonts;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::anchor::Anchors;
+use crate::views::dotted;
 use crate::views::field::Field;
 use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
 use crate::views::prose::prose;
@@ -888,8 +889,12 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
             .into_any_element();
     }
     let press = face.actions.rename.clone();
+    let group = format!("name-{}", node.id.0);
     div()
         .id(("name", node.id.0 as usize))
+        .group(group.clone())
+        .relative()
+        .cursor_text()
         .min_w_0()
         .max_w(px(face.width * 0.45 * zoom))
         .overflow_hidden()
@@ -905,6 +910,12 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
         })
         .tooltip(tooltip::tip(Str::RenameTitle.text(face.lang).to_owned()))
         .child(node.name.clone())
+        .child(dotted::underline(
+            group,
+            colors.ink_3,
+            zoom,
+            dotted::NAME_LIFT,
+        ))
         .into_any_element()
 }
 

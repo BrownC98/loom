@@ -7,6 +7,8 @@ mod graph;
 mod phone;
 mod terminal;
 
+pub use agents::parts::{keep_focus, modal};
+
 use gpui::{App, Window};
 
 use super::nav::Tab;

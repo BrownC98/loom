@@ -151,7 +151,11 @@ fn resolve(scheme: Scheme, seeds: &Seeds) -> Colors {
 
 fn hex_channels(color: &HexColor) -> Option<[f64; 3]> {
     let digits = color.as_str().strip_prefix('#')?;
-    let channel = |i: usize| u8::from_str_radix(digits.get(i..i + 2)?, 16).ok().map(|v| f64::from(v) / 255.0);
+    let channel = |i: usize| {
+        u8::from_str_radix(digits.get(i..i + 2)?, 16)
+            .ok()
+            .map(|v| f64::from(v) / 255.0)
+    };
     Some([channel(0)?, channel(2)?, channel(4)?])
 }
 

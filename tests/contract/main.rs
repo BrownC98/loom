@@ -284,6 +284,7 @@ fn add_routes(surface: &mut Surface) {
 #[derive(Default)]
 struct Input {
     all_default: bool,
+    content: Option<String>,
     defaults: BTreeSet<(String, String)>,
 }
 
@@ -306,6 +307,16 @@ fn has_serde_default(attributes: &str) -> bool {
     attributes
         .split("#[")
         .any(|a| a.trim_start().starts_with("serde(") && words(a).contains("default"))
+}
+
+fn serde_content(attributes: &str) -> Option<String> {
+    let rest = attributes
+        .split("content")
+        .nth(1)?
+        .trim_start()
+        .strip_prefix('=')?;
+    let rest = rest.trim_start().strip_prefix('"')?;
+    Some(rest.split('"').next()?.to_owned())
 }
 
 fn field_key(name: &str) -> String {
@@ -338,6 +349,7 @@ fn input_types() -> BTreeMap<String, Input> {
             };
             let mut input = Input {
                 all_default: has_serde_default(&container),
+                content: serde_content(&container),
                 defaults: BTreeSet::new(),
             };
             let mut bodies = Vec::new();
@@ -420,10 +432,14 @@ fn breaks(released: &Surface, current: &Surface, inputs: &BTreeMap<String, Input
             .strip_prefix(&format!("type {name}"))
             .unwrap_or(parent);
         let variant = match owner.strip_prefix('|') {
-            Some(tag) if !tag.contains(['.', '|', ',']) => {
-                Some(field_key(tag.rsplit('=').next().unwrap_or(tag)))
+            Some(owner) => {
+                let (tag, payload) = owner.split_once('.').unwrap_or((owner, ""));
+                let value = tag.rsplit('=').next().unwrap_or(tag);
+                let payload_ok = payload.is_empty()
+                    || Some(payload) == input.content.as_deref()
+                    || (payload == value && !tag.contains('='));
+                (payload_ok && !tag.contains(['|', ','])).then(|| field_key(value))
             }
-            Some(_) => None,
             None => owner.is_empty().then(String::new),
         };
         let omissible = variant.is_some_and(|variant| {

@@ -1,3 +1,4 @@
+use api::graph::NodeState;
 use api::ids::RepoId;
 use api::repos::RepoView;
 use gpui::prelude::FluentBuilder;
@@ -8,6 +9,7 @@ use gpui::{
 };
 
 use crate::fonts;
+use crate::link::Snapshot;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
@@ -26,7 +28,7 @@ const CHANGES_MAX: f32 = 160.0;
 
 pub struct Closed;
 
-fn shell(c: &Colors, width: f32) -> Div {
+pub(crate) fn shell(c: &Colors, width: f32) -> Div {
     div()
         .w(px(width))
         .p(px(PAD))
@@ -41,7 +43,7 @@ fn shell(c: &Colors, width: f32) -> Div {
         .occlude()
 }
 
-fn title(text: String, tail: Option<String>, c: &Colors) -> Div {
+pub(crate) fn title(text: String, tail: Option<String>, c: &Colors) -> Div {
     div()
         .flex()
         .items_baseline()
@@ -59,7 +61,7 @@ fn title(text: String, tail: Option<String>, c: &Colors) -> Div {
         }))
 }
 
-fn hint(text: String, mono: bool, c: &Colors) -> Div {
+pub(crate) fn hint(text: String, mono: bool, c: &Colors) -> Div {
     div()
         .text_size(px(12.0))
         .text_color(c.ink_3)
@@ -67,11 +69,11 @@ fn hint(text: String, mono: bool, c: &Colors) -> Div {
         .child(text)
 }
 
-fn error(text: String, c: &Colors) -> Div {
+pub(crate) fn error(text: String, c: &Colors) -> Div {
     div().text_size(px(12.0)).text_color(c.err).child(text)
 }
 
-fn labelled(text: &str, body: impl IntoElement, c: &Colors) -> Div {
+pub(crate) fn labelled(text: &str, body: impl IntoElement, c: &Colors) -> Div {
     div()
         .flex()
         .flex_col()
@@ -87,13 +89,13 @@ fn labelled(text: &str, body: impl IntoElement, c: &Colors) -> Div {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Ghost,
     Primary,
     Danger,
 }
 
-fn button(
+pub(crate) fn button(
     id: &'static str,
     text: String,
     kind: Kind,
@@ -147,7 +149,7 @@ fn button(
         .child(text)
 }
 
-fn actions(left: impl IntoElement, right: impl IntoElement) -> Div {
+pub(crate) fn actions(left: impl IntoElement, right: impl IntoElement) -> Div {
     div()
         .flex()
         .justify_end()
@@ -390,6 +392,33 @@ pub struct Doomed {
     pub label: String,
     pub branch: Option<String>,
     pub members: Vec<Member>,
+}
+
+impl Doomed {
+    pub fn of(snapshot: &Snapshot, repo: RepoId, path: String, label: String) -> Doomed {
+        let branch = snapshot
+            .repos
+            .iter()
+            .find(|r| r.id == repo)
+            .and_then(|r| r.worktrees.iter().find(|w| w.path == path))
+            .and_then(|w| w.branch.clone());
+        let members = snapshot
+            .nodes
+            .iter()
+            .filter(|n| n.place.repo == repo && n.place.worktree == path)
+            .map(|n| Member {
+                name: n.name.clone(),
+                running: matches!(n.state, NodeState::Running),
+            })
+            .collect();
+        Doomed {
+            repo,
+            path,
+            label,
+            branch,
+            members,
+        }
+    }
 }
 
 pub struct DeleteWorktreeView {

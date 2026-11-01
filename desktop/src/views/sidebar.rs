@@ -1,39 +1,75 @@
+mod acts;
+mod add_repo;
+mod calls;
+mod pop;
 mod tree;
 
 use std::collections::HashSet;
 
 use gpui::{
-    App, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, px, relative,
+    AnyElement, AnyView, App, AppContext, Bounds, ClickEvent, Context, Entity, FocusHandle,
+    FontWeight, HighlightStyle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    ParentElement, Pixels, Point, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    StyledText, Subscription, Window, div, linear_color_stop, linear_gradient, point, px, relative,
 };
+
+use acts::{Act, Button};
+use add_repo::AddRepo;
 
 use super::field::{self, Field, FieldEvent};
 use super::rail;
 use super::scrollbar::Bar;
 use super::shell::OpenSettings;
-use crate::views::icons::{Lucide, icon, icon_styled};
+use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
+use api::graph::Place;
 use api::ids::RepoId;
+use api::profile::AgentView;
+use api::repos::PlaceView;
 
+use crate::canvas::popover::NewNodeView;
 use crate::fonts;
 use crate::link;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
+use crate::views::anchor::Anchors;
+use crate::views::cardlink;
 use crate::views::tooltip::tip;
+use crate::views::worktree::{Closed, DeleteWorktreeView, Doomed, NewWorktreeView};
 
 const STEP: f32 = 12.0;
 const MAX_DEPTH: usize = 8;
 const ROW: f32 = 30.0;
 const NODE_ROW: f32 = 44.0;
 const ICON: f32 = 14.0;
+const POP_GAP: f32 = 8.0;
+const ADD_TOP: f32 = 84.0;
+const ADD_LEFT: f32 = 12.0;
+const FADE: f32 = 16.0;
+const AREA: &str = "side";
 
 struct Pick {
     selected: Option<u32>,
     ring: Option<Key>,
+}
+
+struct Open {
+    view: AnyView,
+    host: Option<Point<Pixels>>,
+    _closed: Subscription,
+}
+
+struct Renaming {
+    key: Key,
+    field: Entity<Field>,
+    name: String,
+    error: Option<String>,
+    ended: bool,
+    _events: Subscription,
+    _blur: Subscription,
 }
 
 pub struct Sidebar {
@@ -43,13 +79,18 @@ pub struct Sidebar {
     marks_scroll: Bar,
     tree_scroll: Bar,
     closed: HashSet<Key>,
-    marks_open: bool,
     cursor: Option<Key>,
     reveal: bool,
     seen: Option<u32>,
     at: usize,
     refusal: Option<(Key, String)>,
     want_find: bool,
+    agents: Vec<AgentView>,
+    asked: bool,
+    pop: Option<Open>,
+    renaming: Option<Renaming>,
+    refocus: bool,
+    anchors: Anchors,
 }
 
 pub fn sidebar(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Sidebar> {
@@ -80,25 +121,53 @@ impl Sidebar {
             marks_scroll: Bar::new(),
             tree_scroll: Bar::new(),
             closed: HashSet::new(),
-            marks_open: true,
             cursor: None,
             reveal: false,
             seen: None,
             at: 0,
             refusal: None,
             want_find: false,
+            agents: Vec::new(),
+            asked: false,
+            pop: None,
+            renaming: None,
+            refocus: false,
+            anchors: Anchors::default(),
         }
+    }
+
+    fn load_agents(&mut self, cx: &mut Context<Self>) {
+        if self.asked || self.store.read(cx).base().is_none() {
+            return;
+        }
+        self.asked = true;
+        let task = self.store.update(cx, |store, cx| store.agents(cx));
+        cx.spawn(async move |this, cx| {
+            let loaded = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Ok(agents) = loaded {
+                    this.agents = agents;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn built(&self, cx: &App) -> Option<Built> {
         let snapshot = self.store.read(cx).snapshot()?;
         Some(tree::build(
             snapshot,
+            &self.agents,
             *cx.global::<Lang>(),
             &self.closed,
             self.field.read(cx).text(),
             self.at,
         ))
+    }
+
+    fn marks_open(&self, cx: &App) -> bool {
+        !self.store.read(cx).settings().closed_panes.bookmarks
     }
 
     fn find(&mut self, event: &FieldEvent, cx: &mut Context<Self>) {
@@ -200,21 +269,280 @@ impl Sidebar {
         .detach();
     }
 
+    fn remove(
+        &mut self,
+        key: Key,
+        work: impl FnOnce(&str) -> Result<(), crate::problem::Failure> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let store = self.store.clone();
+        calls::run(&store, cx, work, move |this, done, cx| {
+            match done {
+                Ok(()) => this.store.update(cx, |store, cx| store.reload(cx)),
+                Err(text) => this.refusal = Some((key, text)),
+            }
+            cx.notify();
+        });
+    }
+
+    fn act(&mut self, act: Act, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        self.refusal = None;
+        match (act, &key) {
+            (Act::Bookmark(id, on), _) => self.set_mark(id, !on, key, cx),
+            (Act::Rename, _) => self.start_rename(key, window, cx),
+            (Act::RemoveNode(id), _) => {
+                self.remove(key, move |url| cardlink::remove_node(url, id), cx)
+            }
+            (Act::RemoveRepo, Key::Repo(id)) => {
+                let id = *id;
+                self.remove(key, move |url| calls::remove_repo(url, id), cx)
+            }
+            (Act::NewNode, _) => self.open_node(key, window, cx),
+            (Act::NewWorktree, _) => self.open_worktree(key, window, cx),
+            (Act::DeleteWorktree, _) => self.open_delete(key, window, cx),
+            (Act::RemoveRepo, _) => {}
+        }
+    }
+
+    fn row_of(&self, key: &Key, cx: &App) -> Option<Row> {
+        let built = self.built(cx)?;
+        built
+            .marks
+            .into_iter()
+            .chain(built.tree)
+            .find(|r| &r.key == key)
+    }
+
+    fn start_rename(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.row_of(&key, cx).filter(acts::can_rename) else {
+            return;
+        };
+        let name = match &row.body {
+            Body::Node { name, .. } => name.clone(),
+            Body::Group {
+                branch: Some(branch),
+                ..
+            } => branch.clone(),
+            _ => return,
+        };
+        let field = field::new(Str::RenameLabel, cx);
+        field.update(cx, |field, cx| field.set_text(&name, cx));
+        let handle = field.read(cx).handle();
+        window.focus(&handle, cx);
+        let events =
+            cx.subscribe_in(
+                &field,
+                window,
+                |this, _, event: &FieldEvent, window, cx| match event {
+                    FieldEvent::Enter => this.end_rename(true, true, window, cx),
+                    FieldEvent::Escape => this.end_rename(false, true, window, cx),
+                    FieldEvent::Changed => {
+                        if let Some(r) = &mut this.renaming {
+                            r.error = None;
+                        }
+                        cx.notify();
+                    }
+                    FieldEvent::Step(_) => {}
+                },
+            );
+        let blur = cx.on_blur(&handle, window, |this, window, cx| {
+            this.end_rename(true, false, window, cx)
+        });
+        self.renaming = Some(Renaming {
+            key,
+            field,
+            name,
+            error: None,
+            ended: false,
+            _events: events,
+            _blur: blur,
+        });
+        cx.notify();
+    }
+
+    fn end_rename(&mut self, save: bool, refocus: bool, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(r) = &mut self.renaming else { return };
+        if r.ended {
+            return;
+        }
+        r.ended = true;
+        let value = r.field.read(cx).text().to_owned();
+        if !save || value.trim() == r.name {
+            self.renaming = None;
+            self.refocus = refocus;
+            cx.notify();
+            return;
+        }
+        let key = r.key.clone();
+        let store = self.store.clone();
+        let on = key.clone();
+        let work = move |url: &str| match &on {
+            Key::Node(id) => cardlink::rename(url, *id, &value),
+            Key::Group(repo, path) => calls::rename_worktree(url, *repo, path, &value),
+            _ => Ok(()),
+        };
+        calls::run(&store, cx, work, move |this, done, cx| {
+            match done {
+                Ok(()) => {
+                    this.store.update(cx, |store, cx| store.reload(cx));
+                    if this.renaming.as_ref().is_some_and(|r| r.key == key) {
+                        this.renaming = None;
+                        this.refocus = refocus;
+                    }
+                }
+                Err(text) => {
+                    if let Some(r) = this.renaming.as_mut().filter(|r| r.key == key) {
+                        r.ended = false;
+                        r.error = Some(text);
+                    } else {
+                        this.refusal = Some((key, text));
+                    }
+                }
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn area(&self) -> Bounds<Pixels> {
+        self.anchors.get(AREA).unwrap_or_default()
+    }
+
+    fn anchor(&self, key: &Key) -> Point<Pixels> {
+        let area = self.area();
+        let top = self
+            .anchors
+            .get(&format!("{key:?}"))
+            .map_or(area.top() + px(ADD_TOP), |b| b.top());
+        point(area.right() + px(POP_GAP), top)
+    }
+
+    fn close_pop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pop.take().is_some() {
+            window.focus(&self.focus, cx);
+            cx.notify();
+        }
+    }
+
+    fn open_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let area = self.area();
+        let at = point(area.left() + px(ADD_LEFT), area.top() + px(ADD_TOP));
+        let hosts = self
+            .store
+            .read(cx)
+            .snapshot()
+            .map(|s| {
+                s.repos
+                    .iter()
+                    .filter_map(|r| match &r.place {
+                        PlaceView::Ssh { host } => Some(host.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let store = self.store.clone();
+        let view = cx.new(|cx| AddRepo::new(store, hosts, at, window, cx));
+        let closed = cx.subscribe_in(&view, window, |this, _, _: &pop::Closed, window, cx| {
+            this.close_pop(window, cx)
+        });
+        self.pop = Some(Open {
+            view: view.into(),
+            host: None,
+            _closed: closed,
+        });
+        cx.notify();
+    }
+
+    fn host(
+        &mut self,
+        view: AnyView,
+        at: Point<Pixels>,
+        closed: Subscription,
+        cx: &mut Context<Self>,
+    ) {
+        self.pop = Some(Open {
+            view,
+            host: Some(at),
+            _closed: closed,
+        });
+        cx.notify();
+    }
+
+    fn open_worktree(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        let Key::Repo(repo) = key else { return };
+        let Some(info) = self
+            .store
+            .read(cx)
+            .snapshot()
+            .and_then(|s| s.repos.iter().find(|r| r.id.0 == repo))
+            .cloned()
+        else {
+            return;
+        };
+        let at = self.anchor(&key);
+        let store = self.store.clone();
+        let view = cx.new(|cx| NewWorktreeView::new(store, info, window, cx));
+        let closed = cx.subscribe_in(&view, window, |this, _, _: &Closed, window, cx| {
+            this.close_pop(window, cx)
+        });
+        self.host(view.into(), at, closed, cx);
+    }
+
+    fn open_delete(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Row {
+            body: Body::Group { label, .. },
+            ..
+        }) = self.row_of(&key, cx)
+        else {
+            return;
+        };
+        let Key::Group(repo, path) = &key else { return };
+        let Some(snapshot) = self.store.read(cx).snapshot() else {
+            return;
+        };
+        let doomed = Doomed::of(snapshot, RepoId(*repo), path.clone(), label);
+        let at = self.anchor(&key);
+        let store = self.store.clone();
+        let view = cx.new(|cx| DeleteWorktreeView::new(store, doomed, window, cx));
+        let closed = cx.subscribe_in(&view, window, |this, _, _: &Closed, window, cx| {
+            this.close_pop(window, cx)
+        });
+        self.host(view.into(), at, closed, cx);
+    }
+
+    fn open_node(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Row {
+            body: Body::Group { label, .. },
+            ..
+        }) = self.row_of(&key, cx)
+        else {
+            return;
+        };
+        let Key::Group(repo, path) = &key else { return };
+        let place = Place {
+            repo: RepoId(*repo),
+            worktree: path.clone(),
+        };
+        let at = self.anchor(&key);
+        let store = self.store.clone();
+        let view = cx.new(|cx| NewNodeView::new(store, place, label, window, cx));
+        let closed = cx.subscribe_in(
+            &view,
+            window,
+            |this, _, _: &crate::canvas::popover::Closed, window, cx| this.close_pop(window, cx),
+        );
+        self.host(view.into(), at, closed, cx);
+    }
+
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let stroke = &event.keystroke;
         let modifiers = &stroke.modifiers;
-        if modifiers.control || modifiers.platform {
-            if stroke.key == "f" {
-                self.focus_find(window, cx);
-                cx.stop_propagation();
-            }
-            return;
-        }
-        if modifiers.alt {
+        if modifiers.control || modifiers.platform || modifiers.alt {
             return;
         }
         let Some(built) = self.built(cx) else { return };
-        let rows: Vec<&Row> = built.rows(self.marks_open).collect();
+        let rows: Vec<&Row> = built.rows(self.marks_open(cx)).collect();
         let searching = !self.field.read(cx).text().trim().is_empty();
         let at = rows
             .iter()
@@ -256,9 +584,27 @@ impl Sidebar {
                 cx.stop_propagation();
                 return;
             }
-            "/" => {
-                self.focus_find(window, cx);
-                cx.stop_propagation();
+            "f2" => {
+                let key = at
+                    .map(|i| rows[i])
+                    .filter(|r| acts::can_rename(r))
+                    .map(|r| r.key.clone());
+                drop(rows);
+                if let Some(key) = key {
+                    self.start_rename(key, window, cx);
+                    cx.stop_propagation();
+                }
+                return;
+            }
+            "delete" => {
+                let found = at
+                    .map(|i| rows[i])
+                    .and_then(|r| acts::remove_of(r).map(|act| (act, r.key.clone())));
+                drop(rows);
+                if let Some((act, key)) = found {
+                    self.act(act, key, window, cx);
+                    cx.stop_propagation();
+                }
                 return;
             }
             _ => return,
@@ -275,35 +621,36 @@ impl Sidebar {
 fn dot_color(dot: Dot, c: &Colors) -> Rgba {
     match dot {
         Dot::Waiting => c.ask,
-        Dot::Running => c.run,
-        Dot::Done => c.ok,
+        Dot::Running | Dot::Done => c.ink_3,
         Dot::Failed => c.err,
     }
 }
 
 pub fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
-    let color = dot_color(dot, c);
-    let halo = div().flex_none().size(px(7.0)).rounded_full().bg(color);
+    let core = div()
+        .flex_none()
+        .size(px(7.0))
+        .rounded_full()
+        .bg(dot_color(dot, c));
     if dot == Dot::Waiting {
         let mut ring = c.ask;
         ring.a = 0.25;
         div()
             .flex_none()
-            .size(px(13.0))
-            .rounded_full()
-            .bg(ring)
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(halo)
+            .relative()
+            .size(px(7.0))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(-3.0))
+                    .left(px(-3.0))
+                    .size(px(13.0))
+                    .rounded_full()
+                    .bg(ring),
+            )
+            .child(core.absolute().top_0().left_0())
     } else {
-        div()
-            .flex_none()
-            .size(px(13.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(halo)
+        div().flex_none().size(px(7.0)).child(core)
     }
 }
 
@@ -319,7 +666,7 @@ pub fn pickables(
     lang: Lang,
     query: &str,
 ) -> (Vec<Pickable>, Vec<Pickable>) {
-    let built = tree::build(snapshot, lang, &HashSet::new(), query, 0);
+    let built = tree::build(snapshot, &[], lang, &HashSet::new(), query, 0);
     let views: Vec<&api::graph::NodeView> = snapshot.nodes.iter().collect();
     let needle = query.trim().to_lowercase();
     let place = |id: u32| {
@@ -402,7 +749,164 @@ fn chevron(open: bool, c: &Colors) -> impl IntoElement {
     )
 }
 
+fn ellipsed<E: Styled>(el: E) -> E {
+    el.overflow_hidden().text_ellipsis().whitespace_nowrap()
+}
+
+fn named(text: &str, span: Option<(usize, usize)>, c: &Colors) -> AnyElement {
+    match span {
+        Some((from, to)) if to <= text.len() => {
+            let mut wash = c.warn;
+            wash.a = 0.3;
+            StyledText::new(text.to_owned())
+                .with_highlights(vec![(
+                    from..to,
+                    HighlightStyle {
+                        background_color: Some(wash.into()),
+                        ..Default::default()
+                    },
+                )])
+                .into_any_element()
+        }
+        _ => text.to_owned().into_any_element(),
+    }
+}
+
+fn fade(base: Rgba, wash: Option<Rgba>) -> gpui::Div {
+    let across = |color: Rgba| {
+        let mut clear = color;
+        clear.a = 0.0;
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .bg(linear_gradient(
+                90.0,
+                linear_color_stop(clear, 0.0),
+                linear_color_stop(color, 1.0),
+            ))
+    };
+    div()
+        .relative()
+        .flex_none()
+        .w(px(FADE))
+        .h(px(24.0))
+        .child(across(base))
+        .children(wash.map(across))
+}
+
+fn swap(name: Lucide, filled: bool, from: Rgba, to: Rgba, group: &SharedString) -> gpui::Div {
+    div()
+        .relative()
+        .size(px(ICON))
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .group_hover(group.clone(), |s| s.invisible())
+                .child(icon_styled(name, ICON, from, 2.0, filled)),
+        )
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .invisible()
+                .group_hover(group.clone(), |s| s.visible())
+                .child(icon_styled(name, ICON, to, 2.0, filled)),
+        )
+}
+
 impl Sidebar {
+    fn strip(
+        &self,
+        key: &Key,
+        buttons: Vec<Button>,
+        chosen: bool,
+        group: &str,
+        c: &Colors,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let (base, wash) = if chosen {
+            (c.panel, Some(c.accent_wash))
+        } else {
+            (c.surface_hover, None)
+        };
+        let items = buttons.into_iter().enumerate().map(|(n, button)| {
+            let pad = SharedString::from(format!("{group}-act-{n}"));
+            let on_ink = if button.pressed || !button.danger() {
+                c.ink
+            } else {
+                c.err
+            };
+            let base_ink = if button.pressed { c.ink } else { c.ink_2 };
+            let (act, row_key) = (button.act, key.clone());
+            let line = c.line;
+            let mut el = div()
+                .id(pad.clone())
+                .group(pad.clone())
+                .size(px(24.0))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.0));
+            if button.disabled {
+                el = el.opacity(0.4);
+            } else {
+                el = el
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(line))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.act(act, row_key.clone(), window, cx);
+                        cx.stop_propagation();
+                    }));
+            }
+            el.tooltip(tip(button.label.clone())).child(swap(
+                button.glyph,
+                button.pressed,
+                base_ink,
+                on_ink,
+                &pad,
+            ))
+        });
+        let mut body = div().flex().gap(px(2.0)).bg(base);
+        if let Some(wash) = wash {
+            body = body.child(div().flex().gap(px(2.0)).bg(wash).children(items));
+        } else {
+            body = body.children(items);
+        }
+        div()
+            .absolute()
+            .top(px(3.0))
+            .right(px(4.0))
+            .h(px(24.0))
+            .flex()
+            .invisible()
+            .group_hover(group.to_owned(), |s| s.visible())
+            .child(fade(base, wash))
+            .child(body)
+    }
+
+    fn editor(&self, r: &Renaming, c: &Colors) -> gpui::Div {
+        div()
+            .flex_none()
+            .flex_basis(px(160.0))
+            .min_w(px(96.0))
+            .h(px(22.0))
+            .px(px(6.0))
+            .flex()
+            .items_center()
+            .rounded(px(4.0))
+            .border_1()
+            .border_color(if r.error.is_some() { c.err } else { c.accent })
+            .bg(c.bg)
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(r.field.clone())
+    }
+
     fn row(
         &self,
         index: usize,
@@ -412,12 +916,15 @@ impl Sidebar {
         c: &Colors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let lang = *cx.global::<Lang>();
         let key = row.key.clone();
         let depth = row.depth.min(MAX_DEPTH) as f32;
         let chosen = row.key.node().is_some() && row.key.node() == pick.selected;
         let tall = matches!(row.body, Body::Node { .. });
         let group = format!("{section}-{index}");
+        let id = format!("{section}-{index}");
         let nudge = if tall { 3.0 } else { 0.0 };
+        let editing = self.renaming.as_ref().filter(|r| r.key == row.key);
         let lead = if row.branch {
             let toggled = row.key.clone();
             div()
@@ -440,12 +947,13 @@ impl Sidebar {
                 .mt(px(nudge))
                 .into_any_element()
         };
+        let lead = (!matches!(row.body, Body::Mark { .. })).then_some(lead);
         let edge = if pick.ring.as_ref() == Some(&row.key) {
-            c.accent
+            Some(c.accent)
         } else if row.found == Some(Found::Current) {
-            c.ask
+            Some(c.warn)
         } else {
-            Rgba::default()
+            None
         };
         let mut shell = div()
             .id((section, index))
@@ -458,51 +966,68 @@ impl Sidebar {
             .pl(px(4.0 + depth * STEP))
             .pr(px(8.0))
             .rounded(px(6.0))
-            .border_2()
-            .border_color(edge)
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 window.focus(&this.focus, cx);
                 this.activate(key.clone(), cx);
             }))
-            .child(lead);
+            .children(lead);
         shell = if tall {
-            shell.items_start().pt(px(2.0))
+            shell.items_start().pt(px(4.0))
         } else {
             shell.items_center()
         };
-        shell = if chosen {
-            shell.bg(c.accent_wash)
-        } else {
-            let hover = c.surface_hover;
-            shell.hover(move |s| s.bg(hover))
-        };
+        if chosen {
+            shell = shell.bg(c.accent_wash);
+        }
+        let hover = c.surface_hover;
+        shell = shell.group_hover(group.clone(), move |s| s.bg(hover));
         if row.found == Some(Found::Context) {
             shell = shell.opacity(0.55);
         }
-        let marked_toggle = |id: u32, on: bool, row_key: Key, cx: &mut Context<Self>| {
-            let group = group.clone();
-            let hover = c.surface_hover;
-            div()
-                .id((section, index + 200_000))
-                .absolute()
-                .top(px(if tall { 6.0 } else { 2.0 }))
-                .right(px(4.0))
-                .size(px(24.0))
-                .rounded(px(5.0))
-                .bg(hover)
-                .flex()
-                .items_center()
-                .justify_center()
-                .invisible()
-                .group_hover(group, |s| s.visible())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.set_mark(id, !on, row_key.clone(), cx);
-                    cx.stop_propagation();
-                    cx.notify();
-                }))
-                .child(icon_styled(Lucide::Bookmark, ICON, c.ink_2, 2.0, on))
+        if let Some(edge) = edge {
+            shell = shell.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .rounded(px(6.0))
+                    .border_2()
+                    .border_color(edge),
+            );
+        }
+        if matches!(row.body, Body::Repo { .. } | Body::Group { .. }) {
+            shell = shell.child(self.anchors.mark(format!("{:?}", row.key)));
+        }
+        let strip = if editing.is_some() {
+            None
+        } else {
+            let buttons = acts::buttons(row, lang);
+            (!buttons.is_empty()).then(|| self.strip(&row.key, buttons, chosen, &group, c, cx))
         };
+        let tip_line = editing.map(|r| {
+            let (text, ink) = match &r.error {
+                Some(error) => (error.clone(), c.err),
+                None => (Str::RenameHint.text(lang).to_owned(), c.ink_2),
+            };
+            gpui::deferred(
+                div()
+                    .absolute()
+                    .top(px(if tall { NODE_ROW } else { ROW } + 4.0))
+                    .left(px(8.0))
+                    .right(px(8.0))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(c.line_strong)
+                    .bg(c.surface)
+                    .text_size(px(12.0))
+                    .text_color(ink)
+                    .child(text),
+            )
+        });
         let lang_unread = |n: u32| {
             div()
                 .flex_none()
@@ -519,60 +1044,125 @@ impl Sidebar {
                 .child(icon(Lucide::Mail, 13.0, c.accent_ink))
                 .child(n.to_string())
         };
-        match &row.body {
-            Body::Repo { name, path } => shell
+        let shell = match &row.body {
+            Body::Repo {
+                name,
+                path,
+                full,
+                chip,
+                ..
+            } => shell
                 .child(
+                    ellipsed(div().flex_none().max_w(relative(0.6)))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(named(name, row.span, c)),
+                )
+                .children(chip.as_ref().map(|chip| {
                     div()
+                        .id(SharedString::from(format!("{id}-place")))
                         .flex_none()
-                        .max_w(relative(0.6))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
+                        .px(px(6.0))
+                        .h(px(20.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(9.0))
+                        .border_1()
+                        .border_color(c.line_strong)
+                        .text_size(px(11.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(name.clone()),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
+                        .text_color(c.ink_2)
                         .whitespace_nowrap()
-                        .text_size(px(12.0))
-                        .text_color(c.ink_3)
-                        .child(path.clone()),
-                )
-                .into_any_element(),
-            Body::Group { label, tag } => shell
-                .child(icon(Lucide::GitBranch, ICON, c.ink_3))
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(label.clone()),
-                )
-                .children(tag.map(|text| {
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_size(px(12.0))
-                        .text_color(c.ink_3)
-                        .child(text)
+                        .tooltip(tip(chip.title.clone()))
+                        .child(chip.text.clone())
                 }))
-                .into_any_element(),
+                .child(
+                    ellipsed(div().id(SharedString::from(format!("{id}-path"))).min_w_0())
+                        .text_size(px(12.0))
+                        .text_color(c.ink_3)
+                        .tooltip(tip(full.clone()))
+                        .child(path.clone()),
+                ),
+            Body::Group {
+                label, tag, branch, ..
+            } => {
+                let path = match &row.key {
+                    Key::Group(_, path) => path.clone(),
+                    _ => String::new(),
+                };
+                let detail = if branch.is_some() {
+                    format!("{label}\n{path}\n{}", Str::RenameTitle.text(lang))
+                } else {
+                    format!("{label}\n{path}")
+                };
+                let name = match editing {
+                    Some(r) => self.editor(r, c).into_any_element(),
+                    None => {
+                        let mut el =
+                            ellipsed(div().id(SharedString::from(format!("{id}-name"))).min_w_0())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .tooltip(tip(detail))
+                                .child(named(label, row.span, c));
+                        if branch.is_some() {
+                            let key = row.key.clone();
+                            el = el.on_click(cx.listener(
+                                move |this, e: &ClickEvent, window, cx| {
+                                    if e.click_count() >= 2 {
+                                        this.start_rename(key.clone(), window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                },
+                            ));
+                        }
+                        el.into_any_element()
+                    }
+                };
+                shell
+                    .child(icon(Lucide::GitBranch, ICON, c.ink_3))
+                    .child(name)
+                    .children(tag.map(|text| {
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_size(px(12.0))
+                            .text_color(c.ink_3)
+                            .child(text)
+                    }))
+            }
             Body::Node {
-                id,
                 name,
                 line,
+                agent,
+                agent_label,
                 dot: state,
                 tags,
                 unread,
                 from,
-                marked,
+                ..
             } => {
+                let crowded = *unread > 0 || !tags.is_empty();
+                let name_el = match editing {
+                    Some(r) => self.editor(r, c).into_any_element(),
+                    None => {
+                        let key = row.key.clone();
+                        let base =
+                            ellipsed(div().id(SharedString::from(format!("{id}-name"))).min_w_0())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .tooltip(tip(Str::RenameTitle.text(lang).to_owned()))
+                                .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
+                                    if e.click_count() >= 2 {
+                                        this.start_rename(key.clone(), window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                }))
+                                .child(named(name, row.span, c));
+                        if crowded {
+                            base.flex_none().max_w(relative(0.6)).into_any_element()
+                        } else {
+                            base.into_any_element()
+                        }
+                    }
+                };
                 let first = div()
                     .flex()
                     .items_center()
@@ -580,80 +1170,81 @@ impl Sidebar {
                     .h(px(20.0))
                     .min_w_0()
                     .child(dot(*state, c))
-                    .child(
+                    .child(name_el)
+                    .children(from.as_ref().map(|text| {
                         div()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(name.clone()),
-                    )
-                    .children(
-                        from.as_ref()
-                            .map(|_| icon(Lucide::CornerLeftUp, 12.0, c.ink_3)),
-                    )
-                    .child(div().flex_1())
+                            .id(SharedString::from(format!("{id}-from")))
+                            .flex_none()
+                            .tooltip(tip(text.clone()))
+                            .child(icon(Lucide::CornerLeftUp, 12.0, c.ink_3))
+                    }))
+                    .children((*unread > 0).then(|| div().flex_1()))
                     .children((*unread > 0).then(|| {
                         div()
                             .group_hover(group.clone(), |s| s.invisible())
                             .child(lang_unread(*unread))
                     }))
-                    .children(tags.iter().map(|t| tag(t, c)));
+                    .children((!tags.is_empty()).then(|| {
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(4.0))
+                            .ml_auto()
+                            .children(tags.iter().map(|t| tag(t, c)))
+                    }));
                 let second = div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
                     .h(px(16.0))
                     .ml(px(13.0))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .text_size(px(12.0))
-                    .font_family(fonts::TERMINAL_FAMILY)
-                    .text_color(c.ink_3)
-                    .child(line.clone());
-                shell
+                    .min_w_0()
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .child(first)
-                            .child(second),
+                            .id(SharedString::from(format!("{id}-agent")))
+                            .flex_none()
+                            .tooltip(tip(agent_label.clone()))
+                            .child(agent_mark(agent.as_deref(), agent_label, ICON, c.ink_2)),
                     )
-                    .child(marked_toggle(*id, *marked, row.key.clone(), cx))
-                    .into_any_element()
+                    .child(
+                        ellipsed(div().min_w_0())
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .font_family(fonts::TERMINAL_FAMILY)
+                            .text_color(c.ink_3)
+                            .child(line.clone()),
+                    );
+                shell.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .child(first)
+                        .child(second),
+                )
             }
             Body::Mark {
-                id,
                 name,
                 place,
                 dot: state,
+                ..
             } => shell
                 .child(dot(*state, c))
                 .child(
-                    div()
-                        .flex_none()
-                        .max_w(relative(0.6))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
+                    ellipsed(div().flex_none().max_w(relative(0.6)))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(name.clone()),
                 )
                 .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
+                    ellipsed(div().min_w_0())
                         .text_size(px(12.0))
                         .text_color(c.ink_3)
                         .child(place.clone()),
-                )
-                .child(marked_toggle(*id, true, row.key.clone(), cx))
-                .into_any_element(),
-        }
+                ),
+        };
+        shell.children(strip).children(tip_line)
     }
 }
 
@@ -666,6 +1257,11 @@ impl Render for Sidebar {
                 self.want_find = false;
                 self.focus_find(window, cx);
             }
+            if self.refocus {
+                self.refocus = false;
+                window.focus(&self.focus, cx);
+            }
+            self.load_agents(cx);
             self.expanded(window, cx).into_any_element()
         }
     }
@@ -767,6 +1363,7 @@ impl Sidebar {
             }
         }
         let mark_count = built.as_ref().map_or(0, |b| b.marks.len());
+        let marks_open = self.marks_open(cx);
 
         let find_edge = if none {
             c.err
@@ -776,9 +1373,9 @@ impl Sidebar {
             c.line_strong
         };
         let count = if none {
-            Some((Str::FindNone.text(lang).to_owned(), c.err))
+            Some((Str::FindNone.text(lang).to_owned(), c.err, false))
         } else if hits > 0 {
-            Some((format!("{}/{}", self.at + 1, hits), c.ink_3))
+            Some((format!("{}/{}", self.at + 1, hits), c.ink_3, true))
         } else {
             None
         };
@@ -788,29 +1385,39 @@ impl Sidebar {
             div()
                 .flex()
                 .items_center()
-                .h(px(28.0))
+                .pt(px(8.0))
+                .pb(px(6.0))
                 .pl(px(16.0))
                 .pr(px(8.0))
                 .text_size(px(12.0))
+                .line_height(px(18.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c.ink_3)
         };
 
-        let marks_head = head().child(
+        let marks_head = head().h(px(35.0)).items_start().child(
             div()
                 .id("marks-head")
                 .flex()
                 .items_center()
                 .gap(px(4.0))
+                .px(px(4.0))
+                .py(px(2.0))
+                .mx(px(-4.0))
+                .mt(px(-2.0))
+                .rounded(px(4.0))
                 .cursor_pointer()
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.marks_open = !this.marks_open;
-                    cx.notify();
+                .hover(move |d| d.bg(title_hover).text_color(title_ink))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let open = this.marks_open(cx);
+                    this.store
+                        .update(cx, |store, cx| store.set_pane_open("bookmarks", !open, cx));
                 }))
-                .child(chevron(self.marks_open, c))
+                .child(chevron(marks_open, c))
                 .child(Str::BookmarkTitle.text(lang))
                 .children((mark_count > 0).then(|| {
                     div()
+                        .ml(px(2.0))
                         .font_weight(FontWeight::NORMAL)
                         .child(mark_count.to_string())
                 })),
@@ -823,7 +1430,6 @@ impl Sidebar {
             .px(px(8.0))
             .flex()
             .flex_col()
-            .gap(px(1.0))
             .children(marks.into_iter().map(|(i, row, refusal)| {
                 let el = self.row(i, "mark", row, &pick, c, cx);
                 div()
@@ -845,7 +1451,6 @@ impl Sidebar {
             .px(px(8.0))
             .flex()
             .flex_col()
-            .gap(px(1.0))
             .children(rows.into_iter().map(|(i, row, refusal)| {
                 let el = self.row(i, "tree", row, &pick, c, cx);
                 div()
@@ -862,25 +1467,54 @@ impl Sidebar {
             }));
         let tree_rows = self.tree_scroll.reserved(tree_rows).flex_1().min_h_0();
 
-        let expand = div()
-            .id("expand-all")
-            .size(px(26.0))
-            .rounded(px(5.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_pointer()
-            .hover({
-                let hover = c.surface_hover;
-                move |s| s.bg(hover)
+        let tool = |name: &'static str, glyph: Lucide, label: String| {
+            let hover = c.surface_hover;
+            div()
+                .id(name)
+                .w(px(32.0))
+                .h(px(rail::SMALL_BUTTON))
+                .flex_none()
+                .rounded(px(6.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover))
+                .tooltip(tip(label))
+                .child(icon(glyph, ICON, c.ink_2))
+        };
+        let add = tool(
+            "add-repo",
+            Lucide::Plus,
+            Str::TreeAddRepo.text(lang).to_owned(),
+        )
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add(window, cx)));
+        let expand = tool(
+            "expand-all",
+            Lucide::ChevronsUpDown,
+            Str::TreeExpandAll.text(lang).to_owned(),
+        )
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.closed.clear();
+            cx.notify();
+        }));
+        let overlays: Vec<AnyElement> = self
+            .pop
+            .iter()
+            .map(|open| match open.host {
+                Some(at) => pop::overlay(
+                    at,
+                    open.view.clone(),
+                    cx.listener(|this, _, window, cx| this.close_pop(window, cx)),
+                    window,
+                )
+                .into_any_element(),
+                None => open.view.clone().into_any_element(),
             })
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.closed.clear();
-                cx.notify();
-            }))
-            .child(icon(Lucide::ChevronsUpDown, ICON, c.ink_2));
+            .collect();
 
         div()
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -889,16 +1523,18 @@ impl Sidebar {
             .text_size(px(13.0))
             .border_r_1()
             .border_color(c.line)
+            .child(self.anchors.mark(AREA.to_owned()))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.0))
-                    .px(px(10.0))
-                    .pt(px(10.0))
-                    .pb(px(6.0))
+                    .gap(px(8.0))
+                    .pt(px(12.0))
+                    .px(px(12.0))
+                    .pb(px(4.0))
                     .child(
                         div()
+                            .id("find-box")
                             .flex_1()
                             .min_w_0()
                             .flex()
@@ -911,25 +1547,30 @@ impl Sidebar {
                             .border_1()
                             .border_color(find_edge)
                             .rounded(px(6.0))
+                            .tooltip(tip(rail::titled(Str::FindOpen.text(lang), "F")))
                             .child(icon(Lucide::Search, ICON, c.ink_3))
                             .child(self.field.clone())
-                            .children(count.map(|(text, color)| {
-                                div()
-                                    .flex_none()
-                                    .text_size(px(12.0))
-                                    .text_color(color)
-                                    .child(text)
+                            .children(count.map(|(text, color, mono)| {
+                                let el = div().flex_none().text_size(px(12.0)).text_color(color);
+                                if mono {
+                                    el.font_family(fonts::TERMINAL_FAMILY).child(text)
+                                } else {
+                                    el.child(text)
+                                }
                             }))
                             .children(searching.then(|| {
+                                let hover = c.surface_hover;
                                 div()
                                     .id("find-clear")
                                     .flex_none()
                                     .size(px(26.0))
-                                    .rounded(px(5.0))
+                                    .rounded(px(6.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
                                     .cursor_pointer()
+                                    .hover(move |s| s.bg(hover))
+                                    .tooltip(tip(format!("{} (Esc)", Str::FindClear.text(lang))))
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation()
                                     })
@@ -951,12 +1592,13 @@ impl Sidebar {
                     ),
             )
             .child(marks_head)
-            .children(self.marks_open.then(|| {
+            .children(marks_open.then(|| {
                 if mark_count == 0 {
                     div()
                         .px(px(16.0))
                         .pb(px(6.0))
                         .text_size(px(12.0))
+                        .line_height(px(18.0))
                         .text_color(c.ink_3)
                         .child(Str::BookmarkEmpty.text(lang))
                         .into_any_element()
@@ -985,14 +1627,14 @@ impl Sidebar {
                             .child(Str::TreeRepos.text(lang)),
                     )
                     .child(div().flex_1())
+                    .child(add)
                     .child(expand),
             )
             .child(tree_rows)
             .child(
                 div()
                     .flex_none()
-                    .px(px(8.0))
-                    .py(px(6.0))
+                    .p(px(8.0))
                     .border_t_1()
                     .border_color(c.line)
                     .child(
@@ -1001,15 +1643,17 @@ impl Sidebar {
                             .flex()
                             .items_center()
                             .gap(px(6.0))
-                            .px(px(8.0))
-                            .h(px(28.0))
+                            .px(px(12.0))
+                            .h(px(30.0))
                             .rounded(px(6.0))
-                            .text_size(px(12.0))
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(c.ink_2)
                             .cursor_pointer()
                             .hover({
                                 let hover = c.surface_hover;
-                                move |s| s.bg(hover)
+                                let ink = c.ink;
+                                move |s| s.bg(hover).text_color(ink)
                             })
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx)
@@ -1018,6 +1662,7 @@ impl Sidebar {
                             .child(Str::SettingsTitle.text(lang)),
                     ),
             )
+            .children(overlays)
     }
 }
 

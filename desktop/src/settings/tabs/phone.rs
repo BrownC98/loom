@@ -8,7 +8,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, ElementId, Entity, FontWeight, Image, ImageFormat,
     InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, StatefulInteractiveElement,
-    Styled, StyledText, Subscription, WeakEntity, Window, div, img, px,
+    Styled, Subscription, WeakEntity, Window, div, img, px,
 };
 
 use crate::link;
@@ -18,6 +18,7 @@ use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, ago, colors, day_and_time, open_url, say, say_with};
+use crate::views::prose::Prose;
 
 const QR: f32 = 148.0;
 const QR_PAD: f32 = 4.0;
@@ -238,14 +239,14 @@ fn dot(color: Rgba) -> Div {
     div().flex_none().size(px(7.0)).rounded_full().bg(color)
 }
 
-fn mono(text: StyledText) -> Div {
+fn mono(text: Prose) -> Div {
     div()
         .font_family(crate::fonts::TERMINAL_FAMILY)
         .text_size(px(SMALL))
         .child(text)
 }
 
-fn hint(text: StyledText, cx: &App) -> Div {
+fn hint(text: Prose, cx: &App) -> Div {
     div()
         .text_size(px(SMALL))
         .text_color(colors(cx).ink_3)
@@ -254,7 +255,7 @@ fn hint(text: StyledText, cx: &App) -> Div {
 
 fn action(
     id: impl Into<ElementId>,
-    label: StyledText,
+    label: Prose,
     busy: bool,
     primary: bool,
     run: impl Fn(&mut App) + 'static,
@@ -290,7 +291,7 @@ fn action(
     }
 }
 
-fn address_row(key: StyledText, light: Rgba, body: Vec<AnyElement>, cx: &App) -> Div {
+fn address_row(key: Prose, light: Rgba, body: Vec<AnyElement>, cx: &App) -> Div {
     div()
         .flex()
         .items_center()

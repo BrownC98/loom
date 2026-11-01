@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
@@ -8,6 +9,8 @@ use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NewNode, NodeView};
 use api::ids::{NodeId, RepoId, WaitId};
 use api::profile::AgentView;
+use api::repos::PlaceView;
+use api::settings::places::ReachView;
 use api::settings::{ArrangeDirection, GraphScope, SettingsView};
 use gpui::{
     App, AppContext, Bounds, Context, EventEmitter, Image, ImageFormat, Pixels, Task, Window,
@@ -21,6 +24,7 @@ use crate::problem::Failure;
 use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
+const REACH_EVERY: Duration = Duration::from_secs(5);
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 pub struct Store {
@@ -43,6 +47,7 @@ pub struct Store {
     zoomed: bool,
     drafts: HashMap<(u32, Slot), String>,
     busy: HashSet<u32>,
+    unreached: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -85,6 +90,18 @@ impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
 
+fn unreached_of(base: &str, hosts: Vec<String>) -> HashSet<String> {
+    hosts
+        .into_iter()
+        .filter(|host| {
+            matches!(
+                link::read::<Option<ReachView>>(base, &format!("/api/ssh/{}", link::escape(host))),
+                Ok(Some(reach)) if !matches!(reach, ReachView::Reached { .. })
+            )
+        })
+        .collect()
+}
+
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
         cx.window_appearance(),
@@ -121,6 +138,32 @@ impl Store {
                     }
                 })
                 .detach();
+                let reach_base = base.clone();
+                cx.spawn_in(window, async move |this, cx| {
+                    loop {
+                        cx.background_executor().timer(REACH_EVERY).await;
+                        let Ok(hosts) = this.read_with(cx, |store, _| store.ssh_hosts()) else {
+                            break;
+                        };
+                        if hosts.is_empty() {
+                            continue;
+                        }
+                        let base = reach_base.clone();
+                        let down = cx
+                            .background_spawn(async move { unreached_of(&base, hosts) })
+                            .await;
+                        let kept = this.update(cx, |store, cx| {
+                            if store.unreached != down {
+                                store.unreached = down;
+                                cx.notify();
+                            }
+                        });
+                        if kept.is_err() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
                 (Some(base), status, failure)
             }
             Err(error) => (None, error.clone(), Some(error)),
@@ -146,7 +189,34 @@ impl Store {
             zoomed: false,
             drafts: HashMap::new(),
             busy: HashSet::new(),
+            unreached: HashSet::new(),
         }
+    }
+
+    fn ssh_hosts(&self) -> Vec<String> {
+        let mut hosts: Vec<String> = self
+            .snapshot
+            .iter()
+            .flat_map(|snapshot| &snapshot.repos)
+            .filter_map(|repo| match &repo.place {
+                PlaceView::Ssh { host } => Some(host.to_lowercase()),
+                _ => None,
+            })
+            .collect();
+        hosts.sort();
+        hosts.dedup();
+        hosts
+    }
+
+    pub fn is_unreached(&self, node: &NodeView) -> bool {
+        self.snapshot
+            .iter()
+            .flat_map(|snapshot| &snapshot.repos)
+            .find(|repo| repo.id == node.place.repo)
+            .is_some_and(|repo| match &repo.place {
+                PlaceView::Ssh { host } => self.unreached.contains(&host.to_lowercase()),
+                _ => false,
+            })
     }
 
     pub fn base(&self) -> Option<&str> {

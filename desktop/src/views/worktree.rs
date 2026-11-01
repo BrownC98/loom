@@ -16,6 +16,7 @@ use crate::theme::{Colors, Theme};
 use crate::views::cardlink;
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
+use crate::views::prose::prose;
 use crate::views::scrollbar::Bar;
 
 pub const NEW_WIDTH: f32 = 380.0;
@@ -68,11 +69,14 @@ pub(crate) fn hint(text: String, mono: bool, c: &Colors) -> Div {
         .text_size(px(12.0))
         .text_color(c.ink_3)
         .when(mono, |d| d.font_family(fonts::TERMINAL_FAMILY))
-        .child(text)
+        .child(prose(text))
 }
 
 pub(crate) fn error(text: String, c: &Colors) -> Div {
-    div().text_size(px(12.0)).text_color(c.err).child(text)
+    div()
+        .text_size(px(12.0))
+        .text_color(c.err)
+        .child(prose(text))
 }
 
 pub(crate) fn labelled(text: &str, body: impl IntoElement, c: &Colors) -> Div {

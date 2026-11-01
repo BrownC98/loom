@@ -7,7 +7,7 @@ mod tabs;
 mod widgets;
 
 use api::settings::SettingsView;
-use gpui::{AnyElement, App, Entity, Global, IntoElement, StyledText, WeakEntity};
+use gpui::{AnyElement, App, Entity, Global, IntoElement, WeakEntity};
 
 pub use dialog::{Dialog, DialogEvent};
 pub use patch::{Writer, settings_patch};
@@ -15,6 +15,7 @@ pub use tabs::{keep_focus, modal};
 
 use crate::store::Store;
 use crate::theme::Theme;
+use crate::views::prose::Prose;
 
 pub struct Ctx<'a> {
     pub view: &'a SettingsView,
@@ -46,7 +47,7 @@ impl Section {
         }
     }
 
-    pub fn text(&mut self, text: &str, cx: &App) -> StyledText {
+    pub fn text(&mut self, text: &str, cx: &App) -> Prose {
         self.haystack.push('\n');
         self.haystack.push_str(text);
         search::mark(text, &self.query, &cx.global::<Theme>().colors)

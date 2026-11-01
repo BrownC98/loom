@@ -34,9 +34,11 @@ fn main() {
             let canvas = cx.new(|cx| canvas::view::CanvasView::new(store.clone(), window, cx));
             let sidebar = views::sidebar::sidebar(store.clone(), window, cx);
             let dock = views::dock::dock(store.clone(), window, cx);
+            let zoom = views::shell::zoom(store.clone(), window, cx);
             cx.new(|cx| {
                 views::shell::Shell::new(
                     store,
+                    zoom,
                     canvas.into(),
                     Some(sidebar.into()),
                     Some(dock.into()),

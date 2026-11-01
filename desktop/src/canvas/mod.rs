@@ -6,6 +6,8 @@ pub mod grid;
 pub mod hop_anim;
 pub mod hops;
 pub mod layout;
+pub mod minimap;
+pub mod popover;
 pub mod repos;
 pub mod resize;
 pub mod scene;

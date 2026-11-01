@@ -16,9 +16,11 @@ use super::camera::Camera;
 use super::frames::Probe;
 use super::grid;
 use super::layout::{Rect, Size};
+use super::minimap;
+use super::popover;
 use super::scene::{self, MIN_CARD, Scene};
 use crate::link;
-use crate::store::Store;
+use crate::store::{Store, ZoomTo};
 use crate::views::card;
 use crate::views::terminal::{self, TerminalView};
 
@@ -41,17 +43,19 @@ struct Resizing {
 }
 
 pub struct CanvasView {
-    store: Entity<Store>,
+    pub(super) store: Entity<Store>,
     seen: u64,
-    scene: Scene,
+    pub(super) scene: Scene,
     resized: HashMap<u32, Size>,
     live: HashMap<u32, Live>,
     focused: Option<u32>,
     resizing: Option<Resizing>,
     fit_pending: bool,
-    camera: Camera,
+    pub(super) camera: Camera,
     drag: Option<Point<Pixels>>,
-    area: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) area: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) map: minimap::Pan,
+    pub(super) pop: Option<popover::Popped>,
     probe: Option<Probe>,
     auto: bool,
     started: Instant,
@@ -76,6 +80,10 @@ impl CanvasView {
             cx.notify();
         })
         .detach();
+        cx.subscribe(&store, |this, _, event: &ZoomTo, cx| {
+            this.zoom_to(event.0, cx)
+        })
+        .detach();
         cx.observe_window_activation(window, |_, window, _| {
             link::pace(if window.is_window_active() {
                 Pace::Front
@@ -96,6 +104,8 @@ impl CanvasView {
             camera: Camera::HOME,
             drag: None,
             area: Rc::new(Cell::new(Bounds::default())),
+            map: minimap::Pan::default(),
+            pop: None,
             probe: mode.is_some().then(Probe::default),
             auto: mode.as_deref() == Some("auto"),
             started: Instant::now(),
@@ -217,6 +227,13 @@ impl CanvasView {
         self.fit_pending = false;
     }
 
+    fn zoom_to(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let area = self.area.get().size;
+        let centre = point(area.width / 2.0, area.height / 2.0);
+        self.camera.zoom_about(centre, zoom);
+        cx.notify();
+    }
+
     fn on_scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
         let dy = f32::from(event.delta.pixel_delta(px(WHEEL_LINE)).y);
         let boost = if event.modifiers.control {
@@ -237,11 +254,15 @@ impl CanvasView {
         cx.notify();
     }
 
-    fn on_down(&mut self, event: &MouseDownEvent) {
+    fn on_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        popover::dismiss(self, cx);
         self.drag = Some(event.position);
     }
 
     fn on_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if minimap::drag(self, event, cx) {
+            return;
+        }
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = None;
             self.resizing = None;
@@ -268,9 +289,10 @@ impl CanvasView {
         cx.notify();
     }
 
-    fn on_up(&mut self) {
+    fn on_up(&mut self, cx: &mut Context<Self>) {
         self.drag = None;
         self.resizing = None;
+        minimap::release(self, cx);
     }
 }
 
@@ -293,6 +315,9 @@ impl Render for CanvasView {
             let store = self.store.clone();
             cx.defer(move |cx| store.update(cx, |store, cx| store.set_zoom_percent(percent, cx)));
         }
+        let map = minimap::view(self, cx);
+        let heads = popover::heads(self, cx);
+        let pop = popover::element(self);
         let area = self.area.clone();
         let frame_end = self.probe.clone();
         for live in self.live.values() {
@@ -315,12 +340,13 @@ impl Render for CanvasView {
             )
         });
         let groups = self.scene.groups.iter().map(|f| {
-            card::frame(
+            let frame = card::frame(
                 &f.label,
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 false,
-            )
+            );
+            popover::context(frame, f.place.clone(), f.label.clone(), cx)
         });
         let cards = self.scene.cards.iter().filter_map(|placed| {
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
@@ -386,16 +412,16 @@ impl Render for CanvasView {
             .on_pinch(cx.listener(|this, e: &PinchEvent, _, cx| this.on_pinch(e, cx)))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, e: &MouseDownEvent, _, _| this.on_down(e)),
+                cx.listener(|this, e: &MouseDownEvent, _, cx| this.on_down(e, cx)),
             )
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| this.on_move(e, cx)))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.on_up()),
+                cx.listener(|this, _: &MouseUpEvent, _, cx| this.on_up(cx)),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.on_up()),
+                cx.listener(|this, _: &MouseUpEvent, _, cx| this.on_up(cx)),
             )
             .child(
                 canvas(
@@ -408,6 +434,9 @@ impl Render for CanvasView {
             .children(repos)
             .children(groups)
             .children(cards)
+            .children(heads)
+            .children(map)
+            .children(pop)
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

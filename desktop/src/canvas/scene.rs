@@ -7,7 +7,8 @@ use super::layout::{
     SettleItem, Size,
 };
 use super::repos::{Group, GroupKind, attach_cards, group_parents, groups_of, split_chips};
-use api::graph::{CardView, NodeView};
+use api::graph::{CardView, NodeView, Place};
+use api::ids::RepoId;
 use api::repos::RepoView;
 
 use crate::link::Snapshot;
@@ -41,6 +42,7 @@ pub const MIN_CARD: Size = Size {
 pub struct Frame {
     pub label: String,
     pub rect: Rect,
+    pub place: Option<Place>,
 }
 
 pub struct Card {
@@ -80,6 +82,7 @@ impl Placement<'_> {
 }
 
 struct Level<'a> {
+    repo: RepoId,
     groups: Vec<Group>,
     members: Vec<Vec<&'a NodeView>>,
     nest: Vec<NestGroup>,
@@ -163,6 +166,10 @@ impl Level<'_> {
                 at: origin,
                 size: g.size,
             },
+            place: Some(Place {
+                repo: self.repo,
+                worktree: self.groups[g.group].path.clone(),
+            }),
         });
         for &id in &g.members {
             let p = g.local[&id.to_string()];
@@ -341,6 +348,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
             },
         );
         let level = Level {
+            repo: repo.id,
             groups,
             members,
             nest,
@@ -428,6 +436,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
             scene.repos.push(Frame {
                 label: b.repo.name.clone(),
                 rect: Rect { at, size: b.size },
+                place: None,
             });
             Point {
                 x: at.x - b.lead.x,

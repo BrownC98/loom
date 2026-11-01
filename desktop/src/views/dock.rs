@@ -9,6 +9,7 @@ use self::answers::Answers;
 use super::field::{self, Field};
 use crate::store::Store;
 use crate::strings::Str;
+use crate::views::pictures::Shelf;
 
 pub(crate) mod answers;
 mod arrange;
@@ -68,7 +69,12 @@ pub struct Dock {
     subscriptions: Vec<Subscription>,
 }
 
-pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<Dock> {
+pub fn dock(
+    store: Entity<Store>,
+    shelf: Entity<Shelf>,
+    _: &mut Window,
+    cx: &mut gpui::App,
+) -> Entity<Dock> {
     cx.new(|cx| {
         let placeholder = ui::say(cx, Str::DocsFilterPlaceholder);
         let query = field::boxed(placeholder, false, false, cx);
@@ -76,7 +82,7 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             store: store.clone(),
             tab: Tab::Questions,
             inbox: Inbox::New,
-            answers: cx.new(|cx| Answers::new(store.clone(), cx)),
+            answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
             open_key: String::new(),
             arrange_menu: false,
             history: History::default(),

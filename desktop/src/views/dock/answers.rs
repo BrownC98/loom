@@ -15,7 +15,7 @@ use super::ui::{self, GAP, PAD, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
-use crate::views::pictures::{self, Pictures, PicturesEvent};
+use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
 use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
@@ -57,6 +57,7 @@ fn cleared(field: Entity<Field>) -> Done {
 
 pub(crate) struct Answers {
     store: Entity<Store>,
+    shelf: Entity<Shelf>,
     fields: HashMap<(u32, Slot), Draft>,
     shown: HashMap<u32, Prompt>,
     notes: HashMap<u32, String>,
@@ -83,9 +84,10 @@ fn drop_absent_slots(fields: &mut HashMap<(u32, Slot), Draft>, id: u32, prompt: 
 }
 
 impl Answers {
-    pub(crate) fn new(store: Entity<Store>, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(store: Entity<Store>, shelf: Entity<Shelf>, cx: &mut Context<Self>) -> Self {
         let mut answers = Self {
             store: store.clone(),
+            shelf,
             fields: HashMap::new(),
             shown: HashMap::new(),
             notes: HashMap::new(),
@@ -140,7 +142,7 @@ impl Answers {
         self.loading.retain(|(id, _)| live.contains(id));
         self.attached.retain(|id, _| live.contains(id));
         self.waiting.retain(|id, _| live.contains(id));
-        pictures::keep_shelf(&live, cx);
+        self.shelf.update(cx, |shelf, _| shelf.keep(&live));
         self.store
             .update(cx, |store, cx| store.keep_waits(&live, cx));
         for (node, wait) in &waits {
@@ -192,7 +194,10 @@ impl Answers {
             return;
         }
         if !self.attached.contains_key(&id) {
-            let pictures = pictures::shelf(&self.store, node, id, cx);
+            let store = self.store.clone();
+            let pictures = self
+                .shelf
+                .update(cx, |shelf, cx| shelf.pictures(&store, node, id, cx));
             let sub =
                 cx.subscribe(
                     &pictures,

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use api::ids::NodeId;
 use gpui::{
-    App, AppContext, ClipboardEntry, Context, Div, Entity, EventEmitter, Global, Image,
-    ImageFormat, InteractiveElement, MouseButton, ObjectFit, ParentElement, PathPromptOptions,
+    App, AppContext, ClipboardEntry, Context, Div, Entity, EventEmitter, Image, ImageFormat,
+    InteractiveElement, MouseButton, ObjectFit, ParentElement, PathPromptOptions,
     StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
 };
 
@@ -53,23 +53,27 @@ pub struct Pictures {
 }
 
 #[derive(Default)]
-struct Shelf(HashMap<u32, Entity<Pictures>>);
-
-impl Global for Shelf {}
-
-pub fn shelf(store: &Entity<Store>, node: NodeId, wait: u32, cx: &mut App) -> Entity<Pictures> {
-    if let Some(found) = cx.default_global::<Shelf>().0.get(&wait) {
-        return found.clone();
-    }
-    let made = cx.new(|_| Pictures::new(store.clone(), node));
-    cx.global_mut::<Shelf>().0.insert(wait, made.clone());
-    made
+pub struct Shelf {
+    waits: HashMap<u32, Entity<Pictures>>,
 }
 
-pub fn keep_shelf(live: &HashSet<u32>, cx: &mut App) {
-    cx.default_global::<Shelf>()
-        .0
-        .retain(|wait, _| live.contains(wait));
+impl Shelf {
+    pub fn pictures(
+        &mut self,
+        store: &Entity<Store>,
+        node: NodeId,
+        wait: u32,
+        cx: &mut Context<Self>,
+    ) -> Entity<Pictures> {
+        self.waits
+            .entry(wait)
+            .or_insert_with(|| cx.new(|_| Pictures::new(store.clone(), node)))
+            .clone()
+    }
+
+    pub fn keep(&mut self, live: &HashSet<u32>) {
+        self.waits.retain(|wait, _| live.contains(wait));
+    }
 }
 
 impl EventEmitter<PicturesEvent> for Pictures {}

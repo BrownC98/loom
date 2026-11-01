@@ -1,6 +1,5 @@
 mod agent;
 mod link;
-mod refusal;
 mod waits;
 
 use serde::{Deserialize, Serialize};

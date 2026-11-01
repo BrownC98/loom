@@ -53,7 +53,7 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -159,7 +159,7 @@ jobs:
             loom: loom.exe
             desktop: loom-desktop.exe
             asset: loom-desktop-windows-x64.zip
-          - os: macos-14
+          - os: macos-15
             web: loom-web-macos-arm64
             loom: loom
             desktop: loom-desktop

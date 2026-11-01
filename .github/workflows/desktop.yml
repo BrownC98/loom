@@ -27,7 +27,7 @@ jobs:
           - os: windows-latest
             artifact: loom-desktop-windows-x64
             file: loom-desktop.exe
-          - os: macos-14
+          - os: macos-15
             artifact: loom-desktop-macos-arm64
             file: loom-desktop
     runs-on: ${{ matrix.os }}

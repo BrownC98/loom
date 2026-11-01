@@ -77,6 +77,16 @@ pub fn group_mark(
     }
 }
 
+fn stroke(zoom: f32) -> f32 {
+    if zoom >= 0.8 {
+        2.0
+    } else if zoom >= 0.55 {
+        1.75
+    } else {
+        1.5
+    }
+}
+
 fn ring(color: Rgba, spread: f32) -> BoxShadow {
     BoxShadow {
         color: color.into(),
@@ -655,7 +665,13 @@ fn ghost_sized(
         })
         .tooltip(tooltip::tip(tip.to_owned()))
         .children(anchor.map(|(anchors, key)| anchors.mark(key)))
-        .child(icon(glyph, (ICON * zoom).max(1.0), ink_2))
+        .child(icon_styled(
+            glyph,
+            (ICON * zoom).max(1.0),
+            ink_2,
+            stroke(zoom),
+            false,
+        ))
 }
 
 fn ghost(
@@ -691,7 +707,7 @@ fn bookmark_button(face: &Face, zoom: f32, colors: &Colors) -> Stateful<Div> {
             Lucide::Bookmark,
             (ICON * zoom).max(1.0),
             color,
-            2.0,
+            stroke(zoom),
             on,
         ))
 }
@@ -824,6 +840,7 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
                 .bg(colors.surface)
                 .shadow_md()
                 .text_size(text_px(SMALL, zoom))
+                .font_weight(FontWeight::NORMAL)
                 .when(error.is_none(), |d| d.whitespace_nowrap())
                 .text_color(if error.is_some() {
                     colors.err
@@ -860,6 +877,7 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
                 2.0 * zoom,
             )])
             .text_size(text_px(NAME, zoom))
+            .font_weight(FontWeight::SEMIBOLD)
             .text_color(colors.ink)
             .child(field.clone())
             .child(tip)
@@ -936,25 +954,67 @@ fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElem
     out
 }
 
-pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
+struct HeadLayout {
+    height: Option<f32>,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    left: f32,
+    mark_first: bool,
+    expand: bool,
+    model_while_renaming: bool,
+}
+
+const CANVAS_HEAD: HeadLayout = HeadLayout {
+    height: Some(HEAD),
+    top: 0.0,
+    right: 6.0,
+    bottom: 0.0,
+    left: 10.0,
+    mark_first: false,
+    expand: true,
+    model_while_renaming: true,
+};
+
+const DOCK_HEAD: HeadLayout = HeadLayout {
+    height: None,
+    top: 12.0,
+    right: 10.0,
+    bottom: 12.0,
+    left: 16.0,
+    mark_first: true,
+    expand: false,
+    model_while_renaming: false,
+};
+
+fn head_row(face: &Face, zoom: f32, colors: &Colors, layout: &HeadLayout) -> Div {
     let model = model_text(face.node);
+    let (mark, name) = (mark_of(face, zoom, colors), name_slot(face, zoom, colors));
+    let (first, second) = if layout.mark_first {
+        (mark, name)
+    } else {
+        (name, mark)
+    };
+    let show_model = !model.is_empty() && (layout.model_while_renaming || face.rename.is_none());
     div()
         .flex()
         .flex_none()
         .items_center()
         .gap(px(8.0 * zoom))
         .w_full()
-        .h(px(HEAD * zoom))
-        .pl(px(10.0 * zoom))
-        .pr(px(6.0 * zoom))
+        .when_some(layout.height, |d, height| d.h(px(height * zoom)))
+        .pt(px(layout.top * zoom))
+        .pr(px(layout.right * zoom))
+        .pb(px(layout.bottom * zoom))
+        .pl(px(layout.left * zoom))
         .bg(colors.surface)
         .border_b(px(zoom.max(0.5)))
         .border_color(colors.line)
         .text_size(text_px(NAME, zoom))
         .text_color(colors.ink)
-        .child(name_slot(face, zoom, colors))
-        .child(mark_of(face, zoom, colors))
-        .when(!model.is_empty(), |d| {
+        .child(first)
+        .child(second)
+        .when(show_model, |d| {
             d.child(
                 div()
                     .min_w_0()
@@ -969,7 +1029,15 @@ pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
         })
         .child(div().flex_1())
         .children(badges(face, zoom, colors))
-        .children(actions(face, true, zoom, colors))
+        .children(actions(face, layout.expand, zoom, colors))
+}
+
+pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
+    head_row(face, zoom, colors, &CANVAS_HEAD)
+}
+
+pub fn dock_head(face: &Face, colors: &Colors) -> Div {
+    head_row(face, 1.0, colors, &DOCK_HEAD)
 }
 
 fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
@@ -1056,13 +1124,13 @@ pub fn card(
         .flatten();
     let waiting = !node.waits.is_empty();
     let lit = mark == Mark::Lit;
-    let (border, rings) = if selected {
-        (colors.accent, vec![ring(colors.accent, 1.0)])
-    } else if waiting {
+    let (border, rings) = if waiting {
         (
             colors.warn,
             vec![ring(wash(colors.warn, WAIT_WASH), 2.0 * zoom)],
         )
+    } else if selected {
+        (colors.accent, vec![ring(colors.accent, 1.0)])
     } else if lit {
         (
             colors.accent,

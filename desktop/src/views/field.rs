@@ -96,9 +96,10 @@ impl Field {
 
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         self.text = text.to_owned();
-        self.selected = text.len()..text.len();
+        self.selected = 0..self.text.len();
         self.reversed = false;
         self.marked = None;
+        cx.emit(FieldEvent::Changed);
         cx.notify();
     }
 

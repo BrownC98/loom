@@ -1,4 +1,4 @@
-use gpui::{Div, ParentElement, Styled, div, px};
+use gpui::{Div, Entity, ParentElement, Styled, div, px};
 
 use api::graph::NodeState;
 
@@ -6,6 +6,8 @@ use crate::link::LinkState;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
+
+use super::zoom::Zoom;
 
 pub const HEIGHT: f32 = 22.0;
 const DOT: f32 = 8.0;
@@ -18,7 +20,7 @@ fn link_text(link: LinkState) -> Str {
     }
 }
 
-pub fn bar(store: &Store, colors: &Colors, lang: Lang) -> Div {
+pub fn bar(store: &Store, colors: &Colors, lang: Lang, zoom: &Entity<Zoom>) -> Div {
     let (dot, text) = match store.base() {
         None => (colors.err, None),
         Some(_) => {
@@ -67,5 +69,5 @@ pub fn bar(store: &Store, colors: &Colors, lang: Lang) -> Div {
         )
         .child(div().flex_1())
         .children(counts.map(|counts| div().child(counts)))
-        .child(div().child(format!("{}%", store.zoom_percent())))
+        .child(zoom.clone())
 }

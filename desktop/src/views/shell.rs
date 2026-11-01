@@ -1,6 +1,7 @@
 mod pane;
 mod status;
 mod title;
+mod zoom;
 
 use api::settings::PaneWidths;
 use gpui::{
@@ -10,7 +11,6 @@ use gpui::{
 };
 
 use crate::fonts;
-use crate::link;
 use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -29,8 +29,13 @@ struct Drag {
     now: f32,
 }
 
+pub fn zoom(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Entity<zoom::Zoom> {
+    cx.new(|cx| zoom::Zoom::new(store, window, cx))
+}
+
 pub struct Shell {
     store: Entity<Store>,
+    zoom: Entity<zoom::Zoom>,
     main: AnyView,
     left: Option<AnyView>,
     right: Option<AnyView>,
@@ -44,6 +49,7 @@ pub struct Shell {
 impl Shell {
     pub fn new(
         store: Entity<Store>,
+        zoom: Entity<zoom::Zoom>,
         main: AnyView,
         left: Option<AnyView>,
         right: Option<AnyView>,
@@ -61,6 +67,7 @@ impl Shell {
         let seen = store.read(cx).settings().pane_widths.clone();
         Self {
             store,
+            zoom,
             main,
             left,
             right,
@@ -153,20 +160,9 @@ impl Shell {
             Pane::Dock => self.kept.dock = Some(width),
         }
         cx.notify();
-        let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
-            return;
-        };
         let patch = serde_json::json!({ "paneWidths": { pane.key(): width } });
-        let store = self.store.clone();
-        cx.spawn(async move |_, cx| {
-            let saved = cx
-                .background_spawn(async move { link::put_settings(&base, &patch) })
-                .await;
-            if saved.is_ok() {
-                store.update(cx, |store, cx| store.reload(cx));
-            }
-        })
-        .detach();
+        self.store
+            .update(cx, |store, cx| store.save_settings(patch, cx));
     }
 }
 
@@ -230,7 +226,7 @@ impl Render for Shell {
                 shell.update(cx, |this, cx| this.open_settings(window, cx));
             },
         );
-        let status = status::bar(self.store.read(cx), &theme.colors, lang);
+        let status = status::bar(self.store.read(cx), &theme.colors, lang, &self.zoom);
         let left = Self::slot(&widths, Pane::Side, theme, self.left.clone());
         let right = Self::slot(&widths, Pane::Dock, theme, self.right.clone());
         let side_grip = if widths.open(Pane::Side) {

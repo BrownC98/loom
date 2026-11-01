@@ -8,6 +8,8 @@ use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, Processor, Rgb};
 
+pub mod view;
+
 pub type Rgb8 = [u8; 3];
 
 const ANSI: [Rgb8; 16] = [
@@ -184,7 +186,7 @@ impl Vt {
         let mut cells = Vec::with_capacity(cols * rows);
         for row in 0..rows {
             for col in 0..cols {
-                let cell = &grid[Line(row as i32)][Column(col)];
+                let cell = &grid[Line(row as i32 - grid.display_offset() as i32)][Column(col)];
                 let bold = cell.flags.contains(Flags::BOLD);
                 let (mut fg, mut bg) = (resolve(cell.fg, bold), resolve(cell.bg, false));
                 if cell.flags.contains(Flags::INVERSE) {
@@ -229,12 +231,7 @@ impl Vt {
     }
 }
 
-#[allow(dead_code)]
 impl Vt {
-    pub fn encode_key(&self, key: &Key) -> Option<Vec<u8>> {
-        self.encode_key_as(key, KeyKind::Press)
-    }
-
     pub fn encode_key_as(&self, key: &Key, kind: KeyKind) -> Option<Vec<u8>> {
         let mode = *self.term.mode();
         let mods = 1 + u8::from(key.shift) + 2 * u8::from(key.alt) + 4 * u8::from(key.ctrl);
@@ -341,7 +338,6 @@ impl Vt {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
     Press,
@@ -349,7 +345,6 @@ pub enum KeyKind {
     Release,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left = 0,
@@ -357,7 +352,6 @@ pub enum MouseButton {
     Right = 2,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MouseAction {
     Press(MouseButton),
@@ -367,7 +361,6 @@ pub enum MouseAction {
     Wheel { up: bool, lines: usize },
 }
 
-#[allow(dead_code)]
 pub struct Mouse {
     pub action: MouseAction,
     pub col: usize,

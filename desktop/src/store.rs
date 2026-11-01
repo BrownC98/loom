@@ -18,7 +18,6 @@ use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::strings::Str;
-use crate::views::dock::answers::Slot;
 use crate::views::notice::{self, Level, Notice};
 use crate::{strings, theme};
 
@@ -47,6 +46,13 @@ pub struct Store {
     zoomed: bool,
     drafts: HashMap<(u32, Slot), String>,
     busy: HashSet<u32>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Slot {
+    Answer,
+    Option(usize),
+    Field,
 }
 
 pub struct ZoomTo(pub f32);

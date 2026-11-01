@@ -8,7 +8,7 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
 };
 
-use api::graph::{NewNode, NodeState, Place};
+use api::graph::{NewNode, Place};
 use api::ids::{AgentId, RepoId};
 use api::profile::AgentView;
 use api::repos::PlaceView;
@@ -22,9 +22,7 @@ use crate::theme::Theme;
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
-use crate::views::worktree::{
-    self, Closed as WorktreeClosed, DeleteWorktreeView, Doomed, Member, NewWorktreeView,
-};
+use crate::views::worktree::{self, Closed, DeleteWorktreeView, Doomed, NewWorktreeView};
 
 const WIDTH: f32 = 340.0;
 const HEIGHT: f32 = 385.0;
@@ -41,8 +39,6 @@ pub struct Popped {
     measured: Rc<Cell<f32>>,
     _closed: Vec<Subscription>,
 }
-
-struct Closed;
 
 #[derive(Clone)]
 struct Choice {
@@ -97,7 +93,7 @@ fn tag_place(at: &PlaceView, lang: Lang) -> String {
 }
 
 impl NewNodeView {
-    fn new(
+    pub(crate) fn new(
         store: Entity<Store>,
         place: Place,
         branch: String,
@@ -649,32 +645,12 @@ pub fn delete_worktree(
         return;
     }
     let store = canvas.store.clone();
-    let snapshot = store.read(cx).snapshot();
-    let branch = snapshot
-        .and_then(|s| s.repos.iter().find(|r| r.id == repo))
-        .and_then(|r| r.worktrees.iter().find(|w| w.path == path))
-        .and_then(|w| w.branch.clone());
-    let members = snapshot
-        .map(|s| {
-            s.nodes
-                .iter()
-                .filter(|n| n.place.repo == repo && n.place.worktree == path)
-                .map(|n| Member {
-                    name: n.name.clone(),
-                    running: matches!(n.state, NodeState::Running),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let doomed = Doomed {
-        repo,
-        path,
-        label,
-        branch,
-        members,
+    let Some(snapshot) = store.read(cx).snapshot() else {
+        return;
     };
+    let doomed = Doomed::of(snapshot, repo, path, label);
     let view = cx.new(|cx| DeleteWorktreeView::new(store, doomed, window, cx));
-    let closed = cx.subscribe(&view, |this, _, _: &WorktreeClosed, cx| dismiss(this, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &Closed, cx| dismiss(this, cx));
     show(
         canvas,
         key,
@@ -707,7 +683,7 @@ pub fn new_worktree(
         return;
     };
     let view = cx.new(|cx| NewWorktreeView::new(store, info, window, cx));
-    let closed = cx.subscribe(&view, |this, _, _: &WorktreeClosed, cx| dismiss(this, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &Closed, cx| dismiss(this, cx));
     show(
         canvas,
         key,

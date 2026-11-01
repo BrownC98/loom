@@ -2789,6 +2789,7 @@ dependencies = [
  "async-channel",
  "gpui",
  "gpui_platform",
+ "polling",
  "serde",
  "serde_json",
  "tungstenite",

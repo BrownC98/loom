@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
     Bounds, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
@@ -9,6 +9,7 @@ use gpui::{
     Styled, Window, canvas, div, point, px, rgb, size,
 };
 
+use api::graph::pty::Pace;
 use api::graph::{CardView, NodeState};
 
 use super::camera::Camera;
@@ -17,7 +18,7 @@ use super::grid;
 use super::layout::{Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
 use crate::link::Snapshot;
-use crate::link::{self, Graph};
+use crate::link::{self, Graph, LinkState};
 use crate::views::card;
 use crate::views::terminal::{self, TerminalView};
 
@@ -27,6 +28,12 @@ const WHEEL_RATE: f32 = 0.002;
 const WHEEL_PINCH_BOOST: f32 = 10.0;
 const HANDLE: f32 = 18.0;
 const TERMINAL_STEP: f32 = 1.03;
+const HIDDEN_KEEP: Duration = Duration::from_secs(3);
+
+struct Live {
+    view: Entity<TerminalView>,
+    hidden: Option<Instant>,
+}
 
 struct Resizing {
     node: u32,
@@ -40,7 +47,9 @@ pub struct CanvasView {
     snapshot: Option<Snapshot>,
     scene: Scene,
     resized: HashMap<u32, Size>,
-    live: Option<(u32, Entity<TerminalView>)>,
+    selected: Option<u32>,
+    live: HashMap<u32, Live>,
+    link: LinkState,
     resizing: Option<Resizing>,
     fit_pending: bool,
     camera: Camera,
@@ -63,7 +72,11 @@ fn bounds_of(rect: Rect) -> Bounds<f32> {
 }
 
 impl CanvasView {
-    pub fn new(started: Result<String, String>, window: &Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        started: Result<String, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mode = std::env::var("LOOM_DESKTOP_FRAMES").ok();
         let (base, status) = match started {
             Ok(base) => {
@@ -74,7 +87,7 @@ impl CanvasView {
                 cx.spawn_in(window, async move |this, cx| {
                     while let Ok(event) = inbox.recv().await {
                         if this
-                            .update_in(cx, |view, window, cx| view.apply(event, window, cx))
+                            .update_in(cx, |view, _, cx| view.apply(event, cx))
                             .is_err()
                         {
                             break;
@@ -86,13 +99,23 @@ impl CanvasView {
             }
             Err(error) => (None, error),
         };
+        cx.observe_window_activation(window, |_, window, _| {
+            link::pace(if window.is_window_active() {
+                Pace::Front
+            } else {
+                Pace::Back
+            });
+        })
+        .detach();
         Self {
             base,
             status,
             snapshot: None,
             scene: Scene::default(),
             resized: HashMap::new(),
-            live: None,
+            selected: None,
+            live: HashMap::new(),
+            link: LinkState::Reconnecting,
             resizing: None,
             fit_pending: true,
             camera: Camera::HOME,
@@ -104,14 +127,13 @@ impl CanvasView {
         }
     }
 
-    fn apply(&mut self, event: Graph, window: &mut Window, cx: &mut Context<Self>) {
+    fn apply(&mut self, event: Graph, cx: &mut Context<Self>) {
         match event {
             Graph::Loaded(snapshot) => {
                 self.snapshot = Some(*snapshot);
                 self.rebuild();
                 let present = |id: u32| self.scene.cards.iter().any(|c| c.node == id);
-                if self.live.as_ref().is_none_or(|(id, _)| !present(*id)) {
-                    self.live = None;
+                if self.selected.is_none_or(|id| !present(id)) {
                     let wanted = std::env::var(NODE_ENV)
                         .ok()
                         .and_then(|id| id.parse().ok())
@@ -123,15 +145,12 @@ impl CanvasView {
                                 .any(|n| n.id.0 == id && n.state == NodeState::Running)
                         })
                     });
-                    if let Some(id) =
-                        wanted
-                            .or(running)
-                            .or(self.scene.cards.first().map(|c| c.node))
-                    {
-                        self.select(id, window, cx);
-                    }
+                    self.selected = wanted
+                        .or(running)
+                        .or(self.scene.cards.first().map(|c| c.node));
                 }
             }
+            Graph::Link(state) => self.link = state,
             Graph::Failed(error) => {
                 self.status = if error.is_empty() {
                     "connection closed".to_owned()
@@ -149,15 +168,55 @@ impl CanvasView {
         }
     }
 
-    fn select(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
-        if self.live.as_ref().is_some_and(|(id, _)| *id == node) {
+    fn select(&mut self, node: u32, cx: &mut Context<Self>) {
+        self.selected = Some(node);
+        cx.notify();
+    }
+
+    fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(base), area) = (self.base.clone(), self.area.get().size) else {
+            return;
+        };
+        if area.width <= px(0.0) {
             return;
         }
-        if let Some(base) = &self.base {
-            let view = terminal::open(base, node, window, cx);
-            self.live = Some((node, view));
+        let camera = self.camera;
+        let reach = Bounds::new(
+            point(-area.width, -area.height),
+            size(area.width * 3.0, area.height * 3.0),
+        );
+        let mut near: Vec<u32> = self
+            .scene
+            .cards
+            .iter()
+            .filter(|c| camera.screen_box(bounds_of(c.rect)).intersects(&reach))
+            .map(|c| c.node)
+            .collect();
+        near.sort_by_key(|&id| self.selected == Some(id));
+        let now = Instant::now();
+        for id in near.iter().copied() {
+            let entry = self.live.entry(id).or_insert_with(|| Live {
+                view: terminal::open(&base, id, window, cx),
+                hidden: None,
+            });
+            entry.hidden = None;
         }
-        cx.notify();
+        let mut waiting = false;
+        self.live.retain(|id, live| {
+            if near.contains(id) {
+                return true;
+            }
+            let since = *live.hidden.get_or_insert(now);
+            waiting = true;
+            now - since < HIDDEN_KEEP
+        });
+        if waiting {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(HIDDEN_KEEP).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
     }
 
     fn local(&self, window_pos: Point<Pixels>) -> Point<Pixels> {
@@ -265,12 +324,19 @@ impl Render for CanvasView {
             self.scripted();
             window.request_animation_frame();
         }
+        self.mount(window, cx);
         let camera = self.camera;
         let area = self.area.clone();
         let frame_end = self.probe.clone();
-        if let Some((_, view)) = &self.live {
-            view.update(cx, |view, _| view.set_scale(snapped(camera.zoom)));
+        for live in self.live.values() {
+            live.view
+                .update(cx, |view, _| view.set_scale(snapped(camera.zoom)));
         }
+        let viewport = Bounds::from_corners(
+            point(px(0.0), px(0.0)),
+            point(self.area.get().size.width, self.area.get().size.height),
+        );
+        let selected = self.selected;
         let repos = self.scene.repos.iter().map(|f| {
             card::frame(
                 &f.label,
@@ -291,15 +357,19 @@ impl Render for CanvasView {
             let snapshot = self.snapshot.as_ref()?;
             let node = snapshot.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
-            let live = self.live.as_ref().filter(|(live, _)| *live == id);
-            let body = live.map(|(_, view)| {
-                let scale = snapped(camera.zoom);
-                div()
-                    .w(px((placed.rect.size.width as f32) * scale))
-                    .h(px((placed.rect.size.height as f32 - card::HEAD) * scale))
-                    .child(view.clone())
-                    .into_any_element()
-            });
+            let screen = camera.screen_box(bounds_of(placed.rect));
+            let body = self
+                .live
+                .get(&id)
+                .filter(|_| screen.intersects(&viewport))
+                .map(|live| {
+                    let scale = snapped(camera.zoom);
+                    div()
+                        .w(px((placed.rect.size.width as f32) * scale))
+                        .h(px((placed.rect.size.height as f32 - card::HEAD) * scale))
+                        .child(live.view.clone())
+                        .into_any_element()
+                });
             let handle = (node.card_view != Some(CardView::Simple)).then(|| {
                 let side = px(HANDLE * camera.zoom);
                 div()
@@ -328,21 +398,15 @@ impl Render for CanvasView {
                     )
             });
             Some(
-                card::card(
-                    node,
-                    camera.screen_box(bounds_of(placed.rect)),
-                    camera.zoom,
-                    live.is_some(),
-                    body,
-                )
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                        this.select(id, window, cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .children(handle),
+                card::card(node, screen, camera.zoom, selected == Some(id), body)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                            this.select(id, cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .children(handle),
             )
         });
         div()
@@ -384,8 +448,9 @@ impl Render for CanvasView {
                     .text_size(px(12.0))
                     .text_color(rgb(0x8b9099))
                     .child(format!(
-                        "{}  {}%  ({:.0}, {:.0})",
+                        "{}  {}  {}%  ({:.0}, {:.0})",
                         self.status,
+                        self.base.as_ref().map_or("", |_| self.link.label()),
                         (camera.zoom * 100.0).round(),
                         camera.x,
                         camera.y

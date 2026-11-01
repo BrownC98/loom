@@ -1,215 +1,61 @@
-use api::graph::waits::WaitKind;
+use api::graph::waits::{WaitKind, WaitTone};
 use api::settings::FloatSize;
 use gpui::{
-    App, BoxShadow, Div, FontWeight, IntoElement, ParentElement, Styled, Window, canvas, div, fill,
-    point, px, size,
+    App, Div, IntoElement, ParentElement, Styled, Window, canvas, div, fill, point, px, size,
 };
 
+use crate::float::composer::{self, ComposerView, ComposerWire};
+use crate::float::pill::{self, PillView, PillWire};
+use crate::float::place;
 use crate::strings::Str;
-use crate::views::dock::questions::kind_label;
 use crate::views::dock::ui::{SMALL, colors, say};
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::field;
 
 const DOT_GAP: f32 = 20.0;
-const HEAD: f32 = 34.0;
 const PILL_ID: &str = "1";
 const COMPOSER_W: f32 = 440.0;
-const BUTTON: f32 = 30.0;
-const SHADOW_BLUR: f32 = 14.0;
-const SHADOW_DROP: f32 = 4.0;
 
-pub fn zoom(size: FloatSize) -> f32 {
-    match size {
-        FloatSize::Small => 0.85,
-        FloatSize::Normal => 1.0,
-        FloatSize::Large => 1.15,
-        FloatSize::Huge => 1.3,
-    }
-}
+struct Still;
 
-fn shadow(color: gpui::Rgba) -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: color.into(),
-        offset: point(px(0.0), px(SHADOW_DROP)),
-        blur_radius: px(SHADOW_BLUR),
-        spread_radius: px(0.0),
-        inset: false,
-    }]
-}
-
-fn tool(glyph: &'static str, z: f32, cx: &App) -> Div {
-    div()
-        .flex_none()
-        .size(px(24.0 * z))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(colors(cx).ink_3)
-        .child(glyph)
-}
+impl PillWire for Still {}
+impl ComposerWire for Still {}
 
 pub fn pill(size: FloatSize, name: &str, text: &str, cx: &App) -> Div {
-    let c = colors(cx);
-    let z = zoom(size);
-    let head = div()
-        .flex()
-        .items_center()
-        .gap(px(8.0 * z))
-        .min_w_0()
-        .h(px(HEAD * z))
-        .px(px(6.0 * z))
-        .text_size(px(13.0 * z))
-        .child(tool("\u{00d7}", z, cx))
-        .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::BOLD)
-                .child(say(cx, kind_label(WaitKind::Question))),
-        )
-        .child(
-            div()
-                .flex_none()
-                .min_w(px(18.0 * z))
-                .h(px(18.0 * z))
-                .px(px(5.0 * z))
-                .rounded(px(9.0 * z))
-                .bg(c.warn)
-                .text_color(c.warn_ink)
-                .text_size(px(11.0 * z))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child("?1"),
-        )
-        .child(
-            div()
-                .flex_none()
-                .px(px(6.0 * z))
-                .h(px(18.0 * z))
-                .rounded(px(4.0 * z))
-                .border_1()
-                .border_color(c.warn)
-                .text_size(px(11.0 * z))
-                .flex()
-                .items_center()
-                .child(PILL_ID),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .px(px(4.0 * z))
-                .py(px(2.0 * z))
-                .text_size(px(12.0 * z))
-                .truncate()
-                .child(format!("{name}: {text}")),
-        );
-    div()
-        .flex()
-        .flex_col()
-        .rounded(px(17.0 * z))
-        .border_1()
-        .border_color(c.warn)
-        .bg(c.panel)
-        .text_color(c.ink)
-        .shadow(shadow(c.shadow))
-        .child(head)
+    let z = place::zoom(size);
+    let view = PillView {
+        name,
+        summary: text,
+        kind: WaitKind::Question,
+        tone: WaitTone::Ask,
+        id: PILL_ID.to_owned(),
+        asks: 1,
+        dones: 0,
+        line: true,
+        open: false,
+        reset: false,
+        z,
+    };
+    pill::face(&view, None, &Still, cx).max_w(px(pill::WIDTH * z))
 }
 
 pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
+    let z = place::zoom(size);
     let c = colors(cx);
-    let z = zoom(size);
-    let button = |glyph: Glyph| {
-        div()
-            .flex_none()
-            .size(px(BUTTON * z))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.0 * z))
-            .text_color(c.ink_2)
-            .child(icon(glyph, 16.0 * z, c.ink_2))
+    let view = ComposerView {
+        name,
+        home: true,
+        z,
+        focused: false,
+        sendable: true,
+        listing: false,
+        filing: None,
+        note: None,
     };
-    let to = div()
-        .flex()
-        .items_center()
-        .gap(px(6.0 * z))
-        .min_w_0()
-        .text_size(px(12.0 * z))
+    let input = field::skin(div(), z, false, &c)
         .text_color(c.ink_3)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.0 * z))
-                .child(icon(Glyph::SquareTerminal, 14.0 * z, c.ink_3))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.ink)
-                        .child(name.to_owned()),
-                )
-                .child(say(cx, Str::ComposerTo)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .justify_end()
-                .child(say(cx, Str::ComposerKeys)),
-        );
-    let line = div()
-        .flex()
-        .items_end()
-        .gap(px(4.0 * z))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .px(px(8.0 * z))
-                .py(px(5.0 * z))
-                .h(px(30.0 * z))
-                .rounded(px(8.0 * z))
-                .border_1()
-                .border_color(c.line_strong)
-                .bg(c.surface)
-                .text_size(px(13.0 * z))
-                .text_color(c.ink_3)
-                .child(say(cx, Str::ComposerPlaceholder)),
-        )
-        .child(button(Glyph::Image))
-        .child(button(Glyph::Paperclip))
-        .child(
-            div()
-                .flex_none()
-                .size(px(BUTTON * z))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(8.0 * z))
-                .bg(c.accent)
-                .text_color(c.accent_ink)
-                .opacity(0.4)
-                .child(icon(Glyph::ArrowUp, 16.0 * z, c.accent_ink)),
-        );
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0 * z))
-        .w(px(COMPOSER_W * z))
-        .py(px(8.0 * z))
-        .pl(px(10.0 * z))
-        .pr(px(8.0 * z))
-        .rounded(px(14.0 * z))
-        .border_1()
-        .border_color(c.line_strong)
-        .bg(c.panel)
-        .shadow(shadow(c.shadow))
-        .text_size(px(13.0 * z))
-        .text_color(c.ink)
-        .child(to)
-        .child(line)
+        .child(say(cx, Str::ComposerPlaceholder))
+        .into_any_element();
+    composer::face(&view, None, input, &Still, cx).w(px(COMPOSER_W * z))
 }
 
 pub fn frame(caption: impl IntoElement, shown: Div, room: Div, cx: &App) -> Div {

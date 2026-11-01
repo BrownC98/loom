@@ -23,10 +23,6 @@ pub enum Glyph {
     Monitor,
     Sun,
     Moon,
-    Image,
-    Paperclip,
-    ArrowUp,
-    SquareTerminal,
 }
 
 fn circle(x: f32, y: f32, r: f32) -> Poly {
@@ -52,17 +48,6 @@ fn moon() -> Poly {
     outline.extend(arc(17.005, 6.994, 6.0, 212.0, 58.0));
     outline.push(outline[0]);
     outline
-}
-
-fn paperclip() -> Poly {
-    let mut line = vec![(21.44, 11.05), (12.25, 20.24)];
-    line.extend(arc(8.0, 16.0, 6.0, 45.0, 225.0));
-    line.push((12.33, 3.18));
-    line.extend(arc(15.17, 6.01, 4.0, 225.0, 405.0));
-    line.push((9.41, 17.41));
-    line.extend(arc(8.0, 16.0, 2.0, 45.0, 225.0));
-    line.push((15.07, 6.10));
-    line
 }
 
 fn gear() -> Poly {
@@ -175,39 +160,6 @@ fn strokes(glyph: &Glyph) -> Vec<Poly> {
             vec![(19.07, 4.93), (17.66, 6.34)],
         ],
         Glyph::Moon => vec![moon()],
-        Glyph::Image => vec![
-            vec![
-                (3.0, 3.0),
-                (21.0, 3.0),
-                (21.0, 21.0),
-                (3.0, 21.0),
-                (3.0, 3.0),
-            ],
-            circle(9.0, 9.0, 2.0),
-            vec![
-                (21.0, 15.0),
-                (17.9, 11.9),
-                (16.0, 11.2),
-                (14.5, 11.5),
-                (6.0, 21.0),
-            ],
-        ],
-        Glyph::Paperclip => vec![paperclip()],
-        Glyph::ArrowUp => vec![
-            vec![(5.0, 12.0), (12.0, 5.0), (19.0, 12.0)],
-            vec![(12.0, 19.0), (12.0, 5.0)],
-        ],
-        Glyph::SquareTerminal => vec![
-            vec![
-                (3.0, 3.0),
-                (21.0, 3.0),
-                (21.0, 21.0),
-                (3.0, 21.0),
-                (3.0, 3.0),
-            ],
-            vec![(7.0, 11.0), (9.0, 9.0), (7.0, 7.0)],
-            vec![(11.0, 13.0), (15.0, 13.0)],
-        ],
         Glyph::Map { folded } => {
             let mut lines = vec![
                 vec![

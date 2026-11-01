@@ -2,8 +2,7 @@ use api::settings::SettingsView;
 use gpui::{
     App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
-    transparent_black,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px, transparent_black,
 };
 use serde_json::Value;
 

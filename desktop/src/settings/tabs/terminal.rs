@@ -4,8 +4,7 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
-    ParentElement, Rgba, SharedString, Styled, StyledText, Subscription, Window, div,
-    point, px,
+    ParentElement, Rgba, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
@@ -247,7 +246,10 @@ fn picker_block(
 
 fn scroll_to_chosen(picker: &Picker, chosen: usize) {
     let rows = chosen.saturating_sub(ROWS_ABOVE) as f32;
-    picker.scroll.handle().set_offset(point(px(0.0), px(-rows * ROW_H)));
+    picker
+        .scroll
+        .handle()
+        .set_offset(point(px(0.0), px(-rows * ROW_H)));
 }
 
 fn hint(section: &mut Section, text: Str, cx: &App) -> Div {

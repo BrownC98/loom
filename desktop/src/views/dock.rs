@@ -8,9 +8,9 @@ use gpui::{
 
 use self::answers::Answers;
 use super::field::{self, Field};
-use super::scrollbar::Bar;
 use super::icons::{Lucide, icon};
 use super::rail;
+use super::scrollbar::Bar;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::pictures::Shelf;

@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Corners, Div, IntoElement, ListState, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, PathBuilder, Pixels, Rgba, ScrollHandle, Styled, UniformListScrollHandle,
-    Window, canvas, div, fill, point, px, rgb,
+    MouseUpEvent, ParentElement, PathBuilder, Pixels, Rgba, ScrollHandle, Styled,
+    UniformListScrollHandle, Window, canvas, div, fill, point, px, rgb,
 };
 
 use crate::theme::{Scheme, Theme};
@@ -205,14 +205,23 @@ impl Bar {
                     .child(
                         canvas(
                             |bounds, _, _| bounds,
-                            move |bounds, _, window, cx| bar.paint(bounds, show, gutter, window, cx),
+                            move |bounds, _, window, cx| {
+                                bar.paint(bounds, show, gutter, window, cx)
+                            },
                         )
                         .size_full(),
                     ),
             )
     }
 
-    fn paint(&self, bounds: Bounds<Pixels>, shown: bool, gutter: bool, window: &mut Window, cx: &mut App) {
+    fn paint(
+        &self,
+        bounds: Bounds<Pixels>,
+        shown: bool,
+        gutter: bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         if !gutter && self.overflows() != shown {
             window.refresh();
         }
@@ -269,7 +278,9 @@ impl Bar {
 
         let bar = self.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, _| {
-            if !phase.bubble() || event.button != MouseButton::Left || !bounds.contains(&event.position)
+            if !phase.bubble()
+                || event.button != MouseButton::Left
+                || !bounds.contains(&event.position)
             {
                 return;
             }

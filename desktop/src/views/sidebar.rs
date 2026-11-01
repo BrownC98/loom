@@ -9,8 +9,8 @@ use gpui::{
 };
 
 use super::field::{self, Field, FieldEvent};
-use super::scrollbar::Bar;
 use super::rail;
+use super::scrollbar::Bar;
 use super::shell::OpenSettings;
 use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;

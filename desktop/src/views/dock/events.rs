@@ -10,10 +10,10 @@ use gpui::{
 use super::Dock;
 use super::body;
 use super::field::{self, Field};
-use crate::views::scrollbar::Bar;
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
+use crate::views::scrollbar::Bar;
 use what::{Category, Ctx, Family, Seg, Tone};
 
 pub mod refusal;
@@ -291,7 +291,9 @@ impl Dock {
                     .wrap(
                         list(
                             self.events.list.clone(),
-                            cx.processor(|dock: &mut Dock, ix: usize, _, cx| dock.event_row(ix, cx)),
+                            cx.processor(|dock: &mut Dock, ix: usize, _, cx| {
+                                dock.event_row(ix, cx)
+                            }),
                         ),
                         true,
                     )

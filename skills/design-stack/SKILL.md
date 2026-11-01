@@ -5,7 +5,7 @@ description: The one entry point for UI/UX work. It runs Hallmark (direction), I
 
 # design-stack
 
-This skill is a router. It runs each design skill once, in a fixed order. The rules are in each skill; do not copy them here. This file sets only three things: the order, the priority and when to skip.
+This skill is a router. It runs each design skill once, in a fixed order. The rules are in each skill; do not copy them here. This file sets only four things: the two base principles, the order, the priority and when to skip.
 
 ## Two base principles (human rule, all UI/UX work, mockups too)
 
@@ -99,12 +99,12 @@ When you make many screens or mockups in one format, the first screen is the bas
 1. Direction: step 1 above (skip it if product tokens exist).
 2. Build: all of step 2 above (`impeccable context`, `reference/operate.md`, `reference/craft-floor.md`).
 3. Check: `impeccable detect` + WIG + `better-interface` one time (ranked verdict) + the score table of the 10 Nielsen heuristics in Impeccable `reference/critique.md`. The skip rule "only when necessary" does not apply to the base screen.
-4. Check record: write the detect count with each fix or false-positive reason, the WIG fixes, the heuristic score table and the top better-interface problems. Put the record at the end of the base screen file. For a mockup, put it in the status report, not in the mockup (o-mode "Mockup approval"). Write the record location in the completion report. Without a record, the screen is not approved as the base screen.
+4. Check record: write the detect count with each fix or false-positive reason, the WIG fixes, the heuristic score table, the top better-interface problems and the result for each base principle. Put the record at the end of the base screen file. For a mockup, put it in the status report, not in the mockup (o-mode "Mockup approval"). Write the record location in the completion report. Without a record, the screen is not approved as the base screen.
 5. When a person approves, make it permanent as in step 4: put the format, layout and notation rules in the shared rules (the brief), and name the file as the base mockup.
 
 Later screens follow **the base screen for style and the skills for principles** (2026-09-30 user instruction).
 - Style (base screen): layout format, tokens, colors, type, component shapes, copy tone, notation rules. First read the shared rules and the base file, and use them as they are.
-- Principles (skills): for each screen, read and obey `reference/craft-floor.md` and `reference/operate.md`. When you finish, run `impeccable detect` and WIG one time each, and write the results in one line. If a new interaction comes in (form, modal, keyboard flow), add the one related better-* skill (`better-accessibility` or another).
+- Principles (skills): for each screen, read and obey `reference/craft-floor.md` and `reference/operate.md`. When you finish, run `impeccable detect` and WIG one time each, and write their results and the result for each base principle in one line. If a new interaction comes in (form, modal, keyboard flow), add the one related better-* skill (`better-accessibility` or another).
 - If they conflict, the principle wins. The base screen style is not a product contract (priority 1), so it is below WIG and Impeccable. If the base screen itself breaks a principle, fix it in the later screen, and report that the base screen and the shared rules also need the fix.
 
 ## When to skip (to keep the work small)

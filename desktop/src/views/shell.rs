@@ -10,6 +10,7 @@ use gpui::{
     Render, Styled, Subscription, Window, div, px,
 };
 
+use super::sidebar::Sidebar;
 use crate::fonts;
 use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
@@ -23,6 +24,11 @@ gpui::actions!(loom, [OpenSettings]);
 const GRIP: f32 = 7.0;
 const GRIP_BEFORE: f32 = 3.0;
 const GRIP_ALPHA: f32 = 0.55;
+
+enum Shortcut {
+    Toggle(Pane),
+    Find,
+}
 
 struct Drag {
     pane: Pane,
@@ -102,6 +108,26 @@ impl Shell {
         );
         self.settings = Some((dialog, closed));
         cx.notify();
+    }
+
+    fn toggle(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let closed = self.store.read(cx).settings().closed_panes.clone();
+        let open = match pane {
+            Pane::Side => closed.side,
+            Pane::Dock => closed.dock,
+        };
+        self.store
+            .update(cx, |store, cx| store.set_pane_open(pane.key(), open, cx));
+    }
+
+    fn find(&mut self, cx: &mut Context<Self>) {
+        let sidebar = self
+            .left
+            .clone()
+            .and_then(|view| view.downcast::<Sidebar>().ok());
+        if let Some(sidebar) = sidebar {
+            sidebar.update(cx, |sidebar, cx| sidebar.reveal_find(cx));
+        }
     }
 
     fn widths(&self, window: &Window, cx: &App) -> Widths {
@@ -254,10 +280,30 @@ impl Render for Shell {
             .text_color(theme.colors.ink)
             .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                 let stroke = &e.keystroke;
-                if stroke.key == "," && stroke.modifiers.secondary(cx) {
+                if !stroke.modifiers.secondary(cx) || stroke.modifiers.alt {
+                    return;
+                }
+                if stroke.key == "," {
                     this.open_settings(window, cx);
                     cx.stop_propagation();
+                    return;
                 }
+                let shift = stroke.modifiers.shift;
+                let action = match stroke.key.as_str() {
+                    "{" => Shortcut::Toggle(Pane::Side),
+                    "}" => Shortcut::Toggle(Pane::Dock),
+                    "[" if shift => Shortcut::Toggle(Pane::Side),
+                    "]" if shift => Shortcut::Toggle(Pane::Dock),
+                    "f" | "F" if shift => Shortcut::Find,
+                    _ => return,
+                };
+                if !e.is_held {
+                    match action {
+                        Shortcut::Toggle(pane) => this.toggle(pane, cx),
+                        Shortcut::Find => this.find(cx),
+                    }
+                }
+                cx.stop_propagation();
             }))
             .font_family(fonts::UI_FAMILY)
             .on_action(

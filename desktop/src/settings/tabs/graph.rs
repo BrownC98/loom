@@ -141,12 +141,15 @@ fn composer_sample(size: FloatSize, name: &str, cx: &App) -> Div {
                 .justify_between()
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
                         .text_size(px(SMALL * z))
                         .text_color(c.ink_3)
                         .child(say(cx, Str::ComposerKeys)),
                 )
                 .child(
                     div()
+                        .flex_none()
                         .px(px(8.0 * z))
                         .py(px(2.0 * z))
                         .rounded(px(6.0 * z))

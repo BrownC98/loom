@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use gpui::{
     App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, ParentElement, Rgba,
-    ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div, px,
+    ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
@@ -20,6 +20,7 @@ const DEFAULT_SIZE: i64 = 12;
 const LIST_W: f32 = 240.0;
 const LIST_H: f32 = 236.0;
 const PREVIEW_H: f32 = 216.0;
+const ROW_H: f32 = 28.0;
 const ROWS_ABOVE: usize = 4;
 const CHIP: f32 = 14.0;
 
@@ -207,9 +208,8 @@ fn picker_block(
 }
 
 fn scroll_to_chosen(picker: &Picker, chosen: usize) {
-    picker
-        .scroll
-        .scroll_to_top_of_item(chosen.saturating_sub(ROWS_ABOVE));
+    let rows = chosen.saturating_sub(ROWS_ABOVE) as f32;
+    picker.scroll.set_offset(point(px(0.0), px(-rows * ROW_H)));
 }
 
 fn hint(section: &mut Section, text: Str, cx: &App) -> Div {

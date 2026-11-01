@@ -48,6 +48,8 @@ const HALO: f32 = 3.0;
 const FRAME_WASH: f32 = 0.03;
 const WAIT_WASH: f32 = 0.35;
 const DIM: f32 = 0.4;
+const UNREACHED: f32 = 0.55;
+const UNREACHED_TAG: f32 = 11.0;
 const CURRENT_LINE: f32 = 3.0;
 const CURRENT_GAP: f32 = 5.0;
 
@@ -564,6 +566,7 @@ pub struct Face<'a> {
     pub actions: &'a Actions,
     pub collapse: bool,
     pub width: f32,
+    pub unreached: bool,
 }
 
 pub fn model_text(node: &NodeView) -> String {
@@ -920,7 +923,19 @@ fn mark_of(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
 
 fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
     let (node, lang) = (face.node.id.0, face.lang);
-    let mut out = vec![bookmark_button(face, zoom, colors).into_any_element()];
+    let mut out = Vec::new();
+    if face.unreached {
+        out.push(
+            div()
+                .flex_none()
+                .whitespace_nowrap()
+                .text_size(text_px(UNREACHED_TAG, zoom))
+                .text_color(colors.ink_3)
+                .child(Str::PlaceUnreachedCard.text(lang))
+                .into_any_element(),
+        );
+    }
+    out.push(bookmark_button(face, zoom, colors).into_any_element());
     if expand {
         let (glyph, tip) = if face.collapse {
             (Lucide::Minimize2, Str::NodeCollapse)
@@ -1150,6 +1165,7 @@ pub fn card(
         .border_color(border)
         .shadow(if mark == Mark::Dim { Vec::new() } else { rings })
         .when(mark == Mark::Dim, |d| d.opacity(DIM))
+        .when(face.unreached, |d| d.opacity(UNREACHED))
         .bg(if simple { colors.surface } else { colors.term })
         .text_color(colors.ink);
     if simple {

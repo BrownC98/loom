@@ -189,6 +189,7 @@ impl Dock {
             actions: &actions,
             collapse: false,
             width: 300.0,
+            unreached: self.store.read(cx).is_unreached(node),
         };
         let head = card::dock_head(&face, &c);
         div().size_full().flex().flex_col().child(head).children(

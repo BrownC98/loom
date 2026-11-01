@@ -1042,6 +1042,7 @@ impl Render for CanvasView {
                 actions: &actions,
                 collapse: false,
                 width: placed.rect.size.width as f32,
+                unreached: self.store.read(cx).is_unreached(node),
             };
             let body = self
                 .live
@@ -1147,6 +1148,7 @@ impl Render for CanvasView {
                 actions: &actions,
                 collapse: true,
                 width: f32::from(self.area.get().size.width) - 32.0,
+                unreached: self.store.read(cx).is_unreached(node),
             };
             Some(expanded::overlay(
                 &face,

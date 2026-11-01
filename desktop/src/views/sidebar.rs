@@ -1,6 +1,4 @@
-mod field;
 mod icons;
-mod mark;
 mod tree;
 
 use std::collections::HashSet;
@@ -11,10 +9,11 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 
-use field::{Field, FieldEvent};
+use super::field::{self, Field, FieldEvent};
 use icons::{Glyph, icon};
 use tree::{Body, Built, Dot, Found, Key, Row, Tag, Tone};
 
+use crate::link;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
@@ -61,7 +60,7 @@ impl Sidebar {
             cx.notify();
         })
         .detach();
-        let field = field::new(cx);
+        let field = field::new(Str::FindOpen, cx);
         cx.subscribe(&field, |this, _, event: &FieldEvent, cx| {
             this.find(event, cx);
         })
@@ -154,7 +153,7 @@ impl Sidebar {
         self.refusal = None;
         cx.spawn(async move |this, cx| {
             let sent = cx
-                .background_spawn(async move { mark::set(&base, id, on) })
+                .background_spawn(async move { link::set_bookmark(&base, id, on) })
                 .await;
             if let Err(error) = sent {
                 let _ = this.update(cx, |this, cx| {

@@ -24,6 +24,7 @@ pub struct Field {
     marked: Option<Range<usize>>,
     line: Option<ShapedLine>,
     bounds: Bounds<Pixels>,
+    placeholder: Str,
 }
 
 impl EventEmitter<FieldEvent> for Field {}
@@ -56,7 +57,7 @@ fn range_to_utf8(text: &str, range: &Range<usize>) -> Range<usize> {
 }
 
 impl Field {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(placeholder: Str, cx: &mut Context<Self>) -> Self {
         Self {
             focus: cx.focus_handle().tab_stop(true),
             text: String::new(),
@@ -64,6 +65,7 @@ impl Field {
             marked: None,
             line: None,
             bounds: Bounds::default(),
+            placeholder,
         }
     }
 
@@ -257,7 +259,7 @@ impl Render for Field {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = &cx.global::<Theme>().colors;
         let (ink, hint) = (colors.ink, colors.ink_3);
-        let placeholder = Str::FindOpen.text(*cx.global::<Lang>());
+        let placeholder = self.placeholder.text(*cx.global::<Lang>());
         let focused = self.focus.is_focused(window);
         let me: Entity<Field> = cx.entity();
         let paint_me = me.clone();
@@ -361,6 +363,6 @@ impl Render for Field {
     }
 }
 
-pub fn new(cx: &mut App) -> Entity<Field> {
-    cx.new(Field::new)
+pub fn new(placeholder: Str, cx: &mut App) -> Entity<Field> {
+    cx.new(|cx| Field::new(placeholder, cx))
 }

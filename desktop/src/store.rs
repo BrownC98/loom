@@ -38,13 +38,17 @@ pub struct Store {
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
     composer: Option<(Bounds<Pixels>, bool)>,
+    zoomed: bool,
 }
 
 pub struct ZoomTo(pub f32);
 
+pub struct ShowNode(pub u32);
+
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
+impl EventEmitter<ShowNode> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -104,6 +108,7 @@ impl Store {
             found: None,
             picked: None,
             composer: None,
+            zoomed: false,
         }
     }
 
@@ -164,6 +169,21 @@ impl Store {
     pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
         if self.picked != keys {
             self.picked = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
+        cx.emit(ShowNode(node));
+    }
+
+    pub fn zoomed(&self) -> bool {
+        self.zoomed
+    }
+
+    pub fn set_zoomed(&mut self, zoomed: bool, cx: &mut Context<Self>) {
+        if self.zoomed != zoomed {
+            self.zoomed = zoomed;
             cx.notify();
         }
     }

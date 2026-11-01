@@ -8,13 +8,15 @@ use api::ids::NodeId;
 use api::settings::{FloatPlace, FloatSize};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, BoxShadow, ClipboardEntry, Context, Div, Entity, ExternalPaths, Image,
+    App, AppContext, Bounds, BoxShadow, ClipboardEntry, Context, Div, Entity, ExternalPaths, Image,
     ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
     ObjectFit, ParentElement, PathPromptOptions, Pixels, Point, Render, ScrollEvent, Size,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, point, px,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, canvas, div, img, point,
+    px,
 };
 
 use super::inputs::{Inputs, inputs};
+use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
 use crate::store::Store;
@@ -33,6 +35,8 @@ const SHADOW_DROP: f32 = 4.0;
 const THUMB: f32 = 34.0;
 const BUTTON: f32 = 30.0;
 const DISABLED_ALPHA: f32 = 0.4;
+const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
+const PICK_WIDTH: f32 = 380.0;
 
 #[derive(Clone)]
 enum Upload {
@@ -80,6 +84,8 @@ pub struct Composer {
     kept: Option<Option<FloatPlace>>,
     seen_place: Option<FloatPlace>,
     drafts: HashMap<u32, Draft>,
+    chevron: Rc<Cell<Bounds<Pixels>>>,
+    listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -97,6 +103,8 @@ pub fn composer(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Enti
             kept: None,
             seen_place,
             drafts: HashMap::new(),
+            chevron: Rc::new(Cell::new(Bounds::default())),
+            listing: None,
             subscriptions: Vec::new(),
         };
         composer.subscriptions.push(cx.observe_in(
@@ -219,11 +227,12 @@ impl Composer {
     }
 
     fn look(&self, cx: &Context<Self>) -> Look {
-        let settings = self.store.read(cx).settings();
+        let store = self.store.read(cx);
+        let settings = store.settings();
         Look {
             size: settings.composer_size,
             saved: self.kept.unwrap_or(settings.composer_place),
-            corner: if settings.minimap_folded {
+            corner: if settings.minimap_folded || store.zoomed() {
                 0.0
             } else {
                 minimap::WIDTH + MARGIN
@@ -583,6 +592,54 @@ impl Composer {
         .detach();
     }
 
+    fn toggle_list(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
+        if self.listing.take().is_some() {
+            cx.notify();
+            return;
+        }
+        let list = picker(self.store.clone(), node, self.chevron.clone(), window, cx);
+        let sub = cx.subscribe_in(
+            &list,
+            window,
+            move |composer, _, event: &PickerEvent, window, cx| {
+                composer.listing = None;
+                match event {
+                    PickerEvent::Pick(id) => composer.pick(node, *id, window, cx),
+                    PickerEvent::Escape => composer.focus_field(node, window, cx),
+                    PickerEvent::Close => {}
+                }
+                cx.notify();
+            },
+        );
+        self.listing = Some((list, sub));
+        cx.notify();
+    }
+
+    fn focus_field(&self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(draft) = self.drafts.get(&node) {
+            let handle = draft.field.read(cx).handle();
+            window.focus(&handle, cx);
+        }
+    }
+
+    fn pick(&mut self, current: u32, id: u32, window: &mut Window, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| {
+            store.show_node(id, cx);
+            store.select(id, cx);
+        });
+        if id == current {
+            self.focus_field(id, window, cx);
+            return;
+        }
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(FOCUS_DELAY).await;
+            let _ = this.update_in(cx, |composer, window, cx| {
+                composer.focus_field(id, window, cx)
+            });
+        })
+        .detach();
+    }
+
     fn remove(&mut self, node: u32, id: u32, cx: &mut Context<Self>) {
         if let Some(draft) = self.drafts.get_mut(&node) {
             draft.images.retain(|image| image.id != id);
@@ -660,11 +717,28 @@ impl Render for Composer {
         if !measured {
             float = float.invisible();
         }
+        let pop = self.listing.as_ref().map(|(list, _)| {
+            let (above, room) = place::pop_space(f32::from(at.y), boxed, pane, None, z);
+            let wide = (PICK_WIDTH * z).min((f32::from(pane.width) - 2.0 * MARGIN).max(0.0));
+            let left = (f32::from(at.x)
+                .min(f32::from(pane.width) - MARGIN - wide)
+                .max(MARGIN))
+                - f32::from(at.x);
+            list.update(cx, |list, _| list.place(z, wide, room, above));
+            let gap = px(place::POP_GAP * z);
+            let anchored = div().absolute().left(px(left)).child(list.clone());
+            if above {
+                anchored.bottom(boxed.height + gap)
+            } else {
+                anchored.top(boxed.height + gap)
+            }
+        });
         let follow = self
             .grab
             .is_some()
             .then(|| place::follow(cx.entity(), Composer::slide, Composer::release));
-        root.children(follow).child(float.child(wrapper))
+        root.children(follow)
+            .child(float.child(wrapper).children(pop))
     }
 }
 
@@ -723,10 +797,11 @@ impl Composer {
                     .on_click(cx.listener(move |composer, _, _, cx| {
                         composer
                             .store
-                            .update(cx, |store, cx| store.select(node, cx));
+                            .update(cx, |store, cx| store.show_node(node, cx));
                     }))
                     .child(name.to_owned()),
             )
+            .child(self.chevron(node, z, cx))
             .child(ui::say(cx, Str::ComposerTo));
         let head = div()
             .flex()
@@ -837,6 +912,35 @@ impl Composer {
             .children(filing)
             .children(note)
             .child(line)
+    }
+
+    fn chevron(&self, node: u32, z: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = ui::colors(cx);
+        let open = self.listing.is_some();
+        let anchor = self.chevron.clone();
+        div()
+            .id("composer-chevron")
+            .flex_none()
+            .size(px(18.0 * z))
+            .rounded(px(4.0 * z))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(c.ink_2)
+            .cursor_pointer()
+            .when(open, |d| d.bg(c.surface_hover).text_color(c.ink))
+            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
+            .tooltip(tip(ui::say(cx, Str::ComposerPickNode).to_owned()))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .on_click(
+                cx.listener(move |composer, _, window, cx| composer.toggle_list(node, window, cx)),
+            )
+            .child(
+                canvas(move |bounds, _, _| anchor.set(bounds), |_, _, _, _| ())
+                    .absolute()
+                    .size_full(),
+            )
+            .child(if open { "\u{25b4}" } else { "\u{25be}" })
     }
 
     fn chip(&self, node: u32, image: &Attached, z: f32, cx: &mut Context<Self>) -> Div {

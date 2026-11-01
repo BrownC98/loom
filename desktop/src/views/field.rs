@@ -424,8 +424,14 @@ impl EntityInputHandler for Field {
         _: &mut Context<Self>,
     ) -> Option<String> {
         let bytes = self.range_from_utf16(&range);
-        *adjusted = Some(self.range_to_utf16(&bytes));
-        Some(self.text[bytes].to_owned())
+        let units = self.range_to_utf16(&bytes);
+        let text = if self.secret {
+            MASK.to_string().repeat(units.len())
+        } else {
+            self.text[bytes].to_owned()
+        };
+        *adjusted = Some(units);
+        Some(text)
     }
 
     fn selected_text_range(

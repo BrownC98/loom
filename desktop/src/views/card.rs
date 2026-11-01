@@ -6,6 +6,7 @@ use gpui::{
 };
 
 use api::graph::{CardView, NodeState, NodeView};
+use api::settings::DefaultCardView;
 
 use crate::theme::Colors;
 
@@ -120,17 +121,36 @@ pub fn frame(
         .child(label.to_owned())
 }
 
+pub fn view_of(node: &NodeView, setting: DefaultCardView) -> CardView {
+    node.card_view.unwrap_or(match setting {
+        DefaultCardView::Standard => CardView::Standard,
+        DefaultCardView::Simple => CardView::Simple,
+        DefaultCardView::RootTerminal if node.parent.is_none() => CardView::Standard,
+        DefaultCardView::RootTerminal => CardView::Simple,
+    })
+}
+
+#[derive(Clone, Copy)]
+pub struct Look {
+    pub simple: bool,
+    pub selected: bool,
+    pub mark: Mark,
+}
+
 pub fn card(
     node: &NodeView,
+    look: Look,
     bounds: Bounds<Pixels>,
     zoom: f32,
-    selected: bool,
-    mark: Mark,
     body: Option<AnyElement>,
     colors: &Colors,
 ) -> Div {
+    let Look {
+        simple,
+        selected,
+        mark,
+    } = look;
     let head = px(HEAD * zoom);
-    let simple = node.card_view == Some(CardView::Simple);
     let waiting = !node.waits.is_empty();
     let lit = mark == Mark::Lit;
     let (border, rings) = if selected {

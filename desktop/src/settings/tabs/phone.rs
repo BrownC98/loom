@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use crate::link;
+use crate::problem::Failure;
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -109,7 +110,7 @@ impl Model {
                 }
                 match got {
                     Ok(next) => model.apply(next, asked),
-                    Err(error) => model.error = error,
+                    Err(error) => model.error = error.text(*cx.global::<Lang>()),
                 }
                 model.touch(cx);
             });
@@ -119,7 +120,7 @@ impl Model {
 
     fn act<T: Send + 'static>(
         &mut self,
-        work: impl FnOnce(&str) -> Result<T, String> + Send + 'static,
+        work: impl FnOnce(&str) -> Result<T, Failure> + Send + 'static,
         done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
@@ -135,7 +136,7 @@ impl Model {
                 model.busy = false;
                 match result {
                     Ok(value) => done(model, value, cx),
-                    Err(error) => model.error = error,
+                    Err(error) => model.error = error.text(*cx.global::<Lang>()),
                 }
                 model.touch(cx);
             });

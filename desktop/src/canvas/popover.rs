@@ -42,7 +42,7 @@ pub struct Popped {
     _closed: Vec<Subscription>,
 }
 
-struct Closed;
+pub(crate) struct Closed;
 
 #[derive(Clone)]
 struct Choice {
@@ -97,7 +97,7 @@ fn tag_place(at: &PlaceView, lang: Lang) -> String {
 }
 
 impl NewNodeView {
-    fn new(
+    pub(crate) fn new(
         store: Entity<Store>,
         place: Place,
         branch: String,

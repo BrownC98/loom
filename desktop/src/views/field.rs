@@ -16,6 +16,8 @@ use crate::theme::{Colors, Theme};
 const MASK: char = '\u{2022}';
 const FONT_SIZE: f32 = 13.0;
 const LINE: f32 = 18.0;
+const FORM_HEIGHT: f32 = 34.0;
+const FORM_LINE: f32 = 20.0;
 const CARET: f32 = 1.5;
 const ROUND: f32 = 6.0;
 
@@ -762,10 +764,17 @@ impl Render for Field {
         if self.boxed {
             let z = self.scale;
             let skinned = skin(base, z, focused, colors);
+            let web = |el: Div| {
+                el.min_h(px(FORM_HEIGHT * z))
+                    .px(px(9.0 * z))
+                    .py(px(6.0 * z))
+                    .line_height(px(FORM_LINE * z))
+                    .bg(colors.bg)
+            };
             match self.form {
                 Form::Chat => skinned,
-                Form::Plain => skinned.bg(colors.bg),
-                Form::Mono => skinned.bg(colors.bg).font_family(TERMINAL_FAMILY),
+                Form::Plain => web(skinned),
+                Form::Mono => web(skinned).font_family(TERMINAL_FAMILY),
             }
             .child(text)
         } else {

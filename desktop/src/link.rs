@@ -137,7 +137,7 @@ fn agent() -> ureq::Agent {
     agent_within(HTTP_LIMIT)
 }
 
-fn escape(value: &str) -> String {
+pub fn escape(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {

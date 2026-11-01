@@ -14,7 +14,7 @@ use crate::strings::Str;
 mod body;
 mod commits;
 mod docs;
-mod events;
+pub mod events;
 mod history;
 mod lanes;
 mod questions;
@@ -116,6 +116,10 @@ impl Dock {
     fn choose_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.tab = tab;
         self.fault = None;
+        if tab != Tab::Events {
+            self.store
+                .update(cx, |store, cx| store.set_picked(None, cx));
+        }
         if tab == Tab::Docs {
             self.load_docs(cx);
         }

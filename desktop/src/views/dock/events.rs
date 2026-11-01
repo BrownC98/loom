@@ -15,7 +15,7 @@ use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use what::{Category, Ctx, Family, Seg, Tone};
 
-mod refusal;
+pub mod refusal;
 mod what;
 
 const CATEGORIES: [(Category, Str); 3] = [
@@ -173,6 +173,21 @@ impl Dock {
     fn pick_event(&mut self, id: u32, cx: &mut Context<Self>) {
         let opening = self.events.open != Some(id);
         self.events.open = opening.then_some(id);
+        let keys = self
+            .events
+            .records
+            .iter()
+            .flatten()
+            .find(|record| record.id == id)
+            .filter(|_| opening)
+            .map(|record| {
+                what::involved(&record.entry)
+                    .iter()
+                    .map(u32::to_string)
+                    .collect()
+            });
+        self.store
+            .update(cx, |store, cx| store.set_picked(keys, cx));
         if opening {
             let first = self
                 .events

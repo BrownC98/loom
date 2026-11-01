@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
@@ -8,11 +9,14 @@ use api::graph::{GraphEvent, NewNode, NodeState};
 use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
-use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
+use gpui::{
+    App, AppContext, Context, EventEmitter, Image, ImageFormat, Task, Window, WindowAppearance,
+};
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
+use crate::views::dock::answers::Slot;
 use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
@@ -34,13 +38,17 @@ pub struct Store {
     notices: u64,
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
+    drafts: HashMap<(u32, Slot), String>,
 }
 
 pub struct ZoomTo(pub f32);
 
+pub struct DraftChanged(pub u32, pub Slot);
+
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
+impl EventEmitter<DraftChanged> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -99,6 +107,7 @@ impl Store {
             notices: 0,
             found: None,
             picked: None,
+            drafts: HashMap::new(),
         }
     }
 
@@ -132,6 +141,26 @@ impl Store {
 
     pub fn selected(&self) -> Option<u32> {
         self.selected
+    }
+
+    pub fn draft(&self, wait: u32, slot: Slot) -> &str {
+        self.drafts.get(&(wait, slot)).map_or("", String::as_str)
+    }
+
+    pub fn set_draft(&mut self, wait: u32, slot: Slot, text: &str, cx: &mut Context<Self>) {
+        if self.draft(wait, slot) == text {
+            return;
+        }
+        if text.is_empty() {
+            self.drafts.remove(&(wait, slot));
+        } else {
+            self.drafts.insert((wait, slot), text.to_owned());
+        }
+        cx.emit(DraftChanged(wait, slot));
+    }
+
+    pub fn keep_drafts(&mut self, live: &HashSet<u32>) {
+        self.drafts.retain(|(wait, _), _| live.contains(wait));
     }
 
     pub fn zoom_percent(&self) -> u32 {
@@ -403,6 +432,21 @@ impl Store {
             return Task::ready(Err(link::Rejected::Link(self.status.clone())));
         };
         cx.background_spawn(async move { link::adopt(&base, child, parent) })
+    }
+
+    pub fn wait_image(
+        &self,
+        wait: WaitId,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Arc<Image>, String>> {
+        self.call(cx, move |base| {
+            let (mime, bytes) =
+                link::image(base, &format!("/api/waits/{}/images/{index}", wait.0))?;
+            let format = ImageFormat::from_mime_type(&mime)
+                .ok_or_else(|| Failure::Other(format!("image type {mime}")))?;
+            Ok(Arc::new(Image::from_bytes(format, bytes)))
+        })
     }
 
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {

@@ -84,6 +84,13 @@ impl Field {
         }
     }
 
+    pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.scale != scale {
+            self.scale = scale;
+            cx.notify();
+        }
+    }
+
     pub fn focused(&self, window: &Window) -> bool {
         self.focus.is_focused(window)
     }
@@ -101,19 +108,20 @@ impl Field {
     }
 
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.replace_all(text, 0..text.len(), cx);
+    }
+
+    pub fn set_text_at_end(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.replace_all(text, text.len()..text.len(), cx);
+    }
+
+    fn replace_all(&mut self, text: &str, selected: Range<usize>, cx: &mut Context<Self>) {
         self.text = text.to_owned();
-        self.selected = 0..self.text.len();
+        self.selected = selected;
         self.reversed = false;
         self.marked = None;
         cx.emit(FieldEvent::Changed);
         cx.notify();
-    }
-
-    pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
-        if self.scale != scale {
-            self.scale = scale;
-            cx.notify();
-        }
     }
 
     pub fn on_files(
@@ -722,18 +730,18 @@ impl Render for Field {
             text: StyledText::new(shown).with_highlights(highlights),
         };
         if self.boxed {
-            let scale = self.scale;
+            let z = self.scale;
             base.w_full()
-                .min_h(px((LINE + 10.0) * scale))
-                .px(px(8.0 * scale))
-                .py(px(4.0 * scale))
-                .rounded(px(ROUND * scale))
+                .min_h(px((LINE + 10.0) * z))
+                .px(px(8.0 * z))
+                .py(px(4.0 * z))
+                .rounded(px(ROUND * z))
                 .border_1()
                 .border_color(if focused { focused_edge } else { edge })
                 .bg(surface)
                 .text_color(ink)
-                .text_size(px(FONT_SIZE * scale))
-                .line_height(px(LINE * scale))
+                .text_size(px(FONT_SIZE * z))
+                .line_height(px(LINE * z))
                 .child(text)
         } else {
             base.flex_1()

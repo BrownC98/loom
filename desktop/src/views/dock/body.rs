@@ -2,10 +2,14 @@ use std::ops::Range;
 
 use api::graph::text::TextPart;
 use api::graph::waits::WaitDoc;
-use gpui::{Context, ElementId, HighlightStyle, InteractiveText, StyledText, UnderlineStyle, px};
+use gpui::{
+    App, Context, ElementId, Entity, HighlightStyle, InteractiveText, StyledText, Task,
+    UnderlineStyle, px,
+};
 
 use super::Dock;
 use super::ui;
+use crate::store::Store;
 
 #[derive(Clone)]
 pub enum Target {
@@ -35,6 +39,30 @@ pub fn text(
     plain: &str,
     doc: Option<&WaitDoc>,
     cx: &mut Context<Dock>,
+) -> InteractiveText {
+    let owner = cx.entity();
+    render(id, parts, plain, doc, cx, move |target, cx| {
+        owner.update(cx, |dock, cx| dock.follow(target, cx));
+    })
+}
+
+pub fn open(store: &Entity<Store>, target: Target, cx: &mut App) -> Task<Result<(), String>> {
+    match target {
+        Target::Url(url) => Task::ready(ui::open_url(&url)),
+        Target::Doc(id) => {
+            let found = store.update(cx, |store, cx| store.doc_url(&id, cx));
+            cx.spawn(async move |_| ui::open_url(&found.await?))
+        }
+    }
+}
+
+pub fn render(
+    id: impl Into<ElementId>,
+    parts: &[TextPart],
+    plain: &str,
+    doc: Option<&WaitDoc>,
+    cx: &App,
+    follow: impl Fn(Target, &mut App) + 'static,
 ) -> InteractiveText {
     let c = ui::colors(cx);
     let mut built = Built::default();
@@ -75,12 +103,8 @@ pub fn text(
     let Built { shown, links } = built;
     let marks: Vec<_> = links.iter().map(|(r, _)| (r.clone(), highlight)).collect();
     let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
-    let owner = cx.entity();
-    InteractiveText::new(id, StyledText::new(shown).with_highlights(marks)).on_click(
-        ranges,
-        move |index, _, cx| {
-            let target = targets[index].clone();
-            owner.update(cx, |dock, cx| dock.follow(target, cx));
-        },
-    )
+    InteractiveText::new(id, StyledText::new(shown).with_highlights(marks))
+        .on_click(ranges, move |index, _, cx| {
+            follow(targets[index].clone(), cx)
+        })
 }

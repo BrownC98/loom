@@ -7,7 +7,7 @@ use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
     PinchEvent, Pixels, Point, Render, ScrollEvent, StatefulInteractiveElement, Styled, Window,
-    canvas, div, point, px, rgb, size,
+    canvas, div, point, px, size,
 };
 
 use api::graph::pty::Pace;
@@ -796,14 +796,25 @@ impl Render for CanvasView {
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 true,
+                card::Mark::Plain,
+                &colors,
             )
         });
+        let lit = store.lit();
+        let current = store.current();
         let groups = self.scene.groups.iter().map(|f| {
+            let members = snapshot.into_iter().flat_map(|s| &s.nodes).filter(|n| {
+                f.place
+                    .as_ref()
+                    .is_some_and(|p| p.repo == n.place.repo && p.worktree == n.place.worktree)
+            });
             let frame = card::frame(
                 &f.label,
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 false,
+                card::group_mark(lit, &f.key, members.map(|n| n.id.0.to_string())),
+                &colors,
             );
             popover::context(frame, f.place.clone(), f.label.clone(), cx)
         });
@@ -844,26 +855,54 @@ impl Render for CanvasView {
                 })
             });
             Some(
-                card::card(node, screen, camera.zoom, selected == Some(id), body)
-                    .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                        this.select(id, cx);
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                            let head = f32::from(screen.origin.y) + card::HEAD * camera.zoom;
-                            let top = f32::from(this.local(e.position).y);
-                            if e.click_count == 2 && top <= head && standard {
-                                this.expand(id, cx);
-                            } else {
-                                this.grab_card(id, e, !standard, cx);
-                            }
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .children(handles.into_iter().flatten()),
+                card::card(
+                    node,
+                    screen,
+                    camera.zoom,
+                    selected == Some(id),
+                    card::mark(lit, &id.to_string()),
+                    body,
+                    &colors,
+                )
+                .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                    this.select(id, cx);
+                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                        let head = f32::from(screen.origin.y) + card::HEAD * camera.zoom;
+                        let top = f32::from(this.local(e.position).y);
+                        if e.click_count == 2 && top <= head && standard {
+                            this.expand(id, cx);
+                        } else {
+                            this.grab_card(id, e, !standard, cx);
+                        }
+                        cx.stop_propagation();
+                    }),
+                )
+                .children(handles.into_iter().flatten()),
             )
         });
+        let rings = self
+            .scene
+            .cards
+            .iter()
+            .map(|c| (c.node.to_string(), c.rect, false))
+            .chain(
+                self.scene
+                    .groups
+                    .iter()
+                    .map(|f| (f.key.clone(), f.rect, true)),
+            )
+            .filter(|(key, _, _)| current == Some(key.as_str()))
+            .map(|(_, rect, group)| {
+                card::current(
+                    camera.screen_box(bounds_of(rect)),
+                    camera.zoom,
+                    group,
+                    &colors,
+                )
+            });
         let overlay = zoomed.and_then(|id| {
             let live = self.live.get(&id)?;
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == id)?;
@@ -884,7 +923,7 @@ impl Render for CanvasView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(rgb(0x14161a))
+            .bg(colors.bg)
             .track_focus(&self.focus)
             .capture_key_down(
                 cx.listener(|this, e: &KeyDownEvent, window, cx| this.on_key(e, window, cx)),
@@ -907,7 +946,7 @@ impl Render for CanvasView {
             .child(
                 canvas(
                     move |bounds, _, _| area.set(bounds),
-                    move |bounds, _, window, _| grid::paint(window, bounds, camera),
+                    move |bounds, _, window, _| grid::paint(window, bounds, camera, colors.dot),
                 )
                 .absolute()
                 .size_full(),
@@ -916,6 +955,7 @@ impl Render for CanvasView {
             .children(groups)
             .child(edges::under(under, camera))
             .children(cards)
+            .children(rings)
             .child(edges::over(over, labels, camera))
             .children(handles)
             .children(line)

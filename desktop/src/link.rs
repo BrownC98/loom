@@ -24,6 +24,7 @@ const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
+const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
@@ -322,6 +323,25 @@ fn get(base: &str, path: &str) -> Result<String, Failure> {
         .body_mut()
         .read_to_string()
         .map_err(|e| Failure::Other(e.to_string()))
+}
+
+pub fn image(base: &str, path: &str) -> Result<(String, Vec<u8>), Failure> {
+    let mut response = answer(agent().get(format!("{base}{path}")).call())?;
+    let mime = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(IMAGE_LIMIT)
+        .read_to_vec()
+        .map_err(|e| Failure::Other(e.to_string()))?;
+    Ok((mime, bytes))
 }
 
 pub struct Snapshot {

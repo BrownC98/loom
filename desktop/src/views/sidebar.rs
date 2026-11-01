@@ -123,18 +123,16 @@ impl Sidebar {
                 self.reveal = true;
             }
         }
-        let found = self.built(cx).filter(|b| !b.hits.is_empty()).map(|b| {
-            b.hits
-                .iter()
-                .map(|key| match key {
-                    Key::Node(id) | Key::Mark(id) => id.to_string(),
-                    Key::Repo(id) => format!("repo:{id}"),
-                    Key::Group(_, path) => path.clone(),
-                })
-                .collect()
-        });
+        let key_of = |key: &Key| match key {
+            Key::Node(id) | Key::Mark(id) => id.to_string(),
+            Key::Repo(id) => format!("repo:{id}"),
+            Key::Group(_, path) => path.clone(),
+        };
+        let built = self.built(cx).filter(|b| !b.hits.is_empty());
+        let current = built.as_ref().and_then(|b| b.hits.get(self.at)).map(key_of);
+        let found = built.map(|b| b.hits.iter().map(key_of).collect());
         self.store
-            .update(cx, |store, cx| store.set_found(found, cx));
+            .update(cx, |store, cx| store.set_found(found, current, cx));
         cx.notify();
     }
 

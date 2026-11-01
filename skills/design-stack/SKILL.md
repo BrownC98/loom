@@ -7,6 +7,13 @@ description: The one entry point for UI/UX work. It runs Hallmark (direction), I
 
 This skill is a router. It runs each design skill once, in a fixed order. The rules are in each skill; do not copy them here. This file sets only three things: the order, the priority and when to skip.
 
+## Two base principles (human rule, all UI/UX work, mockups too)
+
+1. A first-time person without knowledge of the field (for example, a high-school student) uses each screen without a manual and does not get lost.
+2. A person who does not know UI/UX terms can point exactly at the place of a problem. Each screen and each area shows a plain name or label that the person can quote in feedback.
+
+Each step below serves these two principles. Step 3 examines each screen against them, and the report gives the result for each principle.
+
 ## Priority (always solve a conflict in this order)
 
 1. The project contract: `DESIGN.md`, `tokens.css`, the design system, brand colors.

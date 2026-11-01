@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
 use api::graph::NodeView;
@@ -18,7 +16,6 @@ pub struct Group {
     pub path: String,
     pub label: String,
     pub kind: GroupKind,
-    pub branch: Option<String>,
 }
 
 pub fn folder_name(path: &str) -> String {
@@ -42,7 +39,6 @@ pub fn groups_of(repo: &RepoView, views: &[&NodeView]) -> Vec<Group> {
             } else {
                 GroupKind::Unborn
             },
-            branch: w.branch.clone(),
         })
         .collect();
     for v in views {
@@ -51,7 +47,6 @@ pub fn groups_of(repo: &RepoView, views: &[&NodeView]) -> Vec<Group> {
                 path: v.place.worktree.clone(),
                 label: folder_name(&v.place.worktree),
                 kind: GroupKind::Linked,
-                branch: None,
             });
         }
     }

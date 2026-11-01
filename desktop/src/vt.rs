@@ -278,11 +278,8 @@ impl Vt {
             bytes.push(byte);
             return Some(bytes);
         }
-        let text = key.text.filter(|text| !text.is_empty())?;
-        let mut bytes = Vec::new();
-        if key.alt {
-            bytes.push(0x1b);
-        }
+        let text = key.text.filter(|text| !text.is_empty() && key.alt)?;
+        let mut bytes = vec![0x1b];
         bytes.extend(text.as_bytes());
         Some(bytes)
     }

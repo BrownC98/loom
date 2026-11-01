@@ -35,6 +35,8 @@
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
 
+- 데스크톱(GPUI) 실행 파일도 `release.yml`의 `desktop` 잡이 만든다(Windows x64 msvc `loom-desktop-windows-x64.zip`, macOS arm64 `loom-desktop-macos-arm64.tar.gz`). 잡은 `installer` 잡 뒤에 돌아 `LOOM_VERSION`을 데몬과 같은 판(`scripts/version.sh`)으로 넣고, 같은 Release의 `loom-web-*` 파일을 받아 `loom`(`.exe`)으로 이름을 바꿔 `loom-desktop` 옆에 묶는다. exe는 자기 옆의 `loom`을 띄우므로 한 폴더에 풀면 판이 맞는다. macOS는 `.app` 없이 폴더째 묶는다: `desktop/`에 Info.plist·아이콘이 없고, Tauri 앱도 데몬을 주 실행 파일 옆(`Contents/MacOS`)에 두는 같은 배치다. 검증용 빌드와 실행 파일 내려받기는 `.github/workflows/desktop.yml`(두 OS)이 한다.
+
 - Android 앱(APK, `android/`)도 서명본은 `release.yml`만 만든다. 호스트에서 빌드하려면 JDK 17, Android SDK(`ANDROID_HOME`), Gradle 9.7.1을 깔고 `memcap -m 8G gradle -p android lintDebug testDebugUnitTest assembleDebug`를 돌린다. 저장소에는 이 도구가 없다.
 
 - 사람의 DB(`~/.loom/loom.db`)를 볼 때는 데몬 API를 먼저 쓴다. 파일을 직접 읽으면 읽기 전용(`sqlite3.connect('file:<경로>?mode=ro', uri=True)`)으로만 연다. 쓰기 연결은 데몬의 쓰기를 막을 수 있다(docs/design/저장.md).

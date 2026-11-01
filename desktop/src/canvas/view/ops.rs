@@ -3,7 +3,8 @@ use std::rc::Rc;
 use api::graph::{CardView, Place, RelaunchOffer};
 use api::ids::RepoId;
 use gpui::{
-    App, Context, Div, Entity, MouseDownEvent, Pixels, Point, Subscription, Window, point, px,
+    App, Bounds, Context, Div, Entity, MouseDownEvent, Pixels, Point, Subscription, Window, point,
+    px,
 };
 
 use super::{CanvasView, popover};
@@ -51,7 +52,7 @@ impl CanvasView {
             } else {
                 press(|this, id, _, _, cx| this.expand(id, cx))
             },
-            menu: press(|this, id, e, _, cx| this.open_menu(id, e.position, cx)),
+            menu: press(|this, id, e, _, cx| this.open_menu(id, e.position, None, cx)),
             rename: press(|this, id, _, window, cx| this.begin_rename(id, window, cx)),
         }
     }
@@ -87,12 +88,18 @@ impl CanvasView {
         self.call(cx, move |base| crate::link::set_bookmark(base, id, on));
     }
 
-    pub(super) fn open_menu(&mut self, id: u32, click: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn open_menu(
+        &mut self,
+        id: u32,
+        click: Point<Pixels>,
+        button: Option<Bounds<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
         if self.menu.as_ref().is_some_and(|m| m.node == id) {
             return self.close_menu(cx);
         }
         let area = self.area.get();
-        let (right, bottom) = match self.anchors.get(&format!("menu:{id}")) {
+        let (right, bottom) = match button.or_else(|| self.anchors.get(&format!("menu:{id}"))) {
             Some(button) => (
                 button.right() - area.origin.x,
                 button.bottom() - area.origin.y,
@@ -102,9 +109,12 @@ impl CanvasView {
                 click.y - area.origin.y + px(BUTTON / 2.0),
             ),
         };
-        let left = (right - px(menu::WIDTH))
-            .min(area.size.width - px(menu::WIDTH + MENU_EDGE))
-            .max(px(MENU_EDGE));
+        let edge = if button.is_some() {
+            Pixels::MAX
+        } else {
+            area.size.width - px(menu::WIDTH + MENU_EDGE)
+        };
+        let left = (right - px(menu::WIDTH)).min(edge).max(px(MENU_EDGE));
         self.menu = Some(Opened {
             node: id,
             at: point(left, bottom + px(MENU_GAP)),

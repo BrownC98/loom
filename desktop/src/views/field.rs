@@ -5,7 +5,7 @@ use gpui::{
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
     IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Point, Render, SharedString, Styled, StyledText, TextLayout,
+    ParentElement, Pixels, Point, Render, Rgba, SharedString, Styled, StyledText, TextLayout,
     UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
 };
 
@@ -51,6 +51,7 @@ pub struct Field {
     boxed: bool,
     form: Form,
     scale: f32,
+    tone: Option<Rgba>,
     files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
@@ -76,6 +77,10 @@ pub fn boxed(hint: &str, secret: bool, multiline: bool, cx: &mut App) -> Entity<
     cx.new(|cx| Field::new(hint, secret, multiline, true, cx))
 }
 
+pub fn boxed_label(label: Str, secret: bool, multiline: bool, cx: &mut App) -> Entity<Field> {
+    cx.new(|cx| Field::new(Hint::Label(label), secret, multiline, true, cx))
+}
+
 pub fn form(hint: &str, secret: bool, multiline: bool, kind: Form, cx: &mut App) -> Entity<Field> {
     let hint = Hint::Text(SharedString::from(hint.to_owned()));
     cx.new(|cx| {
@@ -96,6 +101,7 @@ impl Field {
             boxed,
             form: Form::Chat,
             scale: 1.0,
+            tone: None,
             files: None,
             selected: 0..0,
             reversed: false,
@@ -108,6 +114,13 @@ impl Field {
     pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
         if self.scale != scale {
             self.scale = scale;
+            cx.notify();
+        }
+    }
+
+    pub fn set_tone(&mut self, tone: Rgba, cx: &mut Context<Self>) {
+        if self.tone != Some(tone) {
+            self.tone = Some(tone);
             cx.notify();
         }
     }
@@ -764,6 +777,10 @@ impl Render for Field {
         if self.boxed {
             let z = self.scale;
             let skinned = skin(base, z, focused, colors);
+            let skinned = match self.tone.filter(|_| focused) {
+                Some(tone) => skinned.border_color(tone),
+                None => skinned,
+            };
             let web = |el: Div| {
                 el.min_h(px(FORM_HEIGHT * z))
                     .px(px(9.0 * z))

@@ -1,13 +1,21 @@
-use api::graph::waits::{PromptKey, ScreenWait, WaitKind};
-use api::ids::NodeId;
-use gpui::{Context, Div, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div, px};
+use std::rc::Rc;
 
-use super::answers;
+use api::graph::NodeState;
+use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
+use api::ids::NodeId;
+use gpui::{
+    App, Context, Div, Entity, FontWeight, InteractiveElement, MouseButton, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+};
+
+use super::answers::{self, Answers};
 use super::body::{self, Target};
-use super::ui::{self, GAP, PAD};
-use super::{Dock, Inbox};
+use super::entry;
+use super::ui::{self, GAP};
+use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
 use crate::strings::Str;
+use crate::views::widgets::{Label, segmented_wide};
 
 pub fn kind_label(kind: WaitKind) -> Str {
     match kind {
@@ -31,9 +39,19 @@ pub fn key_label(key: &PromptKey, index: usize) -> String {
     }
 }
 
+pub(crate) type Visit = Rc<dyn Fn(NodeId, &mut Window, &mut App)>;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mood {
+    Waiting,
+    Failed,
+    Plain,
+}
+
 pub(crate) struct Group {
     pub node: NodeId,
     pub name: String,
+    pub mood: Mood,
     pub waits: Vec<ScreenWait>,
 }
 
@@ -45,9 +63,20 @@ pub(crate) fn groups_of(snapshot: &Snapshot) -> Vec<Group> {
         .map(|n| {
             let mut waits = n.waits.clone();
             waits.sort_by_key(|w| w.wait.since);
+            let mood = if waits.iter().any(|w| matches!(w.tone, WaitTone::Ask)) {
+                Mood::Waiting
+            } else if matches!(
+                n.state,
+                NodeState::Exited { .. } | NodeState::SetupFailed { .. }
+            ) {
+                Mood::Failed
+            } else {
+                Mood::Plain
+            };
             Group {
                 node: n.id,
                 name: n.name.clone(),
+                mood,
                 waits,
             }
         })
@@ -86,6 +115,15 @@ impl Dock {
             }
         }
         self.drop_pick(cx);
+        let selected = self.store.read(cx).selected();
+        if selected != self.seen_selected {
+            self.seen_selected = selected;
+            if self.docked(cx).is_some() {
+                self.choose_tab(Tab::Terminal, cx);
+                self.store
+                    .update(cx, |store, cx| store.set_pane_open("dock", true, cx));
+            }
+        }
         cx.notify();
     }
 
@@ -109,82 +147,149 @@ impl Dock {
         let c = ui::colors(cx);
         let groups = self.groups(cx);
         let count: usize = groups.iter().map(|g| g.waits.len()).sum();
-        let segment = |id: &'static str, label: String, on: bool, cx: &mut Context<Self>| {
-            let button = ui::button(id, cx);
-            if on {
-                button.bg(c.accent_wash).border_color(c.accent)
-            } else {
-                button
-            }
-            .child(label)
-        };
-        let new_label = if count > 0 {
-            format!("{} {count}", ui::say(cx, Str::InboxNew))
-        } else {
-            ui::say(cx, Str::InboxNew).to_owned()
-        };
+        let items = vec![
+            (
+                Inbox::New,
+                Label::counted(ui::say(cx, Str::InboxNew).into(), count),
+            ),
+            (
+                Inbox::History,
+                Label::from(SharedString::from(ui::say(cx, Str::InboxHistory))),
+            ),
+        ];
+        let owner = cx.entity();
         let switch = div()
-            .flex()
-            .gap(px(GAP))
-            .p(px(PAD))
-            .child(
-                segment("inbox-new", new_label, self.inbox == Inbox::New, cx).on_click(
-                    cx.listener(|dock, _, _, cx| {
-                        dock.inbox = Inbox::New;
+            .flex_none()
+            .px(px(12.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(c.line)
+            .child(segmented_wide(
+                "inbox-tabs",
+                items,
+                self.inbox,
+                move |value, _, cx| {
+                    owner.update(cx, |dock, cx| {
+                        dock.inbox = value;
+                        if value == Inbox::History {
+                            dock.load_history(cx);
+                        }
                         cx.notify();
-                    }),
-                ),
-            )
-            .child(
-                segment(
-                    "inbox-history",
-                    ui::say(cx, Str::InboxHistory).to_owned(),
-                    self.inbox == Inbox::History,
-                    cx,
-                )
-                .on_click(cx.listener(|dock, _, _, cx| {
-                    dock.inbox = Inbox::History;
-                    dock.load_history(cx);
-                    cx.notify();
-                })),
-            );
+                    })
+                },
+                cx,
+            ));
         let list = match self.inbox {
-            Inbox::History => self.history_list(cx).into_any_element(),
+            Inbox::History => ui::scroller(&self.panel_bar, self.history_list(cx)),
             Inbox::New if groups.is_empty() => {
-                ui::note(ui::say(cx, Str::InboxEmpty).to_owned(), false, cx).into_any_element()
+                ui::empty(ui::say(cx, Str::InboxEmpty).to_owned(), false, cx)
             }
-            Inbox::New => div()
-                .flex()
-                .flex_col()
-                .children(groups.iter().map(|g| self.group(g, cx)))
-                .into_any_element(),
+            Inbox::New => {
+                let (store, inputs) = (self.store.clone(), self.shared.clone());
+                let go: Visit =
+                    Rc::new(move |node, _, cx| store.update(cx, |store, cx| store.go(node.0, cx)));
+                let (store, focus) = (self.store.clone(), inputs);
+                let jump: Visit = Rc::new(move |node, window, cx| {
+                    store.update(cx, |store, cx| store.go(node.0, cx));
+                    focus.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
+                });
+                let list = wait_list(&self.answers, &groups, 1.0, go, jump, cx);
+                ui::scroller(&self.panel_bar, div().p(px(6.0)).child(list))
+            }
         };
-        div().flex().flex_col().child(switch).child(list)
-    }
-
-    fn group(&self, group: &Group, cx: &mut Context<Self>) -> Div {
-        let c = ui::colors(cx);
-        let node = group.node;
         div()
+            .size_full()
             .flex()
             .flex_col()
-            .gap(px(2.0))
-            .py(px(4.0))
-            .border_t_1()
-            .border_color(c.line)
+            .child(switch)
+            .child(list)
+    }
+}
+
+pub(crate) fn wait_list(
+    answers: &Entity<Answers>,
+    groups: &[Group],
+    z: f32,
+    go: Visit,
+    focus: Visit,
+    cx: &mut App,
+) -> Div {
+    let c = ui::colors(cx);
+    let list = div().flex().flex_col();
+    groups.iter().enumerate().fold(list, |list, (at, group)| {
+        let node = group.node;
+        let dot = match group.mood {
+            Mood::Waiting => c.ask,
+            Mood::Failed => c.err,
+            Mood::Plain => c.ink_3,
+        };
+        let open = go.clone();
+        let hover = c.surface_hover;
+        let head = div()
+            .id(("go", node.0 as usize))
+            .flex()
+            .items_center()
+            .gap(px(GAP * z))
+            .h(px(28.0 * z))
+            .px(px(8.0 * z))
+            .rounded(px(6.0 * z))
+            .overflow_hidden()
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .tooltip(crate::views::tooltip::tip(ui::say_with(
+                cx,
+                Str::InboxJumpLabel,
+                &[("name", &group.name)],
+            )))
+            .child(div().flex_none().size(px(7.0 * z)).rounded_full().bg(dot))
             .child(
-                ui::link(("go", node.0 as usize), group.name.clone(), cx)
-                    .px(px(PAD))
-                    .h(px(28.0))
-                    .flex()
-                    .items_center()
-                    .on_click(cx.listener(move |dock, _, _, cx| dock.jump(node, cx))),
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(ui::TEXT * z))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.ink)
+                    .child(group.name.clone()),
             )
-            .children(
-                group
+            .children({
+                let asks = group
                     .waits
                     .iter()
-                    .map(|w| answers::entry(&self.answers, node, w, 1.0, cx)),
-            )
-    }
+                    .filter(|w| matches!(w.tone, WaitTone::Ask))
+                    .count();
+                entry::notice_badges(asks, group.waits.len() - asks, z, &c)
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, window, cx| open(node, window, cx));
+        let rows = group.waits.iter().enumerate().map(|(row, w)| {
+            let jump = focus.clone();
+            let mut item = div()
+                .id(("wait-row", w.wait.id.0 as usize))
+                .flex()
+                .flex_col()
+                .gap(px(GAP * z))
+                .ml(px(-8.0 * z))
+                .pt(px(6.0 * z))
+                .px(px(8.0 * z))
+                .pb(px(10.0 * z))
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover).rounded(px(6.0 * z)))
+                .on_click(move |_, window, cx| jump(node, window, cx));
+            if row > 0 {
+                item = item.border_t_1().border_dashed().border_color(c.line);
+            }
+            item.child(answers::entry(answers, node, w, z, cx))
+        });
+        let mut item = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0 * z))
+            .py(px(4.0 * z))
+            .child(head)
+            .child(div().flex().flex_col().pl(px(21.0 * z)).children(rows));
+        if at > 0 {
+            item = item.border_t_1().border_color(c.line);
+        }
+        list.child(item)
+    })
 }

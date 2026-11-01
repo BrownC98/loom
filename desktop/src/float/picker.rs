@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Bounds, Context, Entity, EventEmitter, FontWeight, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Render,
-    ScrollEvent, ScrollHandle, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    ScrollEvent, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
 use super::place;
@@ -14,6 +14,7 @@ use crate::strings::{Lang, Str};
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
+use crate::views::scrollbar::Bar;
 use crate::views::sidebar::{Pickable, dot, pickables};
 
 const SHADOW_BLUR: f32 = 14.0;
@@ -30,7 +31,7 @@ pub struct Picker {
     current: u32,
     query: Entity<Field>,
     at: usize,
-    scroll: ScrollHandle,
+    bar: Bar,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     zoom: f32,
     width: f32,
@@ -73,7 +74,7 @@ pub fn picker(
             current,
             query,
             at: 0,
-            scroll: ScrollHandle::new(),
+            bar: Bar::new(),
             anchor,
             zoom: 1.0,
             width: 0.0,
@@ -124,7 +125,7 @@ impl Picker {
             let heads = usize::from(!marks.is_empty()) + usize::from(!all.is_empty());
             heads + self.at
         };
-        self.scroll.scroll_to_item(child);
+        self.bar.handle().scroll_to_item(child);
         cx.notify();
     }
 
@@ -197,7 +198,7 @@ impl Render for Picker {
             .flex_col()
             .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.scroll)
+            .track_scroll(self.bar.handle())
             .px(px(6.0 * z))
             .pb(px(6.0 * z))
             .pt(px(if self.above { 6.0 } else { 0.0 } * z));
@@ -270,7 +271,7 @@ impl Render for Picker {
                     .child(ui::say(cx, Str::ComposerPickNone)),
             )
         } else {
-            body.child(list)
+            body.child(self.bar.reserved(list).min_h_0())
         }
     }
 }

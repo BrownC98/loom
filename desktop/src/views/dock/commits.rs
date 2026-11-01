@@ -11,7 +11,7 @@ use gpui::{
 
 use super::lanes::{LaneState, Row, circle_of, lane_count, lanes};
 use super::strokes::{self, LANE_WIDTH, RING, ROW_HEIGHT, drawing};
-use super::ui::{self, GAP, PAD, SMALL};
+use super::ui::{self, GAP, SMALL};
 use super::{Dock, Tab};
 use crate::canvas::repos::chosen_repo;
 use crate::fonts;
@@ -30,9 +30,6 @@ const TIME_WIDTH: f32 = 60.0;
 const REF_HEIGHT: f32 = 18.0;
 const REF_TINT: f32 = 0.22;
 const FOLDER: f32 = 11.0;
-const MINUTE: i64 = 60;
-const HOUR: i64 = 60 * MINUTE;
-const DAY: i64 = 24 * HOUR;
 
 #[derive(Default)]
 pub(super) struct Commits {
@@ -216,36 +213,6 @@ impl Commits {
     }
 }
 
-fn ago(cx: &gpui::App, time: i64, now: i64) -> String {
-    let seconds = (now - time).max(0);
-    let steps = [
-        (
-            365 * DAY,
-            Str::CommitsAgoYear,
-            Some(Str::CommitsAgoLastYear),
-        ),
-        (
-            30 * DAY,
-            Str::CommitsAgoMonth,
-            Some(Str::CommitsAgoLastMonth),
-        ),
-        (7 * DAY, Str::CommitsAgoWeek, Some(Str::CommitsAgoLastWeek)),
-        (DAY, Str::CommitsAgoDay, Some(Str::CommitsAgoLastDay)),
-        (HOUR, Str::CommitsAgoHour, None),
-        (MINUTE, Str::CommitsAgoMinute, None),
-    ];
-    for (unit, text, last) in steps {
-        if seconds >= unit {
-            let count = (seconds as f64 / unit as f64).round();
-            if let (1.0, Some(last)) = (count, last) {
-                return ui::say(cx, last).to_owned();
-            }
-            return ui::say_with(cx, text, &[("n", &count.to_string())]);
-        }
-    }
-    ui::say(cx, Str::CommitsAgoNow).to_owned()
-}
-
 fn lanes_canvas(row: &Row, lanes: usize, colors: Colors) -> impl IntoElement {
     let drawn = drawing(row);
     canvas(
@@ -387,73 +354,45 @@ impl Dock {
                     .text_right()
                     .text_size(px(SMALL))
                     .text_color(c.ink_3)
-                    .child(ago(cx, commit.time, state.now)),
+                    .child(ui::ago(
+                        state.now - commit.time,
+                        *cx.global::<crate::strings::Lang>(),
+                    )),
             )
             .into_any_element()
     }
 
-    fn pick_repo(&mut self, repo: RepoId, cx: &mut Context<Self>) {
-        let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
-            return;
-        };
-        let patch = serde_json::json!({ "repo": repo.0 });
-        let store = self.store.clone();
-        cx.spawn(async move |_, cx| {
-            let saved = cx
-                .background_spawn(async move { link::put_settings(&base, &patch) })
-                .await;
-            if saved.is_ok() {
-                store.update(cx, |store, cx| store.reload(cx));
-            }
-        })
-        .detach();
-    }
-
     pub(super) fn commits_panel(&mut self, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
-        let repos: Vec<(RepoId, String)> = self
-            .store
-            .read(cx)
-            .snapshot()
-            .map(|s| s.repos.iter().map(|r| (r.id, r.name.clone())).collect())
-            .unwrap_or_default();
-        let name = repos
-            .iter()
-            .find(|(id, _)| Some(*id) == self.commits.repo)
-            .map(|(_, name)| name.clone());
-        let picks = (repos.len() > 1).then(|| {
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(GAP))
-                .px(px(PAD))
-                .children(repos.into_iter().map(|(id, name)| {
-                    let on = Some(id) == self.commits.repo;
-                    let chip = ui::button(("commit-repo", id.0 as usize), cx);
-                    let chip = if on {
-                        chip.bg(c.accent_wash).border_color(c.accent)
-                    } else {
-                        chip
-                    };
-                    chip.child(name)
-                        .on_click(cx.listener(move |dock, _, _, cx| dock.pick_repo(id, cx)))
-                }))
+        let name = self.store.read(cx).snapshot().and_then(|s| {
+            s.repos
+                .iter()
+                .find(|r| Some(r.id) == self.commits.repo)
+                .map(|r| r.name.clone())
         });
         let head = div()
+            .flex_none()
             .flex()
-            .gap(px(4.0))
-            .px(px(PAD))
-            .py(px(GAP))
+            .gap(px(8.0))
+            .px(px(16.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(c.line)
             .text_size(px(SMALL))
             .text_color(c.ink_3)
-            .children(name.map(|name| div().font_weight(FontWeight::BOLD).child(name)))
-            .child(format!("\u{00b7} {}", ui::say(cx, Str::CommitsScope)));
-        let panel = div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(head)
-            .children(picks);
+            .child(
+                div()
+                    .flex()
+                    .gap(px(4.0))
+                    .children(name.map(|name| {
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.ink)
+                            .child(name)
+                    }))
+                    .child(format!("\u{00b7} {}", ui::say(cx, Str::CommitsScope))),
+            );
+        let panel = div().size_full().flex().flex_col().child(head);
         if let Some(error) = &self.commits.error {
             return panel.child(ui::note(error.clone(), true, cx));
         }

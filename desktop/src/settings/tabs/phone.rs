@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use api::graph::GraphEvent;
 use api::settings::phone::{DeviceView, InviteView, PhoneView, Served, Tailnet};
-use chrono::{Local, TimeZone, Timelike, Utc};
+use chrono::Utc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, ElementId, Entity, FontWeight, Image, ImageFormat,
@@ -17,21 +17,11 @@ use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
-use crate::views::dock::ui::{SMALL, TEXT, colors, open_url, say, say_with};
+use crate::views::dock::ui::{SMALL, TEXT, ago, colors, day_and_time, open_url, say, say_with};
 
 const QR: f32 = 148.0;
 const QR_PAD: f32 = 4.0;
 const KEY_W: f32 = 92.0;
-const MINUTE: i64 = 60_000;
-const AGO: [(i64, Str); 6] = [
-    (365 * 24 * 60 * MINUTE, Str::PairingAgoYear),
-    (30 * 24 * 60 * MINUTE, Str::PairingAgoMonth),
-    (7 * 24 * 60 * MINUTE, Str::PairingAgoWeek),
-    (24 * 60 * MINUTE, Str::PairingAgoDay),
-    (60 * MINUTE, Str::PairingAgoHour),
-    (MINUTE, Str::PairingAgoMinute),
-];
-
 #[derive(Default)]
 pub struct State {
     model: Option<Entity<Model>>,
@@ -242,38 +232,6 @@ impl Model {
 
 fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
-}
-
-fn ago(then: i64, now: i64, cx: &App) -> String {
-    let elapsed = (now - then).max(0);
-    AGO.iter().find(|(size, _)| elapsed >= *size).map_or_else(
-        || say(cx, Str::PairingAgoNow).to_owned(),
-        |(size, text)| {
-            let count = (elapsed + size / 2) / size;
-            say_with(cx, *text, &[("n", &count.to_string())])
-        },
-    )
-}
-
-fn day_and_time(millis: i64, cx: &App) -> String {
-    let Some(at) = Local.timestamp_millis_opt(millis).single() else {
-        return String::new();
-    };
-    let (month, day, hour, minute) = (at.format("%-m"), at.format("%-d"), at.hour(), at.minute());
-    let clock = format!(
-        "{}:{minute:02}",
-        [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][hour as usize % 12]
-    );
-    match *cx.global::<Lang>() {
-        Lang::Ko => format!(
-            "{month}월 {day}일 {} {clock}",
-            if hour < 12 { "오전" } else { "오후" }
-        ),
-        Lang::En => format!(
-            "{month}/{day}, {clock} {}",
-            if hour < 12 { "AM" } else { "PM" }
-        ),
-    }
 }
 
 fn dot(color: Rgba) -> Div {
@@ -602,8 +560,14 @@ fn device_row(
         cx,
         Str::PairingDeviceMeta,
         &[
-            ("paired", &day_and_time(device.paired_at, cx)),
-            ("seen", &ago(device.last_seen, now, cx)),
+            (
+                "paired",
+                &day_and_time(device.paired_at / 1000, *cx.global::<Lang>()),
+            ),
+            (
+                "seen",
+                &ago((now - device.last_seen).max(0) / 1000, *cx.global::<Lang>()),
+            ),
         ],
     );
     let meta = s.text(&meta, cx);

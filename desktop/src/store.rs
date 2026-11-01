@@ -59,6 +59,12 @@ pub enum Slot {
 
 pub struct ZoomTo(pub f32);
 
+pub struct NodeMenu {
+    pub node: u32,
+    pub at: gpui::Point<Pixels>,
+    pub button: Option<Bounds<Pixels>>,
+}
+
 #[derive(Clone)]
 pub enum Target {
     Nodes(Vec<u32>),
@@ -74,6 +80,7 @@ pub struct BusyChanged;
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
+impl EventEmitter<NodeMenu> for Store {}
 impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
@@ -251,6 +258,16 @@ impl Store {
 
     pub fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
         self.show_nodes(vec![node], cx);
+    }
+
+    pub fn open_node_menu(
+        &mut self,
+        node: u32,
+        at: gpui::Point<Pixels>,
+        button: Option<Bounds<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(NodeMenu { node, at, button });
     }
 
     pub fn go(&mut self, node: u32, cx: &mut Context<Self>) {

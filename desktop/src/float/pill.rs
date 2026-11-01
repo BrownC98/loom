@@ -6,18 +6,23 @@ use api::ids::WaitId;
 use api::settings::{FloatPlace, FloatSize, QuestionPill};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, BoxShadow, Context, Div, Entity, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent,
-    Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
+    AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, FocusHandle, FontWeight,
+    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Pixels, Point, Render, ScrollEvent, Size, Stateful, StatefulInteractiveElement,
+    Styled, Subscription, Window, canvas, div, point, px,
 };
 
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::dock::answers::{self, Answers};
-use crate::views::dock::questions::{Group, groups_of, kind_label};
+use crate::views::dock::entry;
+use crate::views::dock::questions::{Group, Visit, groups_of, kind_label, wait_list};
 use crate::views::dock::ui::{self, GAP};
+use crate::views::icons::{Lucide, icon};
+use crate::views::inputs::Inputs;
 use crate::views::pictures::Shelf;
+use crate::views::scrollbar::Bar;
 use crate::views::tooltip::tip;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
@@ -39,12 +44,17 @@ pub struct Pill {
     shut: Option<WaitId>,
     seen_shut: Option<WaitId>,
     answers: Entity<Answers>,
+    focus: FocusHandle,
+    inputs: Entity<Inputs>,
+    face_box: Rc<Cell<Bounds<Pixels>>>,
+    list_bar: Bar,
     subscriptions: Vec<Subscription>,
 }
 
 pub fn pill(
     store: Entity<Store>,
     shelf: Entity<Shelf>,
+    inputs: Entity<Inputs>,
     _: &mut Window,
     cx: &mut App,
 ) -> Entity<Pill> {
@@ -65,6 +75,10 @@ pub fn pill(
             shut: None,
             seen_shut,
             answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
+            focus: cx.focus_handle(),
+            inputs,
+            face_box: Rc::new(Cell::new(Bounds::default())),
+            list_bar: Bar::new(),
             subscriptions: Vec::new(),
         };
         pill.subscriptions
@@ -179,16 +193,23 @@ impl Pill {
         cx.notify();
     }
 
-    fn jump(&mut self, node: api::ids::NodeId, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| store.go(node.0, cx));
-    }
-
-    fn toggle(&mut self, cx: &mut Context<Self>) {
+    fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dragged {
             return;
         }
         self.open = !self.open;
+        if self.open {
+            self.list_bar.reset();
+            window.focus(&self.focus, cx);
+        }
         cx.notify();
+    }
+
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.open {
+            self.open = false;
+            cx.notify();
+        }
     }
 }
 
@@ -227,9 +248,15 @@ impl Render for Pill {
         let limit = (f32::from(pane.width) - 2.0 * MARGIN).max(0.0);
         let width = (WIDTH * z).min(limit);
         let face = self.face(&groups, first, &oldest.name, line, z, at, newest, cx);
+        let face_box = self.face_box.clone();
         let face = div()
             .relative()
             .occlude()
+            .child(
+                canvas(move |bounds, _, _| face_box.set(bounds), |_, _, _, _| ())
+                    .absolute()
+                    .size_full(),
+            )
             .when(line, |d| d.max_w(px(width)))
             .when(!line, |d| d.w(px(width)))
             .child(place::measure(box_cell, id))
@@ -332,33 +359,58 @@ impl Pill {
             f32::from(pane.width),
         );
         let title = ui::say_with(cx, Str::InboxTitle, &[("count", &count.to_string())]);
-        let list = div()
-            .flex()
-            .flex_col()
-            .children(groups.iter().map(|g| self.group(g, z, cx)));
+        let (store, inputs) = (self.store.clone(), self.inputs.clone());
+        let go: Visit = Rc::new(move |node, window, cx| {
+            store.update(cx, |store, cx| store.go(node.0, cx));
+            inputs.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
+        });
+        let list = wait_list(&self.answers, groups, z, go.clone(), go, cx);
+        let scroller = div()
+            .id("pill-list")
+            .overflow_y_scroll()
+            .track_scroll(self.list_bar.handle())
+            .child(list);
+        let face_box = self.face_box.clone();
         let pop = div()
             .id("pill-pop")
+            .track_focus(&self.focus)
             .absolute()
             .left(px(left))
             .w(px(width))
             .max_h(px(room))
             .flex()
             .flex_col()
-            .overflow_y_scroll()
+            .overflow_hidden()
             .gap(px(GAP * z))
             .pt(px(10.0 * z))
             .px(px(6.0 * z))
             .pb(px(6.0 * z))
             .rounded(px(10.0 * z))
-            .border_1()
-            .border_color(c.line_strong)
             .bg(c.surface)
             .text_color(c.ink)
             .text_size(px(13.0 * z))
-            .shadow(shadow(c.shadow))
+            .line_height(gpui::relative(1.5))
+            .shadow(vec![BoxShadow {
+                color: c.shadow.into(),
+                offset: point(px(0.0), px(12.0 * z)),
+                blur_radius: px(32.0 * z),
+                spread_radius: px(0.0),
+                inset: false,
+            }])
             .occlude()
             .on_mouse_down(MouseButton::Left, place::stop)
             .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
+            .on_key_down(cx.listener(|pill, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    pill.dismiss(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down_out(cx.listener(move |pill, e: &MouseDownEvent, _, cx| {
+                if !face_box.get().contains(&e.position) {
+                    pill.dismiss(cx);
+                }
+            }))
             .child(
                 div()
                     .px(px(8.0 * z))
@@ -366,39 +418,13 @@ impl Pill {
                     .text_color(c.ink_3)
                     .child(title),
             )
-            .child(list);
+            .child(self.list_bar.reserved(scroller).flex_1().min_h_0());
         let gap = px(place::POP_GAP * z);
         if above {
             pop.bottom(boxed.height + gap)
         } else {
             pop.top(boxed.height + gap)
         }
-    }
-
-    fn group(&self, group: &Group, z: f32, cx: &mut Context<Self>) -> Div {
-        let c = ui::colors(cx);
-        let node = group.node;
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0 * z))
-            .py(px(4.0 * z))
-            .border_t_1()
-            .border_color(c.line)
-            .child(
-                ui::link(("pill-go", node.0 as usize), group.name.clone(), cx)
-                    .px(px(8.0 * z))
-                    .h(px(28.0 * z))
-                    .flex()
-                    .items_center()
-                    .on_click(cx.listener(move |pill, _, _, cx| pill.jump(node, cx))),
-            )
-            .children(
-                group
-                    .waits
-                    .iter()
-                    .map(|w| answers::entry(&self.answers, node, w, z, cx)),
-            )
     }
 }
 
@@ -438,26 +464,9 @@ pub fn face<W: PillWire>(view: &PillView, body: Option<AnyElement>, wire: &W, cx
     let c = ui::colors(cx);
     let z = view.z;
     let line = view.line;
-    let tone = match view.tone {
-        WaitTone::Ask => c.warn,
-        WaitTone::Done => c.ok,
-    };
-    let badge = |mark: &'static str, n: usize, color: gpui::Rgba| {
-        div()
-            .flex_none()
-            .min_w(px(18.0 * z))
-            .h(px(18.0 * z))
-            .px(px(5.0 * z))
-            .rounded(px(9.0 * z))
-            .bg(color)
-            .text_color(c.warn_ink)
-            .text_size(px(11.0 * z))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(format!("{mark}{n}"))
-    };
-    let tool = |id: &'static str, glyph: &'static str| {
+    let tone_color = entry::tone_of(view.tone, &c);
+    let ink = c.ink;
+    let tool = |id: &'static str, glyph: Lucide| {
         div()
             .id(id)
             .flex_none()
@@ -466,23 +475,42 @@ pub fn face<W: PillWire>(view: &PillView, body: Option<AnyElement>, wire: &W, cx
             .flex()
             .items_center()
             .justify_center()
-            .text_color(c.ink_3)
-            .child(glyph)
+            .group(id)
+            .child(
+                gpui::svg()
+                    .path(glyph.path())
+                    .size(px(14.0 * z))
+                    .flex_none()
+                    .text_color(c.ink_3)
+                    .group_hover(id, move |style| style.text_color(ink)),
+            )
     };
-    let head_text = if line && !view.summary.is_empty() {
-        format!("{}: {}", view.name, view.summary)
-    } else {
-        view.name.to_owned()
-    };
+    let name = div()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(px(13.0 * z))
+        .child(view.name.to_owned());
     let label = if line {
-        div().truncate().child(head_text)
+        div()
+            .flex()
+            .items_baseline()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .child(name)
+            .children((!view.summary.is_empty()).then(|| format!(": {}", view.summary)))
     } else {
         div()
             .flex()
             .items_center()
-            .gap(px(4.0 * z))
-            .child(div().font_weight(gpui::FontWeight::BOLD).child(head_text))
-            .child(if view.open { "\u{25b4}" } else { "\u{25be}" })
+            .child(name)
+            .child(div().ml(px(4.0 * z)).child(icon(
+                if view.open {
+                    Lucide::ChevronUp
+                } else {
+                    Lucide::ChevronDown
+                },
+                14.0 * z,
+                c.ink,
+            )))
     };
     let go = div()
         .id("pill-go")
@@ -505,32 +533,33 @@ pub fn face<W: PillWire>(view: &PillView, body: Option<AnyElement>, wire: &W, cx
         .px(px(6.0 * z))
         .text_size(px(13.0 * z))
         .when(!line, |d| d.border_b_1().border_color(c.line))
-        .child(wire.close(tool("pill-close", "\u{00d7}")))
+        .child(wire.close(tool("pill-close", Lucide::X)))
+        .child(
+            icon(
+                match view.tone {
+                    WaitTone::Ask => Lucide::CircleQuestionMark,
+                    WaitTone::Done => Lucide::CircleCheck,
+                },
+                16.0 * z,
+                tone_color,
+            )
+            .mr(px(-2.0 * z)),
+        )
         .child(
             div()
-                .font_weight(gpui::FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .flex_none()
                 .child(ui::say(cx, kind_label(view.kind))),
         )
-        .children((view.asks > 0).then(|| badge("?", view.asks, c.warn)))
-        .children((view.dones > 0).then(|| badge("\u{2713}", view.dones, c.ok)))
-        .children((view.kind == WaitKind::Question).then(|| {
-            div()
-                .flex_none()
-                .px(px(6.0 * z))
-                .h(px(18.0 * z))
-                .rounded(px(4.0 * z))
-                .border_1()
-                .border_color(tone)
-                .text_size(px(11.0 * z))
-                .flex()
-                .items_center()
-                .child(view.id.clone())
-        }))
+        .children(entry::notice_badges(view.asks, view.dones, z, &c))
+        .children(
+            (view.kind == WaitKind::Question)
+                .then(|| entry::qid(view.id.clone(), view.tone, 18.0, z, &c)),
+        )
         .child(wire.go(go))
         .children(
             view.reset
-                .then(|| wire.reset(tool("pill-reset", "\u{21ba}"))),
+                .then(|| wire.reset(tool("pill-reset", Lucide::RotateCcw))),
         );
     wire.shell(
         div()
@@ -538,9 +567,10 @@ pub fn face<W: PillWire>(view: &PillView, body: Option<AnyElement>, wire: &W, cx
             .flex_col()
             .rounded(px(if line { 17.0 } else { 14.0 } * z))
             .border_1()
-            .border_color(tone)
+            .border_color(tone_color)
             .bg(c.panel)
             .text_color(c.ink)
+            .line_height(gpui::relative(1.5))
             .shadow(shadow(c.shadow))
             .child(wire.head(head))
             .children(body),
@@ -588,7 +618,10 @@ impl PillWire for Live<'_, '_> {
         el.cursor_pointer()
             .hover(move |s| s.bg(c.surface_hover))
             .tooltip(tip(label))
-            .on_click(self.cx.listener(|pill, _, _, cx| pill.toggle(cx)))
+            .on_click(
+                self.cx
+                    .listener(|pill, _, window, cx| pill.toggle(window, cx)),
+            )
     }
 
     fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {

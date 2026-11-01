@@ -1,11 +1,16 @@
 use api::graph::events::ClosedBy;
-use api::graph::waits::{Closed, ClosedWait, WaitKind};
-use gpui::{Context, Div, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div, px};
+use api::graph::waits::{Closed, ClosedWait, WaitKind, WaitTone};
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    Context, Div, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    StatefulInteractiveElement, Styled, div, px,
+};
 
 use super::Dock;
 use super::body;
+use super::entry::{self, Choice, Look};
 use super::questions::kind_label;
-use super::ui::{self, GAP, PAD, SMALL};
+use super::ui::{self, GAP, SMALL};
 use crate::strings::Str;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
@@ -82,122 +87,172 @@ impl Dock {
     pub(super) fn history_list(&self, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
         if let (false, Some(error)) = (self.history.loaded, &self.history.error) {
-            return ui::note(error.clone(), true, cx);
+            return ui::empty(error.clone(), true, cx);
         }
         if self.history.loaded && self.history.rows.is_empty() {
-            return ui::note(ui::say(cx, Str::InboxHistoryEmpty).to_owned(), false, cx);
+            return ui::empty(ui::say(cx, Str::InboxHistoryEmpty).to_owned(), false, cx);
         }
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .children(self.history.rows.iter().map(|row| self.closed_row(row, cx)));
+        let mut list =
+            div()
+                .flex()
+                .flex_col()
+                .p(px(6.0))
+                .children(self.history.rows.iter().enumerate().map(|(at, row)| {
+                    let mut item = self.closed_row(row, cx);
+                    if at > 0 {
+                        item = item.border_t_1().border_color(c.line);
+                    }
+                    item
+                }));
         if self.history.more {
+            let hover = c.surface_hover;
+            let ink = c.ink;
             list = list.child(
-                div().p(px(PAD)).child(
-                    ui::button("history-more", cx)
+                div().flex().justify_center().p(px(8.0)).child(
+                    div()
+                        .id("history-more")
+                        .flex()
+                        .items_center()
+                        .h(px(26.0))
+                        .px(px(8.0))
+                        .rounded(px(6.0))
+                        .text_size(px(SMALL))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(c.ink_2)
+                        .cursor_pointer()
+                        .hover(move |style| style.bg(hover).text_color(ink))
                         .child(ui::say(cx, Str::InboxHistoryMore))
                         .on_click(cx.listener(|dock, _, _, cx| dock.more_history(cx))),
                 ),
             );
         }
         if let Some(error) = &self.history.error {
-            list = list.child(ui::note(error.clone(), true, cx));
+            list = list.child(
+                div()
+                    .px(px(8.0))
+                    .text_size(px(SMALL))
+                    .text_color(c.err)
+                    .child(error.clone()),
+            );
         }
         list.text_color(c.ink)
     }
 
     fn closed_row(&self, closed: &ClosedWait, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
-        let wait = &closed.wait.wait;
+        let screen = &closed.wait;
+        let wait = &screen.wait;
+        let tone = screen.tone;
         let seq = closed.seq as usize;
         let name = match closed.node.id {
-            Some(node) => ui::link(("history-node", seq), closed.node.name.clone(), cx)
-                .on_click(cx.listener(move |dock, _, _, cx| dock.jump(node, cx)))
-                .into_any_element(),
+            Some(node) => {
+                let (line, ink) = (c.line_strong, c.ink);
+                div()
+                    .id(("history-node", seq))
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(ui::TEXT))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.ink)
+                    .underline()
+                    .text_decoration_color(line)
+                    .cursor_pointer()
+                    .hover(move |style| style.text_decoration_color(ink))
+                    .child(closed.node.name.clone())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |dock, _, _, cx| dock.jump(node, cx)))
+                    .into_any_element()
+            }
             None => div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(ui::TEXT))
                 .text_color(c.ink_3)
                 .child(closed.node.name.clone())
                 .into_any_element(),
         };
-        let published = ui::say_with(
-            cx,
-            Str::InboxPublished,
-            &[("time", &ui::clock(wait.since, TIME))],
-        );
         let top = div()
             .flex()
+            .flex_wrap()
             .items_center()
-            .gap(px(GAP))
-            .text_size(px(SMALL))
-            .text_color(c.ink_3)
-            .child(ui::say(cx, kind_label(wait.kind)))
-            .children((wait.kind == WaitKind::Question).then(|| wait.id.to_string()))
+            .gap_x(px(GAP))
+            .gap_y(px(2.0))
+            .child(entry::mark(tone, 1.0, &c))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(SMALL))
+                    .text_color(c.ink_3)
+                    .child(ui::say(cx, kind_label(wait.kind))),
+            )
+            .children(
+                (wait.kind == WaitKind::Question)
+                    .then(|| entry::qid(wait.id.to_string(), tone, 20.0, 1.0, &c)),
+            )
             .child(name)
-            .child(div().flex_1().child(published));
+            .child(entry::published(wait.since, 1.0, cx));
         let mut row = div()
             .flex()
             .flex_col()
             .gap(px(GAP))
-            .mx(px(PAD))
-            .mb(px(10.0))
-            .p(px(PAD))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(c.line)
-            .bg(c.surface)
+            .pt(px(8.0))
+            .px(px(8.0))
+            .pb(px(10.0))
             .child(top);
         if let Some(text) = &wait.instruction {
             row = row.child(
                 div()
                     .text_size(px(SMALL))
-                    .text_color(c.ink_3)
+                    .text_color(c.ink)
                     .child(ui::say_with(cx, Str::InboxInstruction, &[("text", text)])),
             );
         }
         if !wait.text.is_empty() || wait.doc.is_some() {
-            row = row.child(body::text(
-                ("history-text", seq),
-                &wait.parts,
-                &wait.text,
-                wait.doc.as_ref(),
-                cx,
-            ));
+            row = row.child(
+                div()
+                    .text_size(px(ui::TEXT))
+                    .when(matches!(tone, WaitTone::Done), |text| {
+                        text.font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .child(body::text(
+                        ("history-text", seq),
+                        &wait.parts,
+                        &wait.text,
+                        wait.doc.as_ref(),
+                        entry::tone_of(tone, &c),
+                        cx,
+                    )),
+            );
         }
         if !wait.choices.is_empty() {
             row = row.child(div().flex().flex_wrap().gap(px(GAP)).children(
                 wait.choices.iter().map(|choice| {
                     let chosen = closed.chosen == Some(choice.key);
-                    let mut chip = div()
-                        .flex()
-                        .gap(px(GAP))
-                        .px(px(10.0))
-                        .py(px(3.0))
-                        .rounded(px(6.0))
-                        .border_1()
-                        .border_color(if chosen { c.accent } else { c.line_strong })
-                        .text_size(px(SMALL))
-                        .text_color(if closed.chosen.is_some() && !chosen {
-                            c.ink_3
-                        } else {
-                            c.ink
-                        })
-                        .child(div().text_color(c.ink_3).child(choice.key.to_string()))
-                        .child(choice.label.clone());
-                    if choice.recommended {
-                        chip = chip.child(
-                            div()
-                                .text_color(c.warn)
-                                .child(ui::say(cx, Str::InboxRecommended)),
-                        );
+                    let look = if chosen {
+                        Look::Chosen
+                    } else if closed.chosen.is_some() {
+                        Look::Passed
+                    } else if choice.recommended {
+                        Look::Recommended
+                    } else {
+                        Look::Plain
+                    };
+                    let mut face = entry::choice_face(
+                        div(),
+                        Choice {
+                            key: choice.key.to_string(),
+                            label: &choice.label,
+                            recommended: choice.recommended,
+                            look,
+                            tone,
+                        },
+                        1.0,
+                        cx,
+                    );
+                    if look == Look::Passed {
+                        face = face.opacity(0.55);
                     }
-                    if chosen {
-                        chip = chip.child(
-                            div()
-                                .text_color(c.accent)
-                                .child(format!("\u{2713} {}", ui::say(cx, Str::InboxChosen))),
-                        );
-                    }
-                    chip
+                    face.children(chosen.then(|| entry::chosen_mark(1.0, cx)))
                 }),
             ));
         }
@@ -211,16 +266,18 @@ impl Dock {
         };
         row.child(
             div()
-                .flex()
-                .flex_col()
                 .text_size(px(SMALL))
                 .text_color(c.ink_2)
-                .child(format!(
-                    "{} {}",
-                    ui::say(cx, closed_label(&closed.how)),
-                    ui::clock(closed.closed_at, TIME)
-                ))
-                .children(said),
+                .flex()
+                .flex_wrap()
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.ink)
+                        .child(ui::say(cx, closed_label(&closed.how)).to_owned()),
+                )
+                .child(format!(" {}", ui::clock(closed.closed_at, TIME)))
+                .children(said.map(|text| format!(" \u{00b7} {text}"))),
         )
     }
 }

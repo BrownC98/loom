@@ -4,6 +4,7 @@ pub mod expanded;
 pub mod field;
 pub mod notice;
 pub mod pictures;
+pub mod scrollbar;
 pub mod shell;
 pub mod sidebar;
 pub mod terminal;

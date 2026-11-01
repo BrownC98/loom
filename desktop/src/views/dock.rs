@@ -7,6 +7,7 @@ use gpui::{
 
 use self::answers::Answers;
 use super::field::{self, Field};
+use super::scrollbar::Bar;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::pictures::Shelf;
@@ -64,6 +65,8 @@ pub struct Dock {
     history: History,
     docs: Docs,
     commits: commits::Commits,
+    commit_bar: Bar,
+    panel_bar: Bar,
     events: events::Events,
     fault: Option<String>,
     subscriptions: Vec<Subscription>,
@@ -95,6 +98,8 @@ pub fn dock(
                 query: query.clone(),
             },
             commits: commits::Commits::default(),
+            commit_bar: Bar::uniform(),
+            panel_bar: Bar::new(),
             events: events::Events::new(cx),
             fault: None,
             subscriptions: Vec::new(),
@@ -219,12 +224,17 @@ impl Render for Dock {
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
             .child(
-                div()
-                    .id("dock-panel")
+                self.panel_bar
+                    .wrap(
+                        div()
+                            .id("dock-panel")
+                            .overflow_y_scroll()
+                            .track_scroll(&self.panel_bar.handle())
+                            .child(panel),
+                        matches!(self.tab, Tab::Questions | Tab::Docs),
+                    )
                     .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(panel),
+                    .min_h_0(),
             )
     }
 }

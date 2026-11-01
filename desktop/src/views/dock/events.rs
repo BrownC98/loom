@@ -10,6 +10,7 @@ use gpui::{
 use super::Dock;
 use super::body;
 use super::field::{self, Field};
+use crate::views::scrollbar::Bar;
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
@@ -40,10 +41,12 @@ pub struct Events {
     open: Option<u32>,
     shown: Vec<usize>,
     list: ListState,
+    bar: Bar,
 }
 
 impl Events {
     pub fn new(cx: &mut App) -> Self {
+        let list = ListState::new(0, ListAlignment::Top, px(240.0));
         Self {
             records: None,
             agents: Vec::new(),
@@ -56,7 +59,8 @@ impl Events {
             needle: String::new(),
             open: None,
             shown: Vec::new(),
-            list: ListState::new(0, ListAlignment::Top, px(240.0)),
+            list: list.clone(),
+            bar: Bar::list(&list),
         }
     }
 
@@ -282,13 +286,17 @@ impl Dock {
             Some(records) if records.is_empty() => panel.child(note(Str::EventsEmpty, cx)),
             Some(_) if self.events.shown.is_empty() => panel.child(note(Str::EventsNoMatch, cx)),
             Some(_) => panel.child(
-                div().flex_1().min_h_0().child(
-                    list(
-                        self.events.list.clone(),
-                        cx.processor(|dock: &mut Dock, ix: usize, _, cx| dock.event_row(ix, cx)),
+                self.events
+                    .bar
+                    .wrap(
+                        list(
+                            self.events.list.clone(),
+                            cx.processor(|dock: &mut Dock, ix: usize, _, cx| dock.event_row(ix, cx)),
+                        ),
+                        true,
                     )
-                    .size_full(),
-                ),
+                    .flex_1()
+                    .min_h_0(),
             ),
         }
     }

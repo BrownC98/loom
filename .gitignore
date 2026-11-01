@@ -8,3 +8,4 @@
 /android/.gradle/
 /android/build/
 /android/app/build/
+/desktop/target/

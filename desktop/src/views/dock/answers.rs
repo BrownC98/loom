@@ -37,6 +37,20 @@ struct Attach {
 
 type Done = Box<dyn FnOnce(&mut App)>;
 
+enum Text {
+    Typed(String),
+    Field(Entity<Field>),
+}
+
+impl Text {
+    fn read(self, cx: &App) -> String {
+        match self {
+            Self::Typed(text) => text,
+            Self::Field(field) => field.read(cx).text().to_owned(),
+        }
+    }
+}
+
 fn cleared(field: Entity<Field>) -> Done {
     Box::new(move |cx| field.update(cx, |field, cx| field.clear(cx)))
 }
@@ -49,7 +63,7 @@ pub(crate) struct Answers {
     images: HashMap<(u32, usize), Arc<Image>>,
     loading: HashSet<(u32, usize)>,
     attached: HashMap<u32, Attach>,
-    waiting: HashMap<u32, (String, Option<Done>)>,
+    waiting: HashMap<u32, (Text, Option<Done>)>,
     viewer: Entity<Viewer>,
     zoomed: Option<u32>,
     _subs: Vec<Subscription>,
@@ -126,6 +140,7 @@ impl Answers {
         self.loading.retain(|(id, _)| live.contains(id));
         self.attached.retain(|id, _| live.contains(id));
         self.waiting.retain(|id, _| live.contains(id));
+        pictures::keep_shelf(&live, cx);
         self.store
             .update(cx, |store, cx| store.keep_waits(&live, cx));
         for (node, wait) in &waits {
@@ -170,12 +185,14 @@ impl Answers {
         let id = wait.wait.id.0;
         if !wait.wait.answerable {
             self.attached.remove(&id);
+            if self.waiting.remove(&id).is_some() {
+                self.store
+                    .update(cx, |store, cx| store.set_busy(id, false, cx));
+            }
             return;
         }
         if !self.attached.contains_key(&id) {
-            let pictures = self
-                .store
-                .update(cx, |store, cx| store.pictures(node, id, cx));
+            let pictures = pictures::shelf(&self.store, node, id, cx);
             let sub =
                 cx.subscribe(
                     &pictures,
@@ -384,7 +401,7 @@ impl Answers {
                 if field.read(cx).is_blank() && bare {
                     return;
                 }
-                self.send(wait, text, Some(cleared(field)), cx);
+                self.send(wait, Text::Field(field.clone()), Some(cleared(field)), cx);
                 return;
             }
             Slot::Option(index) => {
@@ -405,7 +422,7 @@ impl Answers {
         self.run(wait, Some(cleared(field)), task, cx);
     }
 
-    fn send(&mut self, wait: u32, text: String, done: Option<Done>, cx: &mut Context<Self>) {
+    fn send(&mut self, wait: u32, text: Text, done: Option<Done>, cx: &mut Context<Self>) {
         let pictures = self.attached.get(&wait).map(|a| a.pictures.clone());
         if pictures.as_ref().is_some_and(|p| p.read(cx).busy()) {
             self.store
@@ -413,6 +430,7 @@ impl Answers {
             self.waiting.insert(wait, (text, done));
             return;
         }
+        let text = text.read(cx);
         let saved = pictures
             .as_ref()
             .map(|p| p.read(cx).saved())
@@ -458,7 +476,7 @@ impl Answers {
         if self.store.read(cx).is_busy(wait) {
             return;
         }
-        self.send(wait, text, None, cx);
+        self.send(wait, Text::Typed(text), None, cx);
     }
 
     fn dismiss(&mut self, wait: u32, cx: &mut Context<Self>) {

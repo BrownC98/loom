@@ -232,7 +232,7 @@ pub fn view(
             .rounded(px(ROUND))
             .border_1()
             .border_color(colors.line)
-            .bg(colors.surface)
+            .bg(colors.panel)
             .overflow_hidden()
             .cursor_pointer()
             .on_mouse_down(

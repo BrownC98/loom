@@ -1,4 +1,4 @@
-use gpui::{Bounds, Pixels, Window, fill, point, px, rgb, size};
+use gpui::{Bounds, Pixels, Rgba, Window, fill, point, px, size};
 
 use super::camera::Camera;
 
@@ -7,7 +7,7 @@ const MIN_SCREEN_GAP: f32 = 14.0;
 const DOT: f32 = 1.6;
 const DOT_MAX: f32 = 3.0;
 
-pub fn paint(window: &mut Window, bounds: Bounds<Pixels>, camera: Camera) {
+pub fn paint(window: &mut Window, bounds: Bounds<Pixels>, camera: Camera, color: Rgba) {
     let mut step = GAP;
     while step * camera.zoom < MIN_SCREEN_GAP {
         step *= 2.0;
@@ -17,7 +17,6 @@ pub fn paint(window: &mut Window, bounds: Bounds<Pixels>, camera: Camera) {
     let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let start_x = camera.x.rem_euclid(gap);
     let start_y = camera.y.rem_euclid(gap);
-    let color = rgb(0x3a3d44);
     let mut y = start_y;
     while y < height {
         let mut x = start_x;

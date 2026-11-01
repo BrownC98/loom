@@ -4,15 +4,16 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-    PinchEvent, Pixels, Point, Render, ScrollEvent, StatefulInteractiveElement, Styled, Window,
-    canvas, div, point, px, size,
+    App, AppContext, Bounds, Context, Div, Entity, FocusHandle, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, PinchEvent, Pixels, Point, Render, ScrollEvent, StatefulInteractiveElement,
+    Styled, Window, canvas, div, point, px, size,
 };
 
 use api::graph::pty::Pace;
 use api::graph::{CardView, GraphEvent};
 use api::ids::NodeId;
+use api::repos::PlaceView;
 use api::settings::ArrangeDirection;
 
 use super::arrange;
@@ -31,9 +32,9 @@ use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::float::inputs::Inputs;
 use crate::link;
-use crate::store::{Level, ShowNode, Store, ZoomTo};
-use crate::strings::Lang;
-use crate::theme::Theme;
+use crate::store::{Level, Show, Store, Target, ZoomTo};
+use crate::strings::{Lang, Str};
+use crate::theme::{Colors, Theme};
 use crate::views::card;
 use crate::views::expanded;
 use crate::views::notice;
@@ -49,6 +50,12 @@ const HIDDEN_KEEP: Duration = Duration::from_secs(3);
 const GRAB_SLOP: f32 = 3.0;
 const REPO_HEAD: f32 = 46.0;
 const GROUP_HEAD: f32 = 44.0;
+const TITLE_INSET: f32 = 16.0;
+const TITLE_SIZE: f32 = 18.0;
+const TITLE_GAP: f32 = 8.0;
+const TAG_SIZE: f32 = 11.0;
+const TAG_HEIGHT: f32 = 20.0;
+const TAG_PAD: f32 = 6.0;
 
 struct Live {
     view: Entity<TerminalView>,
@@ -73,7 +80,7 @@ pub struct CanvasView {
     focused: Option<u32>,
     expanded: Option<u32>,
     overlay: FocusHandle,
-    fit_pending: bool,
+    pending: Option<Target>,
     pub(super) camera: Camera,
     pub(super) glide: Option<Glide>,
     drag: Option<Point<Pixels>>,
@@ -122,10 +129,8 @@ impl CanvasView {
             this.zoom_to(event.0, cx)
         })
         .detach();
-        cx.subscribe(&store, |this, _, event: &ShowNode, cx| {
-            this.show_node(event.0, cx)
-        })
-        .detach();
+        cx.subscribe(&store, |this, _, event: &Show, cx| this.show(&event.0, cx))
+            .detach();
         cx.subscribe(&store, |this, _, event: &Arrange, cx| {
             this.arrange(event.direction, Scope::All, cx);
         })
@@ -151,7 +156,7 @@ impl CanvasView {
             focused: None,
             expanded: None,
             overlay: cx.focus_handle(),
-            fit_pending: true,
+            pending: None,
             camera: Camera::HOME,
             glide: None,
             drag: None,
@@ -187,7 +192,13 @@ impl CanvasView {
         let overlay = self
             .moves
             .overlay(store.settings(), self.scene.outers.clone());
-        let mut next = scene::build(snapshot, &self.resizer.sizes(), &overlay);
+        let mut next = scene::build(
+            snapshot,
+            &store.shown_repos(),
+            store.settings().card_view,
+            &self.resizer.sizes(),
+            &overlay,
+        );
         self.resizer.place(&mut next);
         if !self.moves.dragging()
             && !self.resizer.busy()
@@ -206,6 +217,9 @@ impl CanvasView {
             }
         }
         self.scene = next;
+        if let Some(target) = self.pending.take() {
+            self.show_when_drawn(target);
+        }
         if self
             .expanded
             .is_some_and(|id| !snapshot.nodes.iter().any(|n| n.id.0 == id))
@@ -223,7 +237,13 @@ impl CanvasView {
         let overlay = self
             .moves
             .arranging(&self.scene, settings, direction, scope);
-        let cleared = scene::build(snapshot, &self.resizer.sizes(), &overlay);
+        let cleared = scene::build(
+            snapshot,
+            &store.shown_repos(),
+            settings.card_view,
+            &self.resizer.sizes(),
+            &overlay,
+        );
         let job = self.moves.arranged(
             &self.scene,
             &cleared,
@@ -348,6 +368,12 @@ impl CanvasView {
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
         let canvas_focused = self.focus.is_focused(window);
+        if canvas_focused && event.keystroke.key == "escape" && self.store.read(cx).has_picked() {
+            self.store
+                .update(cx, |store, cx| store.set_picked(None, cx));
+            cx.stop_propagation();
+            return;
+        }
         let Some(direction) = keys::direction_of(&event.keystroke, canvas_focused, cx) else {
             return;
         };
@@ -357,6 +383,48 @@ impl CanvasView {
         {
             self.select(to, cx);
         }
+    }
+
+    fn title(&self, colors: &Colors, lang: Lang, cx: &App) -> Option<Div> {
+        let store = self.store.read(cx);
+        let [shown] = store.shown_repos()[..] else {
+            return None;
+        };
+        let repo = store.snapshot()?.repos.iter().find(|r| r.id == shown)?;
+        let tag = match &repo.place {
+            PlaceView::Pc => None,
+            PlaceView::Wsl { distro } => {
+                Some(Str::PlaceWslDistro.with(lang, &[("distro", distro)]))
+            }
+            PlaceView::Ssh { host } => Some(Str::PlaceSshHost.with(lang, &[("host", host)])),
+        };
+        Some(
+            div()
+                .absolute()
+                .top(px(TITLE_INSET))
+                .left(px(TITLE_INSET))
+                .flex()
+                .items_center()
+                .gap(px(TITLE_GAP))
+                .text_size(px(TITLE_SIZE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.ink)
+                .child(repo.name.clone())
+                .children(tag.map(|text| {
+                    div()
+                        .flex_none()
+                        .h(px(TAG_HEIGHT))
+                        .px(px(TAG_PAD))
+                        .flex()
+                        .items_center()
+                        .rounded(px(TAG_HEIGHT / 2.0))
+                        .border_1()
+                        .border_color(colors.line_strong)
+                        .text_color(colors.ink_2)
+                        .text_size(px(TAG_SIZE))
+                        .child(text)
+                })),
+        )
     }
 
     fn zoomed(&self, cx: &App) -> Option<u32> {
@@ -528,37 +596,61 @@ impl CanvasView {
         };
     }
 
-    fn fit(&mut self) {
-        let area = self.area.get().size;
-        let Some(first) = self.scene.cards.first() else {
-            return;
+    fn extent(&self, target: &Target) -> Option<Bounds<f32>> {
+        let rects: Vec<Rect> = match target {
+            Target::All => self
+                .scene
+                .repos
+                .iter()
+                .chain(&self.scene.groups)
+                .map(|f| f.rect)
+                .chain(self.scene.cards.iter().map(|c| c.rect))
+                .collect(),
+            Target::Nodes(ids) => ids
+                .iter()
+                .map(|id| {
+                    self.scene
+                        .cards
+                        .iter()
+                        .find(|c| c.node == *id)
+                        .map(|c| c.rect)
+                })
+                .collect::<Option<_>>()?,
+            Target::Boxes(paths) => paths
+                .iter()
+                .map(|path| {
+                    let key = self.scene.chips.get(path).unwrap_or(path);
+                    self.scene
+                        .groups
+                        .iter()
+                        .find(|f| f.key == *key)
+                        .map(|f| f.rect)
+                })
+                .collect::<Option<_>>()?,
         };
-        if area.width <= px(0.0) {
-            return;
-        }
-        let mut content = bounds_of(first.rect);
-        for rect in self
-            .scene
-            .repos
-            .iter()
-            .chain(&self.scene.groups)
-            .map(|f| f.rect)
-            .chain(self.scene.cards.iter().map(|c| c.rect))
-        {
-            content = content.union(&bounds_of(rect));
-        }
-        self.glide = None;
-        self.camera = Camera::fit(area, content);
-        self.fit_pending = false;
+        rects
+            .into_iter()
+            .map(bounds_of)
+            .reduce(|all, rect| all.union(&rect))
     }
 
-    fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
+    fn show(&mut self, target: &Target, cx: &mut Context<Self>) {
+        self.pending = None;
+        self.show_when_drawn(target.clone());
+        cx.notify();
+    }
+
+    fn show_when_drawn(&mut self, target: Target) {
         let area = self.area.get().size;
-        let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
-            return;
-        };
-        if area.width > px(0.0) {
-            self.fly(Camera::fit(area, bounds_of(card.rect)), cx);
+        match self.extent(&target) {
+            Some(content) if area.width > px(0.0) => {
+                self.glide = Some(Glide::new(
+                    self.camera,
+                    Camera::fit(area, content),
+                    Instant::now(),
+                ));
+            }
+            _ => self.pending = Some(target),
         }
     }
 
@@ -707,9 +799,6 @@ impl Render for CanvasView {
         if let Some(probe) = &self.probe {
             probe.begin();
         }
-        if self.fit_pending {
-            self.fit();
-        }
         if self.auto {
             self.scripted();
             window.request_animation_frame();
@@ -760,6 +849,7 @@ impl Render for CanvasView {
         let lang = *cx.global::<Lang>();
         let store = self.store.read(cx);
         let selected = store.selected();
+        let card_setting = store.settings().card_view;
         let snapshot = store.snapshot();
         let drawing = snapshot.map(|snapshot| {
             edges::build(&edges::Params {
@@ -821,16 +911,22 @@ impl Render for CanvasView {
                 move |at, cx| released.update(cx, |this, cx| this.connect_end(at, cx)),
             )
         });
+        let title = self.title(&colors, lang, cx);
         let notice = store
             .notice()
             .map(|n| notice::element(n, cx.global::<crate::theme::Theme>()));
+        let chosen = store.chosen();
         let repos = self.scene.repos.iter().map(|f| {
             card::frame(
                 &f.label,
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 true,
-                card::Mark::Plain,
+                if chosen == Some(f.key.as_str()) {
+                    card::Mark::Chosen
+                } else {
+                    card::Mark::Plain
+                },
                 &colors,
             )
         });
@@ -847,7 +943,11 @@ impl Render for CanvasView {
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 false,
-                card::group_mark(lit, &f.key, members.map(|n| n.id.0.to_string())),
+                if chosen == Some(f.key.as_str()) {
+                    card::Mark::Chosen
+                } else {
+                    card::group_mark(lit, &f.key, members.map(|n| n.id.0.to_string()))
+                },
                 &colors,
             );
             popover::context(frame, f.place.clone(), f.label.clone(), cx)
@@ -863,10 +963,11 @@ impl Render for CanvasView {
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
             let screen = camera.screen_box(bounds_of(placed.rect));
+            let standard = card::view_of(node, card_setting) != CardView::Simple;
             let body = self
                 .live
                 .get(&id)
-                .filter(|_| screen.intersects(&viewport) && zoomed != Some(id))
+                .filter(|_| standard && screen.intersects(&viewport) && zoomed != Some(id))
                 .map(|live| {
                     let scale = snapped(camera.zoom);
                     div()
@@ -875,7 +976,6 @@ impl Render for CanvasView {
                         .child(live.view.clone())
                         .into_any_element()
                 });
-            let standard = node.card_view != Some(CardView::Simple);
             let handles = standard.then(|| {
                 resize::handles(camera.zoom, |edge| {
                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {
@@ -891,10 +991,13 @@ impl Render for CanvasView {
             Some(
                 card::card(
                     node,
+                    card::Look {
+                        simple: !standard,
+                        selected: selected == Some(id),
+                        mark: card::mark(lit, &id.to_string()),
+                    },
                     screen,
                     camera.zoom,
-                    selected == Some(id),
-                    card::mark(lit, &id.to_string()),
                     body,
                     &colors,
                 )
@@ -1002,6 +1105,7 @@ impl Render for CanvasView {
             }))
             .children(heads)
             .children(repo_heads)
+            .children(title)
             .children(map)
             .children(pop)
             .children(notice)

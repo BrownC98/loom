@@ -85,6 +85,7 @@ impl Dock {
                 self.load_history(cx);
             }
         }
+        self.drop_pick(cx);
         cx.notify();
     }
 
@@ -101,7 +102,7 @@ impl Dock {
     }
 
     pub(super) fn jump(&mut self, node: NodeId, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| store.select(node.0, cx));
+        self.store.update(cx, |store, cx| store.go(node.0, cx));
     }
 
     pub(super) fn questions(&self, cx: &mut Context<Self>) -> Div {

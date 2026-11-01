@@ -288,6 +288,11 @@ impl Render for CanvasView {
         }
         self.mount(window, cx);
         let camera = self.camera;
+        let percent = (camera.zoom * 100.0).round() as u32;
+        if self.store.read(cx).zoom_percent() != percent {
+            let store = self.store.clone();
+            cx.defer(move |cx| store.update(cx, |store, cx| store.set_zoom_percent(percent, cx)));
+        }
         let area = self.area.clone();
         let frame_end = self.probe.clone();
         for live in self.live.values() {

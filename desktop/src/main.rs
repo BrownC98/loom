@@ -3,6 +3,8 @@
 mod canvas;
 mod daemon;
 mod link;
+#[cfg(not(any(windows, target_os = "macos")))]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod store;
@@ -16,7 +18,7 @@ mod windows;
 #[cfg(target_os = "macos")]
 use macos as platform;
 #[cfg(not(any(windows, target_os = "macos")))]
-use views::shell::plain as platform;
+use linux as platform;
 #[cfg(windows)]
 use windows as platform;
 

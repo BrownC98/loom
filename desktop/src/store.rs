@@ -16,6 +16,7 @@ pub struct Store {
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    zoom_percent: u32,
 }
 
 impl EventEmitter<GraphEvent> for Store {}
@@ -70,6 +71,7 @@ impl Store {
             settings,
             settings_key: String::new(),
             selected: None,
+            zoom_percent: 100,
         }
     }
 
@@ -100,6 +102,17 @@ impl Store {
 
     pub fn selected(&self) -> Option<u32> {
         self.selected
+    }
+
+    pub fn zoom_percent(&self) -> u32 {
+        self.zoom_percent
+    }
+
+    pub fn set_zoom_percent(&mut self, percent: u32, cx: &mut Context<Self>) {
+        if self.zoom_percent != percent {
+            self.zoom_percent = percent;
+            cx.notify();
+        }
     }
 
     pub fn select(&mut self, node: u32, cx: &mut Context<Self>) {

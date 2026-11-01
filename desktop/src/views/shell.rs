@@ -1,7 +1,4 @@
 mod pane;
-#[cfg(not(any(windows, target_os = "macos")))]
-pub mod plain;
-mod save;
 mod status;
 mod title;
 
@@ -12,6 +9,7 @@ use gpui::{
     div, px,
 };
 
+use crate::link;
 use crate::store::Store;
 use crate::strings::Lang;
 use crate::theme::Theme;
@@ -132,10 +130,11 @@ impl Shell {
         let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
             return;
         };
+        let patch = serde_json::json!({ "paneWidths": { pane.key(): width } });
         let store = self.store.clone();
         cx.spawn(async move |_, cx| {
             let saved = cx
-                .background_spawn(async move { save::pane_width(&base, pane, width) })
+                .background_spawn(async move { link::put_settings(&base, &patch) })
                 .await;
             if saved.is_ok() {
                 store.update(cx, |store, cx| store.reload(cx));

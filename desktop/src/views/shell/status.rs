@@ -67,4 +67,5 @@ pub fn bar(store: &Store, colors: &Colors, lang: Lang) -> Div {
         )
         .child(div().flex_1())
         .children(counts.map(|counts| div().child(counts)))
+        .child(div().child(format!("{}%", store.zoom_percent())))
 }

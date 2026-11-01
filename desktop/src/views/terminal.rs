@@ -3,11 +3,12 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
-    KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription, TextAlign,
-    TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, px, rgb, size,
+    App, AppContext, BorderStyle, Bounds, ClipboardItem, Context, DispatchPhase,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla,
+    InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent,
+    StrikethroughStyle, Styled, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle,
+    Window, canvas, div, fill, outline, point, px, rgb, size,
 };
 use unicode_width::UnicodeWidthChar;
 
@@ -28,7 +29,6 @@ const READABLE_PX: f32 = 6.0;
 const SNAPSHOT_GAP: Duration = Duration::from_millis(250);
 const START: (u16, u16) = (80, 24);
 const CURSOR_ALPHA: f32 = 0.6;
-const CURSOR_IDLE_ALPHA: f32 = 0.3;
 const CURSOR_THIN: f32 = 2.0;
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
@@ -790,11 +790,7 @@ fn paint(
     }
     if let Some(cursor) = screen.cursor {
         let mut hue: Hsla = style.terminal.cursor.into();
-        hue.a = if focused {
-            CURSOR_ALPHA
-        } else {
-            CURSOR_IDLE_ALPHA
-        };
+        hue.a = CURSOR_ALPHA;
         let thin = px(CURSOR_THIN * scale);
         let (origin, extent) = match cursor.shape {
             Shape::Block => (
@@ -807,7 +803,14 @@ fn paint(
                 size(cell.cell_width, thin),
             ),
         };
-        window.paint_quad(fill(Bounds::new(origin, extent), hue));
+        let bounds = Bounds::new(origin, extent);
+        if focused || cursor.shape != Shape::Block {
+            window.paint_quad(fill(bounds, hue));
+        } else {
+            let mut hollow = outline(bounds, hue, BorderStyle::Solid);
+            hollow.border_widths = px(scale).into();
+            window.paint_quad(hollow);
+        }
         if let Some(text) = marked {
             paint_marked(text, cursor, &at, cell, draw, window, cx);
         }

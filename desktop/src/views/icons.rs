@@ -48,7 +48,6 @@ pub fn icon(name: Lucide, size: f32, color: Rgba) -> Svg {
         .text_color(color)
 }
 
-#[allow(dead_code)]
 pub fn icon_styled(name: Lucide, size: f32, color: Rgba, stroke: f32, filled: bool) -> Svg {
     let fill = if filled { "&fill" } else { "" };
     svg()
@@ -58,7 +57,6 @@ pub fn icon_styled(name: Lucide, size: f32, color: Rgba, stroke: f32, filled: bo
         .text_color(color)
 }
 
-#[allow(dead_code)]
 pub fn agent_mark(agent: Option<&str>, label: &str, size: f32, color: Rgba) -> AnyElement {
     match agent {
         None => icon(Lucide::Terminal, size, color).into_any_element(),

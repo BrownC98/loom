@@ -2,8 +2,8 @@ use gpui::{Context, IntoElement, ParentElement, StatefulInteractiveElement};
 
 use super::{Dock, Tab, ui};
 use crate::strings::Str;
+use crate::views::icons::Lucide;
 use crate::views::rail::{self, BUTTON};
-use crate::views::sidebar::icons::Glyph;
 
 impl Dock {
     pub(super) fn strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -13,10 +13,7 @@ impl Dock {
         let store = self.store.clone();
         let open = rail::button(
             "dock-open",
-            Glyph::Panel {
-                right: true,
-                open: true,
-            },
+            Lucide::PanelRightOpen,
             rail::titled(ui::say(cx, Str::DockExpand), "]"),
             BUTTON,
             &c,
@@ -27,7 +24,7 @@ impl Dock {
         });
         let arrange = rail::button(
             "dock-arrange",
-            Glyph::Arrange,
+            Lucide::Workflow,
             ui::say(cx, Str::GraphArrange).to_owned(),
             BUTTON,
             &c,

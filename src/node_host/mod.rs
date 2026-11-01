@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::net::{SocketAddr, TcpStream};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -106,6 +107,8 @@ pub struct Kept {
     pub backlog: Bytes,
 }
 
+static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Clone)]
 pub struct NodeHost<K> {
     kept: PathBuf,
@@ -144,6 +147,7 @@ impl Address {
 }
 
 struct Pty {
+    serial: u64,
     pid: Mutex<Option<u32>>,
     host: Mutex<TcpStream>,
     output: Mutex<Output>,
@@ -299,6 +303,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             Err(e) => return Err((Unattached::Failed(e.to_string()), on_exit)),
         };
         let pty = Arc::new(Pty {
+            serial: NEXT_SERIAL.fetch_add(1, Ordering::Relaxed),
             pid: Mutex::new(pid),
             host: Mutex::new(host),
             output: Mutex::new(Output {
@@ -666,6 +671,10 @@ fn distro_commands(start: distro::Start) -> (String, CommandBuilder, Option<Comm
 pub struct Keys<'a>(Option<&'a Pty>);
 
 impl Keys<'_> {
+    pub fn serial(&self) -> Option<u64> {
+        self.0.map(|pty| pty.serial)
+    }
+
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }

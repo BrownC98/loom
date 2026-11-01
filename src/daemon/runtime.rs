@@ -190,6 +190,7 @@ impl App {
                 self.follow_screen(id, profile, &token);
                 port.bind(id);
                 self.ptys_changed.notify_waiters();
+                self.give_kept_keys(id);
             }
             Err(node_host::Unattached::Unreached(cause)) => {
                 self.host_unreached(id, &cause).map_err(|e| e.to_string())?;
@@ -493,6 +494,7 @@ impl App {
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);
                 }
+                app.give_kept_keys(id);
             }
         });
     }

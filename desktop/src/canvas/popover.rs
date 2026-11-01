@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AnyView, AppContext, Bounds, Context, Div, Entity, EventEmitter, FontWeight,
@@ -16,7 +19,7 @@ use crate::fonts;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
 use crate::views::worktree::{
@@ -35,6 +38,7 @@ pub struct Popped {
     at: Point<f32>,
     end: bool,
     size: (f32, f32),
+    measured: Rc<Cell<f32>>,
     _closed: Vec<Subscription>,
 }
 
@@ -100,7 +104,8 @@ impl NewNodeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let field = field::new(Str::NewNodeSearch, cx);
+        let lang = *cx.global::<Lang>();
+        let field = field::form(Str::NewNodeSearch.text(lang), false, false, Form::Plain, cx);
         cx.subscribe(&field, |this, _, event: &FieldEvent, cx| match event {
             FieldEvent::Changed => cx.notify(),
             FieldEvent::Step(step) => this.step(*step, cx),
@@ -517,18 +522,7 @@ impl Render for NewNodeView {
                             .text_color(colors.ink_2)
                             .child(Str::NewNodeProfile.text(lang)),
                     )
-                    .child(
-                        div()
-                            .h(px(35.0))
-                            .px(px(9.0))
-                            .flex()
-                            .items_center()
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(colors.line_strong)
-                            .bg(colors.bg)
-                            .child(self.field.clone()),
-                    ),
+                    .child(self.field.clone()),
             )
             .child(
                 self.scroll
@@ -601,6 +595,7 @@ fn show(
         at: local(canvas, point),
         end,
         size,
+        measured: Rc::new(Cell::new(0.0)),
         _closed: closed,
     });
     cx.notify();
@@ -718,7 +713,7 @@ pub fn new_worktree(
         key,
         view.into(),
         Anchor::Below(button),
-        (worktree::NEW_WIDTH, 260.0),
+        (worktree::NEW_WIDTH, 330.0),
         vec![closed],
         cx,
     );
@@ -756,7 +751,12 @@ pub fn element(canvas: &CanvasView) -> Option<Div> {
     let pop = canvas.pop.as_ref()?;
     let area = canvas.area.get().size;
     let at = canvas.camera.to_screen(pop.at);
-    let (width, height) = pop.size;
+    let width = pop.size.0;
+    let height = match pop.measured.get() {
+        0.0 => pop.size.1,
+        measured => measured,
+    };
+    let measured = pop.measured.clone();
     let left = if pop.end { at.x - px(width) } else { at.x };
     let left = left.min(area.width - px(width + EDGE)).max(px(EDGE));
     let top = at.y.min(area.height - px(height + EDGE)).max(px(EDGE));
@@ -766,6 +766,20 @@ pub fn element(canvas: &CanvasView) -> Option<Div> {
             .left(left)
             .top(top)
             .child(pop.view.clone())
+            .child(
+                gpui::canvas(
+                    move |bounds, window, _| {
+                        let now = f32::from(bounds.size.height);
+                        if (measured.get() - now).abs() > 0.5 {
+                            measured.set(now);
+                            window.refresh();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()),
     )

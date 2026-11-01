@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::fonts::TERMINAL_FAMILY;
 use crate::settings::widgets::{
-    Number, NumberEvent, Text, TextEvent, field_reset, list_box_on, switch,
+    Number, NumberEvent, PITCH, Text, TextEvent, field_reset, list_box_on, switch,
 };
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
@@ -22,9 +22,9 @@ const DEFAULT_SIZE: i64 = 12;
 const LIST_W: f32 = 240.0;
 const LIST_H: f32 = 236.0;
 const PREVIEW_H: f32 = 216.0;
-const ROW_H: f32 = 28.0;
 const ROWS_ABOVE: usize = 4;
-const CHIP: f32 = 14.0;
+const CHIP_W: f32 = 18.0;
+const CHIP_H: f32 = 12.0;
 const SWATCH_W: f32 = 26.0;
 const SWATCH_H: f32 = 18.0;
 
@@ -74,11 +74,16 @@ fn line(spans: &[Span]) -> StyledText {
 }
 
 fn chips(colors: &[Rgba]) -> Div {
-    div().flex().children(
-        colors
-            .iter()
-            .map(|color| div().size(px(CHIP)).bg(*color).mr(px(2.0))),
-    )
+    div()
+        .flex()
+        .gap(px(3.0))
+        .children(colors.iter().map(|color| {
+            div()
+                .w(px(CHIP_W))
+                .h(px(CHIP_H))
+                .rounded(px(2.0))
+                .bg(*color)
+        }))
 }
 
 fn swatch(theme: &Terminal, border: Rgba) -> AnyElement {
@@ -228,7 +233,7 @@ fn picker_block(
                 .overflow_hidden()
                 .rounded(px(6.0))
                 .border_1()
-                .border_color(c.line_strong)
+                .border_color(c.line)
                 .bg(theme.background)
                 .text_color(theme.foreground)
                 .font_family(face.font.family.clone())
@@ -249,7 +254,7 @@ fn scroll_to_chosen(picker: &Picker, chosen: usize) {
     picker
         .scroll
         .handle()
-        .set_offset(point(px(0.0), px(-rows * ROW_H)));
+        .set_offset(point(px(0.0), px(-rows * PITCH)));
 }
 
 fn hint(section: &mut Section, text: Str, cx: &App) -> Div {
@@ -266,10 +271,7 @@ fn with_reset(
     ctx: &Ctx,
     cx: &App,
 ) -> Section {
-    match field_reset(id, path, ctx, cx) {
-        Some(reset) => section.child(reset),
-        None => section,
-    }
+    section.beside(field_reset(id, path, ctx, cx))
 }
 
 fn index_of(name: &str) -> usize {
@@ -377,6 +379,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
     let match_dark = switch(
         "terminal-match-dark",
         saved.match_dark,
+        light.text(say(cx, Str::ThemeMatchDark), cx),
         move |on, _, cx| writer.edit(cx, |view| view.terminal_theme.match_dark = on),
         cx,
     );
@@ -387,8 +390,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
         .text_size(px(TEXT))
         .font_weight(FontWeight::NORMAL)
         .text_color(c.ink_2)
-        .child(match_dark)
-        .child(light.text(say(cx, Str::ThemeMatchDark), cx));
+        .child(match_dark);
     let writer = ctx.writer.clone();
     let light_chosen = index_of(chosen_terminal_name(saved.light.as_deref(), Scheme::Light));
     let light_list = picker_block(

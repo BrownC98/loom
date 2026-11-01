@@ -11,10 +11,11 @@ use serde::de::DeserializeOwned;
 
 use crate::link;
 use crate::settings::widgets::confirm;
+use crate::settings::widgets::{button, ghost};
 use crate::settings::{Ctx, Dialog};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::dock::ui::{SMALL, TEXT, button, colors, say, say_with};
+use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 use api::repos::PlaceView;
 
 const OVERLAY_PRIORITY: usize = 3;
@@ -259,6 +260,10 @@ pub fn badge(text: StyledText, warn: bool, c: &Colors) -> Div {
 
 pub fn small(id: impl Into<gpui::ElementId>, cx: &App) -> Stateful<Div> {
     button(id, cx).min_h(px(26.0)).px(px(8.0))
+}
+
+pub fn ghost_small(id: impl Into<gpui::ElementId>, cx: &App) -> Stateful<Div> {
+    ghost(id, cx).min_h(px(26.0)).px(px(8.0))
 }
 
 pub fn labelled(label: StyledText, field: impl IntoElement, cx: &App) -> Div {

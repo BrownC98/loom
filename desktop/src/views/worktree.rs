@@ -14,7 +14,7 @@ use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::cardlink;
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::scrollbar::Bar;
 
 pub const NEW_WIDTH: f32 = 380.0;
@@ -25,6 +25,7 @@ const ROUND: f32 = 10.0;
 const BUTTON: f32 = 30.0;
 const SELECT_ROW: f32 = 28.0;
 const CHANGES_MAX: f32 = 160.0;
+const LIST_MAX: f32 = 200.0;
 
 pub struct Closed;
 
@@ -165,6 +166,7 @@ pub struct NewWorktreeView {
     branch: Entity<Field>,
     base: usize,
     open: bool,
+    scroll: Bar,
     error: Option<String>,
     busy: bool,
     _sub: Subscription,
@@ -179,7 +181,7 @@ impl NewWorktreeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let branch = field::boxed("", false, false, cx);
+        let branch = field::form("", false, false, Form::Mono, cx);
         let handle = branch.read(cx).handle();
         window.focus(&handle, cx);
         let sub = cx.subscribe(&branch, |this, _, event: &FieldEvent, cx| match event {
@@ -211,6 +213,7 @@ impl NewWorktreeView {
             branch,
             base,
             open: false,
+            scroll: Bar::new(),
             error: None,
             busy: false,
             _sub: sub,
@@ -303,17 +306,18 @@ impl Render for NewWorktreeView {
                 }),
             );
         let list = self.open.then(|| {
-            div()
+            let rows = div()
+                .id("worktree-base-list")
+                .max_h(px(LIST_MAX))
+                .p(px(4.0))
+                .overflow_y_scroll()
+                .track_scroll(self.scroll.handle())
                 .flex()
                 .flex_col()
-                .p(px(4.0))
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(c.line_strong)
-                .bg(c.bg)
                 .children(self.repo.branches.iter().enumerate().map(|(i, name)| {
                     div()
                         .id(("worktree-base-row", i))
+                        .flex_none()
                         .h(px(SELECT_ROW))
                         .px(px(8.0))
                         .flex()
@@ -332,7 +336,14 @@ impl Render for NewWorktreeView {
                             }),
                         )
                         .child(name.clone())
-                }))
+                }));
+            self.scroll
+                .on_overflow(rows)
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(c.line_strong)
+                .bg(c.bg)
+                .overflow_hidden()
         });
         let (create, cancel) = (cx.entity(), cx.entity());
         shell(&c, NEW_WIDTH)

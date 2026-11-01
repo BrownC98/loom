@@ -3,9 +3,11 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
-use super::dialog::{Ask, Dialog, ghost};
+use super::dialog::{Ask, Dialog};
+use super::widgets::{ghost, tabbable};
 use crate::strings::Str;
 use crate::views::dock::ui::{TEXT, colors, say};
+use crate::views::icons::{Lucide, icon};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -106,8 +108,7 @@ pub(super) fn column(
     let searching = !dialog.query(cx).is_empty();
     let tabs = Tab::ALL.iter().enumerate().map(|(index, &tab)| {
         let current = !searching && dialog.tab == tab;
-        div()
-            .id(("settings-tab", index))
+        tabbable(div().id(("settings-tab", index)), cx)
             .px(px(10.0))
             .py(px(7.0))
             .rounded(px(6.0))
@@ -125,8 +126,7 @@ pub(super) fn column(
             .on_click(cx.listener(move |this, _, _, cx| this.choose(tab, cx)))
     });
     let clear = (!dialog.query(cx).is_empty()).then(|| {
-        div()
-            .id("settings-search-clear")
+        tabbable(div().id("settings-search-clear"), cx)
             .flex_none()
             .size(px(20.0))
             .flex()
@@ -136,7 +136,7 @@ pub(super) fn column(
             .text_color(c.ink_3)
             .cursor_pointer()
             .hover(move |style| style.bg(c.line).text_color(c.ink))
-            .child("\u{00D7}")
+            .child(icon(Lucide::X, 12.0, c.ink_3))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.search.update(cx, |field, cx| field.clear(cx));
             }))
@@ -157,6 +157,7 @@ pub(super) fn column(
         })
         .bg(c.surface)
         .text_size(px(TEXT))
+        .child(icon(Lucide::Search, 14.0, c.ink_3))
         .child(dialog.search.clone())
         .children(clear);
     div()
@@ -182,13 +183,23 @@ pub(super) fn column(
         .children(tabs)
         .child(div().flex_1())
         .child(
-            ghost("settings-reset-all", cx)
+            nav_button("settings-reset-all", Lucide::RotateCcw, cx)
                 .child(say(cx, Str::SettingsResetAll))
                 .on_click(cx.listener(|this, _, window, cx| this.ask(Ask::ResetAll, window, cx))),
         )
         .child(
-            ghost("settings-stop", cx)
+            nav_button("settings-stop", Lucide::Power, cx)
                 .child(say(cx, Str::SettingsStop))
                 .on_click(cx.listener(|this, _, window, cx| this.ask(Ask::Stop, window, cx))),
         )
+}
+
+fn nav_button(id: &'static str, glyph: Lucide, cx: &gpui::App) -> gpui::Stateful<gpui::Div> {
+    let c = colors(cx);
+    ghost(id, cx)
+        .min_h(px(30.0))
+        .px(px(12.0))
+        .text_size(px(TEXT))
+        .font_weight(FontWeight::MEDIUM)
+        .child(icon(glyph, 14.0, c.ink_2))
 }

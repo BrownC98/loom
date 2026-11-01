@@ -7,7 +7,6 @@ use gpui::{
 };
 
 use super::{CanvasView, popover};
-use crate::store::Level;
 use crate::strings::Str;
 use crate::views::card::{self, Actions, FrameActions, Keyed, Press};
 use crate::views::cardlink;
@@ -22,11 +21,13 @@ const BUTTON: f32 = 26.0;
 pub(super) struct Opened {
     pub node: u32,
     pub at: Point<Pixels>,
+    pub focus: usize,
 }
 
 pub(super) struct Renaming {
     pub node: u32,
     pub field: Entity<Field>,
+    pub ticket: u64,
     pub busy: bool,
     pub error: Option<String>,
     pub focused: bool,
@@ -57,8 +58,7 @@ impl CanvasView {
 
     fn report(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         if let Err(text) = result {
-            self.store
-                .update(cx, |store, cx| store.tell(text, Level::Error, cx));
+            self.store.update(cx, |store, cx| store.tell(text, cx));
         }
     }
 
@@ -108,6 +108,7 @@ impl CanvasView {
         self.menu = Some(Opened {
             node: id,
             at: point(left, bottom + px(MENU_GAP)),
+            focus: 0,
         });
         cx.notify();
     }
@@ -118,13 +119,12 @@ impl CanvasView {
         }
     }
 
-    pub(super) fn menu_element(&self, cx: &Context<Self>) -> Option<Div> {
+    fn menu_entries(&self, cx: &Context<Self>) -> Option<Vec<Entry>> {
         let opened = self.menu.as_ref()?;
         let store = self.store.read(cx);
         let snapshot = store.snapshot()?;
         let node = snapshot.nodes.iter().find(|n| n.id.0 == opened.node)?;
         let lang = *cx.global::<crate::strings::Lang>();
-        let colors = cx.global::<crate::theme::Theme>().colors;
         let id = node.id.0;
         let current = card::view_of(node, store.settings().card_view);
         let base = card::base_view(node, store.settings().card_view);
@@ -216,7 +216,59 @@ impl CanvasView {
                 this.call(cx, move |b| cardlink::remove_node(b, id));
             }),
         }));
-        Some(menu::menu("node-menu", entries, opened.at, &colors))
+        Some(entries)
+    }
+
+    pub(super) fn menu_element(&self, cx: &Context<Self>) -> Option<Div> {
+        let opened = self.menu.as_ref()?;
+        let entries = self.menu_entries(cx)?;
+        let colors = cx.global::<crate::theme::Theme>().colors;
+        Some(menu::menu(
+            "node-menu",
+            entries,
+            opened.at,
+            opened.focus,
+            &colors,
+        ))
+    }
+
+    pub(super) fn menu_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if key == "escape" {
+            self.close_menu(cx);
+            return true;
+        }
+        let Some(entries) = self.menu_entries(cx) else {
+            return false;
+        };
+        let live: Vec<&Item> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Item(item) if !item.disabled => Some(item),
+                _ => None,
+            })
+            .collect();
+        let Some(opened) = self.menu.as_mut() else {
+            return false;
+        };
+        if live.is_empty() {
+            return false;
+        }
+        match key {
+            "down" => opened.focus = (opened.focus + 1) % live.len(),
+            "up" => opened.focus = (opened.focus + live.len() - 1) % live.len(),
+            "enter" | "space" => {
+                let run = live[opened.focus.min(live.len() - 1)].run.clone();
+                cx.defer_in(window, move |_, window, cx| run(window, cx));
+            }
+            _ => return false,
+        }
+        cx.notify();
+        true
     }
 
     pub(super) fn begin_rename(&mut self, id: u32, window: &mut Window, cx: &mut Context<Self>) {
@@ -247,8 +299,10 @@ impl CanvasView {
         ];
         subs.push(cx.on_blur(&handle, window, |this, _, cx| this.end_rename(true, cx)));
         window.focus(&handle, cx);
+        self.edits += 1;
         self.renaming = Some(Renaming {
             node: id,
+            ticket: self.edits,
             field,
             busy: false,
             error: None,
@@ -280,11 +334,15 @@ impl CanvasView {
             return;
         }
         r.busy = true;
+        let ticket = r.ticket;
         cardlink::run(
             &self.store,
             cx,
             move |base| cardlink::rename(base, id, &value),
-            |this, result, cx| {
+            move |this, result, cx| {
+                if this.renaming.as_ref().is_none_or(|r| r.ticket != ticket) {
+                    return;
+                }
                 match result {
                     Ok(()) => {
                         this.renaming = None;

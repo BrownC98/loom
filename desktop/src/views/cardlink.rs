@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::link;
 use crate::problem::Failure;
 use crate::store::Store;
-use crate::strings::Lang;
+use crate::strings::{Lang, Str};
 
 #[derive(Serialize)]
 struct Rename<'a> {
@@ -91,7 +91,6 @@ where
     V: 'static,
 {
     let base = store.read(cx).base().map(str::to_owned);
-    let status = store.read(cx).status().to_owned();
     cx.spawn(async move |view, cx| {
         let result = match base {
             Some(base) => {
@@ -100,7 +99,10 @@ where
                     .await
                     .map_err(|failure| failure.text(lang))
             }
-            None => Err(status),
+            None => {
+                Err(cx
+                    .update(|app: &mut App| Str::AppStopped.text(*app.global::<Lang>()).to_owned()))
+            }
         };
         let _ = view.update(cx, |view, cx| done(view, result, cx));
     })

@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Div, ElementId, Entity, FontWeight, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Rgba, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, point, px,
+    StatefulInteractiveElement, Styled, Window, deferred, div, point, px,
 };
 
 use api::graph::waits::{WaitKind, WaitTone};
@@ -55,6 +55,7 @@ pub enum Mark {
     Plain,
     Lit,
     Dim,
+    Chosen,
 }
 
 pub fn mark(lit: Option<&HashSet<String>>, key: &str) -> Mark {
@@ -109,7 +110,7 @@ fn frame_box(bounds: Bounds<Pixels>, zoom: f32, repo: bool, mark: Mark, colors: 
     } else {
         (GROUP_LINE, GROUP_ROUND, colors.group_line)
     };
-    let lit = mark == Mark::Lit;
+    let lit = matches!(mark, Mark::Lit | Mark::Chosen);
     placed(bounds)
         .flex()
         .flex_col()
@@ -118,10 +119,9 @@ fn frame_box(bounds: Bounds<Pixels>, zoom: f32, repo: bool, mark: Mark, colors: 
         .border(px((line * zoom).max(0.5)))
         .border_color(if lit { colors.accent } else { line_color })
         .bg(wash(colors.ink, FRAME_WASH))
-        .shadow(if lit {
-            vec![ring(colors.accent_wash, HALO * zoom)]
-        } else {
-            Vec::new()
+        .shadow(match mark {
+            Mark::Lit => vec![ring(colors.accent_wash, HALO * zoom)],
+            _ => Vec::new(),
         })
         .when(mark == Mark::Dim, |d| d.opacity(DIM))
         .text_color(colors.ink)
@@ -236,6 +236,7 @@ pub fn repo_frame(
     lang: Lang,
     bounds: Bounds<Pixels>,
     zoom: f32,
+    mark: Mark,
     colors: &Colors,
 ) -> Div {
     let key = info.key;
@@ -294,7 +295,7 @@ pub fn repo_frame(
         }))
         .child(
             div()
-                .id(("repo-path", info.key.len()))
+                .id(ElementId::Name(format!("repo-path:{key}").into()))
                 .min_w_0()
                 .overflow_hidden()
                 .whitespace_nowrap()
@@ -307,7 +308,7 @@ pub fn repo_frame(
         .child(div().flex_1())
         .child(arrange)
         .child(new_worktree);
-    frame_box(bounds, zoom, true, Mark::Plain, colors).child(head)
+    frame_box(bounds, zoom, true, mark, colors).child(head)
 }
 
 pub fn group_frame(
@@ -330,7 +331,7 @@ pub fn group_frame(
         .pr(px(10.0 * zoom))
         .child(
             div()
-                .id(("group-branch", path.len()))
+                .id(ElementId::Name(format!("group-branch:{path}").into()))
                 .min_w_0()
                 .overflow_hidden()
                 .whitespace_nowrap()
@@ -423,7 +424,7 @@ pub fn group_frame(
                     .when(chip.mark == Mark::Dim, |d| d.opacity(DIM))
                     .child(
                         div()
-                            .id(("chip-branch", chip.path.len()))
+                            .id(ElementId::Name(format!("chip-branch:{}", chip.path).into()))
                             .mr(px(4.0 * zoom))
                             .max_w(px(240.0 * zoom))
                             .overflow_hidden()
@@ -798,25 +799,29 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
     let node = face.node;
     if let Some((field, error)) = face.rename {
         let hint = error.map_or_else(|| Str::RenameHint.text(face.lang).to_owned(), str::to_owned);
-        let tip = div()
-            .absolute()
-            .left_0()
-            .top(px((RENAME_HEIGHT + 4.0) * zoom))
-            .max_w(px(260.0 * zoom))
-            .px(px(8.0 * zoom))
-            .py(px(4.0 * zoom))
-            .rounded(px(6.0 * zoom))
-            .border(px(zoom.max(0.5)))
-            .border_color(colors.line_strong)
-            .bg(colors.surface)
-            .shadow_md()
-            .text_size(text_px(SMALL, zoom))
-            .text_color(if error.is_some() {
-                colors.err
-            } else {
-                colors.ink_2
-            })
-            .child(hint);
+        let tip = deferred(
+            div()
+                .absolute()
+                .left_0()
+                .top(px((RENAME_HEIGHT + 4.0) * zoom))
+                .max_w(px(260.0 * zoom))
+                .px(px(8.0 * zoom))
+                .py(px(4.0 * zoom))
+                .rounded(px(6.0 * zoom))
+                .border(px(zoom.max(0.5)))
+                .border_color(colors.line_strong)
+                .bg(colors.surface)
+                .shadow_md()
+                .text_size(text_px(SMALL, zoom))
+                .when(error.is_none(), |d| d.whitespace_nowrap())
+                .text_color(if error.is_some() {
+                    colors.err
+                } else {
+                    colors.ink_2
+                })
+                .child(hint),
+        )
+        .with_priority(3);
         return div()
             .relative()
             .flex_none()
@@ -829,9 +834,20 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
             .items_center()
             .rounded(px(4.0 * zoom))
             .border(px(zoom.max(0.5)))
-            .border_color(colors.accent)
+            .border_color(if error.is_some() {
+                colors.err
+            } else {
+                colors.accent
+            })
             .bg(colors.bg)
-            .shadow(vec![ring(colors.accent_wash, 2.0 * zoom)])
+            .shadow(vec![ring(
+                if error.is_some() {
+                    wash(colors.err, 0.25)
+                } else {
+                    colors.accent_wash
+                },
+                2.0 * zoom,
+            )])
             .text_size(text_px(NAME, zoom))
             .text_color(colors.ink)
             .child(field.clone())

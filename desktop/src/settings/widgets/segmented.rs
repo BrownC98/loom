@@ -6,6 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
+use super::btn::tabbable;
 use crate::views::dock::ui::{TEXT, colors};
 use crate::views::icons::{Lucide, icon};
 
@@ -82,34 +83,36 @@ pub fn segmented_on<T: Copy + PartialEq + 'static, L: Into<Label>>(
             let Label { text, glyph } = label.into();
             let change = change.clone();
             let hover = hover.clone();
-            let item = div()
-                .id(ElementId::NamedInteger(id.into(), index as u64))
-                .px(px(14.0))
-                .py(px(5.0))
-                .text_size(px(TEXT))
-                .cursor_pointer()
-                .border_color(c.line_strong)
-                .when(index != last, |item| item.border_r_1())
-                .text_color(c.ink)
-                .font_weight(if chosen {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::MEDIUM
+            let item = tabbable(
+                div().id(ElementId::NamedInteger(id.into(), index as u64)),
+                cx,
+            )
+            .px(px(14.0))
+            .py(px(5.0))
+            .text_size(px(TEXT))
+            .cursor_pointer()
+            .border_color(c.line_strong)
+            .when(index != last, |item| item.border_r_1())
+            .text_color(c.ink)
+            .font_weight(if chosen {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::MEDIUM
+            })
+            .bg(if chosen { c.accent_wash } else { c.surface })
+            .when(glyph.is_some(), |item| {
+                item.flex().items_center().gap(px(6.0))
+            })
+            .children(glyph.map(|glyph| icon(glyph, TEXT, c.ink)))
+            .child(text)
+            .when_some(hover, |item, hover| {
+                item.on_hover(move |inside, window, cx| {
+                    if *inside {
+                        hover(Some(value), window, cx);
+                    }
                 })
-                .bg(if chosen { c.accent_wash } else { c.surface })
-                .when(glyph.is_some(), |item| {
-                    item.flex().items_center().gap(px(6.0))
-                })
-                .children(glyph.map(|glyph| icon(glyph, TEXT, c.ink)))
-                .child(text)
-                .when_some(hover, |item, hover| {
-                    item.on_hover(move |inside, window, cx| {
-                        if *inside {
-                            hover(Some(value), window, cx);
-                        }
-                    })
-                })
-                .on_click(move |_, window, cx| change(value, window, cx));
+            })
+            .on_click(move |_, window, cx| change(value, window, cx));
             row.child(item)
         })
 }

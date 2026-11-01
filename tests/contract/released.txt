@@ -529,6 +529,7 @@ type IllegalStep.allowed	: Array<GateVerb>
 type IllegalStep.state	: GateState
 type IllegalStep.verb	: GateVerb
 type InUse	= {}
+type InUse.[[key in Provider]?: AccountId]	member
 type InputField	= variants
 type InputField|secret	variant
 type InputField|text	variant
@@ -1094,7 +1095,9 @@ type SettingsView.theme	: Theme
 type SettingsView.treeLimits	: TreeLimits
 type SettingsView.workspaceDir	: string | null
 type SettingsView.wslAccounts	: {}
+type SettingsView.wslAccounts.[[key in string]: InUse]	member
 type SettingsView.wslWorkspaceDirs	: {}
+type SettingsView.wslWorkspaceDirs.[[key in string]: string]	member
 type Spot	= variants
 type Spot|kind=node	variant
 type Spot|kind=node.node	: NodeId

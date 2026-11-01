@@ -13,6 +13,8 @@ const RELEASED: &str = "tests/contract/released.txt";
 
 const METHODS: [&str; 5] = ["get", "post", "put", "delete", "patch"];
 
+const NULLABLE: &str = " | null";
+
 const BUMP: &str = "memcap -m 4608M cargo test --test contract -- --ignored bump";
 
 type Surface = BTreeMap<String, String>;
@@ -126,6 +128,12 @@ fn add_fields(path: &str, object: Node, source: &str, surface: &mut Surface) {
         let marker = if property.optional { "?: " } else { ": " };
         let path = format!("{path}.{}", property.name);
         add_type(&path, marker, property.kind, source, surface);
+    }
+    for member in named(object) {
+        if member.kind() != "property_signature" {
+            let key = format!("{path}.[{}]", squeeze(text(member, source)));
+            surface.insert(key, "member".to_owned());
+        }
     }
 }
 
@@ -260,16 +268,56 @@ fn add_routes(surface: &mut Surface) {
             let path = string_value(path, source)
                 .or_else(|| constants.get(text(path, source)).cloned())
                 .unwrap_or_else(|| panic!("route path `{}` is not a string", text(path, source)));
-            for method in route_methods(router, source) {
+            let methods = route_methods(router, source);
+            assert!(
+                !methods.is_empty(),
+                "route `{path}` has no {} call",
+                METHODS.join("/")
+            );
+            for method in methods {
                 surface.insert(format!("route {method} {path}"), "route".to_owned());
             }
         });
     }
 }
 
-fn input_types() -> BTreeSet<String> {
+#[derive(Default)]
+struct Input {
+    all_default: bool,
+    defaults: BTreeSet<String>,
+}
+
+fn attributes(node: Node, source: &str) -> String {
+    let mut found = String::new();
+    let mut before = node.prev_named_sibling();
+    while let Some(attribute) = before.filter(|b| b.kind() == "attribute_item") {
+        found.push_str(text(attribute, source));
+        before = attribute.prev_named_sibling();
+    }
+    found
+}
+
+fn words(text: &str) -> BTreeSet<&str> {
+    text.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .collect()
+}
+
+fn has_serde_default(attributes: &str) -> bool {
+    attributes
+        .split("#[")
+        .any(|a| a.trim_start().starts_with("serde(") && words(a).contains("default"))
+}
+
+fn field_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn input_types() -> BTreeMap<String, Input> {
     let language: Language = tree_sitter_rust::LANGUAGE.into();
-    let mut inputs = BTreeSet::new();
+    let mut inputs = BTreeMap::new();
     for path in files(&repo().join(SOURCES), "rs") {
         let source = read(&path);
         let tree = parse(language.clone(), &source);
@@ -277,20 +325,32 @@ fn input_types() -> BTreeSet<String> {
             if !matches!(node.kind(), "struct_item" | "enum_item") {
                 return;
             }
-            let mut derives = String::new();
-            let mut before = node.prev_named_sibling();
-            while let Some(attribute) = before.filter(|b| b.kind() == "attribute_item") {
-                derives.push_str(text(attribute, &source));
-                before = attribute.prev_named_sibling();
-            }
-            let words: BTreeSet<&str> = derives.split(|c: char| !c.is_alphanumeric()).collect();
-            if words.contains("derive")
-                && words.contains("TS")
-                && words.contains("Deserialize")
-                && let Some(name) = node.child_by_field_name("name")
+            let container = attributes(node, &source);
+            let derives = words(&container);
+            if !(derives.contains("derive")
+                && derives.contains("TS")
+                && derives.contains("Deserialize"))
             {
-                inputs.insert(text(name, &source).to_owned());
+                return;
             }
+            let Some(name) = node.child_by_field_name("name") else {
+                return;
+            };
+            let mut input = Input {
+                all_default: has_serde_default(&container),
+                defaults: BTreeSet::new(),
+            };
+            if let Some(body) = node.child_by_field_name("body") {
+                for field in named(body) {
+                    if field.kind() == "field_declaration"
+                        && has_serde_default(&attributes(field, &source))
+                        && let Some(field_name) = field.child_by_field_name("name")
+                    {
+                        input.defaults.insert(field_key(text(field_name, &source)));
+                    }
+                }
+            }
+            inputs.insert(text(name, &source).to_owned(), input);
         });
     }
     inputs
@@ -316,7 +376,7 @@ fn type_name(key: &str) -> Option<&str> {
     Some(rest.split(['.', '|']).next().unwrap_or(rest))
 }
 
-fn breaks(released: &Surface, current: &Surface, inputs: &BTreeSet<String>) -> Vec<String> {
+fn breaks(released: &Surface, current: &Surface, inputs: &BTreeMap<String, Input>) -> Vec<String> {
     let mut problems = Vec::new();
     for (key, old) in released {
         match current.get(key) {
@@ -326,13 +386,19 @@ fn breaks(released: &Surface, current: &Surface, inputs: &BTreeSet<String>) -> V
         }
     }
     for (key, value) in current {
-        if released.contains_key(key) || !value.starts_with(": ") {
+        if released.contains_key(key) || !value.starts_with(": ") || value.ends_with(NULLABLE) {
             continue;
         }
-        let parent_released = key
-            .rsplit_once('.')
-            .is_some_and(|(parent, _)| released.contains_key(parent));
-        if parent_released && type_name(key).is_some_and(|name| inputs.contains(name)) {
+        let Some((parent, field)) = key.rsplit_once('.') else {
+            continue;
+        };
+        let Some(input) = type_name(key).and_then(|name| inputs.get(name)) else {
+            continue;
+        };
+        let top_field = type_name(key).is_some_and(|name| parent == format!("type {name}"));
+        let omissible =
+            top_field && (input.all_default || input.defaults.contains(&field_key(field)));
+        if released.contains_key(parent) && !omissible {
             problems.push(format!("new required input field: {key}"));
         }
     }

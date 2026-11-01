@@ -9,6 +9,8 @@ use gpui::{
     Styled, Window, canvas, div, point, px, rgb, size,
 };
 
+use api::graph::{CardView, NodeState};
+
 use super::camera::Camera;
 use super::frames::Probe;
 use super::grid;
@@ -114,7 +116,18 @@ impl CanvasView {
                         .ok()
                         .and_then(|id| id.parse().ok())
                         .filter(|&id| present(id));
-                    if let Some(id) = wanted.or(self.scene.cards.first().map(|c| c.node)) {
+                    let running = self.scene.cards.iter().map(|c| c.node).find(|&id| {
+                        self.snapshot.as_ref().is_some_and(|s| {
+                            s.nodes
+                                .iter()
+                                .any(|n| n.id.0 == id && n.state == NodeState::Running)
+                        })
+                    });
+                    if let Some(id) =
+                        wanted
+                            .or(running)
+                            .or(self.scene.cards.first().map(|c| c.node))
+                    {
                         self.select(id, window, cx);
                     }
                 }
@@ -276,8 +289,8 @@ impl Render for CanvasView {
         });
         let cards = self.scene.cards.iter().filter_map(|placed| {
             let snapshot = self.snapshot.as_ref()?;
-            let node = snapshot.nodes.iter().find(|n| n.id == placed.node)?;
-            let id = node.id;
+            let node = snapshot.nodes.iter().find(|n| n.id.0 == placed.node)?;
+            let id = node.id.0;
             let live = self.live.as_ref().filter(|(live, _)| *live == id);
             let body = live.map(|(_, view)| {
                 let scale = snapped(camera.zoom);
@@ -287,7 +300,7 @@ impl Render for CanvasView {
                     .child(view.clone())
                     .into_any_element()
             });
-            let handle = (!node.simple).then(|| {
+            let handle = (node.card_view != Some(CardView::Simple)).then(|| {
                 let side = px(HANDLE * camera.zoom);
                 div()
                     .absolute()

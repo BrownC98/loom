@@ -1,6 +1,6 @@
 use gpui::{AnyElement, Bounds, Div, ParentElement, Pixels, Styled, div, px, rgb};
 
-use crate::wire::Node;
+use api::graph::{NodeState, NodeView};
 
 pub const HEAD: f32 = 28.0;
 const SIDE: f32 = 12.0;
@@ -18,6 +18,15 @@ const MUTED: u32 = 0x8b9099;
 
 fn text(size: f32, zoom: f32) -> Pixels {
     px((size * zoom).round().max(MIN_TEXT))
+}
+
+fn state(state: &NodeState) -> &'static str {
+    match state {
+        NodeState::Running => "running",
+        NodeState::Done => "done",
+        NodeState::Exited { .. } => "exited",
+        NodeState::SetupFailed { .. } => "setup failed",
+    }
 }
 
 fn placed(bounds: Bounds<Pixels>) -> Div {
@@ -43,7 +52,7 @@ pub fn frame(label: &str, bounds: Bounds<Pixels>, zoom: f32, repo: bool) -> Div 
 }
 
 pub fn card(
-    node: &Node,
+    node: &NodeView,
     bounds: Bounds<Pixels>,
     zoom: f32,
     selected: bool,
@@ -66,7 +75,7 @@ pub fn card(
             div()
                 .text_size(text(SMALL, zoom))
                 .text_color(rgb(MUTED))
-                .child(format!("#{} {}", node.id, node.state)),
+                .child(format!("#{} {}", node.id, state(&node.state))),
         );
     placed(bounds)
         .overflow_hidden()

@@ -7,7 +7,9 @@ use super::layout::{
     self, Direction, FREE_GAP, GROUP_GAP, Inset, Kid, NestGroup, Nested, NodeId, Point, Rect,
     SettleItem, Size,
 };
-use crate::wire::{Node, Snapshot};
+use api::graph::{CardView, NodeView};
+
+use crate::wire::Snapshot;
 
 const DIRECTION: Direction = Direction::Down;
 const CARD_X: f64 = 20.0;
@@ -84,7 +86,7 @@ impl Placement<'_> {
 
 struct Level<'a> {
     groups: Vec<Group>,
-    members: Vec<Vec<&'a Node>>,
+    members: Vec<Vec<&'a NodeView>>,
     nest: Vec<NestGroup>,
     tree: Nested,
     chips: HashSet<String>,
@@ -122,9 +124,9 @@ impl Level<'_> {
             .iter()
             .map(|v| SettleItem {
                 key: v.id.to_string(),
-                size: (self.size_of)(v.id),
+                size: (self.size_of)(v.id.0),
                 lead: Point { x: 0.0, y: 0.0 },
-                auto: rel(self.tree.cards[&v.id]),
+                auto: rel(self.tree.cards[&v.id.0]),
             })
             .chain(kids.iter().map(|(k, auto)| SettleItem {
                 key: self.groups[k.group].path.clone(),
@@ -151,7 +153,7 @@ impl Level<'_> {
         };
         Laid {
             group: i,
-            members: self.members[i].iter().map(|v| v.id).collect(),
+            members: self.members[i].iter().map(|v| v.id.0).collect(),
             local,
             lead: rect.at,
             size: rect.size,
@@ -236,7 +238,7 @@ fn folder_name(path: &str) -> String {
         .to_owned()
 }
 
-fn groups_of(repo: &RepoView, views: &[&Node]) -> Vec<Group> {
+fn groups_of(repo: &RepoView, views: &[&NodeView]) -> Vec<Group> {
     let mut groups: Vec<Group> = repo
         .worktrees
         .iter()
@@ -247,10 +249,10 @@ fn groups_of(repo: &RepoView, views: &[&Node]) -> Vec<Group> {
         })
         .collect();
     for v in views {
-        if !groups.iter().any(|g| g.path == v.worktree) {
+        if !groups.iter().any(|g| g.path == v.place.worktree) {
             groups.push(Group {
-                path: v.worktree.clone(),
-                label: folder_name(&v.worktree),
+                path: v.place.worktree.clone(),
+                label: folder_name(&v.place.worktree),
                 linked: true,
             });
         }
@@ -258,13 +260,13 @@ fn groups_of(repo: &RepoView, views: &[&Node]) -> Vec<Group> {
     groups
 }
 
-fn split_chips(groups: Vec<Group>, views: &[&Node]) -> (Vec<Group>, Vec<Group>) {
+fn split_chips(groups: Vec<Group>, views: &[&NodeView]) -> (Vec<Group>, Vec<Group>) {
     if groups.iter().all(|g| g.linked) {
         return (groups, Vec::new());
     }
     groups
         .into_iter()
-        .partition(|g| !(g.linked && !views.iter().any(|v| v.worktree == g.path)))
+        .partition(|g| !(g.linked && !views.iter().any(|v| v.place.worktree == g.path)))
 }
 
 fn break_cycles(parents: &[Option<usize>]) -> Vec<Option<usize>> {
@@ -291,10 +293,15 @@ fn break_cycles(parents: &[Option<usize>]) -> Vec<Option<usize>> {
     fixed
 }
 
-fn group_parents(groups: &[Group], views: &[&Node]) -> Vec<Option<usize>> {
+fn group_parents(groups: &[Group], views: &[&NodeView]) -> Vec<Option<usize>> {
     let group_of: HashMap<u32, usize> = views
         .iter()
-        .filter_map(|v| Some((v.id, groups.iter().position(|g| g.path == v.worktree)?)))
+        .filter_map(|v| {
+            Some((
+                v.id.0,
+                groups.iter().position(|g| g.path == v.place.worktree)?,
+            ))
+        })
         .collect();
     let parents: Vec<Option<usize>> = groups
         .iter()
@@ -302,8 +309,8 @@ fn group_parents(groups: &[Group], views: &[&Node]) -> Vec<Option<usize>> {
         .map(|(i, group)| {
             views
                 .iter()
-                .filter(|v| v.worktree == group.path)
-                .filter_map(|v| group_of.get(&v.parent?).copied())
+                .filter(|v| v.place.worktree == group.path)
+                .filter_map(|v| group_of.get(&v.parent?.0).copied())
                 .filter(|&p| p != i)
                 .min()
         })
@@ -311,8 +318,12 @@ fn group_parents(groups: &[Group], views: &[&Node]) -> Vec<Option<usize>> {
     break_cycles(&parents)
 }
 
-fn attach_cards(groups: &[Group], views: &[&Node], parents: &[Option<usize>]) -> Vec<Option<u32>> {
-    let by_id: HashMap<u32, &Node> = views.iter().map(|v| (v.id, *v)).collect();
+fn attach_cards(
+    groups: &[Group],
+    views: &[&NodeView],
+    parents: &[Option<usize>],
+) -> Vec<Option<u32>> {
+    let by_id: HashMap<u32, &NodeView> = views.iter().map(|v| (v.id.0, *v)).collect();
     groups
         .iter()
         .zip(parents)
@@ -320,10 +331,10 @@ fn attach_cards(groups: &[Group], views: &[&Node], parents: &[Option<usize>]) ->
             let parent = (*parent)?;
             views
                 .iter()
-                .filter(|v| v.worktree == group.path)
+                .filter(|v| v.place.worktree == group.path)
                 .find_map(|v| {
-                    let up = v.parent?;
-                    (by_id.get(&up)?.worktree == groups[parent].path).then_some(up)
+                    let up = v.parent?.0;
+                    (by_id.get(&up)?.place.worktree == groups[parent].path).then_some(up)
                 })
         })
         .collect()
@@ -367,8 +378,8 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
     let simple: HashSet<u32> = snap
         .nodes
         .iter()
-        .filter(|n| n.simple)
-        .map(|n| n.id)
+        .filter(|n| n.card_view == Some(CardView::Simple))
+        .map(|n| n.id.0)
         .collect();
     let size_of = |id: NodeId| {
         if simple.contains(&id) {
@@ -384,21 +395,21 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
             .get(key)
             .map_or(f64::INFINITY, |p| if vertical { p.x } else { p.y })
     };
-    let mut views: Vec<&Node> = snap.nodes.iter().collect();
+    let mut views: Vec<&NodeView> = snap.nodes.iter().collect();
     views.sort_by(|a, b| {
         rank(&a.id.to_string())
             .total_cmp(&rank(&b.id.to_string()))
-            .then(a.id.cmp(&b.id))
+            .then(a.id.0.cmp(&b.id.0))
     });
-    let by_id: HashMap<u32, &Node> = views.iter().map(|v| (v.id, *v)).collect();
-    let parent_of = |id: NodeId| by_id.get(&id).and_then(|v| v.parent);
+    let by_id: HashMap<u32, &NodeView> = views.iter().map(|v| (v.id.0, *v)).collect();
+    let parent_of = |id: NodeId| by_id.get(&id).and_then(|v| v.parent.map(|p| p.0));
     let framed = snap.repos.len() > 1;
     let mut built: Vec<Built> = Vec::new();
     for repo in &snap.repos {
-        let repo_views: Vec<&Node> = views
+        let repo_views: Vec<&NodeView> = views
             .iter()
             .copied()
-            .filter(|v| v.repo == repo.id.0)
+            .filter(|v| v.place.repo == repo.id)
             .collect();
         let (boxes, chips) = split_chips(groups_of(repo, &repo_views), &repo_views);
         let mut groups = boxes;
@@ -411,13 +422,13 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
         }
         let parents = group_parents(&groups, &repo_views);
         let cards = attach_cards(&groups, &repo_views, &parents);
-        let members: Vec<Vec<&Node>> = groups
+        let members: Vec<Vec<&NodeView>> = groups
             .iter()
             .map(|g| {
                 repo_views
                     .iter()
                     .copied()
-                    .filter(|v| v.worktree == g.path)
+                    .filter(|v| v.place.worktree == g.path)
                     .collect()
             })
             .collect();
@@ -425,7 +436,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
             .map(|i| NestGroup {
                 parent: cards[i].and(parents[i]),
                 card: cards[i],
-                members: members[i].iter().map(|v| v.id).collect(),
+                members: members[i].iter().map(|v| v.id.0).collect(),
                 empty: EMPTY_GROUP,
             })
             .collect();

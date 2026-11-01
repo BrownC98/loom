@@ -1,31 +1,11 @@
-use std::time::Duration;
-
 use gpui::{Div, ParentElement, Styled, div, px};
 
+use crate::store::{Level, Notice};
 use crate::theme::Theme;
 
-const SHOWN_FOR: Duration = Duration::from_secs(6);
 const TOP: f32 = 60.0;
 const SIDE: f32 = 16.0;
 const MAX_WIDTH: f32 = 480.0;
-
-#[derive(Clone, Copy)]
-pub enum Level {
-    Info,
-    Ok,
-    Warn,
-    Error,
-}
-
-#[derive(Clone)]
-pub struct Notice {
-    pub text: String,
-    pub level: Level,
-}
-
-pub const fn shown_for() -> Duration {
-    SHOWN_FOR
-}
 
 pub fn element(notice: &Notice, theme: &Theme) -> Div {
     let colors = theme.colors;

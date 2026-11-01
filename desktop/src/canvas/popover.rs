@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AnyView, AppContext, Bounds, Context, Div, Entity, EventEmitter, FontWeight,
@@ -35,6 +38,7 @@ pub struct Popped {
     at: Point<f32>,
     end: bool,
     size: (f32, f32),
+    measured: Rc<Cell<f32>>,
     _closed: Vec<Subscription>,
 }
 
@@ -591,6 +595,7 @@ fn show(
         at: local(canvas, point),
         end,
         size,
+        measured: Rc::new(Cell::new(0.0)),
         _closed: closed,
     });
     cx.notify();
@@ -746,7 +751,12 @@ pub fn element(canvas: &CanvasView) -> Option<Div> {
     let pop = canvas.pop.as_ref()?;
     let area = canvas.area.get().size;
     let at = canvas.camera.to_screen(pop.at);
-    let (width, height) = pop.size;
+    let width = pop.size.0;
+    let height = match pop.measured.get() {
+        0.0 => pop.size.1,
+        measured => measured,
+    };
+    let measured = pop.measured.clone();
     let left = if pop.end { at.x - px(width) } else { at.x };
     let left = left.min(area.width - px(width + EDGE)).max(px(EDGE));
     let top = at.y.min(area.height - px(height + EDGE)).max(px(EDGE));
@@ -756,6 +766,20 @@ pub fn element(canvas: &CanvasView) -> Option<Div> {
             .left(left)
             .top(top)
             .child(pop.view.clone())
+            .child(
+                gpui::canvas(
+                    move |bounds, window, _| {
+                        let now = f32::from(bounds.size.height);
+                        if (measured.get() - now).abs() > 0.5 {
+                            measured.set(now);
+                            window.refresh();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()),
     )

@@ -12,7 +12,7 @@ use super::agents::parts;
 use crate::fonts;
 use crate::link;
 use crate::problem::Failure;
-use crate::settings::widgets::{field_reset, switch};
+use crate::settings::widgets::{field_reset, inert, switch};
 use crate::settings::{Ctx, Section, Writer};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
@@ -297,7 +297,7 @@ fn provider_body(
         .child(add_label);
     if missing {
         let reason = say_with(cx, Str::AccountsAddNeedsCli, &[("provider", label)]);
-        add = add.opacity(0.5).tooltip(tip(reason));
+        add = inert(add).opacity(0.5).tooltip(tip(reason));
     } else {
         let (actor, distro) = (actor.clone(), distro.clone());
         let title = say_with(cx, Str::AccountsAddTitle, &[("provider", label)]);

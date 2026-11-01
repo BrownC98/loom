@@ -23,6 +23,10 @@ pub fn tabbable(element: Stateful<Div>, cx: &App) -> Stateful<Div> {
         })
 }
 
+pub fn inert(element: Stateful<Div>) -> Stateful<Div> {
+    element.tab_stop(false)
+}
+
 pub fn button(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
     tabbable(ui::button(id, cx), cx)
 }

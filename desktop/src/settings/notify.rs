@@ -11,11 +11,17 @@ use crate::views::dock::ui::say;
 const IDENTITY: &str = "loom.desktop";
 const NAME: &str = "loom";
 
+pub const SUPPORTED: bool = !cfg!(target_os = "macos");
+
 pub fn identify(cx: &App) {
     cx.set_app_identity(IDENTITY, NAME);
 }
 
 pub fn watch(store: &Entity<Store>, window: &mut Window, cx: &mut App) {
+    if !SUPPORTED {
+        return;
+    }
+    let handle = window.window_handle();
     let tags: Rc<RefCell<HashMap<SharedString, u32>>> = Rc::default();
     let target = store.downgrade();
     let known = tags.clone();
@@ -23,7 +29,7 @@ pub fn watch(store: &Entity<Store>, window: &mut Window, cx: &mut App) {
         let Some(node) = known.borrow().get(&response.tag).copied() else {
             return;
         };
-        cx.activate(true);
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
         let _ = target.update(cx, |store, cx| store.select(node, cx));
     });
     let mut seen: Option<HashSet<u32>> = None;

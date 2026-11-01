@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::agents::parts::badge;
 use crate::settings::widgets::button;
 use crate::settings::widgets::{
-    Label, Select, SelectEvent, Text, TextEvent, field_reset, segmented, tabbable,
+    Label, Select, SelectEvent, Text, TextEvent, field_reset, inert, segmented, tabbable,
 };
 use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
@@ -389,7 +389,7 @@ fn colors_section(
                     });
                 })
             } else {
-                item.opacity(0.5)
+                inert(item).opacity(0.5)
             }
         };
         let swatch = {
@@ -717,7 +717,7 @@ fn popover(
                 close(cx);
             })
         } else {
-            item.opacity(0.5)
+            inert(item).opacity(0.5)
         }
     };
     let hint = |text: Str| {

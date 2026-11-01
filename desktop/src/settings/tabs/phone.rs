@@ -13,7 +13,7 @@ use gpui::{
 
 use crate::link;
 use crate::problem::Failure;
-use crate::settings::widgets::button;
+use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -326,7 +326,7 @@ fn action(
     .self_start()
     .child(label);
     if busy {
-        base.opacity(0.5).cursor_not_allowed()
+        inert(base).opacity(0.5).cursor_not_allowed()
     } else {
         base.on_click(move |_, _, cx| run(cx))
     }

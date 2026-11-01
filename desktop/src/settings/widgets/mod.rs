@@ -8,7 +8,7 @@ mod select;
 mod switch;
 mod text;
 
-pub use btn::{button, ghost, tabbable};
+pub use btn::{button, ghost, inert, tabbable};
 pub use confirm::confirm;
 pub use list::{PITCH, list_box_on};
 pub use number::{Number, NumberEvent};

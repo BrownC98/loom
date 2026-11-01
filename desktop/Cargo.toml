@@ -1,0 +1,11 @@
+[package]
+name = "loom-desktop"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "08cbb88a152c3751a43e853425a70e9f631a5918" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "08cbb88a152c3751a43e853425a70e9f631a5918", features = ["font-kit", "x11", "wayland"] }
+
+[lints.rust]
+warnings = "deny"

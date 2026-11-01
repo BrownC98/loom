@@ -35,8 +35,7 @@
       {
         "path": "/home/u/fresh",
         "label": "fresh",
-        "kind": "unborn",
-        "branch": null
+        "kind": "unborn"
       }
     ],
     "boxes": [

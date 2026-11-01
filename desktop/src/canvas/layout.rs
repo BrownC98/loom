@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
@@ -7,7 +5,6 @@ pub type NodeId = u32;
 
 const CARD_LANE: f64 = 20.0;
 pub const GROUP_GAP: f64 = 32.0;
-pub const FREE_GAP: f64 = 32.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Point {
@@ -203,7 +200,6 @@ struct Nest<'a> {
     size: &'a dyn Fn(NodeId) -> Size,
     rank: &'a dyn Fn(Kid) -> f64,
     vertical: bool,
-    reversed: bool,
     pad_lo: f64,
     pad_hi: f64,
     pad_near: f64,
@@ -409,7 +405,6 @@ pub fn arrange_nested(
         size,
         rank,
         vertical,
-        reversed,
         pad_lo: if vertical { inset.side } else { inset.top },
         pad_hi: inset.side,
         pad_near: if direction == Direction::Down {
@@ -897,14 +892,6 @@ pub enum Side {
     Left,
 }
 
-pub const SIDES: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
-pub const ARRANGE_DIRECTIONS: [Direction; 4] = [
-    Direction::Down,
-    Direction::Right,
-    Direction::Up,
-    Direction::Left,
-];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TreeSides {
     pub parent: Side,
@@ -1047,20 +1034,5 @@ pub fn label_heading(from: EdgeEnd, to: EdgeEnd, step: Option<f64>) -> Direction
         Direction::Down
     } else {
         Direction::Up
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Camera {
-    pub x: f64,
-    pub y: f64,
-    pub zoom: f64,
-}
-
-pub fn follow_card(old: Point, now: Point, camera: Camera) -> Camera {
-    Camera {
-        x: camera.x - (now.x - old.x) * camera.zoom,
-        y: camera.y - (now.y - old.y) * camera.zoom,
-        zoom: camera.zoom,
     }
 }

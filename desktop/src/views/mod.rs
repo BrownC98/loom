@@ -1,6 +1,9 @@
 pub mod card;
+pub mod dock;
+pub mod expanded;
 pub mod field;
+pub mod notice;
 pub mod shell;
-#[allow(dead_code)]
 pub mod sidebar;
 pub mod terminal;
+pub mod tooltip;

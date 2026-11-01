@@ -1,4 +1,4 @@
-mod icons;
+pub mod icons;
 mod tree;
 
 use std::collections::HashSet;
@@ -10,9 +10,12 @@ use gpui::{
 };
 
 use super::field::{self, Field, FieldEvent};
+use super::shell::OpenSettings;
 use icons::{Glyph, icon};
-use tree::{Body, Built, Dot, Found, Key, Row, Tag, Tone};
+pub use tree::Dot;
+use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
+use crate::fonts;
 use crate::link;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -120,6 +123,16 @@ impl Sidebar {
                 self.reveal = true;
             }
         }
+        let key_of = |key: &Key| match key {
+            Key::Node(id) | Key::Mark(id) => id.to_string(),
+            Key::Repo(id) => format!("repo:{id}"),
+            Key::Group(_, path) => path.clone(),
+        };
+        let built = self.built(cx).filter(|b| !b.hits.is_empty());
+        let current = built.as_ref().and_then(|b| b.hits.get(self.at)).map(key_of);
+        let found = built.map(|b| b.hits.iter().map(key_of).collect());
+        self.store
+            .update(cx, |store, cx| store.set_found(found, current, cx));
         cx.notify();
     }
 
@@ -157,7 +170,7 @@ impl Sidebar {
                 .await;
             if let Err(error) = sent {
                 let _ = this.update(cx, |this, cx| {
-                    this.refusal = Some((key, error));
+                    this.refusal = Some((key, error.text(*cx.global::<Lang>())));
                     cx.notify();
                 });
             }
@@ -246,7 +259,7 @@ fn dot_color(dot: Dot, c: &Colors) -> Rgba {
     }
 }
 
-fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
+pub fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
     let color = dot_color(dot, c);
     let halo = div().flex_none().size(px(7.0)).rounded_full().bg(color);
     if dot == Dot::Waiting {
@@ -270,6 +283,64 @@ fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
             .justify_center()
             .child(halo)
     }
+}
+
+pub struct Pickable {
+    pub id: u32,
+    pub name: String,
+    pub place: String,
+    pub dot: Dot,
+}
+
+pub fn pickables(
+    snapshot: &crate::link::Snapshot,
+    lang: Lang,
+    query: &str,
+) -> (Vec<Pickable>, Vec<Pickable>) {
+    let built = tree::build(snapshot, lang, &HashSet::new(), query, 0);
+    let views: Vec<&api::graph::NodeView> = snapshot.nodes.iter().collect();
+    let needle = query.trim().to_lowercase();
+    let place = |id: u32| {
+        views
+            .iter()
+            .find(|v| v.id.0 == id)
+            .map(|v| crate::canvas::repos::place_name(&snapshot.repos, &views, v))
+            .unwrap_or_default()
+    };
+    let marks = built
+        .marks
+        .iter()
+        .filter_map(|row| match &row.body {
+            Body::Mark {
+                id,
+                name,
+                place,
+                dot,
+            } if name.to_lowercase().contains(&needle) => Some(Pickable {
+                id: *id,
+                name: name.clone(),
+                place: place.clone(),
+                dot: *dot,
+            }),
+            _ => None,
+        })
+        .collect();
+    let all = built
+        .tree
+        .iter()
+        .filter_map(|row| match &row.body {
+            Body::Node { id, name, dot, .. } if row.found != Some(Found::Context) => {
+                Some(Pickable {
+                    id: *id,
+                    name: name.clone(),
+                    place: place(*id),
+                    dot: *dot,
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    (marks, all)
 }
 
 fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
@@ -511,7 +582,7 @@ impl Sidebar {
                     .text_ellipsis()
                     .whitespace_nowrap()
                     .text_size(px(12.0))
-                    .font_family("monospace")
+                    .font_family(fonts::TERMINAL_FAMILY)
                     .text_color(c.ink_3)
                     .child(line.clone());
                 shell
@@ -787,6 +858,36 @@ impl Render for Sidebar {
                     .child(expand),
             )
             .child(tree_rows)
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(8.0))
+                    .py(px(6.0))
+                    .border_t_1()
+                    .border_color(c.line)
+                    .child(
+                        div()
+                            .id("side-settings")
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .px(px(8.0))
+                            .h(px(28.0))
+                            .rounded(px(6.0))
+                            .text_size(px(12.0))
+                            .text_color(c.ink_2)
+                            .cursor_pointer()
+                            .hover({
+                                let hover = c.surface_hover;
+                                move |s| s.bg(hover)
+                            })
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(OpenSettings), cx)
+                            })
+                            .child(icon(Glyph::Gear, ICON, c.ink_2))
+                            .child(Str::SettingsTitle.text(lang)),
+                    ),
+            )
     }
 }
 

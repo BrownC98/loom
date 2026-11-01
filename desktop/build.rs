@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 const WEB: &str = "../web/src";
+const PRETENDARD: &str = "../web/node_modules/pretendard/dist/web/static/woff2";
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -17,6 +18,15 @@ fn main() {
     let write = |name: &str, text: String| {
         fs::write(out.join(name), text).unwrap_or_else(|e| panic!("{name}: {e}"));
     };
+
+    let pretendard = manifest.join(PRETENDARD);
+    assert!(
+        pretendard.is_dir(),
+        "{} is missing: run `bash scripts/worktree/setup.sh` or `npm ci` in web/ first",
+        pretendard.display()
+    );
+    println!("cargo:rerun-if-changed={}", pretendard.display());
+    println!("cargo:rustc-env=PRETENDARD_DIR={}", pretendard.display());
 
     write("tokens.rs", tokens(&read("styles.css")));
     write("terminals.rs", terminals(&read("terminalThemes.ts")));
@@ -381,7 +391,6 @@ fn terminals(source: &str) -> String {
             ("background", "background"),
             ("foreground", "foreground"),
             ("cursor", "cursor"),
-            ("cursor_accent", "cursorAccent"),
             ("selection_background", "selectionBackground"),
             ("selection_foreground", "selectionForeground"),
         ] {
@@ -569,7 +578,18 @@ fn strings(ko_source: &str, en_source: &str) -> String {
     for (key, english) in &en {
         writeln!(code, "    [{:?}, {english:?}],", ko[key]).unwrap();
     }
+    code.push_str("];\n\n");
+    writeln!(code, "static KEYS: [&str; {}] = [", en.len()).unwrap();
+    for key in en.keys() {
+        writeln!(code, "    {key:?},").unwrap();
+    }
+    code.push_str("];\n\n");
+    writeln!(code, "const ALL: [Str; {}] = [", en.len()).unwrap();
+    for key in en.keys() {
+        writeln!(code, "    Str::{},", variant(key)).unwrap();
+    }
     code.push_str("];\n\n#[allow(dead_code)]\nimpl Str {\n");
+    code.push_str("    pub fn find(key: &str) -> Option<Str> {\n        KEYS.iter().position(|k| *k == key).map(|at| ALL[at])\n    }\n\n");
     code.push_str("    pub fn text(self, lang: Lang) -> &'static str {\n        TEXTS[self as usize][lang as usize]\n    }\n\n");
     code.push_str("    pub fn with(self, lang: Lang, args: &[(&str, &str)]) -> String {\n        fill(self.text(lang), args)\n    }\n}\n");
     code

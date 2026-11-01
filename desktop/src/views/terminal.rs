@@ -1,19 +1,19 @@
-use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement,
-    IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription,
-    TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, font, point, px,
-    rgb, size,
+    EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
+    KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription, TextAlign,
+    TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, px, rgb, size,
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
+use crate::theme::{Terminal, Theme};
 use crate::vt::view::Picked;
 use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
 
@@ -21,15 +21,8 @@ mod pointer;
 
 const RESET: &[u8] = b"\x1bc";
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
-const FONT_FAMILY: &str = "Jetendard";
-const FONT_FILES: [&[u8]; 2] = [
-    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Regular.woff2"),
-    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Bold.woff2"),
-];
-const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 1.3;
 const MARKED_BACKGROUND: vt::Rgb8 = [0x3a, 0x3a, 0x55];
-const PICKED_BACKGROUND: vt::Rgb8 = [0x26, 0x4f, 0x78];
 const READABLE_PX: f32 = 6.0;
 const SNAPSHOT_GAP: Duration = Duration::from_millis(250);
 const START: (u16, u16) = (80, 24);
@@ -37,20 +30,57 @@ const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_IDLE_ALPHA: f32 = 0.3;
 const CURSOR_THIN: f32 = 2.0;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InputState {
+    Open,
+    Offline,
+    Gone,
+}
+
 #[derive(Clone, Copy)]
 struct Metrics {
     cell_width: Pixels,
     cell_height: Pixels,
 }
 
+#[derive(Clone)]
+struct Style {
+    face: Face,
+    terminal: &'static Terminal,
+    palette: vt::Palette,
+}
+
+struct Draw {
+    style: Style,
+    scale: f32,
+    focused: bool,
+}
+
+impl Style {
+    fn current(cx: &App) -> Style {
+        let theme = cx.global::<Theme>();
+        Style {
+            face: Theme::face(cx),
+            terminal: theme.terminal,
+            palette: palette(theme.terminal),
+        }
+    }
+}
+
+fn palette(terminal: &Terminal) -> vt::Palette {
+    let byte = |c: Rgba| [c.r, c.g, c.b].map(|v| (v * 255.0).round() as u8);
+    vt::Palette {
+        ansi: terminal.ansi.map(byte),
+        foreground: byte(terminal.foreground),
+        background: byte(terminal.background),
+        cursor: byte(terminal.cursor),
+    }
+}
+
 struct Frame {
     screen: Screen,
     picked: Vec<Picked>,
 }
-
-struct FontsLoaded;
-
-impl Global for FontsLoaded {}
 
 pub struct TerminalView {
     vt: Vt,
@@ -62,9 +92,11 @@ pub struct TerminalView {
     cell: Option<Metrics>,
     sent: (u16, u16),
     ended: Option<String>,
+    gone: bool,
     marked: Option<String>,
     cursor: Option<vt::Cursor>,
     frame: Option<Rc<Frame>>,
+    style: Style,
     dirty: bool,
     taken: Instant,
     refresh: bool,
@@ -73,6 +105,7 @@ pub struct TerminalView {
     last_cell: Option<(usize, usize)>,
     wheel_rest: f32,
     _focus_events: [Subscription; 2],
+    _look: Subscription,
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -83,14 +116,14 @@ fn hsla(rgb: vt::Rgb8) -> Hsla {
     color(rgb).into()
 }
 
-fn cheap(scale: f32) -> bool {
-    FONT_SIZE * scale <= READABLE_PX
+fn cheap(face: &Face, scale: f32) -> bool {
+    face.size * scale <= READABLE_PX
 }
 
-fn metrics(window: &Window, scale: f32) -> Metrics {
+fn metrics(window: &Window, face: &Face, scale: f32) -> Metrics {
     let system = window.text_system();
-    let id = system.resolve_font(&font(FONT_FAMILY));
-    let em = px(FONT_SIZE * scale);
+    let id = system.resolve_font(&face.font);
+    let em = px(face.size * scale);
     Metrics {
         cell_width: system.advance(id, em, 'm').map_or(em * 0.6, |a| a.width),
         cell_height: em * LINE_HEIGHT,
@@ -98,9 +131,32 @@ fn metrics(window: &Window, scale: f32) -> Metrics {
 }
 
 pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+    let view = open_with(link::attach, base, node, window, cx);
+    crate::float::inputs::offer(node, &view, cx);
+    view
+}
+
+pub fn open_login(
+    base: &str,
+    login: u32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<TerminalView> {
+    open_with(link::attach_login, base, login, window, cx)
+}
+
+type Attach = fn(&str, u32, async_channel::Sender<Event>) -> Result<Pty, String>;
+
+fn open_with(
+    attach: Attach,
+    base: &str,
+    id: u32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<TerminalView> {
     let opened = (|| -> Result<_, String> {
         let (events, inbox) = async_channel::unbounded();
-        Ok((link::attach(base, node, events)?, inbox))
+        Ok((attach(base, id, events)?, inbox))
     })();
     cx.new(|cx| TerminalView::new(opened, window, cx))
 }
@@ -125,24 +181,14 @@ impl TerminalView {
             }
             Err(error) => (None, Some(error)),
         };
-        if !cx.has_global::<FontsLoaded>() {
-            let files = FONT_FILES
-                .map(|woff2| {
-                    Cow::Owned(wuff::decompress_woff2(woff2).expect("bundled terminal fonts"))
-                })
-                .to_vec();
-            cx.text_system()
-                .add_fonts(files)
-                .expect("bundled terminal fonts");
-            cx.set_global(FontsLoaded);
-        }
+        let style = Style::current(cx);
         let focus = cx.focus_handle();
         let focus_events = [
             cx.on_focus_in(&focus, window, |this, _, _| this.report_focus(true)),
             cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
         ];
         Self {
-            vt: Vt::new(START.0, START.1),
+            vt: Vt::new(START.0, START.1, style.palette),
             pty,
             focus,
             settled: false,
@@ -154,9 +200,11 @@ impl TerminalView {
             cell: None,
             sent: (0, 0),
             ended,
+            gone: false,
             marked: None,
             cursor: None,
             frame: None,
+            style,
             dirty: true,
             taken: Instant::now(),
             refresh: false,
@@ -165,6 +213,7 @@ impl TerminalView {
             last_cell: None,
             wheel_rest: 0.0,
             _focus_events: focus_events,
+            _look: cx.observe_global::<Theme>(|this, cx| this.restyle(cx)),
         }
     }
 
@@ -180,7 +229,18 @@ impl TerminalView {
     }
 
     fn cheap(&self) -> bool {
-        cheap(self.scale)
+        cheap(&self.style.face, self.scale)
+    }
+
+    fn restyle(&mut self, cx: &mut Context<Self>) {
+        let style = Style::current(cx);
+        if style.face == self.style.face && style.palette == self.style.palette {
+            return;
+        }
+        self.vt.set_palette(style.palette);
+        self.style = style;
+        self.changed(cx);
+        cx.notify();
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -234,6 +294,7 @@ impl TerminalView {
                 self.settled = false;
                 self.sent = (0, 0);
                 self.ended = None;
+                self.gone = false;
             }
             Event::Backlog(bytes) => {
                 self.vt.feed(&bytes);
@@ -247,7 +308,10 @@ impl TerminalView {
                 let replies = self.vt.take_replies();
                 self.reply(replies);
             }
-            Event::Gone => self.ended = Some("the terminal is gone".to_owned()),
+            Event::Gone => {
+                self.gone = true;
+                self.ended = Some("the terminal is gone".to_owned());
+            }
             Event::Closed(reason) => {
                 self.ended = Some(if reason.is_empty() {
                     "connection closed".to_owned()
@@ -298,6 +362,23 @@ impl TerminalView {
         self.vt.scroll_to_bottom();
         self.dirty = true;
         self.send(bytes);
+    }
+
+    pub fn input_state(&self) -> InputState {
+        if self.gone {
+            InputState::Gone
+        } else if self.ended.is_some() || self.pty.is_none() {
+            InputState::Offline
+        } else {
+            InputState::Open
+        }
+    }
+
+    pub fn deliver(&mut self, text: &str, cx: &mut Context<Self>) {
+        let mut bytes = self.vt.encode_paste(text);
+        bytes.push(b'\r');
+        self.type_in(bytes);
+        self.changed(cx);
     }
 
     fn copy(&mut self, cx: &mut Context<Self>) {
@@ -480,8 +561,12 @@ impl Render for TerminalView {
         self.cursor = frame.screen.cursor;
         let marked = self.marked.clone();
         let focus = self.focus.clone();
-        let scale = self.scale;
-        let focused = self.focus.is_focused(window);
+        let face = self.style.face.clone();
+        let draw = Draw {
+            style: self.style.clone(),
+            scale: self.scale,
+            focused: self.focus.is_focused(window),
+        };
         let view = cx.entity();
         let view_input = view.clone();
         let view_pointer = view.clone();
@@ -489,7 +574,7 @@ impl Render for TerminalView {
             .id("terminal")
             .size_full()
             .relative()
-            .bg(color(vt::BACKGROUND))
+            .bg(self.style.terminal.background)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
@@ -513,7 +598,7 @@ impl Render for TerminalView {
             .child(
                 canvas(
                     move |bounds, window, cx| {
-                        let base = metrics(window, 1.0);
+                        let base = metrics(window, &face, 1.0);
                         view.update(cx, |view, _| view.resized(bounds, base));
                         bounds
                     },
@@ -535,15 +620,7 @@ impl Render for TerminalView {
                                 releasing.update(cx, |view, cx| view.release(event, window, cx));
                             }
                         });
-                        paint(
-                            bounds,
-                            &frame,
-                            marked.as_deref(),
-                            scale,
-                            focused,
-                            window,
-                            cx,
-                        );
+                        paint(bounds, &frame, marked.as_deref(), &draw, window, cx);
                     },
                 )
                 .size_full(),
@@ -555,14 +632,14 @@ impl Render for TerminalView {
                     .left_0()
                     .px_2()
                     .bg(hsla([0x55, 0x57, 0x53]))
-                    .text_color(color(vt::FOREGROUND))
+                    .text_color(self.style.terminal.foreground)
                     .child(text)
             }))
     }
 }
 
-fn styled(cell: &vt::Cell, len: usize) -> TextRun {
-    let mut run_font: Font = font(FONT_FAMILY);
+fn styled(face: &Face, cell: &vt::Cell, len: usize) -> TextRun {
+    let mut run_font = face.font.clone();
     if cell.bold {
         run_font.weight = FontWeight::BOLD;
     }
@@ -592,7 +669,7 @@ fn same_style(a: &vt::Cell, b: &vt::Cell) -> bool {
         == (b.fg, b.bold, b.italic, b.underline, b.strike)
 }
 
-fn row_runs(cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
+fn row_runs(face: &Face, cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
     if cheap {
         let lead = cells.iter().find(|c| c.ch != ' ').unwrap_or(&cells[0]);
         let plain = vt::Cell {
@@ -603,19 +680,19 @@ fn row_runs(cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
             ..lead.clone()
         };
         let len = cells.iter().map(|c| c.ch.len_utf8()).sum();
-        return vec![styled(&plain, len)];
+        return vec![styled(face, &plain, len)];
     }
     let mut runs: Vec<TextRun> = Vec::new();
     let mut first = 0;
     for (i, c) in cells.iter().enumerate() {
         if i > first && !same_style(&cells[first], c) {
             let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
-            runs.push(styled(&cells[first], len));
+            runs.push(styled(face, &cells[first], len));
             first = i;
         }
     }
     let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
-    runs.push(styled(&cells[first], len));
+    runs.push(styled(face, &cells[first], len));
     runs
 }
 
@@ -623,15 +700,21 @@ fn paint(
     bounds: Bounds<Pixels>,
     frame: &Frame,
     marked: Option<&str>,
-    scale: f32,
-    focused: bool,
+    draw: &Draw,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let Draw {
+        style,
+        scale,
+        focused,
+    } = draw;
+    let (scale, focused) = (*scale, *focused);
+    let face = &style.face;
     let screen = &frame.screen;
-    let cheap = cheap(scale);
-    let cell = metrics(window, scale);
-    let em = px(FONT_SIZE * scale);
+    let cheap = cheap(face, scale);
+    let cell = metrics(window, face, scale);
+    let em = px(face.size * scale);
     let at = |col: usize, row: usize| {
         point(
             bounds.origin.x + cell.cell_width * col as f32,
@@ -646,7 +729,7 @@ fn paint(
             while col < cells.len() && cells[col].bg == cells[start].bg {
                 col += 1;
             }
-            if cells[start].bg != vt::BACKGROUND {
+            if cells[start].bg != style.palette.background {
                 window.paint_quad(fill(
                     Bounds::new(
                         at(start, row),
@@ -665,7 +748,7 @@ fn paint(
                         cell.cell_height,
                     ),
                 ),
-                hsla(PICKED_BACKGROUND),
+                style.terminal.selection_background,
             ));
         }
         if cells
@@ -675,7 +758,7 @@ fn paint(
             continue;
         }
         let text: String = cells.iter().map(|c| c.ch).collect();
-        let runs = row_runs(cells, cheap);
+        let runs = row_runs(face, cells, cheap);
         let line = window.text_system().shape_line(
             text.into(),
             em,
@@ -692,7 +775,7 @@ fn paint(
         );
     }
     if let Some(cursor) = screen.cursor {
-        let mut hue = hsla(vt::CURSOR);
+        let mut hue: Hsla = style.terminal.cursor.into();
         hue.a = if focused {
             CURSOR_ALPHA
         } else {
@@ -712,7 +795,7 @@ fn paint(
         };
         window.paint_quad(fill(Bounds::new(origin, extent), hue));
         if let Some(text) = marked {
-            paint_marked(text, cursor, &at, cell, em, window, cx);
+            paint_marked(text, cursor, &at, cell, draw, window, cx);
         }
     }
 }
@@ -722,10 +805,12 @@ fn paint_marked(
     cursor: vt::Cursor,
     at: &dyn Fn(usize, usize) -> gpui::Point<Pixels>,
     cell: Metrics,
-    em: Pixels,
+    draw: &Draw,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let style = &draw.style;
+    let em = px(style.face.size * draw.scale);
     let glyphs: Vec<(char, usize)> = text
         .chars()
         .map(|c| (c, c.width().unwrap_or(1).max(1)))
@@ -742,14 +827,14 @@ fn paint_marked(
     for (c, width) in glyphs {
         let mark = vt::Cell {
             ch: c,
-            fg: vt::FOREGROUND,
+            fg: style.palette.foreground,
             bg: MARKED_BACKGROUND,
             bold: false,
             italic: false,
             underline: true,
             strike: false,
         };
-        let run = styled(&mark, c.len_utf8());
+        let run = styled(&style.face, &mark, c.len_utf8());
         let line = window.text_system().shape_line(
             c.to_string().into(),
             em,

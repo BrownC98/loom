@@ -149,6 +149,63 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  desktop:
+    needs: installer
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            web: loom-web-windows-x64.exe
+            loom: loom.exe
+            desktop: loom-desktop.exe
+            asset: loom-desktop-windows-x64.zip
+          - os: macos-14
+            web: loom-web-macos-arm64
+            loom: loom
+            desktop: loom-desktop
+            asset: loom-desktop-macos-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/desktop/target
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: 글꼴 내려받기 (Pretendard)
+        run: npm --prefix web ci --ignore-scripts
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: desktop
+      - name: 데스크톱 빌드
+        run: cargo build --release
+        working-directory: desktop
+        env:
+          LOOM_VERSION: ${{ needs.installer.outputs.version }}
+      - name: 같은 판 loom과 묶어 Release에 올리기
+        run: |
+          version=v${{ needs.installer.outputs.version }}
+          dir=${{ matrix.asset }}
+          dir=${dir%%.*}
+          mkdir "$dir"
+          cp "desktop/target/release/${{ matrix.desktop }}" "$dir/"
+          gh release download "$version" -p "${{ matrix.web }}" -O "$dir/${{ matrix.loom }}"
+          chmod +x "$dir/${{ matrix.desktop }}" "$dir/${{ matrix.loom }}"
+          if [ "$RUNNER_OS" = macOS ]; then
+            codesign --verify --verbose "$dir/${{ matrix.desktop }}" "$dir/${{ matrix.loom }}"
+            tar -czf "${{ matrix.asset }}" "$dir"
+          else
+            7z a -tzip "${{ matrix.asset }}" "$dir"
+          fi
+          gh release upload "$version" "${{ matrix.asset }}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   android:
     needs: installer
     runs-on: ubuntu-latest

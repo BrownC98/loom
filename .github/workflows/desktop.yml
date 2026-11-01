@@ -7,6 +7,7 @@ on:
       - 'api/**'
       - 'fixtures/layout/**'
       - 'web/src/fonts/jetendard/**'
+      - 'web/package-lock.json'
       - 'web/src/styles.css'
       - 'web/src/terminalThemes.ts'
       - 'web/src/locales/**'
@@ -18,23 +19,40 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: loom-desktop-windows-x64
+            file: loom-desktop.exe
+          - os: macos-14
+            artifact: loom-desktop-macos-arm64
+            file: loom-desktop
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
         working-directory: desktop
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: 글꼴 내려받기 (Pretendard)
+        run: npm --prefix ../web ci --ignore-scripts
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: desktop
       - name: 배치 고정값 시험
+        if: runner.os == 'Windows'
         run: cargo test
       - name: 빌드
         run: cargo build --release
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: loom-desktop
-          path: desktop/target/release/loom-desktop.exe
+          name: ${{ matrix.artifact }}
+          path: desktop/target/release/${{ matrix.file }}
           if-no-files-found: error

@@ -1,7 +1,9 @@
 use api::settings::{
     HexColor, SettingsView, TerminalTheme, Theme as ThemeSetting, ThemedColor, UiColors,
 };
-use gpui::{Global, Rgba};
+use gpui::{App, Global, Rgba};
+
+use crate::fonts::{self, Face, Wanted};
 
 const TEXT_CONTRAST: f64 = 4.5;
 const TONE_STEP: f64 = 0.5;
@@ -44,12 +46,10 @@ impl Oklch {
     }
 }
 
-#[allow(dead_code)]
 pub struct Terminal {
     pub background: Rgba,
     pub foreground: Rgba,
     pub cursor: Rgba,
-    pub cursor_accent: Rgba,
     pub selection_background: Rgba,
     pub selection_foreground: Rgba,
     pub ansi: [Rgba; 16],
@@ -58,24 +58,47 @@ pub struct Terminal {
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 include!(concat!(env!("OUT_DIR"), "/terminals.rs"));
 
-#[allow(dead_code)]
 pub struct Theme {
     pub scheme: Scheme,
     pub colors: Colors,
     pub terminal: &'static Terminal,
+    pub face: Wanted,
 }
 
 impl Global for Theme {}
 
 impl Theme {
+    pub fn face(cx: &App) -> Face {
+        cx.global::<Theme>()
+            .face
+            .resolve(&cx.text_system().all_font_names())
+    }
+
     pub fn resolve(settings: &SettingsView, system_dark: bool) -> Theme {
         let scheme = Scheme::resolve(settings.theme, system_dark);
         Theme {
             scheme,
             colors: colors(scheme, &settings.colors),
             terminal: terminal(&settings.terminal_theme, scheme),
+            face: fonts::wanted(&settings.terminal_font),
         }
     }
+}
+
+pub fn terminal_themes() -> &'static [(&'static str, Terminal)] {
+    TERMINAL_THEMES
+}
+
+pub fn chosen_terminal_name(chosen: Option<&str>, mode: Scheme) -> &'static str {
+    let default = match mode {
+        Scheme::Dark => DEFAULT_DARK,
+        Scheme::Light => DEFAULT_LIGHT,
+    };
+    TERMINAL_THEMES
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| Some(*name) == chosen)
+        .unwrap_or(default)
 }
 
 pub fn terminal(saved: &TerminalTheme, scheme: Scheme) -> &'static Terminal {
@@ -84,20 +107,15 @@ pub fn terminal(saved: &TerminalTheme, scheme: Scheme) -> &'static Terminal {
     } else {
         scheme
     };
-    let (chosen, default) = match mode {
-        Scheme::Dark => (&saved.dark, DEFAULT_DARK),
-        Scheme::Light => (&saved.light, DEFAULT_LIGHT),
+    let chosen = match mode {
+        Scheme::Dark => saved.dark.as_deref(),
+        Scheme::Light => saved.light.as_deref(),
     };
-    let find = |name: &str| {
-        TERMINAL_THEMES
-            .iter()
-            .find(|(known, _)| *known == name)
-            .map(|(_, theme)| theme)
-    };
-    chosen
-        .as_deref()
-        .and_then(find)
-        .or_else(|| find(default))
+    let name = chosen_terminal_name(chosen, mode);
+    TERMINAL_THEMES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, theme)| theme)
         .unwrap_or(&TERMINAL_THEMES[0].1)
 }
 
@@ -228,13 +246,13 @@ fn luminance(l: f64, c: f64, h: f64) -> f64 {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
-fn luminance_of(color: Rgba) -> f64 {
+pub fn luminance_of(color: Rgba) -> f64 {
     0.2126 * linear(f64::from(color.r))
         + 0.7152 * linear(f64::from(color.g))
         + 0.0722 * linear(f64::from(color.b))
 }
 
-fn ratio(a: f64, b: f64) -> f64 {
+pub fn ratio(a: f64, b: f64) -> f64 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
@@ -294,7 +312,7 @@ fn gamut_mapped(color: Oklch) -> [f64; 3] {
     best
 }
 
-fn to_rgba(color: Oklch) -> Rgba {
+pub fn to_rgba(color: Oklch) -> Rgba {
     let [r, g, b] = clip(gamut_mapped(color)).map(gamma);
     Rgba {
         r: r as f32,

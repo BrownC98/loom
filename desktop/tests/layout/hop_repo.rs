@@ -317,7 +317,6 @@ pub struct GroupOut {
     path: String,
     label: String,
     kind: KindOut,
-    branch: Option<String>,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -340,7 +339,6 @@ fn group_out(g: &Group) -> GroupOut {
             GroupKind::Unborn => KindOut::Unborn,
             GroupKind::Linked => KindOut::Linked,
         },
-        branch: g.branch.clone(),
     }
 }
 

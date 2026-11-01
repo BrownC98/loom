@@ -1,0 +1,196 @@
+{
+  "kind": "commitLanes",
+  "input": {
+    "commits": [
+      {
+        "hash": "t1",
+        "parents": [
+          "m1"
+        ]
+      },
+      {
+        "hash": "b1",
+        "parents": [
+          "b0"
+        ]
+      },
+      {
+        "hash": "m1",
+        "parents": [
+          "m0",
+          "b0"
+        ]
+      },
+      {
+        "hash": "b0",
+        "parents": [
+          "m0"
+        ]
+      },
+      {
+        "hash": "m0",
+        "parents": [
+          "root"
+        ]
+      },
+      {
+        "hash": "root",
+        "parents": []
+      }
+    ],
+    "from": {
+      "open": [],
+      "color": -1
+    }
+  },
+  "output": {
+    "rows": [
+      {
+        "hash": "t1",
+        "input": [],
+        "output": [
+          {
+            "id": "m1",
+            "color": 0
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      },
+      {
+        "hash": "b1",
+        "input": [
+          {
+            "id": "m1",
+            "color": 0
+          }
+        ],
+        "output": [
+          {
+            "id": "m1",
+            "color": 0
+          },
+          {
+            "id": "b0",
+            "color": 1
+          }
+        ],
+        "circle": {
+          "lane": 1,
+          "color": 1
+        },
+        "count": 2
+      },
+      {
+        "hash": "m1",
+        "input": [
+          {
+            "id": "m1",
+            "color": 0
+          },
+          {
+            "id": "b0",
+            "color": 1
+          }
+        ],
+        "output": [
+          {
+            "id": "m0",
+            "color": 0
+          },
+          {
+            "id": "b0",
+            "color": 1
+          },
+          {
+            "id": "b0",
+            "color": 2
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 3
+      },
+      {
+        "hash": "b0",
+        "input": [
+          {
+            "id": "m0",
+            "color": 0
+          },
+          {
+            "id": "b0",
+            "color": 1
+          },
+          {
+            "id": "b0",
+            "color": 2
+          }
+        ],
+        "output": [
+          {
+            "id": "m0",
+            "color": 0
+          },
+          {
+            "id": "m0",
+            "color": 1
+          }
+        ],
+        "circle": {
+          "lane": 1,
+          "color": 1
+        },
+        "count": 3
+      },
+      {
+        "hash": "m0",
+        "input": [
+          {
+            "id": "m0",
+            "color": 0
+          },
+          {
+            "id": "m0",
+            "color": 1
+          }
+        ],
+        "output": [
+          {
+            "id": "root",
+            "color": 0
+          }
+        ],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 2
+      },
+      {
+        "hash": "root",
+        "input": [
+          {
+            "id": "root",
+            "color": 0
+          }
+        ],
+        "output": [],
+        "circle": {
+          "lane": 0,
+          "color": 0
+        },
+        "count": 1
+      }
+    ],
+    "end": {
+      "open": [],
+      "color": 2
+    }
+  }
+}

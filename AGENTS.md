@@ -13,7 +13,7 @@
 
 ## 개발 환경
 
-호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드와 cargo 검사·생성 명령은 `memcap -m <예약량>` 아래에서 돌린다. memcap은 메모리가 예약량을 덮을 때만 명령을 띄우고, 아니면 stderr에 대기 줄을 쓰고 차례로 기다린다. 예약량은 그 명령의 상한이기도 하다: 넘으면 그 명령만 끊긴다. 예약량은 처음부터 빌드한 cgroup `memory.peak` 최대값을 512MiB 단위로 올린 값이다. 실측(2026-10-31): clippy 2771MiB, test 4411MiB, Windows clippy 2663MiB, `cargo build` 2289MiB. 그래서 clippy와 빌드는 3G, test는 4608M이다. 병합 관문(`scripts/gate/check.sh`)은 메모리를 보지 않고 cargo 단계를 Linux 갈래와 Windows 갈래로 늘 함께 돌린다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드와 cargo 검사·생성 명령은 `memcap -m <예약량>` 아래에서 돌린다. memcap은 메모리가 예약량을 덮을 때만 명령을 띄우고, 아니면 stderr에 대기 줄을 쓰고 차례로 기다린다. 예약량은 그 명령의 상한이기도 하다: 넘으면 그 명령만 끊긴다. 예약량은 처음부터 빌드한 cgroup `memory.peak` 최대값을 512MiB 단위로 올린 값이다. 실측(2026-10-31): clippy 2771MiB, test 4411MiB, Windows clippy 2663MiB, `cargo build` 2289MiB. 그래서 clippy와 빌드는 3G, test는 4608M이다. 병합 관문(`scripts/gate/check.sh`)은 메모리를 보지 않고 cargo 단계를 Linux 갈래와 Windows 갈래로 늘 함께 돌린다. main과 비교해 `desktop/`·`api/`·`fixtures/`·`web/src/`·`rust-toolchain.toml`이 바뀌었으면 데스크톱 갈래(fmt, clippy, 배치 고정값 시험)도 함께 돌린다.
 
 | 할 일 | 명령 |
 |---|---|
@@ -34,6 +34,8 @@
 - 데스크톱 빌드에 필요한 호스트 패키지(이 호스트에는 깔려 있다): `sudo apt-get install --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-dev libwayland-dev libasound2-dev libvulkan-dev libssl-dev llvm`. `llvm`은 msvc 검사의 `llvm-rc`를 준다. gpui는 Zed git `rev 08cbb88`을 쓰므로 첫 `cargo fetch`가 약 0.5GB를 `~/.cargo/git`에 받는다.
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
+
+- 데스크톱(GPUI) 실행 파일도 `release.yml`의 `desktop` 잡이 만든다(Windows x64 msvc `loom-desktop-windows-x64.zip`, macOS arm64 `loom-desktop-macos-arm64.tar.gz`). 잡은 `installer` 잡 뒤에 돌아 `LOOM_VERSION`을 데몬과 같은 판(`scripts/version.sh`)으로 넣고, 같은 Release의 `loom-web-*` 파일을 받아 `loom`(`.exe`)으로 이름을 바꿔 `loom-desktop` 옆에 묶는다. exe는 자기 옆의 `loom`을 띄우므로 한 폴더에 풀면 판이 맞는다. macOS는 `.app` 없이 폴더째 묶는다: `desktop/`에 Info.plist·아이콘이 없고, Tauri 앱도 데몬을 주 실행 파일 옆(`Contents/MacOS`)에 두는 같은 배치다. 검증용 빌드와 실행 파일 내려받기는 `.github/workflows/desktop.yml`(두 OS)이 한다.
 
 - Android 앱(APK, `android/`)도 서명본은 `release.yml`만 만든다. 호스트에서 빌드하려면 JDK 17, Android SDK(`ANDROID_HOME`), Gradle 9.7.1을 깔고 `memcap -m 8G gradle -p android lintDebug testDebugUnitTest assembleDebug`를 돌린다. 저장소에는 이 도구가 없다.
 

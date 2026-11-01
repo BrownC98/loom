@@ -3,6 +3,7 @@
 mod canvas;
 mod daemon;
 mod link;
+mod store;
 mod strings;
 mod theme;
 mod views;
@@ -10,17 +11,14 @@ mod vt;
 #[cfg(windows)]
 mod windows;
 
-use gpui::{App, AppContext, WindowAppearance, WindowOptions};
+use gpui::{App, AppContext, WindowOptions};
 
 fn main() {
     let started = daemon::start();
     gpui_platform::application().run(move |cx: &mut App| {
-        let settings = api::settings::SettingsView::default();
-        let system_dark = matches!(cx.window_appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark);
-        cx.set_global(theme::Theme::resolve(&settings, system_dark));
-        cx.set_global(strings::Lang::resolve(settings.language, &sys_locale::get_locale().unwrap_or_default()));
         cx.open_window(WindowOptions::default(), |window, cx| {
-            cx.new(|cx| canvas::view::CanvasView::new(started, window, cx))
+            let store = cx.new(|cx| store::Store::new(started, window, cx));
+            cx.new(|cx| canvas::view::CanvasView::new(store, window, cx))
         })
         .expect("could not open the window");
         cx.activate(true);

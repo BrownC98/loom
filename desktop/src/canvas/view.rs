@@ -4,25 +4,24 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Bounds, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    App, Bounds, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, PinchEvent, Pixels, Point, Render, ScrollEvent,
     Styled, Window, canvas, div, point, px, rgb, size,
 };
 
+use api::graph::CardView;
 use api::graph::pty::Pace;
-use api::graph::{CardView, NodeState};
 
 use super::camera::Camera;
 use super::frames::Probe;
 use super::grid;
 use super::layout::{Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
-use crate::link::Snapshot;
-use crate::link::{self, Graph, LinkState};
+use crate::link;
+use crate::store::Store;
 use crate::views::card;
 use crate::views::terminal::{self, TerminalView};
 
-pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 const WHEEL_LINE: f32 = 25.0;
 const WHEEL_RATE: f32 = 0.002;
 const WHEEL_PINCH_BOOST: f32 = 10.0;
@@ -42,14 +41,12 @@ struct Resizing {
 }
 
 pub struct CanvasView {
-    base: Option<String>,
-    status: String,
-    snapshot: Option<Snapshot>,
+    store: Entity<Store>,
+    seen: u64,
     scene: Scene,
     resized: HashMap<u32, Size>,
-    selected: Option<u32>,
     live: HashMap<u32, Live>,
-    link: LinkState,
+    focused: Option<u32>,
     resizing: Option<Resizing>,
     fit_pending: bool,
     camera: Camera,
@@ -72,33 +69,13 @@ fn bounds_of(rect: Rect) -> Bounds<f32> {
 }
 
 impl CanvasView {
-    pub fn new(
-        started: Result<String, String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mode = std::env::var("LOOM_DESKTOP_FRAMES").ok();
-        let (base, status) = match started {
-            Ok(base) => {
-                let (graph, inbox) = async_channel::unbounded();
-                let status = link::watch(&base, graph)
-                    .err()
-                    .unwrap_or_else(|| base.clone());
-                cx.spawn_in(window, async move |this, cx| {
-                    while let Ok(event) = inbox.recv().await {
-                        if this
-                            .update_in(cx, |view, _, cx| view.apply(event, cx))
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                })
-                .detach();
-                (Some(base), status)
-            }
-            Err(error) => (None, error),
-        };
+        cx.observe(&store, |this, _, cx| {
+            this.sync(cx);
+            cx.notify();
+        })
+        .detach();
         cx.observe_window_activation(window, |_, window, _| {
             link::pace(if window.is_window_active() {
                 Pace::Front
@@ -108,14 +85,12 @@ impl CanvasView {
         })
         .detach();
         Self {
-            base,
-            status,
-            snapshot: None,
+            store,
+            seen: 0,
             scene: Scene::default(),
             resized: HashMap::new(),
-            selected: None,
             live: HashMap::new(),
-            link: LinkState::Reconnecting,
+            focused: None,
             resizing: None,
             fit_pending: true,
             camera: Camera::HOME,
@@ -127,56 +102,31 @@ impl CanvasView {
         }
     }
 
-    fn apply(&mut self, event: Graph, cx: &mut Context<Self>) {
-        match event {
-            Graph::Loaded(snapshot) => {
-                self.snapshot = Some(*snapshot);
-                self.rebuild();
-                let present = |id: u32| self.scene.cards.iter().any(|c| c.node == id);
-                if self.selected.is_none_or(|id| !present(id)) {
-                    let wanted = std::env::var(NODE_ENV)
-                        .ok()
-                        .and_then(|id| id.parse().ok())
-                        .filter(|&id| present(id));
-                    let running = self.scene.cards.iter().map(|c| c.node).find(|&id| {
-                        self.snapshot.as_ref().is_some_and(|s| {
-                            s.nodes
-                                .iter()
-                                .any(|n| n.id.0 == id && n.state == NodeState::Running)
-                        })
-                    });
-                    self.selected = wanted
-                        .or(running)
-                        .or(self.scene.cards.first().map(|c| c.node));
-                }
-            }
-            Graph::Link(state) => self.link = state,
-            Graph::Failed(error) => {
-                self.status = if error.is_empty() {
-                    "connection closed".to_owned()
-                } else {
-                    error
-                }
-            }
+    fn sync(&mut self, cx: &App) {
+        let revision = self.store.read(cx).revision();
+        if revision != self.seen {
+            self.seen = revision;
+            self.rebuild(cx);
         }
-        cx.notify();
     }
 
-    fn rebuild(&mut self) {
-        if let Some(snapshot) = &self.snapshot {
+    fn rebuild(&mut self, cx: &App) {
+        if let Some(snapshot) = self.store.read(cx).snapshot() {
             self.scene = scene::build(snapshot, &self.resized);
         }
     }
 
     fn select(&mut self, node: u32, cx: &mut Context<Self>) {
-        self.selected = Some(node);
-        cx.notify();
+        self.focused = None;
+        self.store.update(cx, |store, cx| store.select(node, cx));
     }
 
     fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(base), area) = (self.base.clone(), self.area.get().size) else {
+        let store = self.store.read(cx);
+        let (Some(base), selected) = (store.base().map(str::to_owned), store.selected()) else {
             return;
         };
+        let area = self.area.get().size;
         if area.width <= px(0.0) {
             return;
         }
@@ -185,14 +135,13 @@ impl CanvasView {
             point(-area.width, -area.height),
             size(area.width * 3.0, area.height * 3.0),
         );
-        let mut near: Vec<u32> = self
+        let near: Vec<u32> = self
             .scene
             .cards
             .iter()
             .filter(|c| camera.screen_box(bounds_of(c.rect)).intersects(&reach))
             .map(|c| c.node)
             .collect();
-        near.sort_by_key(|&id| self.selected == Some(id));
         let now = Instant::now();
         for id in near.iter().copied() {
             let entry = self.live.entry(id).or_insert_with(|| Live {
@@ -202,14 +151,27 @@ impl CanvasView {
             entry.hidden = None;
         }
         let mut waiting = false;
+        let mut focused = self.focused;
         self.live.retain(|id, live| {
             if near.contains(id) {
                 return true;
             }
             let since = *live.hidden.get_or_insert(now);
             waiting = true;
-            now - since < HIDDEN_KEEP
+            let keep = now - since < HIDDEN_KEEP;
+            if !keep && focused == Some(*id) {
+                focused = None;
+            }
+            keep
         });
+        self.focused = focused;
+        if let Some(id) = selected
+            && self.focused != Some(id)
+            && let Some(live) = self.live.get(&id)
+        {
+            live.view.update(cx, |view, cx| view.focus(window, cx));
+            self.focused = Some(id);
+        }
         if waiting {
             cx.spawn_in(window, async move |this, cx| {
                 cx.background_executor().timer(HIDDEN_KEEP).await;
@@ -295,7 +257,7 @@ impl CanvasView {
                     .max(MIN_CARD.height),
             };
             self.resized.insert(resizing.node, next);
-            self.rebuild();
+            self.rebuild(cx);
             cx.notify();
             return;
         }
@@ -336,7 +298,9 @@ impl Render for CanvasView {
             point(px(0.0), px(0.0)),
             point(self.area.get().size.width, self.area.get().size.height),
         );
-        let selected = self.selected;
+        let store = self.store.read(cx);
+        let selected = store.selected();
+        let snapshot = store.snapshot();
         let repos = self.scene.repos.iter().map(|f| {
             card::frame(
                 &f.label,
@@ -354,8 +318,7 @@ impl Render for CanvasView {
             )
         });
         let cards = self.scene.cards.iter().filter_map(|placed| {
-            let snapshot = self.snapshot.as_ref()?;
-            let node = snapshot.nodes.iter().find(|n| n.id.0 == placed.node)?;
+            let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
             let screen = camera.screen_box(bounds_of(placed.rect));
             let body = self
@@ -399,12 +362,12 @@ impl Render for CanvasView {
             });
             Some(
                 card::card(node, screen, camera.zoom, selected == Some(id), body)
+                    .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                        this.select(id, cx);
+                    }))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                            this.select(id, cx);
-                            cx.stop_propagation();
-                        }),
+                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
                     )
                     .children(handle),
             )
@@ -449,8 +412,8 @@ impl Render for CanvasView {
                     .text_color(rgb(0x8b9099))
                     .child(format!(
                         "{}  {}  {}%  ({:.0}, {:.0})",
-                        self.status,
-                        self.base.as_ref().map_or("", |_| self.link.label()),
+                        store.status(),
+                        store.base().map_or("", |_| store.link().label()),
                         (camera.zoom * 100.0).round(),
                         camera.x,
                         camera.y

@@ -12,6 +12,7 @@ use api::canvas::{CardSize, Layout};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
 use api::repos::RepoView;
+use api::settings::SettingsView;
 use serde::Serialize;
 
 const HTTP: &str = "http://";
@@ -149,6 +150,11 @@ pub struct Snapshot {
     pub sizes: Vec<CardSize>,
 }
 
+pub struct Loaded {
+    pub snapshot: Snapshot,
+    pub settings: SettingsView,
+}
+
 fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
     serde_json::from_str(&get(base, path)?).map_err(|e| format!("GET {path}: {e}"))
 }
@@ -157,17 +163,21 @@ fn frame(request: &impl Serialize) -> Message {
     Message::text(serde_json::to_string(request).unwrap_or_default())
 }
 
-pub fn load(base: &str) -> Result<Snapshot, String> {
-    Ok(Snapshot {
-        nodes: read(base, "/api/nodes")?,
-        repos: read(base, "/api/repos")?,
-        layout: read(base, "/api/spots")?,
-        sizes: read(base, "/api/sizes")?,
+pub fn load(base: &str) -> Result<Loaded, String> {
+    Ok(Loaded {
+        snapshot: Snapshot {
+            nodes: read(base, "/api/nodes")?,
+            repos: read(base, "/api/repos")?,
+            layout: read(base, "/api/spots")?,
+            sizes: read(base, "/api/sizes")?,
+        },
+        settings: read(base, "/api/settings")?,
     })
 }
 
 pub enum Graph {
-    Loaded(Box<Snapshot>),
+    Loaded(Box<Loaded>),
+    Feed(Box<GraphEvent>),
     Failed(String),
     Link(LinkState),
 }
@@ -183,7 +193,7 @@ pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), Stri
             while wanted.recv().is_ok() {
                 while wanted.try_recv().is_ok() {}
                 let event = match load(&base) {
-                    Ok(snapshot) => Graph::Loaded(Box::new(snapshot)),
+                    Ok(loaded) => Graph::Loaded(Box::new(loaded)),
                     Err(error) => Graph::Failed(error),
                 };
                 if sink.send_blocking(event).is_err() {
@@ -376,7 +386,7 @@ impl Conn {
             return Some(Fate::Down);
         }
         match &mut self.target {
-            Target::Events { reload, .. } => {
+            Target::Events { reload, graph } => {
                 let Message::Text(text) = message else {
                     return None;
                 };
@@ -388,7 +398,11 @@ impl Conn {
                     Ok(GraphEvent::Nodes | GraphEvent::ViewChanged) => {
                         reload.send(()).err().map(|_| Fate::Dead)
                     }
-                    _ => None,
+                    Ok(event) => graph
+                        .send_blocking(Graph::Feed(Box::new(event)))
+                        .err()
+                        .map(|_| Fate::Dead),
+                    Err(_) => None,
                 }
             }
             Target::Pty { backlog, .. } => {

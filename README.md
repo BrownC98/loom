@@ -30,7 +30,7 @@ Get the files from the [latest release](https://github.com/BrownC98/loom/release
 Run `loom_<version>_x64-setup.exe`. The loom window opens.
 
 - loom also works in a browser: **loom (browser)** in the Start menu opens the same loom in your default browser.
-- Without the app (browser only): run this line in PowerShell. It puts a **loom** icon on the desktop and opens loom in the browser.
+- Without the setup program: run this line in PowerShell. It puts `loom-desktop.exe` (the native loom window) and `loom.exe` of the same release in `%LOCALAPPDATA%\loom\bin`, puts a **loom** icon on the desktop that opens the window, and opens it. Run it again to update. If the release has no desktop program (older releases), it installs the browser version, and the icon opens loom in the browser.
 
   ```powershell
   irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex
@@ -40,7 +40,7 @@ Run `loom_<version>_x64-setup.exe`. The loom window opens.
 
 ### macOS (Apple Silicon)
 
-Run this line in Terminal. It downloads the loom app, puts it in the Applications folder and opens it. Run it again to update.
+Run this line in Terminal. It downloads the loom app, puts it in the Applications folder and opens it. Run it again to update. If the release has the native desktop program, the line also puts `loom-desktop.app` (the native loom window with its own `loom`, same release) in the Applications folder and opens that one.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
@@ -62,7 +62,7 @@ It puts the `loom` command in `~/loom/bin`, adds **loom** to the app menu and th
 
 ### WSL
 
-Run the Linux line above in a WSL terminal. In WSL, it installs loom for Windows (browser version) and puts a **loom** icon on the Windows desktop. The `loom` command in WSL calls that Windows loom.
+Run the Linux line above in a WSL terminal. In WSL, it runs the Windows line above: it installs loom for Windows (the native window, or the browser version for an older release) and puts a **loom** icon on the Windows desktop. The `loom` command in WSL calls that Windows loom.
 
 One Windows loom runs agents on Windows and in WSL. To work on a repository in WSL, add its folder from `\\wsl.localhost\<distro>\…`. The nodes of that repository run in that distro, with the agent CLIs and the git of that distro. The Windows app does the same.
 

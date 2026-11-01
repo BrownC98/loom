@@ -31,10 +31,12 @@ fn apply_settings(settings: &SettingsView, cx: &mut App) {
         WindowAppearance::Dark | WindowAppearance::VibrantDark
     );
     cx.set_global(theme::Theme::resolve(settings, dark));
-    cx.set_global(strings::Lang::resolve(
+    let lang = strings::Lang::resolve(
         settings.language,
         &sys_locale::get_locale().unwrap_or_default(),
-    ));
+    );
+    lang.remember();
+    cx.set_global(lang);
 }
 
 impl Store {

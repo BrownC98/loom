@@ -15,6 +15,8 @@ use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
 
+use crate::problem;
+
 const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
@@ -122,17 +124,31 @@ fn host(base: &str) -> Result<&str, String> {
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(HTTP_LIMIT))
+        .http_status_as_error(false)
         .build()
         .into()
 }
 
+fn answer(
+    sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let mut response = sent.map_err(|e| e.to_string())?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    Err(problem::text(&body).unwrap_or_else(|| problem::status(status.as_u16())))
+}
+
 pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
-    agent()
-        .put(format!("{base}/api/settings"))
-        .header("content-type", "application/json")
-        .send(patch.to_string())
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    answer(
+        agent()
+            .put(format!("{base}/api/settings"))
+            .header("content-type", "application/json")
+            .send(patch.to_string()),
+    )
+    .map(|_| ())
 }
 
 pub fn post<T: serde::de::DeserializeOwned>(
@@ -141,13 +157,12 @@ pub fn post<T: serde::de::DeserializeOwned>(
     body: Option<String>,
 ) -> Result<T, String> {
     let request = agent().post(format!("{base}{path}"));
-    let response = match body {
+    let response = answer(match body {
         Some(body) => request
             .header("content-type", "application/json")
             .send(body),
         None => request.send_empty(),
-    }
-    .map_err(|e| e.to_string())?
+    })?
     .body_mut()
     .read_to_string()
     .map_err(|e| e.to_string())?;
@@ -155,28 +170,21 @@ pub fn post<T: serde::de::DeserializeOwned>(
 }
 
 pub fn delete(base: &str, path: &str) -> Result<(), String> {
-    agent()
-        .delete(format!("{base}{path}"))
-        .call()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    answer(agent().delete(format!("{base}{path}")).call()).map(|_| ())
 }
 
 pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
     let url = format!("{base}/api/nodes/{node}/bookmark");
-    if on {
-        agent().put(url).send_empty().map(|_| ())
+    answer(if on {
+        agent().put(url).send_empty()
     } else {
-        agent().delete(url).call().map(|_| ())
-    }
-    .map_err(|e| e.to_string())
+        agent().delete(url).call()
+    })
+    .map(|_| ())
 }
 
 fn get(base: &str, path: &str) -> Result<String, String> {
-    agent()
-        .get(format!("{base}{path}"))
-        .call()
-        .map_err(|e| e.to_string())?
+    answer(agent().get(format!("{base}{path}")).call())?
         .body_mut()
         .read_to_string()
         .map_err(|e| e.to_string())

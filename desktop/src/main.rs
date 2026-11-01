@@ -8,6 +8,7 @@ mod link;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod problem;
 mod store;
 mod strings;
 mod theme;

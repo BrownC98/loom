@@ -85,6 +85,7 @@ pub struct CanvasView {
     menu: Option<ops::Opened>,
     anchors: Anchors,
     renaming: Option<ops::Renaming>,
+    edits: u64,
     overlay: FocusHandle,
     pending: Option<Target>,
     pub(super) camera: Camera,
@@ -164,6 +165,7 @@ impl CanvasView {
             menu: None,
             anchors: Anchors::default(),
             renaming: None,
+            edits: 0,
             overlay: cx.focus_handle(),
             pending: None,
             camera: Camera::HOME,
@@ -377,8 +379,7 @@ impl CanvasView {
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let canvas_focused = self.focus.is_focused(window);
-        if self.menu.is_some() && event.keystroke.key == "escape" {
-            self.close_menu(cx);
+        if self.menu.is_some() && self.menu_key(&event.keystroke.key, window, cx) {
             cx.stop_propagation();
             return;
         }

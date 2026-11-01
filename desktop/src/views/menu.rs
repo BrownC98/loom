@@ -32,8 +32,15 @@ pub enum Entry {
     Rule,
 }
 
-pub fn menu(id: impl Into<ElementId>, entries: Vec<Entry>, at: Point<Pixels>, c: &Colors) -> Div {
+pub fn menu(
+    id: impl Into<ElementId>,
+    entries: Vec<Entry>,
+    at: Point<Pixels>,
+    focus: usize,
+    c: &Colors,
+) -> Div {
     let (surface, hover, ink, ink_3, err) = (c.surface, c.surface_hover, c.ink, c.ink_3, c.err);
+    let mut live = 0usize;
     let rows = entries
         .into_iter()
         .enumerate()
@@ -54,6 +61,10 @@ pub fn menu(id: impl Into<ElementId>, entries: Vec<Entry>, at: Point<Pixels>, c:
                 };
                 let run = item.run;
                 let disabled = item.disabled;
+                let focused = !disabled && live == focus;
+                if !disabled {
+                    live += 1;
+                }
                 div()
                     .id(("menu-item", i))
                     .flex()
@@ -62,6 +73,7 @@ pub fn menu(id: impl Into<ElementId>, entries: Vec<Entry>, at: Point<Pixels>, c:
                     .h(px(ROW))
                     .px(px(8.0))
                     .rounded(px(ROW_ROUND))
+                    .when(focused, |row| row.bg(hover))
                     .text_size(px(TEXT))
                     .text_color(color)
                     .when(!disabled, |row| {

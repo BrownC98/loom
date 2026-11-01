@@ -23,6 +23,7 @@ const ROUND: f32 = 10.0;
 const BUTTON: f32 = 30.0;
 const SELECT_ROW: f32 = 28.0;
 const CHANGES_MAX: f32 = 160.0;
+const LIST_MAX: f32 = 200.0;
 
 pub struct Closed;
 
@@ -163,6 +164,7 @@ pub struct NewWorktreeView {
     branch: Entity<Field>,
     base: usize,
     open: bool,
+    scroll: Bar,
     error: Option<String>,
     busy: bool,
     _sub: Subscription,
@@ -209,6 +211,7 @@ impl NewWorktreeView {
             branch,
             base,
             open: false,
+            scroll: Bar::new(),
             error: None,
             busy: false,
             _sub: sub,
@@ -301,17 +304,18 @@ impl Render for NewWorktreeView {
                 }),
             );
         let list = self.open.then(|| {
-            div()
+            let rows = div()
+                .id("worktree-base-list")
+                .max_h(px(LIST_MAX))
+                .p(px(4.0))
+                .overflow_y_scroll()
+                .track_scroll(self.scroll.handle())
                 .flex()
                 .flex_col()
-                .p(px(4.0))
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(c.line_strong)
-                .bg(c.bg)
                 .children(self.repo.branches.iter().enumerate().map(|(i, name)| {
                     div()
                         .id(("worktree-base-row", i))
+                        .flex_none()
                         .h(px(SELECT_ROW))
                         .px(px(8.0))
                         .flex()
@@ -330,7 +334,14 @@ impl Render for NewWorktreeView {
                             }),
                         )
                         .child(name.clone())
-                }))
+                }));
+            self.scroll
+                .on_overflow(rows)
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(c.line_strong)
+                .bg(c.bg)
+                .overflow_hidden()
         });
         let (create, cancel) = (cx.entity(), cx.entity());
         shell(&c, NEW_WIDTH)

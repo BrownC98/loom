@@ -12,7 +12,6 @@ use gpui::{
     Styled, Subscription, Window, canvas, div, point, px,
 };
 
-use super::inputs::Inputs;
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
@@ -21,6 +20,7 @@ use crate::views::dock::entry;
 use crate::views::dock::questions::{Group, Visit, groups_of, kind_label, wait_list};
 use crate::views::dock::ui::{self, GAP};
 use crate::views::icons::{Lucide, icon};
+use crate::views::inputs::Inputs;
 use crate::views::pictures::Shelf;
 use crate::views::scrollbar::Bar;
 use crate::views::tooltip::tip;

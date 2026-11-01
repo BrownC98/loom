@@ -3,7 +3,7 @@ use gpui::{
     Styled, point, px, transparent_black,
 };
 
-use crate::views::dock::ui::{self, colors};
+use crate::views::ui::{self, colors};
 
 const RING: f32 = 2.0;
 

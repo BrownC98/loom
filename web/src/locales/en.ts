@@ -205,13 +205,6 @@ const en = {
     noDevices: 'No connected devices.',
     deviceMeta: 'Connected {{paired}} · used {{seen}}',
     disconnect: 'Disconnect',
-    agoNow: 'now',
-    agoMinute: '{{n}} min ago',
-    agoHour: '{{n}} hr ago',
-    agoDay: '{{n}} d ago',
-    agoWeek: '{{n}} wk ago',
-    agoMonth: '{{n}} mo ago',
-    agoYear: '{{n}} yr ago',
   },
   newNode: {
     profile: 'Profile',

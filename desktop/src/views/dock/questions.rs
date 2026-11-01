@@ -14,8 +14,8 @@ use super::entry;
 use super::ui::{self, GAP};
 use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
-use crate::settings::widgets::{Label, segmented_wide};
 use crate::strings::Str;
+use crate::views::widgets::{Label, segmented_wide};
 
 pub fn kind_label(kind: WaitKind) -> Str {
     match kind {

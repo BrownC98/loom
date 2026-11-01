@@ -12,7 +12,6 @@ use gpui::{
     Subscription, Window, canvas, div, point, px,
 };
 
-use super::inputs::Inputs;
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
@@ -21,6 +20,7 @@ use crate::strings::Str;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
+use crate::views::inputs::Inputs;
 use crate::views::pictures::{self, Pictures, PicturesEvent};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;

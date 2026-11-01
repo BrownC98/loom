@@ -32,7 +32,6 @@ use super::popover;
 use super::repos::GroupKind;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
-use crate::float::inputs::Inputs;
 use crate::link;
 use crate::store::{NodeMenu, Show, Store, Target, ZoomTo};
 use crate::strings::{Lang, Str};
@@ -40,6 +39,7 @@ use crate::theme::{Colors, Theme};
 use crate::views::anchor::Anchors;
 use crate::views::card;
 use crate::views::expanded;
+use crate::views::inputs::Inputs;
 use crate::views::notice;
 use crate::views::terminal::{self, TerminalView};
 

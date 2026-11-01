@@ -17,9 +17,9 @@ use super::icons::Lucide;
 use super::scrollbar::Bar;
 use super::terminal::TerminalView;
 use crate::canvas::repos::chosen_repo;
-use crate::float::inputs::Inputs;
 use crate::store::Store;
 use crate::strings::Str;
+use crate::views::inputs::Inputs;
 use crate::views::pictures::Shelf;
 
 pub(crate) mod answers;

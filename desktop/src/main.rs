@@ -39,7 +39,7 @@ fn main() {
             cx.open_window(platform::window_options(cx), |window, cx| {
                 let store = cx.new(|cx| store::Store::new(started, window, cx));
                 settings::notify::watch(&store, window, cx);
-                let inputs = cx.new(|_| float::inputs::Inputs::default());
+                let inputs = cx.new(|_| views::inputs::Inputs::default());
                 let shelf = cx.new(|_| views::pictures::Shelf::default());
                 let canvas = cx.new(|cx| {
                     canvas::view::CanvasView::new(store.clone(), inputs.clone(), window, cx)

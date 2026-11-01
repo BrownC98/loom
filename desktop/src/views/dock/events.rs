@@ -31,6 +31,7 @@ pub struct Events {
     records: Option<Vec<EventRecord>>,
     agents: Vec<AgentView>,
     newest: Option<u32>,
+    held: Option<Vec<EventRecord>>,
     ticket: u64,
     error: Option<String>,
     hidden: Vec<Category>,
@@ -47,6 +48,7 @@ impl Events {
             records: None,
             agents: Vec::new(),
             newest: None,
+            held: None,
             ticket: 0,
             error: None,
             hidden: Vec::new(),
@@ -74,6 +76,7 @@ impl Dock {
         self.events.ticket += 1;
         let ticket = self.events.ticket;
         self.events.newest = None;
+        self.events.held = Some(Vec::new());
         let task = self.store.update(cx, |store, cx| store.event_console(cx));
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -88,8 +91,17 @@ impl Dock {
                         dock.events.agents = agents;
                         dock.events.error = None;
                         dock.refilter(cx);
+                        for record in dock.events.held.take().into_iter().flatten() {
+                            if dock.events.newest.is_none() {
+                                break;
+                            }
+                            dock.append(record, cx);
+                        }
                     }
-                    Err(error) => dock.events.error = Some(error),
+                    Err(error) => {
+                        dock.events.held = None;
+                        dock.events.error = Some(error);
+                    }
                 }
                 cx.notify();
             });
@@ -101,6 +113,15 @@ impl Dock {
         let GraphEvent::Recorded { record } = event else {
             return;
         };
+        let record: EventRecord = (**record).clone();
+        if let Some(held) = &mut self.events.held {
+            held.push(record);
+            return;
+        }
+        self.append(record, cx);
+    }
+
+    fn append(&mut self, record: EventRecord, cx: &mut Context<Self>) {
         let Some(newest) = self.events.newest else {
             return;
         };
@@ -116,7 +137,6 @@ impl Dock {
             return;
         }
         let events = &mut self.events;
-        let record: EventRecord = (**record).clone();
         let passes = events.passes(&record);
         let Some(records) = &mut events.records else {
             return;

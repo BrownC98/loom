@@ -3,10 +3,10 @@ use gpui::{App, Keystroke};
 use super::layout::Direction;
 use super::scene::Scene;
 
-pub fn direction_of(keystroke: &Keystroke, terminal_focused: bool, cx: &App) -> Option<Direction> {
+pub fn direction_of(keystroke: &Keystroke, canvas_focused: bool, cx: &App) -> Option<Direction> {
     let modifiers = keystroke.modifiers;
     let chord = modifiers.secondary(cx) && modifiers.shift && !modifiers.alt;
-    let plain = !terminal_focused && !modifiers.modified();
+    let plain = canvas_focused && !modifiers.modified();
     if !chord && !plain {
         return None;
     }

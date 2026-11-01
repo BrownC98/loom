@@ -39,7 +39,7 @@ linux_pid=$!
 (windows) >"$logs/windows" 2>&1 &
 windows_pid=$!
 groups="linux windows"
-if [ -n "$(git diff --name-only origin/main...HEAD -- desktop api fixtures web/src rust-toolchain.toml)" ]; then
+if [ -n "$(git diff --name-only origin/main...HEAD -- desktop api fixtures web/src web/package-lock.json rust-toolchain.toml)" ]; then
   (desktop) >"$logs/desktop" 2>&1 &
   desktop_pid=$!
   groups="$groups desktop"

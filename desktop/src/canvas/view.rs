@@ -331,8 +331,8 @@ impl CanvasView {
     }
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
-        let plain = self.focus.is_focused(window);
-        let Some(direction) = keys::direction_of(&event.keystroke, plain, cx) else {
+        let canvas_focused = self.focus.is_focused(window);
+        let Some(direction) = keys::direction_of(&event.keystroke, canvas_focused, cx) else {
             return;
         };
         cx.stop_propagation();

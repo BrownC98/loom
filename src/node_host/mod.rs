@@ -593,10 +593,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         true
     }
 
-    pub fn serial(&self, id: K) -> Option<u64> {
-        self.pty(id).map(|pty| pty.serial)
-    }
-
     pub fn pid(&self, id: K) -> Option<u32> {
         *self.pty(id)?.pid.lock().unwrap()
     }

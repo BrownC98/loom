@@ -469,7 +469,7 @@ async fn login_pty(
         via,
         app,
         |app| &app.logins.host,
-        |_, _, _| Typed::Write,
+        |_, _, _, _| Typed::Write,
         LoginId(id),
     )
 }

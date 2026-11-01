@@ -179,7 +179,7 @@ pub(super) enum Typed {
     Kept,
 }
 
-fn live_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) -> Typed {
+fn live_typed(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>, bytes: &[u8]) -> Typed {
     let asleep = app
         .graph
         .process(id)
@@ -189,7 +189,7 @@ fn live_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) -> Typed {
         return Typed::Write;
     }
     if has_text(bytes) {
-        app.sleeps.keep(id, bytes, app.host.serial(id));
+        app.sleeps.keep(id, bytes, pty.serial());
     }
     if asleep {
         app.sleeps.knocked(id);
@@ -369,7 +369,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &[u8]) -> Typed,
+    typed: fn(&Arc<App>, K, &node_host::Keys<'_>, &[u8]) -> Typed,
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -417,7 +417,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     attached: node_host::Attached,
     app: &Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &[u8]) -> Typed,
+    typed: fn(&Arc<App>, K, &node_host::Keys<'_>, &[u8]) -> Typed,
     id: K,
     borrower: node_host::Borrower,
 ) {
@@ -465,8 +465,8 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                     }
                 }
                 Heard::Frame(Some(Ok(Message::Binary(bytes)))) => {
-                    let _ = host(app).write_if(id, |_| {
-                        if node_host::typed(&bytes) && matches!(typed(app, id, &bytes), Typed::Kept) {
+                    let _ = host(app).write_if(id, |keys| {
+                        if node_host::typed(&bytes) && matches!(typed(app, id, keys, &bytes), Typed::Kept) {
                             return Ok(Vec::new());
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())

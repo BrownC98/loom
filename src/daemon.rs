@@ -63,7 +63,7 @@ use tokio::sync::broadcast::error::RecvError;
 use ts_rs::TS;
 
 use crate::accounts::{AccountId, Site};
-use crate::commit_graph::{self, Commit};
+use crate::commit_graph;
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
@@ -89,7 +89,7 @@ use crate::task;
 use crate::tunnel;
 use crate::update::{UpdateView, Updater};
 use crate::user_doc;
-use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
+use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos};
 use crate::wsl;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,

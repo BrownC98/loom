@@ -8,7 +8,7 @@ use gpui::{
 use crate::link::{self, Event, Pty};
 use crate::vt::{self, Key, Screen, Shape, Vt};
 
-const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
+pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
 #[cfg(target_os = "linux")]
 const FONT_FAMILY: &str = "DejaVu Sans Mono";

@@ -2764,6 +2764,7 @@ dependencies = [
  "async-channel",
  "gpui",
  "gpui_platform",
+ "serde",
  "serde_json",
  "tungstenite",
  "ureq",

@@ -239,7 +239,7 @@ async fn place_usage(
     State(app): State<Arc<App>>,
     Path(profile): Path<Profile>,
 ) -> Json<Vec<PlaceUsage>> {
-    let Some(meter) = profile.meter() else {
+    let Some(meter) = profile::meter(profile) else {
         return Json(Vec::new());
     };
     let sites: Vec<_> = app.sites().await.into_iter().map(Arc::new).collect();

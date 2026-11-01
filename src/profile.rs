@@ -23,6 +23,9 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use api::profile::Profile;
+pub use api::start::Start;
+
 use crate::accounts::Cli;
 use crate::distro::Host;
 use crate::protocol::{
@@ -38,33 +41,6 @@ use adapter::{Adapter, InputSeen, LaunchAt, Logins, Meter, Port, Started};
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
-
-/// 메시지 연동(훅·app-server·서버 API)이 있는 에이전트. 근거: docs/design/에이전트-실행.md.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum Profile {
-    Claude,
-    #[serde(rename = "openclaude")]
-    OpenClaude,
-    QwenCode,
-    Codex,
-    Copilot,
-    Trae,
-    #[serde(rename = "opencode2")]
-    OpenCode2,
-    #[serde(rename = "mimo-code")]
-    MiMoCode,
-    Kilo,
-    Cursor,
-    Pi,
-    Omp,
-    Dsh,
-    Antigravity,
-    Crush,
-    Hermes,
-    Vibe,
-}
 
 #[derive(Debug, PartialEq)]
 pub enum Take {
@@ -252,44 +228,42 @@ pub struct Accounted {
     pub meter: &'static dyn Meter,
 }
 
-impl Profile {
-    pub fn provider(self) -> Option<Provider> {
-        self.accounts().map(|a| a.cli.provider)
-    }
+pub fn provider(profile: Profile) -> Option<Provider> {
+    accounts(profile).map(|a| a.cli.provider)
+}
 
-    pub fn accounts(self) -> Option<Accounted> {
-        match adapter(self).facts().logins {
-            Logins::Many(cli, meter) => Some(Accounted {
-                profile: self,
-                cli,
-                meter,
-            }),
-            Logins::One(_) | Logins::None => None,
-        }
+pub fn accounts(profile: Profile) -> Option<Accounted> {
+    match adapter(profile).facts().logins {
+        Logins::Many(cli, meter) => Some(Accounted {
+            profile,
+            cli,
+            meter,
+        }),
+        Logins::One(_) | Logins::None => None,
     }
+}
 
-    pub fn meter(self) -> Option<&'static dyn Meter> {
-        match adapter(self).facts().logins {
-            Logins::One(meter) | Logins::Many(_, meter) => Some(meter),
-            Logins::None => None,
-        }
+pub fn meter(profile: Profile) -> Option<&'static dyn Meter> {
+    match adapter(profile).facts().logins {
+        Logins::One(meter) | Logins::Many(_, meter) => Some(meter),
+        Logins::None => None,
     }
+}
 
-    pub fn sleeps(self) -> bool {
-        adapter(self).facts().sleeps
-    }
+pub fn sleeps(profile: Profile) -> bool {
+    adapter(profile).facts().sleeps
+}
 
-    pub fn listens_at_start(self) -> bool {
-        adapter(self).facts().listens_at_start
-    }
+pub fn listens_at_start(profile: Profile) -> bool {
+    adapter(profile).facts().listens_at_start
+}
 
-    pub fn idle_holds_input(self) -> bool {
-        adapter(self).idle_holds_input()
-    }
+pub fn idle_holds_input(profile: Profile) -> bool {
+    adapter(profile).idle_holds_input()
+}
 
-    pub fn echoes_brief(self) -> bool {
-        adapter(self).echoes_brief()
-    }
+pub fn echoes_brief(profile: Profile) -> bool {
+    adapter(profile).echoes_brief()
 }
 
 #[derive(Deserialize)]
@@ -394,7 +368,7 @@ pub fn agents(insides: &[&Inside]) -> Vec<AgentView> {
                 label: a.label.clone(),
                 homepage: a.homepage.clone(),
                 profile,
-                provider: profile.provider(),
+                provider: provider(profile),
                 can_bypass: !a.bypass.is_empty(),
                 model_rule: model_rule(Some(profile)),
                 serves: adapter(profile).facts().serves,
@@ -450,7 +424,7 @@ fn profiles() -> impl Iterator<Item = Profile> {
 }
 
 pub fn with_accounts() -> impl Iterator<Item = Accounted> {
-    profiles().filter_map(Profile::accounts)
+    profiles().filter_map(accounts)
 }
 
 pub fn of_provider(provider: Provider) -> Option<Accounted> {
@@ -580,39 +554,10 @@ fn labels_of(rule: ModelRule) -> Vec<String> {
         .collect()
 }
 
-#[derive(Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum Start {
-    /// `brief`가 비어 있으면 빈 세션으로 시작한다. 화면은 `choice`를 보내지 않는다.
-    Agent {
-        agent: AgentId,
-        brief: String,
-        #[serde(default)]
-        #[ts(skip)]
-        choice: ModelChoice,
-        /// 이어 갈 세션(`nodes.session`). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
-        #[serde(skip)]
-        #[ts(skip)]
-        resume: Option<Session>,
-    },
-    /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
-    Command { line: String },
-}
-
-impl Start {
-    pub fn agent(&self) -> Option<AgentId> {
-        match self {
-            Start::Agent { agent, .. } => Some(agent.clone()),
-            Start::Command { .. } => None,
-        }
-    }
-
-    pub fn profile(&self) -> Option<Profile> {
-        match self {
-            Start::Agent { agent, .. } => profile_of(agent),
-            Start::Command { .. } => None,
-        }
+pub fn start_profile(start: &Start) -> Option<Profile> {
+    match start {
+        Start::Agent { agent, .. } => profile_of(agent),
+        Start::Command { .. } => None,
     }
 }
 
@@ -626,6 +571,7 @@ pub struct VersionMismatch {
 
 pub async fn command(
     start: &Start,
+    resume: Option<&Session>,
     at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
     port: Arc<dyn Port>,
@@ -635,8 +581,7 @@ pub async fn command(
             agent,
             brief,
             choice,
-            resume,
-        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off, port).await?,
+        } => agent_command(agent, brief, choice, resume, at, bypass_off, port).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),

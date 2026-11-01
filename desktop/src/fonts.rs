@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use api::settings::TerminalFont;
-use gpui::{App, Font, FontFallbacks, font};
+use gpui::{App, Font, FontFallbacks, FontWeight, Rgba, StyledText, TextRun, font};
 
 pub const UI_FAMILY: &str = "Pretendard";
 pub const TERMINAL_FAMILY: &str = "Jetendard";
@@ -80,4 +80,33 @@ pub fn register(cx: &App) {
         .map(|woff2| Cow::Owned(wuff::decompress_woff2(woff2).expect("bundled fonts")))
         .to_vec();
     cx.text_system().add_fonts(fonts).expect("bundled fonts");
+}
+
+fn latin(ch: char) -> bool {
+    let code = ch as u32;
+    code <= 0x10FF || (0x2000..=0x2BFF).contains(&code)
+}
+
+pub fn latin_mono(text: &str, color: Rgba, weight: FontWeight) -> StyledText {
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut last = true;
+    for ch in text.chars() {
+        let is_latin = latin(ch);
+        match runs.last_mut() {
+            Some(run) if is_latin == last => run.len += ch.len_utf8(),
+            _ => runs.push(TextRun {
+                len: ch.len_utf8(),
+                font: Font {
+                    weight,
+                    ..font(if is_latin { TERMINAL_FAMILY } else { UI_FAMILY })
+                },
+                color: color.into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }),
+        }
+        last = is_latin;
+    }
+    StyledText::new(text.to_owned()).with_runs(runs)
 }

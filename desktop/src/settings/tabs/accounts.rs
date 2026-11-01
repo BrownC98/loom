@@ -354,7 +354,8 @@ fn account_row(
     let mut head = div().flex().flex_wrap().items_center().gap(px(6.0)).child(
         div()
             .font_weight(FontWeight::SEMIBOLD)
-            .text_size(px(TEXT))
+            .text_size(px(14.0))
+            .line_height(px(21.0))
             .child(section.text(&name, cx)),
     );
     if system && account.usage.email.is_some() {
@@ -414,6 +415,7 @@ fn account_row(
             div()
                 .font_family(fonts::TERMINAL_FAMILY)
                 .text_size(px(SMALL))
+                .line_height(px(17.3))
                 .text_color(c.ink_3)
                 .child(meta),
         );
@@ -574,6 +576,7 @@ fn account_row(
     }
 
     let mut line = row()
+        .py(px(10.0))
         .gap(px(16.0))
         .child(main)
         .child(windows)

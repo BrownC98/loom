@@ -22,20 +22,20 @@ use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::dock::ui::say;
+use crate::views::icons::{Lucide, agent_mark, icon};
 use crate::views::tooltip::tip;
 use crate::views::usage::{
     self, ACCOUNTS, AccountsChanged, PROVIDERS, REFRESH, Switching, account_name, active_index,
     provider_label,
 };
-use marks::{Brand, mark, refresh_glyph};
 
 const CURSOR: &str = "/api/usage/cursor";
 const EVENTS: &str = "/api/events/log";
 const NAME_W: f32 = 220.0;
 const NOTICE_W: f32 = 520.0;
 const METER_W: f32 = 36.0;
+const MARK: f32 = 14.0;
 
-mod marks;
 mod popover;
 
 pub struct Usage {
@@ -483,8 +483,37 @@ fn segment(name: String, limits: &Limits, c: &Colors, cx: &App) -> Vec<Div> {
     parts
 }
 
+fn provider_mark(provider: Provider, c: &Colors) -> AnyElement {
+    let (id, label) = match provider {
+        Provider::Claude => ("claude", "Claude"),
+        Provider::Codex => ("codex", "Codex"),
+    };
+    agent_mark(Some(id), label, MARK, c.ink_2)
+}
+
+fn cursor_mark(c: &Colors) -> AnyElement {
+    agent_mark(Some("cursor"), "Cursor", MARK, c.ink_2)
+}
+
+fn chevron(up: bool, c: &Colors) -> gpui::Svg {
+    icon(
+        if up {
+            Lucide::ChevronUp
+        } else {
+            Lucide::ChevronDown
+        },
+        MARK,
+        c.ink_3,
+    )
+}
+
 fn separator(c: &Colors) -> Div {
-    div().w(px(1.0)).h(px(14.0)).flex_none().bg(c.line)
+    div()
+        .w(px(1.0))
+        .h(px(14.0))
+        .mx(px(2.0))
+        .flex_none()
+        .bg(c.line)
 }
 
 impl Render for Usage {
@@ -499,7 +528,7 @@ impl Render for Usage {
             if index > 0 {
                 summary.push(separator(&c).into_any_element());
             }
-            summary.push(mark(Brand::of(provider), &c).into_any_element());
+            summary.push(provider_mark(provider, &c));
             match self.active(provider, place, cx) {
                 None => summary.push(text(say(cx, Str::StatusBarLoading)).into_any_element()),
                 Some(account) => summary.extend(
@@ -516,7 +545,7 @@ impl Render for Usage {
             .find(|entry| entry.distro.as_deref() == place);
         if let Some(entry) = cursor {
             summary.push(separator(&c).into_any_element());
-            summary.push(mark(Brand::Cursor, &c).into_any_element());
+            summary.push(cursor_mark(&c));
             let name = entry
                 .usage
                 .email
@@ -552,12 +581,13 @@ impl Render for Usage {
 
         let refresh = div()
             .id("usage-refresh")
-            .size(px(18.0))
+            .w(px(26.0))
+            .h_full()
             .flex_none()
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(4.0))
+            .rounded(px(6.0))
             .when(self.loading, |style| style.opacity(0.5))
             .hover(move |style| style.bg(c.surface_hover))
             .tooltip(tip(say(cx, Str::StatusBarRefresh).to_owned()))
@@ -566,7 +596,7 @@ impl Render for Usage {
                     this.refresh(cx);
                 }
             }))
-            .child(refresh_glyph(&c));
+            .child(icon(Lucide::RotateCw, MARK, c.ink_2));
 
         let notice = self.latest.as_ref().and_then(|record| {
             let closed = self.store.read(cx).settings().closed_switch_notice;
@@ -605,7 +635,6 @@ impl Render for Usage {
             .min_w_0()
             .flex()
             .items_center()
-            .gap(px(2.0))
             .child(
                 div()
                     .relative()

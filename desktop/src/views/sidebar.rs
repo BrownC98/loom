@@ -71,6 +71,7 @@ pub struct Sidebar {
     tree_scroll: Bar,
     closed: HashSet<Key>,
     cursor: Option<Key>,
+    keyboard: bool,
     reveal: bool,
     seen: Option<u32>,
     at: usize,
@@ -114,6 +115,7 @@ impl Sidebar {
             tree_scroll: Bar::new(),
             closed: HashSet::new(),
             cursor: None,
+            keyboard: false,
             reveal: false,
             seen: None,
             at: 0,
@@ -208,6 +210,7 @@ impl Sidebar {
 
     fn activate(&mut self, key: Key, cx: &mut Context<Self>) {
         self.refusal = None;
+        self.keyboard = false;
         self.cursor = Some(key.clone());
         if let Some(box_key) = box_key(&key) {
             self.store
@@ -440,6 +443,7 @@ impl Sidebar {
             return;
         }
         let Some(built) = self.built(cx) else { return };
+        self.keyboard = true;
         let rows: Vec<&Row> = built.rows(self.marks_open(cx)).collect();
         let searching = !self.field.read(cx).text().trim().is_empty();
         let at = rows
@@ -478,6 +482,7 @@ impl Sidebar {
                     let key = rows[i].key.clone();
                     drop(rows);
                     self.activate(key, cx);
+                    self.keyboard = true;
                 }
                 cx.stop_propagation();
                 return;
@@ -823,6 +828,7 @@ impl Sidebar {
                 .mt(px(nudge))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.toggle(&toggled);
+                    this.keyboard = false;
                     this.cursor = Some(toggled.clone());
                     cx.stop_propagation();
                     cx.notify();
@@ -992,6 +998,7 @@ impl Sidebar {
                                 .tooltip(tip(detail))
                                 .child(named(label, row.span, c));
                         if branch.is_some() {
+                            el = el.flex_none().max_w(relative(0.6));
                             let key = row.key.clone();
                             el = el.on_click(cx.listener(
                                 move |this, e: &ClickEvent, window, cx| {
@@ -1099,9 +1106,7 @@ impl Sidebar {
                         ellipsed(div().min_w_0())
                             .text_size(px(12.0))
                             .line_height(px(16.0))
-                            .font_family(fonts::TERMINAL_FAMILY)
-                            .text_color(c.ink_3)
-                            .child(line.clone()),
+                            .child(fonts::latin_mono(line, c.ink_3, FontWeight::NORMAL)),
                     );
                 shell.child(
                     div()
@@ -1216,7 +1221,7 @@ impl Sidebar {
         let focused = self.focus.is_focused(window);
         let pick = Pick {
             selected,
-            ring: self.cursor.clone().filter(|_| focused),
+            ring: self.cursor.clone().filter(|_| focused && self.keyboard),
         };
         let query = self.field.read(cx).text().to_owned();
         let searching = !query.trim().is_empty();

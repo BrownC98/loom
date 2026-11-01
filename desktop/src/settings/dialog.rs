@@ -3,7 +3,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px, relative,
 };
 use serde_json::Value;
 
@@ -404,7 +404,7 @@ impl Render for Dialog {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(if carded { 6.0 } else { 8.0 }))
+                    .gap(px(8.0))
                     .when(carded, |card| {
                         card.p(px(12.0))
                             .rounded(px(8.0))
@@ -469,10 +469,12 @@ impl Render for Dialog {
             }))
             .child(
                 ghost("settings-close", cx)
-                    .min_h(px(30.0))
+                    .h(px(30.0))
+                    .py_0()
                     .px(px(8.0))
                     .child("\u{00D7}")
                     .text_size(px(20.0))
+                    .line_height(px(20.0))
                     .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
             );
         let body = div()
@@ -482,7 +484,7 @@ impl Render for Dialog {
             .overflow_y_scroll()
             .track_scroll(self.scroll.handle())
             .px(px(22.0))
-            .pb(px(18.0))
+            .py(px(18.0))
             .flex()
             .flex_col()
             .gap(px(18.0))
@@ -515,6 +517,7 @@ impl Render for Dialog {
             .overflow_hidden()
             .rounded(px(12.0))
             .bg(c.panel)
+            .line_height(relative(1.5))
             .shadow(vec![BoxShadow {
                 color: c.shadow.into(),
                 offset: point(px(0.0), px(SHADOW_Y)),

@@ -180,7 +180,8 @@ fn agent_row(
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_size(px(TEXT))
+                .text_size(px(14.0))
+                .line_height(px(21.0))
                 .child(name),
         );
     let mut main = div().flex().flex_col().gap(px(2.0)).flex_1().min_w_0();
@@ -192,6 +193,7 @@ fn agent_row(
             .min_w_0()
             .overflow_hidden()
             .text_size(px(SMALL))
+            .line_height(px(17.3))
             .text_color(tone)
             .children(place.map(|(place, place_tone)| {
                 div()

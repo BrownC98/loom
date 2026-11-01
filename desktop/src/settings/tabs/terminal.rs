@@ -76,6 +76,8 @@ fn line(spans: &[Span]) -> StyledText {
 fn chips(colors: &[Rgba]) -> Div {
     div()
         .flex()
+        .items_center()
+        .h(px(18.0))
         .gap(px(3.0))
         .children(colors.iter().map(|color| {
             div()

@@ -10,6 +10,8 @@ use super::text::{Text, TextEvent};
 
 const FIELD_W: f32 = 56.0;
 const BOX_W: f32 = 120.0;
+const BUTTON_W: f32 = 26.0;
+const BUTTON_H: f32 = 30.0;
 
 pub enum NumberEvent {
     Commit(Option<i64>),
@@ -34,7 +36,13 @@ impl Number {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let text = cx.new(|cx| Text::new("", false, window, cx));
+        let text = cx.new(|cx| {
+            if buttons {
+                Text::stepper(window, cx)
+            } else {
+                Text::new("", false, window, cx)
+            }
+        });
         let sub = cx.subscribe(&text, |this, _, event: &TextEvent, cx| {
             let TextEvent::Commit(raw) = event;
             this.accept(raw, cx);
@@ -85,6 +93,14 @@ impl Number {
     }
 }
 
+fn step_button(id: &'static str, cx: &gpui::App) -> gpui::Stateful<gpui::Div> {
+    button(id, cx)
+        .w(px(BUTTON_W))
+        .h(px(BUTTON_H))
+        .p_0()
+        .justify_center()
+}
+
 impl Render for Number {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let row = div().flex().items_center().gap(px(6.0));
@@ -92,13 +108,13 @@ impl Render for Number {
             return row.w(px(BOX_W)).child(self.text.clone());
         }
         row.child(
-            button("number-minus", cx)
+            step_button("number-minus", cx)
                 .child("\u{2212}")
                 .on_click(cx.listener(|this, _, _, cx| this.step(-1, cx))),
         )
         .child(div().w(px(FIELD_W)).child(self.text.clone()))
         .child(
-            button("number-plus", cx)
+            step_button("number-plus", cx)
                 .child("+")
                 .on_click(cx.listener(|this, _, _, cx| this.step(1, cx))),
         )

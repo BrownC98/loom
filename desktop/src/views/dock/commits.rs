@@ -14,10 +14,12 @@ use super::strokes::{self, LANE_WIDTH, RING, ROW_HEIGHT, drawing};
 use super::ui::{self, GAP, PAD, SMALL};
 use super::{Dock, Tab};
 use crate::canvas::repos::chosen_repo;
+use crate::fonts;
 use crate::link;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::tooltip::tip;
 
 const PAGE: usize = 100;
 const LOAD_AHEAD: usize = 20;
@@ -214,17 +216,28 @@ impl Commits {
 fn ago(cx: &gpui::App, time: i64, now: i64) -> String {
     let seconds = (now - time).max(0);
     let steps = [
-        (365 * DAY, Str::CommitsAgoYear),
-        (30 * DAY, Str::CommitsAgoMonth),
-        (7 * DAY, Str::CommitsAgoWeek),
-        (DAY, Str::CommitsAgoDay),
-        (HOUR, Str::CommitsAgoHour),
-        (MINUTE, Str::CommitsAgoMinute),
+        (
+            365 * DAY,
+            Str::CommitsAgoYear,
+            Some(Str::CommitsAgoLastYear),
+        ),
+        (
+            30 * DAY,
+            Str::CommitsAgoMonth,
+            Some(Str::CommitsAgoLastMonth),
+        ),
+        (7 * DAY, Str::CommitsAgoWeek, Some(Str::CommitsAgoLastWeek)),
+        (DAY, Str::CommitsAgoDay, Some(Str::CommitsAgoLastDay)),
+        (HOUR, Str::CommitsAgoHour, None),
+        (MINUTE, Str::CommitsAgoMinute, None),
     ];
-    for (unit, text) in steps {
+    for (unit, text, last) in steps {
         if seconds >= unit {
-            let count = (seconds as f64 / unit as f64).round().to_string();
-            return ui::say_with(cx, text, &[("n", &count)]);
+            let count = (seconds as f64 / unit as f64).round();
+            if let (1.0, Some(last)) = (count, last) {
+                return ui::say(cx, last).to_owned();
+            }
+            return ui::say_with(cx, text, &[("n", &count.to_string())]);
         }
     }
     ui::say(cx, Str::CommitsAgoNow).to_owned()
@@ -266,7 +279,13 @@ fn lanes_canvas(row: &Row, lanes: usize, colors: Colors) -> impl IntoElement {
     .flex_none()
 }
 
-fn ref_pill(name: String, tag: bool, folder: bool, color: Rgba, c: &Colors) -> Div {
+fn ref_pill(
+    name: String,
+    tag: bool,
+    folder: Option<(usize, String)>,
+    color: Rgba,
+    c: &Colors,
+) -> Div {
     let pill = div()
         .flex()
         .flex_none()
@@ -279,12 +298,18 @@ fn ref_pill(name: String, tag: bool, folder: bool, color: Rgba, c: &Colors) -> D
         .text_color(c.ink)
         .border_color(color)
         .bg(Hsla::from(color).opacity(REF_TINT))
-        .font_family("monospace")
+        .font_family(fonts::TERMINAL_FAMILY)
         .font_weight(FontWeight::SEMIBOLD)
         .text_size(px(11.0));
     let pill = if tag { pill.border_dashed() } else { pill };
-    pill.children(folder.then(|| icon(Glyph::Folder, FOLDER, c.ink)))
-        .child(name)
+    pill.children(folder.map(|(key, label)| {
+        div()
+            .id(("folder", key))
+            .flex()
+            .tooltip(tip(label))
+            .child(icon(Glyph::Folder, FOLDER, c.ink))
+    }))
+    .child(name)
 }
 
 impl Dock {
@@ -298,19 +323,36 @@ impl Dock {
             .iter()
             .filter(|w| w.head == commit.hash)
             .collect();
-        let refs = commit.refs.iter().map(|r| {
+        let kind = |w: &Worktree| {
+            let text = if w.original {
+                Str::WorktreeOriginal
+            } else {
+                Str::WorktreeLinked
+            };
+            ui::say(cx, text).to_owned()
+        };
+        let slot = index * 100;
+        let refs = commit.refs.iter().enumerate().map(|(i, r)| {
             let (name, tag) = match r {
                 GitRef::Branch(name) => (name, false),
                 GitRef::Tag(name) => (name, true),
             };
-            let folder = !tag && here.iter().any(|w| w.branch.as_deref() == Some(name));
+            let folder = here
+                .iter()
+                .find(|w| !tag && w.branch.as_deref() == Some(name))
+                .map(|w| (slot + i, kind(w)));
             ref_pill(name.clone(), tag, folder, color, c)
         });
         let detached = here
             .iter()
             .filter(|w| w.branch.is_none())
-            .map(|_| ref_pill("HEAD".to_owned(), false, true, color, c));
+            .enumerate()
+            .map(|(i, w)| {
+                let key = slot + 50 + i;
+                ref_pill("HEAD".to_owned(), false, Some((key, kind(w))), color, c)
+            });
         div_row(index, c)
+            .tooltip(tip(commit.hash.clone()))
             .child(lanes_canvas(row, state.widest, *c))
             .child(
                 div()

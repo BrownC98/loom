@@ -608,7 +608,7 @@ const en = {
     reading: 'Loading…',
     empty: 'No commits yet.',
     list: 'Commits',
-    ago: { now: 'now', minute: '{{n}} min ago', hour: '{{n}} h ago', day: '{{n}} d ago', week: '{{n}} w ago', month: '{{n}} mo ago', year: '{{n}} y ago' },
+    ago: { lastDay: 'yesterday', lastWeek: 'last week', lastMonth: 'last month', lastYear: 'last year', now: 'now', minute: '{{n}} min ago', hour: '{{n}} h ago', day: '{{n}} d ago', week: '{{n}} w ago', month: '{{n}} mo ago', year: '{{n}} y ago' },
   },
   docs: {
     title: 'Docs',

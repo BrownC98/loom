@@ -18,7 +18,7 @@ use gpui::{
 use crate::fonts;
 use crate::link::{self, VERSION};
 use crate::settings::{keep_focus, modal, settings_patch};
-use crate::store::{Level, Store};
+use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::dock::ui::say;
@@ -338,7 +338,7 @@ impl Usage {
                 this.store.update(cx, |store, cx| {
                     store.reload(cx);
                     if let Err(error) = &done {
-                        store.tell(error.text(lang), Level::Error, cx);
+                        store.tell(error.text(lang), cx);
                     }
                 });
                 this.refresh(cx);

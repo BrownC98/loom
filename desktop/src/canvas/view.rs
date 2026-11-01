@@ -31,7 +31,7 @@ use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::float::inputs::Inputs;
 use crate::link;
-use crate::store::{Level, ShowNode, Store, ZoomTo};
+use crate::store::{ShowNode, Store, ZoomTo};
 use crate::strings::Lang;
 use crate::theme::Theme;
 use crate::views::card;
@@ -275,7 +275,7 @@ impl CanvasView {
             store.update(cx, |store, cx| {
                 if let Err(error) = saved {
                     let text = error.text(*cx.global::<Lang>());
-                    store.tell(text, Level::Error, cx);
+                    store.tell(text, cx);
                 }
                 store.reload(cx)
             });
@@ -435,8 +435,7 @@ impl CanvasView {
             if let Err(error) = task.await {
                 let _ = this.update(cx, |this, cx| {
                     this.resizer.fail(&[node.0]);
-                    this.store
-                        .update(cx, |store, cx| store.tell(error, Level::Error, cx));
+                    this.store.update(cx, |store, cx| store.tell(error, cx));
                     this.rebuild(cx);
                     cx.notify();
                 });
@@ -614,8 +613,7 @@ impl CanvasView {
         cx.spawn(async move |this, cx| {
             if let Err(text) = task.await {
                 let _ = this.update(cx, |this, cx| {
-                    this.store
-                        .update(cx, |store, cx| store.tell(text, Level::Error, cx));
+                    this.store.update(cx, |store, cx| store.tell(text, cx));
                 });
             }
         })

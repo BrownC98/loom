@@ -1,17 +1,24 @@
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, Styled, Window, div, px,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 
+use crate::fonts;
 use crate::store::Store;
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::theme::Theme;
 use crate::views::field::{self, Field, FieldEvent};
-use crate::views::icons::{Lucide, icon};
+use crate::views::icons::Lucide;
+use crate::views::rail;
+use crate::views::tooltip::tip;
 
-const BUTTON: f32 = 18.0;
-const ICON: f32 = 14.0;
-const WIDTH: f32 = 44.0;
+const BUTTON: f32 = 26.0;
+const WIDTH: f32 = 40.0;
+const FONT: f32 = 11.0;
+const PAD_X: f32 = 6.0;
+const PAD_Y: f32 = 2.0;
+const MARGIN: f32 = 15.0;
 
 pub struct Zoom {
     store: Entity<Store>,
@@ -89,40 +96,37 @@ impl Zoom {
 
 impl Render for Zoom {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.global::<Theme>().colors;
+        let theme = cx.global::<Theme>();
+        let (colors, lang) = (theme.colors, *cx.global::<Lang>());
         let store = self.store.read(cx);
         let folded = store.settings().minimap_folded;
         let percent = store.zoom_percent();
-        let toggle = div()
-            .size(px(BUTTON))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.0))
-            .cursor_pointer()
-            .hover(move |style| style.bg(colors.surface_hover))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.fold(cx);
-                    cx.stop_propagation();
-                }),
-            )
-            .child(icon(
-                if folded {
-                    Lucide::MapPlus
-                } else {
-                    Lucide::MapMinus
-                },
-                ICON,
-                colors.ink_2,
-            ));
+        let zoomed = store.zoomed();
+        let (glyph, label) = if folded {
+            (Lucide::MapPlus, Str::GraphMinimapUnfold)
+        } else {
+            (Lucide::MapMinus, Str::GraphMinimapFold)
+        };
+        let toggle = rail::button(
+            "zoom-fold",
+            glyph,
+            label.text(lang).to_owned(),
+            BUTTON,
+            &colors,
+        )
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.fold(cx);
+                cx.stop_propagation();
+            }),
+        );
         let level = if self.editing {
             div()
+                .id("zoom-edit")
                 .w(px(WIDTH))
-                .h(px(BUTTON))
-                .px(px(4.0))
+                .px(px(PAD_X))
+                .py(px(PAD_Y))
                 .rounded(px(4.0))
                 .border_1()
                 .border_color(colors.line_strong)
@@ -134,27 +138,33 @@ impl Render for Zoom {
                 .child(self.field.clone())
         } else {
             div()
-                .min_w(px(WIDTH))
-                .h(px(BUTTON))
-                .flex()
-                .items_center()
-                .justify_end()
-                .px(px(4.0))
+                .id("zoom-level")
+                .px(px(PAD_X))
+                .py(px(PAD_Y))
+                .text_color(colors.ink_2)
                 .cursor_text()
+                .tooltip(tip(Str::GraphZoomEdit.text(lang).to_owned()))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, e: &MouseDownEvent, window, cx| {
                         if e.click_count >= 2 {
                             this.edit(window, cx);
                         }
+                        cx.stop_propagation();
                     }),
                 )
                 .child(format!("{percent}%"))
         };
         div()
+            .absolute()
+            .right(px(MARGIN))
+            .bottom(px(MARGIN))
             .flex()
             .items_center()
-            .gap(px(2.0))
+            .text_size(px(FONT))
+            .line_height(relative(1.4))
+            .font_family(fonts::TERMINAL_FAMILY)
+            .when(zoomed, |row| row.hidden())
             .child(toggle)
             .child(level)
     }

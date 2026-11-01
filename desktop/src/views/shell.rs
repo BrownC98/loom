@@ -9,6 +9,7 @@ use gpui::{
     Render, Styled, Subscription, Window, div, px,
 };
 
+use crate::fonts;
 use crate::link;
 use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
@@ -257,6 +258,7 @@ impl Render for Shell {
                     cx.stop_propagation();
                 }
             }))
+            .font_family(fonts::UI_FAMILY)
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))

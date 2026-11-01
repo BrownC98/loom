@@ -4,5 +4,6 @@ pub mod grid;
 pub mod hops;
 pub mod layout;
 pub mod repos;
+pub mod resize;
 pub mod scene;
 pub mod view;

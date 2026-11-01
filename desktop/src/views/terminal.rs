@@ -1,11 +1,10 @@
-use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement,
+    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Hsla, InteractiveElement,
     IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription,
     TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, font, point, px,
@@ -13,6 +12,7 @@ use gpui::{
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::fonts;
 use crate::link::{self, Event, Pty};
 use crate::vt::view::Picked;
 use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
@@ -21,11 +21,6 @@ mod pointer;
 
 const RESET: &[u8] = b"\x1bc";
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
-const FONT_FAMILY: &str = "Jetendard";
-const FONT_FILES: [&[u8]; 2] = [
-    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Regular.woff2"),
-    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Bold.woff2"),
-];
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 1.3;
 const MARKED_BACKGROUND: vt::Rgb8 = [0x3a, 0x3a, 0x55];
@@ -47,10 +42,6 @@ struct Frame {
     screen: Screen,
     picked: Vec<Picked>,
 }
-
-struct FontsLoaded;
-
-impl Global for FontsLoaded {}
 
 pub struct TerminalView {
     vt: Vt,
@@ -89,7 +80,7 @@ fn cheap(scale: f32) -> bool {
 
 fn metrics(window: &Window, scale: f32) -> Metrics {
     let system = window.text_system();
-    let id = system.resolve_font(&font(FONT_FAMILY));
+    let id = system.resolve_font(&font(fonts::TERMINAL_FAMILY));
     let em = px(FONT_SIZE * scale);
     Metrics {
         cell_width: system.advance(id, em, 'm').map_or(em * 0.6, |a| a.width),
@@ -125,17 +116,6 @@ impl TerminalView {
             }
             Err(error) => (None, Some(error)),
         };
-        if !cx.has_global::<FontsLoaded>() {
-            let files = FONT_FILES
-                .map(|woff2| {
-                    Cow::Owned(wuff::decompress_woff2(woff2).expect("bundled terminal fonts"))
-                })
-                .to_vec();
-            cx.text_system()
-                .add_fonts(files)
-                .expect("bundled terminal fonts");
-            cx.set_global(FontsLoaded);
-        }
         let focus = cx.focus_handle();
         let focus_events = [
             cx.on_focus_in(&focus, window, |this, _, _| this.report_focus(true)),
@@ -562,7 +542,7 @@ impl Render for TerminalView {
 }
 
 fn styled(cell: &vt::Cell, len: usize) -> TextRun {
-    let mut run_font: Font = font(FONT_FAMILY);
+    let mut run_font: Font = font(fonts::TERMINAL_FAMILY);
     if cell.bold {
         run_font.weight = FontWeight::BOLD;
     }

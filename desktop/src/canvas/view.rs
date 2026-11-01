@@ -30,12 +30,12 @@ use super::popover;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::link;
-use crate::store::{ShowNode, Store, ZoomTo};
+use crate::store::{Level, ShowNode, Store, ZoomTo};
 use crate::strings::Lang;
 use crate::theme::Theme;
 use crate::views::card;
 use crate::views::expanded;
-use crate::views::notice::{self, Level};
+use crate::views::notice;
 use crate::views::terminal::{self, TerminalView};
 
 const WHEEL_LINE: f32 = 25.0;

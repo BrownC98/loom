@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
@@ -18,8 +19,6 @@ use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::strings::Str;
-use crate::views::dock::answers::Slot;
-use crate::views::notice::{self, Level, Notice};
 use crate::views::pictures::Pictures;
 use crate::{strings, theme};
 
@@ -49,6 +48,29 @@ pub struct Store {
     drafts: HashMap<(u32, Slot), String>,
     busy: HashSet<u32>,
     pictures: HashMap<u32, Entity<Pictures>>,
+}
+
+const NOTICE_FOR: Duration = Duration::from_secs(6);
+
+#[derive(Clone, Copy)]
+pub enum Level {
+    Info,
+    Ok,
+    Warn,
+    Error,
+}
+
+#[derive(Clone)]
+pub struct Notice {
+    pub text: String,
+    pub level: Level,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Slot {
+    Answer,
+    Option(usize),
+    Field,
 }
 
 pub struct ZoomTo(pub f32);
@@ -286,7 +308,7 @@ impl Store {
         self.notice = Some((id, Notice { text, level }));
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(notice::shown_for()).await;
+            cx.background_executor().timer(NOTICE_FOR).await;
             let _ = this.update(cx, |store, cx| {
                 if store.notice.as_ref().is_some_and(|(shown, _)| *shown == id) {
                     store.notice = None;

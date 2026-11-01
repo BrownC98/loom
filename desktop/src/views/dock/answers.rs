@@ -12,8 +12,7 @@ use gpui::{
 use super::body::{self, Target};
 use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, PAD, SMALL};
-use crate::link::Snapshot;
-use crate::store::{BusyChanged, DraftChanged, Store};
+use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::pictures::{self, Pictures, PicturesEvent};
@@ -24,13 +23,6 @@ use crate::views::viewer::Viewer;
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
 const SHOT_HEIGHT: f32 = 96.0;
 const SHOT_WIDTH: f32 = 128.0;
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Slot {
-    Answer,
-    Option(usize),
-    Field,
-}
 
 struct Draft {
     field: Entity<Field>,
@@ -61,18 +53,6 @@ pub(crate) struct Answers {
     viewer: Entity<Viewer>,
     zoomed: Option<u32>,
     _subs: Vec<Subscription>,
-}
-
-fn shown_prompts(snapshot: Option<&Snapshot>) -> HashMap<u32, Prompt> {
-    snapshot
-        .map(|s| {
-            s.nodes
-                .iter()
-                .flat_map(|n| n.waits.iter())
-                .filter_map(|w| Some((w.wait.id.0, w.wait.prompt.clone()?)))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn drop_absent_slots(fields: &mut HashMap<(u32, Slot), Draft>, id: u32, prompt: Option<&Prompt>) {
@@ -139,7 +119,7 @@ impl Answers {
             })
             .unwrap_or_default();
         let live: HashSet<u32> = waits.iter().map(|(_, w)| w.wait.id.0).collect();
-        self.shown = shown_prompts(self.store.read(cx).snapshot());
+        self.shown.retain(|id, _| live.contains(id));
         self.fields.retain(|(id, _), _| live.contains(id));
         self.notes.retain(|id, _| live.contains(id));
         self.images.retain(|(id, _), _| live.contains(id));
@@ -626,7 +606,17 @@ fn wait_body(
             }),
         ));
     }
+    if wait.wait.prompt.is_none() {
+        answers.update(cx, |answers, _| {
+            answers.shown.remove(&id);
+        });
+    }
     if let Some(prompt) = &wait.wait.prompt {
+        answers.update(cx, |answers, _| {
+            if answers.shown.get(&id) != Some(prompt) {
+                answers.shown.insert(id, prompt.clone());
+            }
+        });
         body = body.child(prompt_body(answers, id, prompt, z, cx));
     } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
         let owner = answers.clone();

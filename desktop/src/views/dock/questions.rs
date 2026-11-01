@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use super::body::{self, Target};
-use super::field::{self, FieldEvent, TextField};
+use super::field::{self, Field, FieldEvent};
 use super::ui::{self, GAP, PAD, SMALL};
 use super::{Dock, Inbox, Slot};
 use crate::strings::Str;
@@ -149,9 +149,11 @@ impl Dock {
         if self.fields.contains_key(&(id, slot)) {
             return;
         }
-        let entity = field::field(hint, secret, multiline, cx);
-        let sub = cx.subscribe(&entity, move |dock, _, _: &FieldEvent, cx| {
-            dock.submit(id, slot, cx);
+        let entity = field::boxed(hint, secret, multiline, cx);
+        let sub = cx.subscribe(&entity, move |dock, _, event: &FieldEvent, cx| {
+            if matches!(event, FieldEvent::Enter) {
+                dock.submit(id, slot, cx);
+            }
         });
         self.fields.insert((id, slot), (entity, sub));
     }
@@ -169,7 +171,7 @@ impl Dock {
     fn run(
         &mut self,
         wait: u32,
-        clear: Option<Entity<TextField>>,
+        clear: Option<Entity<Field>>,
         task: Task<Result<(), String>>,
         cx: &mut Context<Self>,
     ) {
@@ -468,13 +470,7 @@ impl Dock {
         body
     }
 
-    fn send_row(
-        &self,
-        id: u32,
-        slot: Slot,
-        field: &Entity<TextField>,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn send_row(&self, id: u32, slot: Slot, field: &Entity<Field>, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
         let slot_id = match slot {
             Slot::Answer => 0,
@@ -485,7 +481,7 @@ impl Dock {
             .flex()
             .items_end()
             .gap(px(GAP))
-            .child(div().flex_1().child(field.clone()))
+            .child(div().flex_1().min_w_0().child(field.clone()))
             .child(
                 ui::button(("send", id as usize * 256 + slot_id), cx)
                     .w(px(28.0))

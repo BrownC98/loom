@@ -1,14 +1,22 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, Context, CursorStyle, ElementInputHandler, Entity, EntityInputHandler,
-    EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Render, ShapedLine, Styled, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, px, size,
+    App, AppContext, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement, IntoElement,
+    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels,
+    Point, Render, SharedString, Styled, StyledText, TextLayout, UTF16Selection, UnderlineStyle,
+    Window, div, fill, point, px, size,
 };
 
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
+
+const MASK: char = '\u{2022}';
+const FONT_SIZE: f32 = 13.0;
+const LINE: f32 = 18.0;
+const CARET: f32 = 1.5;
+const ROUND: f32 = 6.0;
 
 pub enum FieldEvent {
     Changed,
@@ -17,60 +25,57 @@ pub enum FieldEvent {
     Escape,
 }
 
+enum Hint {
+    Label(Str),
+    Text(SharedString),
+}
+
 pub struct Field {
     focus: FocusHandle,
     text: String,
-    cursor: usize,
+    hint: Hint,
+    secret: bool,
+    multiline: bool,
+    boxed: bool,
+    selected: Range<usize>,
+    reversed: bool,
     marked: Option<Range<usize>>,
-    line: Option<ShapedLine>,
-    bounds: Bounds<Pixels>,
-    placeholder: Str,
+    layout: Option<TextLayout>,
+    selecting: bool,
 }
 
 impl EventEmitter<FieldEvent> for Field {}
 
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-fn to_utf16(text: &str, offset: usize) -> usize {
-    utf16_len(&text[..offset])
-}
-
-fn to_utf8(text: &str, offset: usize) -> usize {
-    let mut units = 0;
-    for (index, ch) in text.char_indices() {
-        if units >= offset {
-            return index;
-        }
-        units += ch.len_utf16();
+impl Focusable for Field {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
     }
-    text.len()
 }
 
-fn range_to_utf16(text: &str, range: &Range<usize>) -> Range<usize> {
-    to_utf16(text, range.start)..to_utf16(text, range.end)
+pub fn new(placeholder: Str, cx: &mut App) -> Entity<Field> {
+    cx.new(|cx| Field::new(Hint::Label(placeholder), false, false, false, cx))
 }
 
-fn range_to_utf8(text: &str, range: &Range<usize>) -> Range<usize> {
-    to_utf8(text, range.start)..to_utf8(text, range.end)
+pub fn boxed(hint: &str, secret: bool, multiline: bool, cx: &mut App) -> Entity<Field> {
+    let hint = Hint::Text(SharedString::from(hint.to_owned()));
+    cx.new(|cx| Field::new(hint, secret, multiline, true, cx))
 }
 
 impl Field {
-    pub fn new(placeholder: Str, cx: &mut Context<Self>) -> Self {
+    fn new(hint: Hint, secret: bool, multiline: bool, boxed: bool, cx: &mut Context<Self>) -> Self {
         Self {
             focus: cx.focus_handle().tab_stop(true),
             text: String::new(),
-            cursor: 0,
+            hint,
+            secret,
+            multiline,
+            boxed,
+            selected: 0..0,
+            reversed: false,
             marked: None,
-            line: None,
-            bounds: Bounds::default(),
-            placeholder,
+            layout: None,
+            selecting: false,
         }
-    }
-
-    pub fn text(&self) -> &str {
-        &self.text
     }
 
     pub fn focused(&self, window: &Window) -> bool {
@@ -81,69 +86,323 @@ impl Field {
         self.focus.clone()
     }
 
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn is_blank(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.text.clear();
-        self.cursor = 0;
+        self.selected = 0..0;
+        self.reversed = false;
         self.marked = None;
         cx.emit(FieldEvent::Changed);
         cx.notify();
     }
 
-    fn before(&self) -> usize {
-        self.text[..self.cursor]
+    fn shown(&self) -> String {
+        if self.secret {
+            MASK.to_string().repeat(self.text.chars().count())
+        } else {
+            self.text.clone()
+        }
+    }
+
+    fn shown_at(&self, at: usize) -> usize {
+        if self.secret {
+            self.text[..at.min(self.text.len())].chars().count() * MASK.len_utf8()
+        } else {
+            at
+        }
+    }
+
+    fn real_at(&self, at: usize) -> usize {
+        if self.secret {
+            self.text
+                .char_indices()
+                .nth(at / MASK.len_utf8())
+                .map_or(self.text.len(), |(index, _)| index)
+        } else {
+            at.min(self.text.len())
+        }
+    }
+
+    fn cursor(&self) -> usize {
+        if self.reversed {
+            self.selected.start
+        } else {
+            self.selected.end
+        }
+    }
+
+    fn before(&self, at: usize) -> usize {
+        self.text[..at]
             .char_indices()
             .next_back()
             .map_or(0, |(index, _)| index)
     }
 
-    fn after(&self) -> usize {
-        self.text[self.cursor..]
+    fn after(&self, at: usize) -> usize {
+        self.text[at..]
             .chars()
             .next()
-            .map_or(self.text.len(), |ch| self.cursor + ch.len_utf8())
+            .map_or(at, |next| at + next.len_utf8())
     }
 
-    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn line_start(&self, at: usize) -> usize {
+        self.text[..at].rfind('\n').map_or(0, |index| index + 1)
+    }
+
+    fn line_end(&self, at: usize) -> usize {
+        self.text[at..]
+            .find('\n')
+            .map_or(self.text.len(), |index| at + index)
+    }
+
+    fn move_to(&mut self, at: usize, window: &Window, cx: &mut Context<Self>) {
+        self.selected = at..at;
+        self.reversed = false;
+        window.notify_text_selection_changed(&self.focus);
+        cx.notify();
+    }
+
+    fn extend_to(&mut self, at: usize, window: &Window, cx: &mut Context<Self>) {
+        if self.reversed {
+            self.selected.start = at;
+        } else {
+            self.selected.end = at;
+        }
+        if self.selected.end < self.selected.start {
+            self.reversed = !self.reversed;
+            self.selected = self.selected.end..self.selected.start;
+        }
+        window.notify_text_selection_changed(&self.focus);
+        cx.notify();
+    }
+
+    fn go(&mut self, at: usize, extend: bool, window: &Window, cx: &mut Context<Self>) {
+        if extend {
+            self.extend_to(at, window, cx);
+        } else {
+            self.move_to(at, window, cx);
+        }
+    }
+
+    fn row(&self, rows: f32) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        let from = layout.position_for_index(self.shown_at(self.cursor()))?;
+        let target = point(from.x, from.y + layout.line_height() * rows);
+        let found = layout
+            .index_for_position(target)
+            .unwrap_or_else(|near| near);
+        Some(self.real_at(found))
+    }
+
+    fn at_mouse(&self, position: Point<Pixels>) -> usize {
+        let Some(layout) = self.layout.as_ref() else {
+            return 0;
+        };
+        if self.text.is_empty() {
+            return 0;
+        }
+        let found = layout
+            .index_for_position(position)
+            .unwrap_or_else(|near| near);
+        self.real_at(found)
+    }
+
+    fn put(&mut self, range: Range<usize>, text: &str, window: &Window, cx: &mut Context<Self>) {
+        let text = if self.multiline {
+            text.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            text.replace(['\r', '\n'], " ")
+        };
+        self.text.replace_range(range.clone(), &text);
+        let end = range.start + text.len();
+        self.selected = end..end;
+        self.reversed = false;
+        self.marked = None;
+        window.notify_text_input_changed(&self.focus);
+        cx.emit(FieldEvent::Changed);
+        cx.notify();
+    }
+
+    fn erase(&mut self, forward: bool, window: &Window, cx: &mut Context<Self>) {
+        if self.selected.is_empty() {
+            let at = self.cursor();
+            let other = if forward {
+                self.after(at)
+            } else {
+                self.before(at)
+            };
+            if other == at {
+                return;
+            }
+            self.selected = at.min(other)..at.max(other);
+        }
+        self.put(self.selected.clone(), "", window, cx);
+    }
+
+    fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let stroke = &event.keystroke;
-        if stroke.modifiers.control || stroke.modifiers.alt || stroke.modifiers.platform {
+        let command = stroke.modifiers.secondary(cx);
+        let shift = stroke.modifiers.shift;
+        let other = stroke.modifiers.alt
+            || (stroke.modifiers.control && !command)
+            || (stroke.modifiers.platform && !command);
+        if other || (self.marked.is_some() && !command) {
             return;
         }
-        let shift = stroke.modifiers.shift;
-        match stroke.key.as_str() {
-            "enter" if shift => cx.emit(FieldEvent::Step(-1)),
-            "enter" => cx.emit(FieldEvent::Enter),
-            "escape" => cx.emit(FieldEvent::Escape),
-            "down" => cx.emit(FieldEvent::Step(1)),
-            "up" => cx.emit(FieldEvent::Step(-1)),
-            "left" => self.cursor = self.before(),
-            "right" => self.cursor = self.after(),
-            "home" => self.cursor = 0,
-            "end" => self.cursor = self.text.len(),
-            "backspace" if self.cursor > 0 => {
-                let start = self.before();
-                self.text.replace_range(start..self.cursor, "");
-                self.cursor = start;
-                cx.emit(FieldEvent::Changed);
+        let handled = match (command, stroke.key.as_str()) {
+            (true, "a") => {
+                self.selected = 0..self.text.len();
+                self.reversed = false;
+                cx.notify();
+                true
             }
-            "delete" if self.cursor < self.text.len() => {
-                let end = self.after();
-                self.text.replace_range(self.cursor..end, "");
-                cx.emit(FieldEvent::Changed);
+            (true, "c") => {
+                self.copy(cx);
+                true
             }
-            _ => return,
+            (true, "x") => {
+                self.copy(cx);
+                if !self.selected.is_empty() {
+                    self.put(self.selected.clone(), "", window, cx);
+                }
+                true
+            }
+            (true, "v") => {
+                if let Some(pasted) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    self.put(self.selected.clone(), &pasted, window, cx);
+                }
+                true
+            }
+            (true, _) => false,
+            (false, "backspace") => {
+                self.erase(false, window, cx);
+                true
+            }
+            (false, "delete") => {
+                self.erase(true, window, cx);
+                true
+            }
+            (false, "left") => {
+                let at = if self.selected.is_empty() || shift {
+                    self.before(self.cursor())
+                } else {
+                    self.selected.start
+                };
+                self.go(at, shift, window, cx);
+                true
+            }
+            (false, "right") => {
+                let at = if self.selected.is_empty() || shift {
+                    self.after(self.cursor())
+                } else {
+                    self.selected.end
+                };
+                self.go(at, shift, window, cx);
+                true
+            }
+            (false, "home") => {
+                self.go(self.line_start(self.cursor()), shift, window, cx);
+                true
+            }
+            (false, "end") => {
+                self.go(self.line_end(self.cursor()), shift, window, cx);
+                true
+            }
+            (false, "up") | (false, "down") if self.multiline => {
+                let rows = if stroke.key == "up" { -1.0 } else { 1.0 };
+                if let Some(at) = self.row(rows) {
+                    self.go(at, shift, window, cx);
+                }
+                true
+            }
+            (false, "enter") if self.multiline && shift => {
+                self.put(self.selected.clone(), "\n", window, cx);
+                true
+            }
+            (false, "up") => {
+                cx.emit(FieldEvent::Step(-1));
+                true
+            }
+            (false, "down") => {
+                cx.emit(FieldEvent::Step(1));
+                true
+            }
+            (false, "enter") if shift => {
+                cx.emit(FieldEvent::Step(-1));
+                true
+            }
+            (false, "enter") => {
+                cx.emit(FieldEvent::Enter);
+                true
+            }
+            (false, "escape") => {
+                cx.emit(FieldEvent::Escape);
+                true
+            }
+            _ => false,
+        };
+        if handled {
+            cx.stop_propagation();
         }
-        cx.stop_propagation();
-        cx.notify();
+    }
+
+    fn copy(&self, cx: &mut Context<Self>) {
+        if !self.selected.is_empty() && !self.secret {
+            cx.write_to_clipboard(ClipboardItem::new_string(
+                self.text[self.selected.clone()].to_owned(),
+            ));
+        }
     }
 
     fn press(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        if let Some(line) = &self.line {
-            self.cursor = line
-                .closest_index_for_x(event.position.x - self.bounds.origin.x)
-                .min(self.text.len());
-            cx.notify();
+        self.selecting = true;
+        let at = self.at_mouse(event.position);
+        self.go(at, event.modifiers.shift, window, cx);
+    }
+
+    fn drag(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selecting && event.dragging() {
+            let at = self.at_mouse(event.position);
+            self.extend_to(at, window, cx);
+        } else {
+            self.selecting = false;
         }
+    }
+
+    fn utf16_to_byte(&self, offset: usize) -> usize {
+        let mut bytes = 0;
+        let mut units = 0;
+        for c in self.text.chars() {
+            if units >= offset {
+                break;
+            }
+            units += c.len_utf16();
+            bytes += c.len_utf8();
+        }
+        bytes
+    }
+
+    fn byte_to_utf16(&self, offset: usize) -> usize {
+        self.text[..offset.min(self.text.len())]
+            .chars()
+            .map(char::len_utf16)
+            .sum()
+    }
+
+    fn range_from_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        self.utf16_to_byte(range.start)..self.utf16_to_byte(range.end)
+    }
+
+    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        self.byte_to_utf16(range.start)..self.byte_to_utf16(range.end)
     }
 }
 
@@ -155,9 +414,9 @@ impl EntityInputHandler for Field {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
-        let range = range_to_utf8(&self.text, &range);
-        *adjusted = Some(range_to_utf16(&self.text, &range));
-        Some(self.text[range].to_owned())
+        let bytes = self.range_from_utf16(&range);
+        *adjusted = Some(self.range_to_utf16(&bytes));
+        Some(self.text[bytes].to_owned())
     }
 
     fn selected_text_range(
@@ -166,39 +425,34 @@ impl EntityInputHandler for Field {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        let at = to_utf16(&self.text, self.cursor);
         Some(UTF16Selection {
-            range: at..at,
-            reversed: false,
+            range: self.range_to_utf16(&self.selected),
+            reversed: self.reversed,
         })
     }
 
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.marked
-            .as_ref()
-            .map(|range| range_to_utf16(&self.text, range))
+        self.marked.as_ref().map(|range| self.range_to_utf16(range))
     }
 
-    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
+    fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.marked = None;
+        window.notify_text_input_changed(&self.focus);
+        cx.notify();
     }
 
     fn replace_text_in_range(
         &mut self,
         range: Option<Range<usize>>,
         text: &str,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range
-            .map(|r| range_to_utf8(&self.text, &r))
-            .or(self.marked.clone())
-            .unwrap_or(self.cursor..self.cursor);
-        self.text.replace_range(range.clone(), text);
-        self.cursor = range.start + text.len();
-        self.marked = None;
-        cx.emit(FieldEvent::Changed);
-        cx.notify();
+            .map(|range| self.range_from_utf16(&range))
+            .or_else(|| self.marked.clone())
+            .unwrap_or_else(|| self.selected.clone());
+        self.put(range, text, window, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -206,19 +460,27 @@ impl EntityInputHandler for Field {
         range: Option<Range<usize>>,
         text: &str,
         selected: Option<Range<usize>>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range
-            .map(|r| range_to_utf8(&self.text, &r))
-            .or(self.marked.clone())
-            .unwrap_or(self.cursor..self.cursor);
-        self.text.replace_range(range.clone(), text);
-        self.marked = (!text.is_empty()).then(|| range.start..range.start + text.len());
-        self.cursor = match selected {
-            Some(inner) => range.start + to_utf8(text, inner.end),
-            None => range.start + text.len(),
-        };
+            .map(|range| self.range_from_utf16(&range))
+            .or_else(|| self.marked.clone())
+            .unwrap_or_else(|| self.selected.clone());
+        let start = range.start;
+        self.text.replace_range(range, text);
+        self.marked = (!text.is_empty()).then(|| start..start + text.len());
+        let start_units = self.byte_to_utf16(start);
+        let length = text.encode_utf16().count();
+        self.selected = selected
+            .map(|inside| {
+                self.range_from_utf16(
+                    &(start_units + inside.start.min(length)..start_units + inside.end.min(length)),
+                )
+            })
+            .unwrap_or(start + text.len()..start + text.len());
+        self.reversed = false;
+        window.notify_text_input_changed(&self.focus);
         cx.emit(FieldEvent::Changed);
         cx.notify();
     }
@@ -230,139 +492,205 @@ impl EntityInputHandler for Field {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let line = self.line.as_ref()?;
-        let range = range_to_utf8(&self.text, &range);
-        Some(Bounds::from_corners(
-            point(bounds.left() + line.x_for_index(range.start), bounds.top()),
-            point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+        let layout = self.layout.as_ref()?;
+        let bytes = self.range_from_utf16(&range);
+        let from = layout.position_for_index(self.shown_at(bytes.start))?;
+        let to = layout
+            .position_for_index(self.shown_at(bytes.end))
+            .unwrap_or(from);
+        let width = if to.y == from.y {
+            to.x - from.x
+        } else {
+            px(CARET)
+        };
+        Some(Bounds::new(
+            point(from.x, from.y.max(bounds.top())),
+            size(width, layout.line_height()),
         ))
     }
 
     fn character_index_for_point(
         &mut self,
-        at: gpui::Point<Pixels>,
+        position: Point<Pixels>,
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<usize> {
-        let line = self.line.as_ref()?;
-        let index = line.index_for_x(at.x - self.bounds.origin.x)?;
-        Some(to_utf16(&self.text, index.min(self.text.len())))
+        let layout = self.layout.as_ref()?;
+        let found = layout
+            .index_for_position(position)
+            .unwrap_or_else(|near| near);
+        Some(self.byte_to_utf16(self.real_at(found)))
     }
 }
 
-struct Laid {
-    line: ShapedLine,
-    caret: Pixels,
+struct FieldText {
+    field: Entity<Field>,
+    text: StyledText,
+}
+
+impl IntoElement for FieldText {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for FieldText {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        self.text.request_layout(id, inspector, window, cx)
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.text.prepaint(id, inspector, bounds, state, window, cx)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let focus = self.field.read(cx).focus.clone();
+        window.handle_input(
+            &focus,
+            ElementInputHandler::new(bounds, self.field.clone()),
+            cx,
+        );
+        self.text
+            .paint(id, inspector, bounds, state, prepaint, window, cx);
+        let layout = self.text.layout().clone();
+        if focus.is_focused(window) {
+            let field = self.field.read(cx);
+            if field.selected.is_empty()
+                && let Some(at) = layout.position_for_index(field.shown_at(field.cursor()))
+            {
+                let color = cx.global::<Theme>().colors.accent;
+                window.paint_quad(fill(
+                    Bounds::new(at, size(px(CARET), layout.line_height())),
+                    color,
+                ));
+            }
+        }
+        self.field
+            .update(cx, |field, _| field.layout = Some(layout));
+    }
 }
 
 impl Render for Field {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = &cx.global::<Theme>().colors;
-        let (ink, hint) = (colors.ink, colors.ink_3);
-        let placeholder = self.placeholder.text(*cx.global::<Lang>());
+        let (ink, muted, edge, focused_edge, surface, selection) = (
+            colors.ink,
+            colors.ink_3,
+            colors.line_strong,
+            colors.accent,
+            colors.surface,
+            colors.accent_wash,
+        );
         let focused = self.focus.is_focused(window);
-        let me: Entity<Field> = cx.entity();
-        let paint_me = me.clone();
-        let text = self.text.clone();
-        let marked = self.marked.clone();
-        let cursor = self.cursor;
-        let focus = self.focus.clone();
-        div()
-            .id("find-field")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_hidden()
-            .cursor(CursorStyle::IBeam)
+        let empty = self.text.is_empty();
+        let shown = if empty {
+            match &self.hint {
+                Hint::Label(label) => label.text(*cx.global::<Lang>()).to_owned(),
+                Hint::Text(text) => text.to_string(),
+            }
+        } else {
+            self.shown()
+        };
+        let mut highlights = Vec::new();
+        if empty {
+            highlights.push((
+                0..shown.len(),
+                HighlightStyle {
+                    color: Some(muted.into()),
+                    ..Default::default()
+                },
+            ));
+        } else if let Some(marked) = &self.marked {
+            highlights.push((
+                self.shown_at(marked.start)..self.shown_at(marked.end),
+                HighlightStyle {
+                    underline: Some(UnderlineStyle {
+                        color: Some(ink.into()),
+                        thickness: px(1.0),
+                        wavy: false,
+                    }),
+                    ..Default::default()
+                },
+            ));
+        } else if !self.selected.is_empty() {
+            highlights.push((
+                self.shown_at(self.selected.start)..self.shown_at(self.selected.end),
+                HighlightStyle {
+                    background_color: Some(selection.into()),
+                    ..Default::default()
+                },
+            ));
+        }
+        highlights.retain(|(range, _)| range.start < range.end);
+        let base = div()
+            .key_context("Field")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, event, _, cx| this.key(event, cx)))
+            .cursor(CursorStyle::IBeam)
+            .on_key_down(cx.listener(Self::key))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::press))
-            .child(
-                canvas(
-                    move |bounds, window, _| {
-                        let style = window.text_style();
-                        let empty = text.is_empty();
-                        let shown = if empty { placeholder } else { text.as_str() };
-                        let run = TextRun {
-                            len: shown.len(),
-                            font: style.font(),
-                            color: (if empty { hint } else { ink }).into(),
-                            background_color: None,
-                            underline: None,
-                            strikethrough: None,
-                        };
-                        let runs = match marked.as_ref().filter(|_| !empty) {
-                            Some(range) => [
-                                TextRun {
-                                    len: range.start,
-                                    ..run.clone()
-                                },
-                                TextRun {
-                                    len: range.end - range.start,
-                                    underline: Some(UnderlineStyle {
-                                        color: Some(run.color),
-                                        thickness: px(1.0),
-                                        wavy: false,
-                                    }),
-                                    ..run.clone()
-                                },
-                                TextRun {
-                                    len: shown.len() - range.end,
-                                    ..run
-                                },
-                            ]
-                            .into_iter()
-                            .filter(|run| run.len > 0)
-                            .collect(),
-                            None => vec![run],
-                        };
-                        let font_size = style.font_size.to_pixels(window.rem_size());
-                        let line = window.text_system().shape_line(
-                            shown.to_owned().into(),
-                            font_size,
-                            &runs,
-                            None,
-                        );
-                        let caret = if empty {
-                            px(0.0)
-                        } else {
-                            line.x_for_index(cursor)
-                        };
-                        let _ = bounds;
-                        Laid { line, caret }
-                    },
-                    move |bounds, laid, window, cx| {
-                        window.handle_input(
-                            &focus,
-                            ElementInputHandler::new(bounds, paint_me.clone()),
-                            cx,
-                        );
-                        let height = window.line_height();
-                        let top = bounds.origin.y + (bounds.size.height - height) / 2.0;
-                        let origin = point(bounds.origin.x, top);
-                        let _ = laid
-                            .line
-                            .paint(origin, height, TextAlign::Left, None, window, cx);
-                        if focused {
-                            window.paint_quad(fill(
-                                Bounds::new(
-                                    point(origin.x + laid.caret, top),
-                                    size(px(1.0), height),
-                                ),
-                                cx.global::<Theme>().colors.ink,
-                            ));
-                        }
-                        paint_me.update(cx, |field, _| {
-                            field.line = Some(laid.line);
-                            field.bounds = Bounds::new(origin, bounds.size);
-                        });
-                    },
-                )
-                .size_full(),
-            )
+            .on_mouse_move(cx.listener(Self::drag));
+        let text = FieldText {
+            field: cx.entity(),
+            text: StyledText::new(shown).with_highlights(highlights),
+        };
+        if self.boxed {
+            base.w_full()
+                .min_h(px(LINE + 10.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .rounded(px(ROUND))
+                .border_1()
+                .border_color(if focused { focused_edge } else { edge })
+                .bg(surface)
+                .text_color(ink)
+                .text_size(px(FONT_SIZE))
+                .line_height(px(LINE))
+                .child(text)
+        } else {
+            base.flex_1()
+                .min_w_0()
+                .h_full()
+                .flex()
+                .items_center()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .child(text)
+        }
     }
-}
-
-pub fn new(placeholder: Str, cx: &mut App) -> Entity<Field> {
-    cx.new(|cx| Field::new(placeholder, cx))
 }

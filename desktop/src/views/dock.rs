@@ -7,17 +7,15 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
+use super::field::{self, Field};
 use crate::store::Store;
 use crate::strings::Str;
 
 mod body;
 mod docs;
-mod field;
 mod history;
 mod questions;
 mod ui;
-
-use field::TextField;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -50,14 +48,14 @@ struct Docs {
     rows: Option<Vec<DocRow>>,
     error: Option<String>,
     hidden: Vec<DocGroup>,
-    query: Entity<TextField>,
+    query: Entity<Field>,
 }
 
 pub struct Dock {
     store: Entity<Store>,
     tab: Tab,
     inbox: Inbox,
-    fields: HashMap<(u32, Slot), (Entity<TextField>, Subscription)>,
+    fields: HashMap<(u32, Slot), (Entity<Field>, Subscription)>,
     notes: HashMap<u32, String>,
     busy: HashSet<u32>,
     open_key: String,
@@ -71,7 +69,7 @@ pub struct Dock {
 pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<Dock> {
     cx.new(|cx| {
         let placeholder = ui::say(cx, Str::DocsFilterPlaceholder);
-        let query = field::field(placeholder, false, false, cx);
+        let query = field::boxed(placeholder, false, false, cx);
         let mut dock = Dock {
             store: store.clone(),
             tab: Tab::Questions,

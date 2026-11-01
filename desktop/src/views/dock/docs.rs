@@ -97,7 +97,7 @@ impl Dock {
                         .items_center()
                         .gap(px(GAP))
                         .children(chips)
-                        .child(div().flex_1().child(self.docs.query.clone())),
+                        .child(div().flex_1().min_w_0().child(self.docs.query.clone())),
                 ),
         );
         if let Some(error) = &self.docs.error {

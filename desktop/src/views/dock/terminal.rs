@@ -17,6 +17,7 @@ use crate::views::terminal;
 
 pub(super) struct Rename {
     node: u32,
+    ticket: u64,
     field: Entity<Field>,
     busy: bool,
     error: Option<String>,
@@ -52,8 +53,10 @@ impl Dock {
             cx.on_blur(&handle, window, |this, _, cx| this.end_rename(true, cx)),
         ];
         window.focus(&handle, cx);
+        self.edits += 1;
         self.renaming = Some(Rename {
             node: id,
+            ticket: self.edits,
             field,
             busy: false,
             error: None,
@@ -83,11 +86,15 @@ impl Dock {
             return;
         }
         r.busy = true;
+        let ticket = r.ticket;
         cardlink::run(
             &self.store,
             cx,
             move |base| cardlink::rename(base, id, &value),
             move |this, result, cx| {
+                if this.renaming.as_ref().is_none_or(|r| r.ticket != ticket) {
+                    return;
+                }
                 match result {
                     Ok(()) => this.renaming = None,
                     Err(text) => {

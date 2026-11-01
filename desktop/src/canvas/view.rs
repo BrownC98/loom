@@ -256,7 +256,8 @@ impl CanvasView {
             });
             store.update(cx, |store, cx| {
                 if let Err(error) = saved {
-                    store.tell(error, cx);
+                    let text = error.text(*cx.global::<Lang>());
+                    store.tell(text, cx);
                 }
                 store.reload(cx)
             });

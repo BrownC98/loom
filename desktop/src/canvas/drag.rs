@@ -8,6 +8,7 @@ use api::settings::{ArrangeDirection, SettingsView};
 use super::layout::{self, Direction, FREE_GAP, Inset, Point, Rect, Sibling, Swap};
 use super::scene::{REPO_INSET, Scene, cover};
 use crate::link::{self, Snapshot};
+use crate::problem::Failure;
 
 pub struct Tier {
     pub boxes: Vec<Sibling>,
@@ -61,7 +62,7 @@ impl Job {
         self.id
     }
 
-    pub fn run(&self, base: &str) -> Result<(), String> {
+    pub fn run(&self, base: &str) -> Result<(), Failure> {
         for write in &self.writes {
             match write {
                 Write::Clear(repos) => {

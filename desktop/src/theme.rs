@@ -78,26 +78,37 @@ impl Theme {
     }
 }
 
+pub fn terminal_themes() -> &'static [(&'static str, Terminal)] {
+    TERMINAL_THEMES
+}
+
+pub fn chosen_terminal_name(chosen: Option<&str>, mode: Scheme) -> &'static str {
+    let default = match mode {
+        Scheme::Dark => DEFAULT_DARK,
+        Scheme::Light => DEFAULT_LIGHT,
+    };
+    TERMINAL_THEMES
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| Some(*name) == chosen)
+        .unwrap_or(default)
+}
+
 pub fn terminal(saved: &TerminalTheme, scheme: Scheme) -> &'static Terminal {
     let mode = if saved.match_dark {
         Scheme::Dark
     } else {
         scheme
     };
-    let (chosen, default) = match mode {
-        Scheme::Dark => (&saved.dark, DEFAULT_DARK),
-        Scheme::Light => (&saved.light, DEFAULT_LIGHT),
+    let chosen = match mode {
+        Scheme::Dark => saved.dark.as_deref(),
+        Scheme::Light => saved.light.as_deref(),
     };
-    let find = |name: &str| {
-        TERMINAL_THEMES
-            .iter()
-            .find(|(known, _)| *known == name)
-            .map(|(_, theme)| theme)
-    };
-    chosen
-        .as_deref()
-        .and_then(find)
-        .or_else(|| find(default))
+    let name = chosen_terminal_name(chosen, mode);
+    TERMINAL_THEMES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, theme)| theme)
         .unwrap_or(&TERMINAL_THEMES[0].1)
 }
 

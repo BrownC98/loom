@@ -12,6 +12,7 @@ use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearanc
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
+use crate::problem::Failure;
 use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
@@ -197,7 +198,10 @@ impl Store {
                 .await;
             let _ = this.update(cx, |store, cx| match saved {
                 Ok(()) => store.reload(cx),
-                Err(error) => store.tell(error, cx),
+                Err(error) => {
+                    let text = error.text(*cx.global::<strings::Lang>());
+                    store.tell(text, cx)
+                }
             });
         })
         .detach();
@@ -235,10 +239,11 @@ impl Store {
                 if !self.newer(order) {
                     return;
                 }
-                self.status = if error.is_empty() {
+                let text = error.text(*cx.global::<strings::Lang>());
+                self.status = if text.is_empty() {
                     "connection closed".to_owned()
                 } else {
-                    error
+                    text
                 }
             }
         }
@@ -309,12 +314,15 @@ impl Store {
     fn call<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,
-        work: impl FnOnce(&str) -> Result<T, String> + Send + 'static,
+        work: impl FnOnce(&str) -> Result<T, Failure> + Send + 'static,
     ) -> Task<Result<T, String>> {
         let Some(base) = self.base.clone() else {
             return Task::ready(Err(self.status.clone()));
         };
-        cx.background_spawn(async move { work(&base) })
+        cx.spawn(async move |_, cx| {
+            let done = cx.background_spawn(async move { work(&base) }).await;
+            done.map_err(|failure| failure.text(cx.update(|app| *app.global::<strings::Lang>())))
+        })
     }
 
     pub fn agents(&self, cx: &mut Context<Self>) -> Task<Result<Vec<AgentView>, String>> {

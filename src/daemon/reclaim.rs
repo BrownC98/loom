@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use super::App;
 use crate::git;
-use crate::graph::{NodeId, Reclaim};
+use crate::graph::Reclaim;
 use crate::place::Files;
-use crate::protocol::Refusal;
+use crate::worktree;
 use crate::worktree::merge::{base_branch, branch_head, delete_merged, still_merged};
-use crate::worktree::{self, RepoId, RepoProblem};
+use api::graph::errors::Refusal;
+use api::ids::{NodeId, RepoId};
+use api::repos::RepoProblem;
 
 pub(super) async fn run(app: Arc<App>) {
     let rounds = match app.graph.reclaim_rounds() {

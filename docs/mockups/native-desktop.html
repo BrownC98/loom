@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R111 네이티브 데스크톱 창 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.flow { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; font-size: 13px; }
+.flow li { padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); }
+.flow li + li::before { content: '→ '; color: var(--ink-3); }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+.page {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(#fdfdfd, #0a0a0a);
+  --term-fg: light-dark(#262626, #d4d4d4);
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --notice: light-dark(oklch(56% 0.2 15), oklch(70% 0.17 15));
+  --notice-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --t-green: light-dark(#0f7b3a, #8ae234);
+  --t-blue: light-dark(#0b5cd5, #729fcf);
+  --t-dim: light-dark(#6b6b6b, #8f8f8f);
+  --t-red: light-dark(#c2272d, #ef2929);
+  width: 1360px; justify-self: start; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all;
+}
+.page svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.page button { border: 0; background: none; padding: 0; cursor: pointer; }
+.page .titlebar { display: flex; align-items: center; height: 36px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.page .titlebar .brand { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; }
+.page .titlebar .brand b { color: var(--ink); font-weight: 600; }
+.page svg.mark { width: 16px; height: 16px; fill: var(--ink-2); stroke: none; }
+.page .titlebar .drag { flex: 1; }
+.page .caption { display: grid; place-items: center; width: 46px; height: 36px; color: var(--ink-2); }
+.page .app { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; grid-template-rows: 560px 22px; }
+.page .side { display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); min-width: 0; }
+.page .side-top { display: flex; gap: 6px; padding: 10px 10px 6px; }
+.page .find { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; }
+.page .ibtn { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 5px; color: var(--ink-2); }
+.page .ibtn.lg { width: 30px; height: 30px; }
+.page .sec { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.page .sec .sp { flex: 1; }
+.page .hint { padding: 0 16px 6px; font-size: 12px; color: var(--ink-3); }
+.page .tree { display: grid; gap: 1px; padding: 0; overflow: hidden; font-size: 13px; }
+.page .row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: 6px; padding-left: calc(8px + var(--d, 0) * 12px); min-width: 0; }
+.page .row.node { height: 44px; display: grid; grid-template-columns: 7px minmax(0, 1fr); column-gap: 7px; row-gap: 0; align-content: center; }
+.page .row.node .l1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.page .row.node .l2 { grid-column: 2; display: flex; align-items: center; gap: 6px; font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page .row[aria-current="true"] { background: var(--accent-wash); }
+.page .row b { font-weight: 600; color: var(--ink); flex: none; }
+.page .row > svg { flex: none; }
+.page .row .sub { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); align-self: center; }
+.page .dot.running { background: var(--run); }
+.page .dot.done { background: var(--ok); }
+.page .dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.page .side-foot { margin-top: auto; padding: 8px; border-top: 1px solid var(--line); display: flex; }
+.page .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--ink); }
+.page .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.page .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.page .btn.full { width: 100%; }
+.page .center { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.page .ptabs { display: flex; align-items: flex-end; gap: 2px; height: 36px; padding: 0 6px 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.page .ptab { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 6px 0 10px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; font-size: 13px; color: var(--ink-2); margin-bottom: -1px; }
+.page .ptab[aria-selected="true"] { background: var(--bg); border-color: var(--line); color: var(--ink); font-weight: 600; height: 31px; }
+.page .ptab .x { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--ink-3); }
+.page .ptab .x svg { width: 12px; height: 12px; }
+.page .ptabs .sp { flex: 1; }
+.page .ptabs .tools { display: flex; gap: 2px; align-self: center; }
+.page .split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 8px; min-height: 0; }
+.page .card { display: flex; flex-direction: column; min-width: 0; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.page .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.page .card[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
+.page .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.page .card-head .name { font-weight: 600; }
+.page .card-head .model { font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.page .card-head .sp { flex: 1; }
+.page .agent { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; font: 700 9px/1 var(--font); color: var(--ink-2); flex: none; }
+.page .unread { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; }
+.page .state { display: inline-flex; align-items: center; gap: 5px; font: 12px/14px var(--mono); color: var(--ink-2); white-space: nowrap; }
+.page .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.page .state.run { color: var(--run); }
+.page .state.wait { color: var(--warn); }
+.page .term { flex: 1; padding: 8px 10px; font: 12px/16px var(--mono); color: var(--term-fg); white-space: pre; overflow: hidden; }
+.page .term .g { color: var(--t-green); }
+.page .term .b { color: var(--t-blue); }
+.page .term .d { color: var(--t-dim); }
+.page .term .r { color: var(--t-red); }
+.page .term .cur { background: var(--term-fg); color: var(--term); }
+.page .term .box { display: inline-block; border: 1px solid var(--t-dim); border-radius: 4px; padding: 0 6px; }
+.page .dock { display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); min-width: 0; }
+.page .dock-head { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 8px 0 12px; }
+.page .dock-head h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.page .tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.page .tabs button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--ink-2); font-size: 13px; white-space: nowrap; }
+.page .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.page .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--notice); color: var(--notice-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.page .wait-list { display: grid; padding: 6px; }
+.page .wait-node { display: grid; gap: 2px; padding: 4px 0; }
+.page .wait-node + .wait-node { border-top: 1px solid var(--line); }
+.page .wait-node > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; color: var(--ink-3); font-size: 12px; }
+.page .wait-node > .go b { color: var(--ink); font-size: 13px; }
+.page .wait-row { margin-left: 13px; padding: 6px 8px 10px; }
+.page .entry { display: grid; gap: 6px; }
+.page .entry .top { display: flex; align-items: center; gap: 6px; }
+.page .entry .kind { color: var(--ink-3); font-size: 12px; }
+.page .entry time { margin-left: auto; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.page .kind-mark { width: 15px; height: 15px; color: var(--warn); }
+.page .qid { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); }
+.page .full { font-size: 13px; color: var(--ink); }
+.page .doc-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
+.page .doc-link svg { width: 12px; height: 12px; }
+.page .doc-link b { font-weight: 600; }
+.page .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.page .choice { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink); }
+.page .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.page .choice.rec { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.page .choice .rmark { color: var(--warn); font-size: 11px; font-weight: 600; }
+.page .answer { display: flex; align-items: flex-end; gap: 6px; }
+.page .answer .field { flex: 1; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; line-height: 18px; }
+.page .send { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--warn); color: var(--warn-ink); }
+.page .to-term { font-size: 12px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.page .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.page .statusbar .sp { flex: 1; }
+.page .statusbar .ver { font-family: var(--mono); color: var(--ink-3); }
+.page .sbtn { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border-radius: 4px; color: var(--ink-2); font-size: 12px; }
+.page .sbtn svg { width: 12px; height: 12px; }
+.page .conn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); }
+.page .doclist { display: grid; padding: 6px 8px; }
+.page .doc-row { display: grid; grid-template-columns: 40px 1fr; gap: 2px 8px; padding: 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.page .doc-row .id { font: 600 12px var(--mono); color: var(--ink-3); }
+.page .doc-row a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.page .doc-row .meta { grid-column: 2; font-size: 12px; color: var(--ink-3); }
+.fig > .page { margin-top: 124px; }
+.fig { padding-bottom: 28px; }
+/* v2: graph canvas and settings dialog (web/src/styles.css values, screens.md, settings-facts.md) */
+.page { --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0)); --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0)); --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0)); --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5)); --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55)); }
+.page .app.tall { grid-template-rows: 640px 22px; }
+.page .canvas { position: relative; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; min-width: 0; }
+.page .canvas-title { position: absolute; left: 16px; top: 12px; font-size: 18px; font-weight: 600; z-index: 2; }
+.page .world { position: absolute; left: 22px; top: 56px; width: 1400px; height: 1080px; transform: scale(0.52); transform-origin: 0 0; }
+.page .world > * { position: absolute; }
+.page .repo-box { border: 2px solid var(--group-line); border-radius: 14px; }
+.page .repo-head { display: flex; align-items: baseline; gap: 8px; height: 46px; padding: 12px 16px 0; }
+.page .repo-head b { font-size: 15px; font-weight: 600; }
+.page .repo-head span { font-size: 12px; color: var(--ink-3); }
+.page .group { border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.page .group-head { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 14px; font-size: 13px; }
+.page .group-head b { font-weight: 600; }
+.page .group-head .kind { color: var(--ink-3); font-size: 12px; }
+.page .group-head .sp { flex: 1; }
+.page .world .card { width: 600px; }
+.page .world .term { height: 352px; flex: none; }
+.page .edges { left: 0; top: 0; width: 1400px; height: 1080px; overflow: visible; pointer-events: none; }
+.page .edges path { fill: none; stroke: var(--edge); stroke-width: 1.5; }
+.page .edges path.sel { stroke: var(--ink-2); stroke-width: 2.25; }
+.page .minimap { position: absolute; right: 12px; bottom: 12px; width: 168px; height: 108px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; z-index: 2; }
+.page .minimap i { position: absolute; display: block; border-radius: 2px; background: color-mix(in oklch, var(--ink) 22%, transparent); }
+.page .minimap .view { background: none; border: 1.5px solid var(--ink-2); border-radius: 3px; }
+.page .zoomctl { position: absolute; right: 186px; bottom: 12px; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); z-index: 2; }
+.page .zoomctl span { min-width: 40px; text-align: center; font: 11px var(--mono); color: var(--ink-2); }
+.page .dock-tools { display: grid; gap: 8px; padding: 0 10px 10px; }
+.page .segs { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.page .segs span { flex: 1; display: grid; place-items: center; height: 30px; font-size: 13px; color: var(--ink-2); }
+.page .segs span + span { border-left: 1px solid var(--line-strong); }
+.page .segs span[aria-checked="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.page .arrange { display: flex; gap: 6px; }
+.page .arrange .btn { flex: 1; justify-content: flex-start; }
+.page .side-foot .btn { justify-content: flex-start; }
+/* settings dialog over the main window */
+.page .center.dim, .page .side.dim, .page .dock.dim { position: relative; }
+.page .scrim { position: absolute; inset: 36px 0 0 0; background: var(--scrim); z-index: 5; }
+.page .dialog { position: absolute; left: 330px; top: 62px; width: 880px; height: 600px; display: grid; grid-template-columns: 180px minmax(0, 1fr); background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px var(--shadow); z-index: 6; overflow: hidden; color: var(--ink); }
+.page .snav { display: flex; flex-direction: column; gap: 2px; padding: 16px 8px; border-right: 1px solid var(--line); }
+.page .snav h2 { font-size: 15px; padding: 0 8px 10px; }
+.page .snav .find { flex: none; margin-bottom: 8px; }
+.page .snav .tab { padding: 7px 10px; border-radius: 6px; font-size: 14px; color: var(--ink-2); }
+.page .snav .tab[aria-current="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.page .snav .low { margin-top: auto; display: grid; gap: 2px; }
+.page .snav .low .btn { justify-content: flex-start; }
+.page .pane { display: grid; align-content: start; gap: 18px; padding: 18px 22px; overflow: hidden; }
+.page .pane-head { display: flex; align-items: center; gap: 8px; }
+.page .pane-head h3 { font-size: 15px; }
+.page .pane-head .sp { flex: 1; }
+.page .pane section { display: grid; gap: 8px; }
+.page .pane h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.page .pane .hint { padding: 0; }
+.page .stepper { display: flex; align-items: center; gap: 4px; }
+.page .stepper .num { display: grid; place-items: center; width: 56px; height: 26px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font: 13px var(--mono); }
+.page .input { display: flex; align-items: center; height: 32px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font: 13px var(--mono); max-width: 360px; }
+.page .reset { font-size: 12px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.page .tpick { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 10px; }
+.page .tlist { display: grid; align-content: start; height: 236px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; overflow: hidden; font-size: 13px; }
+.page .tlist span { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 5px; }
+.page .tlist span[aria-selected="true"] { background: var(--accent-wash); font-weight: 600; }
+.page .tlist i { width: 22px; height: 12px; border-radius: 3px; border: 1px solid var(--line-strong); }
+.page .tprev { height: 236px; margin: 0; padding: 10px 12px; border-radius: 8px; background: #0a0a0a; color: #d4d4d4; font: 12px/1.5 var(--mono); white-space: pre; overflow: hidden; }
+.page .tprev .g { color: #8ae234; } .page .tprev .b { color: #729fcf; } .page .tprev .y { color: #fce94f; } .page .tprev .r { color: #ef2929; }
+.page .chips16 { display: flex; gap: 3px; margin-top: 8px; }
+.page .chips16 i { width: 14px; height: 10px; border-radius: 2px; }
+.page .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
+.page .switch i { position: relative; width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); }
+.page .switch i::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); }
+.page .switch i.on { background: var(--accent); }
+.page .switch i.on::after { left: 14px; background: var(--accent-ink); }
+.page { position: relative; }
+.fig { padding-bottom: 84px; }
+.page .snav { padding: 16px 16px; }
+.page .tabs .lead-gap { width: 24px; flex: none; }
+</style></head>
+<body data-ui=".tabs button, .choice, .send, .ibtn, .sbtn, .btn, .find, .segs, .tab, .switch">
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>R111</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 GPUI그래프설계</b></span><span>v2 · 2026-11-01</span></div>
+  <h1>loom 네이티브 데스크톱 창: 그래프 캔버스와 설정</h1>
+  <p class="lead">사람 결정(Q1966): 네이티브 창의 가운데는 웹과 같은 그래프 캔버스이고, 설정 창도 네이티브로 그립니다. 질문에 붙은 문서는 기본 브라우저에서 엽니다. 색, 글꼴, 카드, 선, 왼쪽 트리, 질문 줄은 웹 화면과 같습니다. 아래 번호는 v1과 달라진 곳과 아직 정할 곳을 가리킵니다.</p>
+  <ol class="flow"><li>앱 실행: 데몬에 붙음</li><li>그래프에서 카드를 고름</li><li>카드 안 터미널에 바로 입력</li><li>질문은 오른쪽 질문 탭에서 답함</li><li>설정은 앱 안 설정 창에서 바꿈</li></ol>
+  <div class="fig">
+    <h2>① 메인 창: 웹과 같은 그래프 캔버스 <span class="tag">Windows</span></h2>
+<div class="page">
+  <div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>todo-app</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div>
+  <div class="app tall">
+    <aside class="side">
+      <div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div>
+      <div class="sec"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg> 북마크</div>
+      <p class="hint">북마크 단추로 노드를 더합니다.</p>
+      <div class="tree">
+        <div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div>
+        <div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div>
+        <div class="row" style="--d:1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>main</b><span class="sub">원래 체크아웃</span></div>
+        <div class="row node" style="--d:2" aria-current="true"><span class="dot done"></span><span class="l1"><b>lead</b></span><span class="l2">claude-opus-5-5 · medium</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>cli</b></div>
+        <div class="row node" style="--d:3"><span class="dot running"></span><span class="l1"><b>cli</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>store-api</b></div>
+        <div class="row node" style="--d:3"><span class="dot done"></span><span class="l1"><b>store</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+      </div>
+      <div class="side-foot"><span class="mk new" data-n="5" style="display:flex"><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 설정</span></span></div>
+    </aside>
+    <section class="canvas" aria-label="그래프">
+      <div class="canvas-title">todo-app</div>
+      <div class="world">
+        <div class="repo-box" style="left:0;top:0;width:1400px;height:1060px"><div class="repo-head"><b>todo-app</b><span>~/src/todo-app</span></div></div>
+        <div class="group" style="left:16px;top:62px;width:1368px;height:982px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:48px;top:562px;width:640px;height:466px"><div class="group-head"><b>cli</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:712px;top:562px;width:640px;height:466px"><div class="group-head"><b>store-api</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <svg class="edges" viewBox="0 0 1400 1080" aria-hidden="true"><path class="sel" d="M700 506 V534 H368 V622"/><path class="sel" d="M700 534 H1032 V622"/></svg>
+        <div style="left:400px;top:122px"><span class="mk new" data-n="1" style="display:block">
+        <div class="card" data-selected>
+          <div class="card-head"><span class="name">lead</span><span class="agent">C</span><span class="model">claude-opus-5-5 · medium</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(loom status)
+  <span class="d">⎿</span>  cli      running
+     store    done
+
+<span class="g">●</span> Store finished. Waiting for cli.
+
+<span class="d">✻ Brewed for 2s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt; <span class="cur"> </span>                                                          <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span>
+  <span class="r">⏵⏵</span> <span class="r">bypass permissions on</span> <span class="d">(shift+tab)</span></div>
+        </div></span></div>
+        <div style="left:68px;top:622px">
+        <div class="card">
+          <div class="card-head"><span class="name">cli</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state run">실행 중</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(npm test)
+  <span class="d">⎿</span>  <span class="g">✔</span> add, list, done <span class="d">(3 tests)</span>
+
+<span class="b">✶</span> Writing the report… <span class="d">(12s)</span></div>
+        </div></div>
+        <div class="card" style="left:732px;top:622px">
+          <div class="card-head"><span class="name">store</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> remove(id) and toggle(id) are added to src/store.js.
+  tests/store.test.js covers both; npm test passes (5 of 5).
+
+  I reported this to the parent with loom done.
+
+<span class="d">✻ Worked for 22s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt;                                                             <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span></div>
+        </div>
+      </div>
+      <span style="position:absolute;right:12px;bottom:12px;display:flex;align-items:flex-end;gap:6px;z-index:2"><span class="mk new" data-n="2" style="display:flex">
+        <span class="zoomctl" style="position:static"><button class="ibtn" aria-label="축소"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button><span>50%</span><button class="ibtn" aria-label="확대"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button><button class="ibtn" aria-label="작은 지도 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg></button></span>
+        <span class="minimap" style="position:relative;right:auto;bottom:auto;display:block"><i style="left:8px;top:6px;width:150px;height:96px;background:none;border:1px solid color-mix(in oklch,var(--ink) 30%,transparent)"></i><i style="left:62px;top:16px;width:44px;height:30px"></i><i style="left:15px;top:58px;width:44px;height:32px"></i><i style="left:109px;top:58px;width:44px;height:32px"></i><i class="view" style="left:4px;top:3px;width:158px;height:101px"></i></span>
+      </span></span>
+    </section>
+    <aside class="dock">
+      <div class="dock-head"><h3>보기</h3><button class="ibtn" aria-label="독 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button></div>
+      <div class="dock-tools"><span class="mk " data-n="3" style="display:grid">
+        <div class="segs" role="radiogroup" aria-label="카드 보기"><span role="radio" aria-checked="false">심플</span><span role="radio" aria-checked="false">총괄만</span><span role="radio" aria-checked="true">표준</span></div>
+        <div class="arrange"><span class="btn"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg> 정렬</span><span class="btn">자동</span><span class="btn" aria-label="정렬 방향"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+      </span></div>
+      <div class="tabs" role="tablist"><span class="lead-gap"></span><span class="mk new" data-n="4" style="display:inline-flex"><button role="tab" aria-selected="true">질문</button><button role="tab" aria-selected="false">문서</button></span></div>
+      <div class="wait-list"><p class="hint" style="padding:96px 8px 12px">대기 중인 질문이 없습니다.</p></div>
+    </aside>
+    <footer class="statusbar">
+      <span class="conn"><span class="dot done"></span>127.0.0.1:7420</span>
+      <span class="sbtn">데몬에 연결됨</span>
+      <span class="sp"></span><span class="ver">v0.1.2260</span>
+    </footer>
+  </div>
+
+</div>
+    <div class="calls">
+      <div><b>1</b><span>카드 안에서 노드 터미널이 바로 돕니다. 카드를 누르고 그대로 입력합니다.</span></div>
+      <div><b>2</b><span>휠로 키우고 줄이며, 빈 곳을 끌어 옮깁니다. 작은 지도를 눌러 그 자리로 갑니다.</span></div>
+      <div><b>3</b><span>카드 보기와 정렬은 웹과 같습니다. 옮긴 카드 자리는 웹 화면에도 같게 보입니다.</span></div>
+      <div><b>4</b><span>오른쪽에는 질문과 문서 탭을 둡니다.</span></div>
+      <div><b>5</b><span>설정 단추는 앱 안의 설정 창을 엽니다.</span></div>
+    </div>
+  </div>
+  <section class="decision" id="D9" data-for="1">
+    <h3><span class="did">D9</span>카드의 터미널은 어디에 여는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">카드 안에 엶(웹 표준 카드와 같음)<span class="mark">권장</span><span class="sub">웹: 표준 카드 안 터미널 → 네이티브: 같음 · 비용: 화면에 보이는 카드마다 터미널 하나(웹도 같음) · 되돌리기: 카드 보기를 「심플」로 바꾸면 오른쪽 독에 하나만 엶</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">카드는 요약만, 고른 카드의 터미널을 오른쪽 칸 하나에 엶<span class="sub">웹 「심플」 보기만 남김 · 비용 작음(터미널 하나) · 여러 노드의 화면을 한눈에 못 봄</span></span></div>
+    </div>
+    <ul class="why"><li>사람이 「웹과 같은 그래프」를 골랐습니다(Q1966). 웹 표준 카드가 A입니다.</li><li>웹에도 「심플」 보기(B 모양)가 있어서, A로 만들면 두 모양을 다 갖습니다.</li><li>네이티브 그리기가 웹보다 나은 곳은 터미널 여럿을 함께 그릴 때입니다.</li></ul>
+  </section>
+  <section class="decision" id="D11" data-for="4">
+    <h3><span class="did">D11</span>첫 판에서 뒤로 미루는 웹 기능이 있는가(그래프 위 질문 알약, 입력 창, 이벤트·커밋 그래프 탭)</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">다음 판으로 미룸<span class="mark">권장</span><span class="sub">웹: 그래프 위 알약·입력 창, 독 탭 4개 → 네이티브 첫 판: 질문은 독 질문 탭, 입력은 카드 터미널, 이벤트·커밋 그래프는 브라우저 · 비용 작음 · 되돌리기: 다음 판에 하나씩 더함</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">첫 판에 모두 넣음<span class="sub">끌어 옮기는 떠 있는 창 2개와 커밋 줄 그림을 더 만듦 · 첫 판이 늦어짐</span></span></div>
+    </div>
+    <ul class="why"><li>질문 알약과 독 질문 탭은 같은 질문을 두 곳에 보입니다. 첫 판은 한 곳으로 답할 수 있습니다.</li><li>입력 창은 웹 터미널의 한글 입력을 돕습니다. 네이티브 카드 터미널은 한글을 바로 받아야 하고, 첫 시험(스파이크)이 이것을 확인합니다.</li></ul>
+  </section>
+  <div class="fig">
+    <h2>② 질문이 옴: 카드와 질문 탭에서 알고 답함 <span class="tag">Windows</span></h2>
+<div class="page">
+  <div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>todo-app</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div>
+  <div class="app tall">
+    <aside class="side">
+      <div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div>
+      <div class="sec"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg> 북마크</div>
+      <p class="hint">북마크 단추로 노드를 더합니다.</p>
+      <div class="tree">
+        <div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div>
+        <div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div>
+        <div class="row" style="--d:1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>main</b><span class="sub">원래 체크아웃</span></div>
+        <div class="row node" style="--d:2" aria-current="true"><span class="dot done"></span><span class="l1"><b>lead</b></span><span class="l2">claude-opus-5-5 · medium</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>cli</b></div>
+        <div class="row node" style="--d:3"><span class="dot waiting"></span><span class="l1"><b>cli</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>store-api</b></div>
+        <div class="row node" style="--d:3"><span class="dot done"></span><span class="l1"><b>store</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+      </div>
+      <div class="side-foot"><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 설정</span></div>
+    </aside>
+    <section class="canvas" aria-label="그래프">
+      <div class="canvas-title">todo-app</div>
+      <div class="world">
+        <div class="repo-box" style="left:0;top:0;width:1400px;height:1060px"><div class="repo-head"><b>todo-app</b><span>~/src/todo-app</span></div></div>
+        <div class="group" style="left:16px;top:62px;width:1368px;height:982px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:48px;top:562px;width:640px;height:466px"><div class="group-head"><b>cli</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:712px;top:562px;width:640px;height:466px"><div class="group-head"><b>store-api</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <svg class="edges" viewBox="0 0 1400 1080" aria-hidden="true"><path class="sel" d="M700 506 V534 H368 V622"/><path class="sel" d="M700 534 H1032 V622"/></svg>
+        <div style="left:400px;top:122px">
+        <div class="card" data-selected>
+          <div class="card-head"><span class="name">lead</span><span class="agent">C</span><span class="model">claude-opus-5-5 · medium</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(loom status)
+  <span class="d">⎿</span>  cli      running
+     store    done
+
+<span class="g">●</span> Store finished. Waiting for cli.
+
+<span class="d">✻ Brewed for 2s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt; <span class="cur"> </span>                                                          <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span>
+  <span class="r">⏵⏵</span> <span class="r">bypass permissions on</span> <span class="d">(shift+tab)</span></div>
+        </div></div>
+        <div style="left:68px;top:622px"><span class="mk " data-n="6" style="display:block">
+        <div class="card" data-waiting>
+          <div class="card-head"><span class="name">cli</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state wait">응답 대기</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(npm test)
+  <span class="d">⎿</span>  <span class="b">ℹ</span> tests 3  pass 3  fail 0
+
+<span class="g">●</span> <b>Bash</b>(loom ask "store API name: remove or
+       delete? (A: remove / B: delete,
+       Recommended: A)" --doc cli-api.html)
+  <span class="d">⎿</span>  Asked Q2071. Waiting for the answer.
+
+<span class="d">✻ Waiting for parent · 41s</span></div>
+        </div></span></div>
+        <div class="card" style="left:732px;top:622px">
+          <div class="card-head"><span class="name">store</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> remove(id) and toggle(id) are added to src/store.js.
+  tests/store.test.js covers both; npm test passes (5 of 5).
+
+  I reported this to the parent with loom done.
+
+<span class="d">✻ Worked for 22s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt;                                                             <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span></div>
+        </div>
+      </div>
+      <span style="position:absolute;right:12px;bottom:12px;display:flex;align-items:flex-end;gap:6px;z-index:2">
+        <span class="zoomctl" style="position:static"><button class="ibtn" aria-label="축소"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button><span>50%</span><button class="ibtn" aria-label="확대"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button><button class="ibtn" aria-label="작은 지도 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg></button></span>
+        <span class="minimap" style="position:relative;right:auto;bottom:auto;display:block"><i style="left:8px;top:6px;width:150px;height:96px;background:none;border:1px solid color-mix(in oklch,var(--ink) 30%,transparent)"></i><i style="left:62px;top:16px;width:44px;height:30px"></i><i style="left:15px;top:58px;width:44px;height:32px"></i><i style="left:109px;top:58px;width:44px;height:32px"></i><i class="view" style="left:4px;top:3px;width:158px;height:101px"></i></span>
+      </span>
+    </section>
+    <aside class="dock">
+      <div class="dock-head"><h3>보기</h3><button class="ibtn" aria-label="독 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button></div>
+      <div class="dock-tools">
+        <div class="segs" role="radiogroup" aria-label="카드 보기"><span role="radio" aria-checked="false">심플</span><span role="radio" aria-checked="false">총괄만</span><span role="radio" aria-checked="true">표준</span></div>
+        <div class="arrange"><span class="btn"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg> 정렬</span><span class="btn">자동</span><span class="btn" aria-label="정렬 방향"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+      </div>
+      <div class="tabs" role="tablist"><span class="lead-gap"></span><button role="tab" aria-selected="true">질문<span class="count">1</span></button><button role="tab" aria-selected="false">문서</button></div>
+      <div class="wait-list">
+        <div class="wait-node">
+          <span class="go"><span class="dot waiting"></span><b>cli</b>1건</span>
+          <div class="wait-row"><span><div class="entry">
+            <div class="top"><svg aria-hidden="true" viewBox="0 0 24 24" class="kind-mark"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q2071</span><time>방금</time><button class="ibtn" aria-label="닫기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+            <p class="full">store API 이름을 remove로 할까요, delete로 할까요?</p>
+            <div class="choices"><span class="choice rec"><span class="key">A</span>remove<span class="rmark">권장</span></span><span class="choice"><span class="key">B</span>delete</span></div>
+            <div class="answer"><span class="field">답 쓰기</span><button class="ibtn" aria-label="첨부"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><button class="send" aria-label="보내기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            <span class="to-term">터미널로</span>
+            <span class="mk" data-n="7" style="display:inline-block;justify-self:start;"><span class="doc-link"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg><b>CLI 명령 목업</b></span></span>
+          </div></span></div>
+        </div>
+      </div>
+    </aside>
+    <footer class="statusbar">
+      <span class="conn"><span class="dot done"></span>127.0.0.1:7420</span>
+      <span class="sbtn">데몬에 연결됨</span>
+      <span class="sp"></span><span class="ver">v0.1.2260</span>
+    </footer>
+  </div>
+
+</div>
+    <div class="calls">
+      <div><b>6</b><span>답을 기다리는 카드는 노란 테두리를 두르고 머리에 「응답 대기」를 보입니다.</span></div>
+      <div><b>7</b><span>목업·보고서 문서는 누르면 기본 브라우저에서 열립니다.</span></div>
+    </div>
+  </div>
+  <div class="fig">
+    <h2>③ 설정 창: 웹 설정과 같은 탭을 앱 안에서 <span class="tag">Windows</span></h2>
+<div class="page">
+  <div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>todo-app</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div>
+  <div class="app tall">
+    <aside class="side">
+      <div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div>
+      <div class="sec"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg> 북마크</div>
+      <p class="hint">북마크 단추로 노드를 더합니다.</p>
+      <div class="tree">
+        <div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div>
+        <div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div>
+        <div class="row" style="--d:1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>main</b><span class="sub">원래 체크아웃</span></div>
+        <div class="row node" style="--d:2" aria-current="true"><span class="dot done"></span><span class="l1"><b>lead</b></span><span class="l2">claude-opus-5-5 · medium</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>cli</b></div>
+        <div class="row node" style="--d:3"><span class="dot running"></span><span class="l1"><b>cli</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+        <div class="row" style="--d:2"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><svg aria-hidden="true" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><b>store-api</b></div>
+        <div class="row node" style="--d:3"><span class="dot done"></span><span class="l1"><b>store</b></span><span class="l2">claude-sonnet-5-5 · low</span></div>
+      </div>
+      <div class="side-foot"><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 설정</span></div>
+    </aside>
+    <section class="canvas" aria-label="그래프">
+      <div class="canvas-title">todo-app</div>
+      <div class="world">
+        <div class="repo-box" style="left:0;top:0;width:1400px;height:1060px"><div class="repo-head"><b>todo-app</b><span>~/src/todo-app</span></div></div>
+        <div class="group" style="left:16px;top:62px;width:1368px;height:982px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:48px;top:562px;width:640px;height:466px"><div class="group-head"><b>cli</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <div class="group" style="left:712px;top:562px;width:640px;height:466px"><div class="group-head"><b>store-api</b><span class="kind">워크트리</span><span class="sp"></span><span class="btn ghost sm"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> 새 노드</span><button class="ibtn" aria-label="묶음 정렬"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></button></div></div>
+        <svg class="edges" viewBox="0 0 1400 1080" aria-hidden="true"><path class="sel" d="M700 506 V534 H368 V622"/><path class="sel" d="M700 534 H1032 V622"/></svg>
+        <div style="left:400px;top:122px">
+        <div class="card" data-selected>
+          <div class="card-head"><span class="name">lead</span><span class="agent">C</span><span class="model">claude-opus-5-5 · medium</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(loom status)
+  <span class="d">⎿</span>  cli      running
+     store    done
+
+<span class="g">●</span> Store finished. Waiting for cli.
+
+<span class="d">✻ Brewed for 2s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt; <span class="cur"> </span>                                                          <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span>
+  <span class="r">⏵⏵</span> <span class="r">bypass permissions on</span> <span class="d">(shift+tab)</span></div>
+        </div></div>
+        <div style="left:68px;top:622px">
+        <div class="card">
+          <div class="card-head"><span class="name">cli</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state run">실행 중</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> <b>Bash</b>(npm test)
+  <span class="d">⎿</span>  <span class="g">✔</span> add, list, done <span class="d">(3 tests)</span>
+
+<span class="b">✶</span> Writing the report… <span class="d">(12s)</span></div>
+        </div></div>
+        <div class="card" style="left:732px;top:622px">
+          <div class="card-head"><span class="name">store</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · low</span><span class="sp"></span><span class="state">완료</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+<div class="term"><span class="g">●</span> remove(id) and toggle(id) are added to src/store.js.
+  tests/store.test.js covers both; npm test passes (5 of 5).
+
+  I reported this to the parent with loom done.
+
+<span class="d">✻ Worked for 22s · done 8:13 PM</span>
+
+<span class="d">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> &gt;                                                             <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────╯</span></div>
+        </div>
+      </div>
+      <span style="position:absolute;right:12px;bottom:12px;display:flex;align-items:flex-end;gap:6px;z-index:2">
+        <span class="zoomctl" style="position:static"><button class="ibtn" aria-label="축소"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button><span>50%</span><button class="ibtn" aria-label="확대"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button><button class="ibtn" aria-label="작은 지도 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg></button></span>
+        <span class="minimap" style="position:relative;right:auto;bottom:auto;display:block"><i style="left:8px;top:6px;width:150px;height:96px;background:none;border:1px solid color-mix(in oklch,var(--ink) 30%,transparent)"></i><i style="left:62px;top:16px;width:44px;height:30px"></i><i style="left:15px;top:58px;width:44px;height:32px"></i><i style="left:109px;top:58px;width:44px;height:32px"></i><i class="view" style="left:4px;top:3px;width:158px;height:101px"></i></span>
+      </span>
+    </section>
+    <aside class="dock">
+      <div class="dock-head"><h3>보기</h3><button class="ibtn" aria-label="독 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button></div>
+      <div class="dock-tools">
+        <div class="segs" role="radiogroup" aria-label="카드 보기"><span role="radio" aria-checked="false">심플</span><span role="radio" aria-checked="false">총괄만</span><span role="radio" aria-checked="true">표준</span></div>
+        <div class="arrange"><span class="btn"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg> 정렬</span><span class="btn">자동</span><span class="btn" aria-label="정렬 방향"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+      </div>
+      <div class="tabs" role="tablist"><span class="lead-gap"></span><button role="tab" aria-selected="true">질문</button><button role="tab" aria-selected="false">문서</button></div>
+      <div class="wait-list"><p class="hint" style="padding:96px 8px 12px">대기 중인 질문이 없습니다.</p></div>
+    </aside>
+    <footer class="statusbar">
+      <span class="conn"><span class="dot done"></span>127.0.0.1:7420</span>
+      <span class="sbtn">데몬에 연결됨</span>
+      <span class="sp"></span><span class="ver">v0.1.2260</span>
+    </footer>
+  </div>
+  <div class="scrim"></div>
+  <div class="dialog" role="dialog" aria-label="설정">
+    <nav class="snav">
+      <h2>설정</h2>
+      <span class="mk" data-n="8" style="display:grid;gap:2px">
+      <span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 설정 찾기</span>
+      <span class="tab">일반</span><span class="tab">휴대폰</span><span class="tab">에이전트</span><span class="tab">에이전트 계정</span><span class="tab">화면</span><span class="tab">그래프</span><span class="tab" aria-current="true">터미널</span><span class="tab">정보</span>
+      </span>
+      <span class="low"><span class="btn ghost sm">모든 설정 초기화</span><span class="btn ghost sm">loom 끄기</span></span>
+    </nav>
+    <div class="pane">
+      <div class="pane-head"><h3>터미널</h3><span class="sp"></span><span class="btn sm">이 탭 초기화</span><button class="ibtn" aria-label="설정 닫기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <section><h4>글꼴 크기</h4>
+        <span class="mk new" data-n="10" style="display:flex;gap:10px;align-items:center;justify-self:start"><span class="stepper"><span class="btn sm icon" aria-label="작게"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="num">13</span><span class="btn sm icon" aria-label="크게"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></span></span><span class="reset">기본값</span></span>
+      </section>
+      <section><h4>글꼴</h4><span class="input">Jetendard, Loom Symbols</span></section>
+      <section><h4>다크 모드 테마</h4>
+        <span class="mk" data-n="9" style="display:block">
+        <div class="tpick">
+          <div class="tlist" role="listbox" aria-label="다크 모드 테마"><span aria-selected="true"><i style="background:#0a0a0a"></i>Loom Dark</span><span><i style="background:#1e1e2e"></i>Catppuccin Mocha</span><span><i style="background:#282a36"></i>Dracula</span><span><i style="background:#2e3440"></i>Nord</span><span><i style="background:#1a1b26"></i>Tokyo Night</span><span><i style="background:#002b36"></i>Solarized Dark</span><span><i style="background:#282828"></i>Gruvbox Dark</span><span><i style="background:#0d1117"></i>GitHub Dark</span></div>
+<pre class="tprev"><span class="g">~/src/todo-app</span> <span class="b">main</span> $ git status
+On branch main
+  modified:   <span class="r">src/store.js</span>
+$ cargo build
+   <span class="g">Compiling</span> todo v0.1.0
+    <span class="g">Finished</span> dev in 1.2s
+<span class="y">warning</span>: unused variable: `id`
+$ █
+<span class="chips16"><i style="background:#2e3436"></i><i style="background:#cc0000"></i><i style="background:#4e9a06"></i><i style="background:#c4a000"></i><i style="background:#3465a4"></i><i style="background:#75507b"></i><i style="background:#06989a"></i><i style="background:#d3d7cf"></i><i style="background:#555753"></i><i style="background:#ef2929"></i><i style="background:#8ae234"></i><i style="background:#fce94f"></i><i style="background:#729fcf"></i><i style="background:#ad7fa8"></i><i style="background:#34e2e2"></i><i style="background:#eeeeec"></i></span></pre>
+        </div>
+        </span>
+      </section>
+      <section><h4>라이트 모드 테마</h4><span class="switch"><i class="on"></i>다크 모드 테마와 짝을 맞춤</span></section>
+    </div>
+  </div>
+</div>
+    <div class="calls">
+      <div><b>8</b><span>웹 설정과 같은 탭 8개와 설정 찾기가 있습니다.</span></div>
+      <div><b>9</b><span>테마를 고르면 옆 미리보기에 바로 보입니다.</span></div>
+      <div><b>10</b><span>바꾸면 바로 저장됩니다. 바꾼 칸에는 「기본값」 단추가 생깁니다.</span></div>
+    </div>
+  </div>
+  <section class="decision" id="D10" data-for="8">
+    <h3><span class="did">D10</span>설정은 어떤 창으로 여는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">메인 창 안의 대화 상자(웹과 같음)<span class="mark">권장</span><span class="sub">웹: 그래프 위 대화 상자 → 네이티브: 같음 · 비용 작음 · 되돌리기: 같은 화면을 따로 창에 담음</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">따로 뜨는 설정 창<span class="sub">설정을 띄운 채 그래프를 씀 · 창 둘의 위치·포커스·닫기를 운영체제마다 다룸 · 비용 중간</span></span></div>
+    </div>
+    <ul class="why"><li>웹과 같은 모양이면 사용법과 설명서가 하나입니다.</li><li>설정은 바꾸면 바로 저장되므로 창을 띄워 둘 일이 적습니다.</li></ul>
+  </section>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+</script>
+</body></html>

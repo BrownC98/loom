@@ -4,24 +4,18 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::CommandBuilder;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+
+use api::ids::AccountId;
 
 use crate::process_tree;
-use crate::protocol::{LaunchError, Provider};
 use crate::wsl::{Inside, Run};
+use api::graph::errors::LaunchError;
+use api::profile::Provider;
 
-/// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct AccountId(String);
-
-impl AccountId {
-    fn checked(&self) -> io::Result<&str> {
-        let ok = self.0.len() == 16 && self.0.bytes().all(|b| b.is_ascii_hexdigit());
-        ok.then_some(self.0.as_str())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "계정 id 형식이 아니다"))
-    }
+fn checked(id: &AccountId) -> io::Result<&str> {
+    let ok = id.0.len() == 16 && id.0.bytes().all(|b| b.is_ascii_hexdigit());
+    ok.then_some(id.0.as_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "계정 id 형식이 아니다"))
 }
 
 pub struct Cli {
@@ -58,7 +52,7 @@ impl Accounts {
         let mut ids = Vec::new();
         for entry in entries {
             let id = AccountId(entry?.file_name().to_string_lossy().into_owned());
-            if id.checked().is_ok() {
+            if checked(&id).is_ok() {
                 ids.push(id);
             }
         }
@@ -96,7 +90,7 @@ impl Accounts {
     }
 
     fn dir(&self, cli: &Cli, id: &AccountId) -> io::Result<PathBuf> {
-        Ok(self.root.join(cli.folder).join(id.checked()?))
+        Ok(self.root.join(cli.folder).join(checked(id)?))
     }
 }
 

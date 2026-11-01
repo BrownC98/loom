@@ -1,0 +1,195 @@
+{
+  "kind": "hopParts",
+  "input": {
+    "cases": [
+      {
+        "counts": {
+          "source": 2,
+          "target": 1
+        },
+        "source": {
+          "x": 0,
+          "y": 0
+        },
+        "target": {
+          "x": 100,
+          "y": 0
+        },
+        "turned": false
+      },
+      {
+        "counts": {
+          "source": 2,
+          "target": 1
+        },
+        "source": {
+          "x": 100,
+          "y": 0
+        },
+        "target": {
+          "x": 0,
+          "y": 0
+        },
+        "turned": false
+      },
+      {
+        "counts": {
+          "source": 0,
+          "target": 3
+        },
+        "source": {
+          "x": 100,
+          "y": 0
+        },
+        "target": {
+          "x": 0,
+          "y": 0
+        },
+        "turned": false
+      },
+      {
+        "counts": {
+          "source": 4,
+          "target": 0
+        },
+        "source": {
+          "x": 0,
+          "y": 50
+        },
+        "target": {
+          "x": 0,
+          "y": 10
+        },
+        "turned": true
+      },
+      {
+        "counts": {
+          "source": 4,
+          "target": 5
+        },
+        "source": {
+          "x": 0,
+          "y": 10
+        },
+        "target": {
+          "x": 0,
+          "y": 50
+        },
+        "turned": true
+      },
+      {
+        "counts": {
+          "source": 1,
+          "target": 1
+        },
+        "source": null,
+        "target": {
+          "x": 0,
+          "y": 50
+        },
+        "turned": false
+      },
+      {
+        "counts": {
+          "source": 0,
+          "target": 0
+        },
+        "source": null,
+        "target": null,
+        "turned": true
+      },
+      {
+        "counts": {
+          "source": 1,
+          "target": 2
+        },
+        "source": {
+          "x": 5,
+          "y": 5
+        },
+        "target": {
+          "x": 5,
+          "y": 5
+        },
+        "turned": true
+      }
+    ]
+  },
+  "output": [
+    [
+      {
+        "from": "source",
+        "to": "target",
+        "back": false
+      },
+      {
+        "from": "target",
+        "to": "source",
+        "back": true
+      }
+    ],
+    [
+      {
+        "from": "target",
+        "to": "source",
+        "back": false
+      },
+      {
+        "from": "source",
+        "to": "target",
+        "back": true
+      }
+    ],
+    [
+      {
+        "from": "source",
+        "to": "target",
+        "back": true
+      }
+    ],
+    [
+      {
+        "from": "target",
+        "to": "source",
+        "back": true
+      }
+    ],
+    [
+      {
+        "from": "target",
+        "to": "source",
+        "back": false
+      },
+      {
+        "from": "source",
+        "to": "target",
+        "back": true
+      }
+    ],
+    [
+      {
+        "from": "source",
+        "to": "target",
+        "back": false
+      },
+      {
+        "from": "target",
+        "to": "source",
+        "back": true
+      }
+    ],
+    [],
+    [
+      {
+        "from": "source",
+        "to": "target",
+        "back": false
+      },
+      {
+        "from": "target",
+        "to": "source",
+        "back": true
+      }
+    ]
+  ]
+}

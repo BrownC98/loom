@@ -4,26 +4,31 @@ const PROFILE_DIR: &str = "src/profile";
 
 const PROFILE_FILE: &str = "src/profile.rs";
 
+const API_PROFILE_FILE: &str = "api/src/profile.rs";
+
+const CORE_DIRS: [&str; 2] = ["src", "api/src"];
+
 const ADAPTER_IMPL: &str = "Adapter for ";
 
 const SHOWN_AS: [(&str, &str); 1] = [("Omp", "OMP")];
 
-const DATA: [(&str, &str); 6] = [
+const DATA: [(&str, &str); 4] = [
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-opus-5-5", "medium")),"#,
     ),
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-sonnet-5-5", "medium")),"#,
     ),
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-opus-5-5", "high")),"#,
     ),
-    ("src/roles.rs", r#"Some(("codex", "gpt-6.1-sol", "high")),"#),
-    ("src/protocol/agent.rs", "Claude,"),
-    ("src/protocol/agent.rs", "Codex,"),
+    (
+        "api/src/settings/roles.rs",
+        r#"Some(("codex", "gpt-6.1-sol", "high")),"#,
+    ),
 ];
 
 struct Agent {
@@ -77,7 +82,10 @@ fn core_files(dir: &Path, repo: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("read a src folder") {
         let path = entry.expect("src entry").path();
         let relative = path.strip_prefix(repo).expect("under the repository");
-        if relative == Path::new(PROFILE_DIR) || relative == Path::new(PROFILE_FILE) {
+        if [PROFILE_DIR, PROFILE_FILE, API_PROFILE_FILE]
+            .iter()
+            .any(|skip| relative == Path::new(skip))
+        {
             continue;
         }
         if path.is_dir() {
@@ -173,7 +181,9 @@ pub fn problems(repo: &Path) -> Vec<String> {
         }
     }
     let mut files = Vec::new();
-    core_files(&repo.join("src"), repo, &mut files);
+    for dir in CORE_DIRS {
+        core_files(&repo.join(dir), repo, &mut files);
+    }
     files.sort();
     let mut allowed = vec![false; DATA.len()];
     for file in files {

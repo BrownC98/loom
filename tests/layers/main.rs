@@ -829,7 +829,7 @@ fn core_names_no_agent() {
     let problems = neutral::problems(repo());
     assert!(
         problems.is_empty(),
-        "Code outside src/profile.rs and src/profile/ names an agent. Move the fact into that agent's adapter and read it through the adapter:\n{}",
+        "Code outside src/profile.rs, src/profile/ and api/src/profile.rs names an agent. Move the fact into that agent's adapter and read it through the adapter:\n{}",
         problems.join("\n")
     );
 }

@@ -1,0 +1,1087 @@
+{
+  "kind": "edgeSides",
+  "input": [
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 260
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 260
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 260
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 260
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": -100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": -100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": -100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": -100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 400,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 400,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 400,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 400,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -200,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -200,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -200,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -200,
+          "y": 100
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 150,
+          "y": 150
+        },
+        "size": {
+          "width": 100,
+          "height": 100
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 150,
+          "y": 150
+        },
+        "size": {
+          "width": 100,
+          "height": 100
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 150,
+          "y": 150
+        },
+        "size": {
+          "width": 100,
+          "height": 100
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 150,
+          "y": 150
+        },
+        "size": {
+          "width": 100,
+          "height": 100
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 220
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 220
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 220
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 120,
+          "y": 220
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -300,
+          "y": 400
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -300,
+          "y": 400
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -300,
+          "y": 400
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -300,
+          "y": 400
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 500,
+          "y": -300
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 500,
+          "y": -300
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 500,
+          "y": -300
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 500,
+          "y": -300
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 130,
+          "y": 900
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 130,
+          "y": 900
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 130,
+          "y": 900
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": 130,
+          "y": 900
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -800,
+          "y": 90
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "down"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -800,
+          "y": 90
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "right"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -800,
+          "y": 90
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "up"
+    },
+    {
+      "parent": {
+        "at": {
+          "x": 100,
+          "y": 100
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "child": {
+        "at": {
+          "x": -800,
+          "y": 90
+        },
+        "size": {
+          "width": 100,
+          "height": 60
+        }
+      },
+      "direction": "left"
+    }
+  ],
+  "output": [
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "right",
+      "child": "left"
+    },
+    {
+      "parent": "right",
+      "child": "left"
+    },
+    {
+      "parent": "right",
+      "child": "left"
+    },
+    {
+      "parent": "right",
+      "child": "left"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "right",
+      "child": "left"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "top",
+      "child": "bottom"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "bottom",
+      "child": "top"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    },
+    {
+      "parent": "left",
+      "child": "right"
+    }
+  ]
+}

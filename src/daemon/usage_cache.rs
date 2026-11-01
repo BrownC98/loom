@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::accounts::{AccountId, Site};
-use crate::profile::Profile;
+use crate::accounts::Site;
 use crate::profile::adapter::Meter;
-use crate::usage::{self, Limits, Usage, UsageProblem};
+use crate::usage;
+use api::ids::AccountId;
+use api::profile::Profile;
+use api::settings::usage::{Limits, Usage, UsageProblem};
 
 const MIN_AGE: Duration = Duration::from_secs(60);
 
@@ -108,13 +110,13 @@ impl UsageCache {
         }
         if let Some((until, retry_at)) = slot.blocked {
             if Instant::now() < until {
-                return slot.good_or(Usage::failed(UsageProblem::RateLimited { retry_at }));
+                return slot.good_or(usage::usage_failed(UsageProblem::RateLimited { retry_at }));
             }
             slot.blocked = None;
         }
         let usage = tokio::task::spawn_blocking(probe)
             .await
-            .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string())));
+            .unwrap_or_else(|e| usage::usage_failed(UsageProblem::Unavailable(e.to_string())));
         slot.failed = None;
         match &usage.limits {
             Limits::Ready { .. } => {

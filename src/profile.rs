@@ -20,51 +20,28 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use portable_pty::CommandBuilder;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
+
+use api::profile::{AgentAt, AgentView, ModelRule, Profile, Provider, VersionMismatch};
+use api::start::{ModelChoice, Start};
 
 use crate::accounts::Cli;
 use crate::distro::Host;
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, ChoiceRequest, Delivery, InputField, Kind, LaunchError, MessageId,
-    ModelChoice, OpenQuestion, Prompt as ScreenPrompt, Provider, Refusal, Report, Session,
-    StartDigests, WaitKind,
+    ChoiceRequest, Delivery, MessageId, OpenQuestion, Report, Session, StartDigests,
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
-use crate::worktree::PlaceView;
 use crate::wsl::Inside;
 use adapter::{Adapter, InputSeen, LaunchAt, Logins, Meter, Port, Started};
+use api::graph::errors::{BRIEF_LIMIT_BYTES, LaunchError, Refusal};
+use api::graph::messages::Kind;
+use api::graph::waits::{InputField, Prompt as ScreenPrompt, WaitKind};
+use api::ids::AgentId;
+use api::repos::PlaceView;
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
-
-/// 메시지 연동(훅·app-server·서버 API)이 있는 에이전트. 근거: docs/design/에이전트-실행.md.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum Profile {
-    Claude,
-    #[serde(rename = "openclaude")]
-    OpenClaude,
-    QwenCode,
-    Codex,
-    Copilot,
-    Trae,
-    #[serde(rename = "opencode2")]
-    OpenCode2,
-    #[serde(rename = "mimo-code")]
-    MiMoCode,
-    Kilo,
-    Cursor,
-    Pi,
-    Omp,
-    Dsh,
-    Antigravity,
-    Crush,
-    Hermes,
-    Vibe,
-}
 
 #[derive(Debug, PartialEq)]
 pub enum Take {
@@ -252,44 +229,42 @@ pub struct Accounted {
     pub meter: &'static dyn Meter,
 }
 
-impl Profile {
-    pub fn provider(self) -> Option<Provider> {
-        self.accounts().map(|a| a.cli.provider)
-    }
+pub fn provider(profile: Profile) -> Option<Provider> {
+    accounts(profile).map(|a| a.cli.provider)
+}
 
-    pub fn accounts(self) -> Option<Accounted> {
-        match adapter(self).facts().logins {
-            Logins::Many(cli, meter) => Some(Accounted {
-                profile: self,
-                cli,
-                meter,
-            }),
-            Logins::One(_) | Logins::None => None,
-        }
+pub fn accounts(profile: Profile) -> Option<Accounted> {
+    match adapter(profile).facts().logins {
+        Logins::Many(cli, meter) => Some(Accounted {
+            profile,
+            cli,
+            meter,
+        }),
+        Logins::One(_) | Logins::None => None,
     }
+}
 
-    pub fn meter(self) -> Option<&'static dyn Meter> {
-        match adapter(self).facts().logins {
-            Logins::One(meter) | Logins::Many(_, meter) => Some(meter),
-            Logins::None => None,
-        }
+pub fn meter(profile: Profile) -> Option<&'static dyn Meter> {
+    match adapter(profile).facts().logins {
+        Logins::One(meter) | Logins::Many(_, meter) => Some(meter),
+        Logins::None => None,
     }
+}
 
-    pub fn sleeps(self) -> bool {
-        adapter(self).facts().sleeps
-    }
+pub fn sleeps(profile: Profile) -> bool {
+    adapter(profile).facts().sleeps
+}
 
-    pub fn listens_at_start(self) -> bool {
-        adapter(self).facts().listens_at_start
-    }
+pub fn listens_at_start(profile: Profile) -> bool {
+    adapter(profile).facts().listens_at_start
+}
 
-    pub fn idle_holds_input(self) -> bool {
-        adapter(self).idle_holds_input()
-    }
+pub fn idle_holds_input(profile: Profile) -> bool {
+    adapter(profile).idle_holds_input()
+}
 
-    pub fn echoes_brief(self) -> bool {
-        adapter(self).echoes_brief()
-    }
+pub fn echoes_brief(profile: Profile) -> bool {
+    adapter(profile).echoes_brief()
 }
 
 #[derive(Deserialize)]
@@ -322,50 +297,8 @@ static CATALOG: LazyLock<Vec<Agent>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("agents.json")).expect("agents.json은 컴파일 때 넣은 표다")
 });
 
-/// 설정 화면과 새 노드 창이 보는 카탈로그 한 줄. 메시지 연동이 있는 에이전트만 보인다.
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct AgentView {
-    pub id: AgentId,
-    pub label: String,
-    pub homepage: String,
-    pub profile: Profile,
-    /// 계정을 고르는 공급자. 프로필이 있어도 없을 수 있다(OpenCode 2).
-    pub provider: Option<Provider>,
-    /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
-    pub can_bypass: bool,
-    pub model_rule: ModelRule,
-    /// 서버로 돈다(app-server, 서버 API). loom은 SSH 호스트의 서버에 아직 닿지 못한다.
-    pub serves: bool,
-    /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판, 마지막이 SSH 호스트다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
-    pub places: Vec<AgentAt>,
-}
-
-/// 모델과 추론 강도를 고르는 규칙.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum ModelRule {
-    Fixed,
-    Free,
-    EffortNeedsModel,
-}
-
 pub fn model_rule(profile: Option<Profile>) -> ModelRule {
     profile.map_or(ModelRule::Fixed, |p| adapter(p).facts().model_rule)
-}
-
-/// 한 위치(이 PC, WSL 배포판, SSH 호스트)에서 에이전트를 찾은 결과.
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct AgentAt {
-    pub place: PlaceView,
-    /// 그 위치의 `PATH`에서 찾은 실행 파일. 없으면 그 위치에 설치하지 않은 것이다.
-    pub path: Option<String>,
-    /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
-    pub version_warning: Option<VersionMismatch>,
 }
 
 pub fn agents(insides: &[&Inside]) -> Vec<AgentView> {
@@ -394,7 +327,7 @@ pub fn agents(insides: &[&Inside]) -> Vec<AgentView> {
                 label: a.label.clone(),
                 homepage: a.homepage.clone(),
                 profile,
-                provider: profile.provider(),
+                provider: provider(profile),
                 can_bypass: !a.bypass.is_empty(),
                 model_rule: model_rule(Some(profile)),
                 serves: adapter(profile).facts().serves,
@@ -450,7 +383,7 @@ fn profiles() -> impl Iterator<Item = Profile> {
 }
 
 pub fn with_accounts() -> impl Iterator<Item = Accounted> {
-    profiles().filter_map(Profile::accounts)
+    profiles().filter_map(accounts)
 }
 
 pub fn of_provider(provider: Provider) -> Option<Accounted> {
@@ -580,52 +513,16 @@ fn labels_of(rule: ModelRule) -> Vec<String> {
         .collect()
 }
 
-#[derive(Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum Start {
-    /// `brief`가 비어 있으면 빈 세션으로 시작한다. 화면은 `choice`를 보내지 않는다.
-    Agent {
-        agent: AgentId,
-        brief: String,
-        #[serde(default)]
-        #[ts(skip)]
-        choice: ModelChoice,
-        /// 이어 갈 세션(`nodes.session`). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
-        #[serde(skip)]
-        #[ts(skip)]
-        resume: Option<Session>,
-    },
-    /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
-    Command { line: String },
-}
-
-impl Start {
-    pub fn agent(&self) -> Option<AgentId> {
-        match self {
-            Start::Agent { agent, .. } => Some(agent.clone()),
-            Start::Command { .. } => None,
-        }
+pub fn start_profile(start: &Start) -> Option<Profile> {
+    match start {
+        Start::Agent { agent, .. } => profile_of(agent),
+        Start::Command { .. } => None,
     }
-
-    pub fn profile(&self) -> Option<Profile> {
-        match self {
-            Start::Agent { agent, .. } => profile_of(agent),
-            Start::Command { .. } => None,
-        }
-    }
-}
-
-/// 설치한 CLI 버전이 메시지 연동을 만든 고정 버전과 다르다. 화면이 프로필마다 경고 문장으로 바꾼다.
-#[derive(Clone, Debug, PartialEq, Serialize, TS)]
-#[ts(export)]
-pub struct VersionMismatch {
-    pub installed: String,
-    pub pinned: String,
 }
 
 pub async fn command(
     start: &Start,
+    resume: Option<&Session>,
     at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
     port: Arc<dyn Port>,
@@ -635,8 +532,7 @@ pub async fn command(
             agent,
             brief,
             choice,
-            resume,
-        } => agent_command(agent, brief, choice, resume.as_ref(), at, bypass_off, port).await?,
+        } => agent_command(agent, brief, choice, resume, at, bypass_off, port).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),

@@ -1,8 +1,9 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use super::{Graph, NodeId, agent_state, from_json, mailbox, to_json};
-use crate::protocol::{AgentId, ModelChoice};
+use super::{Graph, agent_state, from_json, mailbox, to_json};
+use api::ids::{AgentId, NodeId};
+use api::start::ModelChoice;
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

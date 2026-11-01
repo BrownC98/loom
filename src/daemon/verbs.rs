@@ -1,5 +1,6 @@
 use super::*;
-use crate::protocol::{AgentId, ModelChoice};
+use api::ids::AgentId;
+use api::start::ModelChoice;
 
 pub(super) async fn agent_spawn(
     State(app): State<Arc<App>>,
@@ -166,7 +167,7 @@ fn role_start(
     choice: ModelChoice,
 ) -> Result<Start, Problem> {
     let roles = settings.get().map_err(internal)?.roles;
-    let assigned = roles.assign(role, brief).map_err(role_refusal)?;
+    let assigned = crate::roles::assign(&roles, role, brief).map_err(role_refusal)?;
     let chosen = match (agent, choice.is_empty()) {
         (None, true) => NewAgent {
             agent: assigned.agent,
@@ -185,7 +186,6 @@ fn role_start(
         agent: chosen.agent,
         brief: assigned.brief,
         choice: chosen.choice,
-        resume: None,
     })
 }
 
@@ -198,7 +198,9 @@ async fn spawn_child(
     dir: &task::TaskDir,
     brief: &str,
 ) -> Result<NodeId, Problem> {
-    let mut prepared = app.prepare(start, cwd, Position::Child, Some(dir)).await?;
+    let mut prepared = app
+        .prepare(start, None, cwd, Position::Child, Some(dir))
+        .await?;
     if child.worktree.is_some() {
         prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
     }

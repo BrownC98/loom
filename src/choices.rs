@@ -1,14 +1,4 @@
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-/// 질문의 선택지 하나. `key`가 답으로 가는 글이다.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct Choice {
-    pub key: char,
-    pub label: String,
-    pub recommended: bool,
-}
+use api::graph::waits::Choice;
 
 pub fn choices(question: &str) -> Vec<Choice> {
     parse(question).map(|(c, _)| c).unwrap_or_default()

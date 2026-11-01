@@ -10,20 +10,22 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
+use super::{AgentError, App, RelaunchRequest, for_agent, internal};
 use crate::accounts::Site;
-use crate::graph::{
-    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, Next, NodeId, Phase,
-    Plan, ProcessOutcome, Who,
-};
+use crate::graph::{Active, NewAgent, Next, Phase, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
+use crate::profile;
 use crate::profile::adapter::{Carry, ResumeError};
 use crate::profile::process::Served;
-use crate::profile::{self, ModelRule, Profile, Start};
-use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, Session};
-use crate::roles::Roles;
+use crate::protocol::{Model, Session};
 use crate::screen::Screen;
-use crate::settings::SettingsView;
+use api::graph::errors::{Problem, Refusal};
+use api::graph::events::{AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, Who};
+use api::ids::{AgentId, NodeId};
+use api::profile::{ModelRule, Profile, Provider};
+use api::settings::SettingsView;
+use api::settings::roles::Roles;
+use api::start::{ModelChoice, Start};
 
 pub(super) const EXIT_WAIT: Duration = crate::node_host::STOP_WAIT;
 const CONTINUE_PROMPT: &str =
@@ -643,9 +645,8 @@ impl App {
             agent: to.agent.clone(),
             brief: handoff(from, node.role.as_deref(), record.as_deref()),
             choice: to.choice.clone(),
-            resume: None,
         };
-        self.prepare_start(node.id, &start).await
+        self.prepare_start(node.id, &start, None).await
     }
 
     async fn old_record(&self, node: &Active) -> Option<String> {
@@ -735,7 +736,7 @@ impl App {
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
         let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let Some(provider) = profile.provider() else {
+        let Some(provider) = profile::provider(profile) else {
             return Ok((session, site));
         };
         let from = node.account.clone();
@@ -777,22 +778,28 @@ impl App {
                 ModelRule::EffortNeedsModel if choice.model.is_some() => choice,
                 ModelRule::Fixed | ModelRule::EffortNeedsModel => ModelChoice::default(),
             },
-            resume: Some(resume.clone()),
         };
-        self.prepare_start(node.id, &start).await
+        self.prepare_start(node.id, &start, Some(resume)).await
     }
 
     async fn prepare_start(
         self: &Arc<Self>,
         id: NodeId,
         start: &Start,
+        resume: Option<&Session>,
     ) -> Result<super::Prepared, String> {
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
         let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
-        self.prepare(start, Path::new(&place.worktree), position, Some(&task))
-            .await
-            .map_err(|e| format!("{e:?}"))
+        self.prepare(
+            start,
+            resume,
+            Path::new(&place.worktree),
+            position,
+            Some(&task),
+        )
+        .await
+        .map_err(|e| format!("{e:?}"))
     }
 
     async fn run_resumed(
@@ -834,7 +841,7 @@ impl App {
             crate::log::logln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
             true
         });
-        let opens_no_wait = !profile.listens_at_start();
+        let opens_no_wait = !profile::listens_at_start(profile);
         let first = match limited {
             true => Some(CONTINUE_PROMPT),
             false => (cut || unread || !stopped.is_empty() || opens_no_wait)
@@ -884,7 +891,7 @@ pub(super) fn chosen_agent(
         return Err(profile::no_link(agent).into());
     }
     let choice = match role {
-        Some(role) => roles.choice_for(role, &agent, choice),
+        Some(role) => crate::roles::choice_for(roles, role, &agent, choice),
         None => choice,
     };
     profile::check_choice(&agent, &choice)?;
@@ -907,7 +914,7 @@ pub(super) fn profile_of(node: &Active) -> Option<Profile> {
 }
 
 pub(super) fn provider_of(node: &Active) -> Option<Provider> {
-    profile_of(node).and_then(Profile::provider)
+    profile_of(node).and_then(profile::provider)
 }
 
 fn switch_of(node: &Active, plan: &Plan) -> Option<AgentSwitch> {

@@ -1,0 +1,40 @@
+name: desktop
+
+on:
+  push:
+    paths:
+      - 'desktop/**'
+      - 'api/**'
+      - 'fixtures/layout/**'
+      - 'web/src/fonts/jetendard/**'
+      - 'web/src/styles.css'
+      - 'web/src/terminalThemes.ts'
+      - 'web/src/locales/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: desktop
+      - name: 배치 고정값 시험
+        run: cargo test
+      - name: 빌드
+        run: cargo build --release
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: loom-desktop
+          path: desktop/target/release/loom-desktop.exe
+          if-no-files-found: error

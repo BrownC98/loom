@@ -4,10 +4,12 @@ use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
 
 use super::adapter::{Adapter, Command, Facts, Logins, Record, TurnTake};
-use super::{LineEvent, ModelRule, Unserved};
-use crate::protocol::{ModelChoice, Session};
+use super::{LineEvent, Unserved};
+use crate::protocol::Session;
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
+use api::profile::ModelRule;
+use api::start::ModelChoice;
 
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";

@@ -6,10 +6,13 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use portable_pty::CommandBuilder;
 
 use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
-use super::{LineEvent, ModelRule, Unserved};
-use crate::protocol::{LaunchError, ModelChoice, Session};
+use super::{LineEvent, Unserved};
+use crate::protocol::Session;
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
+use api::graph::errors::LaunchError;
+use api::profile::ModelRule;
+use api::start::ModelChoice;
 
 const PLUGIN: &str = include_str!("dsh-loom.mjs");
 const PLUGIN_FILE: &str = "dsh-loom.mjs";

@@ -31,9 +31,10 @@ use super::{Codex, Status};
 use crate::process_tree::{Listen, Snapshot};
 use crate::profile::adapter::Chosen;
 use crate::profile::process::Served;
-use crate::protocol::{Session, WaitKind};
+use crate::protocol::Session;
 use crate::task::TaskDir;
 use crate::wsl::Inside;
+use api::graph::waits::WaitKind;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const REPLAY_WAIT: Duration = Duration::from_secs(2);

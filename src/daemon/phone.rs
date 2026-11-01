@@ -5,14 +5,16 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Extension, Json, Router};
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
+
+use api::settings::phone::{DeviceId, InviteView, PhoneAddress, PhoneView, Served, Tailnet};
 
 use super::lan;
 use super::origin::{DEVICE_COOKIE, ViaRemote};
-use super::{App, Problem, internal};
-use crate::devices::{DeviceId, DeviceView, PairRefused};
-use crate::tailscale::{Served, Tailnet, Tailscale};
+use super::{App, internal};
+use crate::devices::PairRefused;
+use crate::tailscale::Tailscale;
+use api::graph::errors::Problem;
 
 pub const PAIR_PATH: &str = "/api/pair";
 pub const JSQR_PATH: &str = "/jsQR.js";
@@ -35,46 +37,6 @@ async fn jsqr() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
         JSQR,
     )
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct PhoneView {
-    /// 폰 문이 QR에 담을 주소. 같은 네트워크(사설 주소)가 먼저, Tailscale이 뒤다.
-    pub addresses: Vec<PhoneAddress>,
-    /// 연 폰 문의 포트. [휴대폰 연결]을 누르기 전이면 없다.
-    pub port: Option<u16>,
-    /// [방화벽 허용]을 보일지. Windows 데몬만 그렇다.
-    pub firewall: bool,
-    /// 브라우저(iPhone)가 쓰는 Tailscale Serve 길의 상태.
-    pub tailnet: Tailnet,
-    pub devices: Vec<DeviceView>,
-    /// 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 다섯 번 틀리거나 시간이 지나면 `false`다. 앞의 둘은 `ViewChanged`로 알린다.
-    pub invite_open: bool,
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct PhoneAddress {
-    pub ip: String,
-    /// Tailscale 주소(100.64.0.0/10)다. 폰도 Tailscale에 있으면 밖에서도 닿는다.
-    pub tailnet: bool,
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct InviteView {
-    /// QR에 담는 주소. 코드는 `#` 뒤에 있어 브라우저가 서버에 보내지 않는다.
-    pub url: String,
-    pub code: String,
-    /// `url`의 QR 그림(SVG 글).
-    pub qr_svg: String,
-    /// 코드를 쓸 수 있는 마지막 때(Unix 밀리초). 화면은 남은 시간을 보이기만 하고, 쓸 수 있는지는 데몬이 쓸 때 본다.
-    #[ts(type = "number")]
-    pub until: i64,
 }
 
 #[derive(Deserialize)]

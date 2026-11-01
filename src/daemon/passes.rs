@@ -12,7 +12,8 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 use super::system::{OpenFile, host_path};
 use super::waits::{DocProblem, doc_file, serve_file};
-use super::{App, Problem, internal, phone};
+use super::{App, internal, phone};
+use api::graph::errors::Problem;
 
 pub const PASS_PREFIX: &str = "/api/files/pass/";
 const PASS_TTL: Duration = Duration::from_secs(30 * 60);

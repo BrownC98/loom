@@ -1,67 +1,7 @@
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use api::canvas::{Arranged, CardSize, Layout, Placed, Point, Spot};
 
 use crate::db::Database;
-use crate::graph::NodeId;
-use crate::worktree::RepoId;
-
-/// 자리를 가진 상자. 자리의 기준은 상자마다 다르다.
-/// 저장소 상자는 그래프 좌표, 맨 위 묶음은 저장소 상자 안 좌표, 자식 묶음과 카드는 묶음 안 좌표다. 그래서 상자를 옮겨도 안의 자리는 그대로다.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum Spot {
-    Repo {
-        repo: RepoId,
-    },
-    /// `path`는 `git worktree list`가 적는 워크트리 절대 경로다(노드의 `place.worktree`와 같은 글자).
-    Worktree {
-        repo: RepoId,
-        path: String,
-    },
-    Node {
-        node: NodeId,
-    },
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct Point {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct Placed {
-    pub spot: Spot,
-    pub at: Point,
-}
-
-/// 저장한 자리 모두와 정렬한 모양을 지키는 저장소.
-#[derive(Clone, PartialEq, Debug, Serialize, TS)]
-#[ts(export)]
-pub struct Layout {
-    pub placed: Vec<Placed>,
-    pub arranged: Vec<RepoId>,
-}
-
-/// [정렬]이나 정렬한 저장소의 새 자동 배치. `repos`는 정렬한 모양을 지킬 저장소다.
-#[derive(Clone, PartialEq, Debug, Deserialize, TS)]
-#[ts(export)]
-pub struct Arranged {
-    pub repos: Vec<RepoId>,
-    pub placed: Vec<Placed>,
-}
-
-/// 사람이 바꾼 표준 카드 크기(그래프 px). 저장한 크기가 없는 카드는 기본 크기다.
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct CardSize {
-    pub node: NodeId,
-    pub width: f64,
-    pub height: f64,
-}
+use api::ids::{NodeId, RepoId};
 
 pub struct Spots {
     db: Database,

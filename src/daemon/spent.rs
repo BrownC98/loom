@@ -2,9 +2,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::App;
-use crate::graph::{NodeId, ParentWork};
+use crate::graph::ParentWork;
+use crate::worktree;
 use crate::worktree::merge::{delete_local_merged, still_merged};
-use crate::worktree::{self, RepoProblem, Worktree};
+use api::ids::NodeId;
+use api::repos::{RepoProblem, Worktree};
 
 #[derive(Default)]
 pub(super) struct Swept {

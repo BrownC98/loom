@@ -1,20 +1,21 @@
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
+use api::settings::places::{DistroView, ReachView, SystemView};
 use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Serialize;
-use ts_rs::TS;
 
 use super::ssh_hosts::Reach;
-use super::{App, Problem, internal};
+use super::{App, internal};
 use crate::distro::Host;
 use crate::place::{self, Machine};
-use crate::protocol::LaunchError;
 use crate::ssh::{Failure, SSH_DIR, System};
-use crate::worktree::{self, Locations, PlaceView, RepoId, RepoView};
+use crate::worktree;
 use crate::wsl;
+use api::graph::errors::{LaunchError, Problem};
+use api::ids::RepoId;
+use api::repos::{Locations, RepoView};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -25,69 +26,34 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/ssh/{host}/release", post(ssh_release))
 }
 
-/// WSL 배포판 하나의 홈과 기본 워크스페이스 폴더. 둘 다 UNC 경로다.
-#[derive(Serialize, TS)]
-#[ts(export)]
-pub struct DistroView {
-    /// 위치 칩을 누르면 폴더 목록이 가는 곳.
-    pub home: String,
-    /// 설정에 이 배포판의 폴더가 없을 때 쓰는 폴더(`<홈>/loom/workspaces`).
-    pub workspace: String,
-}
-
-/// SSH 호스트에 닿았는지. `reached`가 아니면 닿지 않은 까닭이다.
-#[derive(Serialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum ReachView {
-    Reached { home: String, system: SystemView },
-    UnknownHostKey { folder: String },
-    AuthFailed { folder: String },
-    Unreachable { cause: String },
-    UnsupportedMac { cpu: String },
-    VersionMismatch,
-    Failed { cause: String },
-}
-
-#[derive(Serialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum SystemView {
-    Linux,
-    Mac,
-    Windows { distro: String },
-}
-
-impl ReachView {
-    fn of(reach: &Reach) -> ReachView {
-        match reach {
-            Reach::Reached(remote) => ReachView::Reached {
-                home: remote.home.clone(),
-                system: match &remote.system {
-                    System::Linux => SystemView::Linux,
-                    System::Mac => SystemView::Mac,
-                    System::Windows { distro } => SystemView::Windows {
-                        distro: distro.clone(),
-                    },
+fn reach_view(reach: &Reach) -> ReachView {
+    match reach {
+        Reach::Reached(remote) => ReachView::Reached {
+            home: remote.home.clone(),
+            system: match &remote.system {
+                System::Linux => SystemView::Linux,
+                System::Mac => SystemView::Mac,
+                System::Windows { distro } => SystemView::Windows {
+                    distro: distro.clone(),
                 },
             },
-            Reach::Unreached(Failure::UnknownHostKey { folder, .. }) => ReachView::UnknownHostKey {
-                folder: (*folder).to_owned(),
-            },
-            Reach::Unreached(Failure::AuthFailed) => ReachView::AuthFailed {
-                folder: SSH_DIR.to_owned(),
-            },
-            Reach::Unreached(Failure::Unreachable(cause)) => ReachView::Unreachable {
-                cause: cause.clone(),
-            },
-            Reach::Unreached(Failure::UnsupportedMac { cpu }) => {
-                ReachView::UnsupportedMac { cpu: cpu.clone() }
-            }
-            Reach::Unreached(Failure::VersionMismatch) => ReachView::VersionMismatch,
-            Reach::Unreached(Failure::Failed(cause)) => ReachView::Failed {
-                cause: cause.clone(),
-            },
+        },
+        Reach::Unreached(Failure::UnknownHostKey { folder, .. }) => ReachView::UnknownHostKey {
+            folder: (*folder).to_owned(),
+        },
+        Reach::Unreached(Failure::AuthFailed) => ReachView::AuthFailed {
+            folder: SSH_DIR.to_owned(),
+        },
+        Reach::Unreached(Failure::Unreachable(cause)) => ReachView::Unreachable {
+            cause: cause.clone(),
+        },
+        Reach::Unreached(Failure::UnsupportedMac { cpu }) => {
+            ReachView::UnsupportedMac { cpu: cpu.clone() }
         }
+        Reach::Unreached(Failure::VersionMismatch) => ReachView::VersionMismatch,
+        Reach::Unreached(Failure::Failed(cause)) => ReachView::Failed {
+            cause: cause.clone(),
+        },
     }
 }
 
@@ -113,7 +79,7 @@ async fn ssh_reach(
     State(app): State<Arc<App>>,
     Path(host): Path<String>,
 ) -> Json<Option<ReachView>> {
-    Json(app.ssh_reach(&host).as_ref().map(ReachView::of))
+    Json(app.ssh_reach(&host).as_ref().map(reach_view))
 }
 
 async fn ssh_connect(
@@ -129,7 +95,7 @@ async fn ssh_connect(
         Ok(remote) => Reach::Reached(remote),
         Err(failure) => Reach::Unreached(failure),
     };
-    Ok(Json(ReachView::of(&reach)))
+    Ok(Json(reach_view(&reach)))
 }
 
 async fn ssh_reconnect(State(app): State<Arc<App>>, Path(host): Path<String>) -> Json<()> {
@@ -156,7 +122,7 @@ impl App {
         Ok(PathBuf::from(wsl::windows_path(distro, &home)))
     }
 
-    async fn home_inside(&self, distro: &str) -> Result<String, crate::protocol::InsideError> {
+    async fn home_inside(&self, distro: &str) -> Result<String, api::graph::errors::InsideError> {
         wsl::home(&self.host(Host::Distro(distro.to_owned()))?).await
     }
 
@@ -173,7 +139,14 @@ impl App {
                 None => at.path.clone(),
             },
         };
-        worktree::view(self.files(), id, path, PlaceView::of(&machine), shown).await
+        worktree::view(
+            self.files(),
+            id,
+            path,
+            worktree::place_view(&machine),
+            shown,
+        )
+        .await
     }
 
     pub(super) async fn workspace(&self, repo: &FsPath) -> Result<PathBuf, Problem> {
@@ -194,7 +167,7 @@ impl App {
                     .await
                     .map_err(internal)?
                     .map_err(|e| {
-                        Problem::Launch(LaunchError::Wsl(crate::protocol::InsideError::Start {
+                        Problem::Launch(LaunchError::Wsl(api::graph::errors::InsideError::Start {
                             distro: at.host.clone(),
                             cause: e.to_string(),
                         }))

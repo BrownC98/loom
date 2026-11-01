@@ -3,9 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rust_embed::{Embed, EmbeddedFile};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use ts_rs::TS;
+
+use api::settings::AlwaysOn;
 
 #[derive(Embed)]
 #[folder = "skills"]
@@ -32,7 +32,7 @@ impl Plugin {
             .ok()
             .map(|text| read_hashes(&text))
             .filter(|_| names(AlwaysOn::default()).all(|name| store.join(name).is_dir()));
-        let linked = AlwaysOn::all().all(|on| plugin.skills(on).is_dir());
+        let linked = every_choice().all(|on| plugin.skills(on).is_dir());
         if linked && written.as_ref() == Some(&now) {
             return Ok(plugin);
         }
@@ -47,7 +47,7 @@ impl Plugin {
                 .is_some_and(|w| w.get(name) == now.get(name))
         };
         let mut copied = false;
-        for on in AlwaysOn::all() {
+        for on in every_choice() {
             done &= link(&store, &plugin.skills(on), on, &same, &mut copied)?;
         }
         if copied {
@@ -68,7 +68,7 @@ impl Plugin {
     }
 
     pub fn dirs(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        AlwaysOn::all().map(|on| self.dir(on))
+        every_choice().map(|on| self.dir(on))
     }
 
     pub fn dir(&self, on: AlwaysOn) -> PathBuf {
@@ -82,7 +82,7 @@ impl Plugin {
     }
 
     fn parts(on: AlwaysOn) -> Vec<String> {
-        let off: Vec<&str> = SKILLS.into_iter().filter(|s| !on.has(s)).collect();
+        let off: Vec<&str> = SKILLS.into_iter().filter(|s| !has(on, s)).collect();
         match off.is_empty() {
             true => vec!["plugin".into()],
             false => vec!["plugin-off".into(), off.join("+")],
@@ -153,7 +153,7 @@ const DESIGN: &str = "design-stack";
 pub fn names(on: AlwaysOn) -> impl Iterator<Item = &'static str> {
     [ASK, DESIGN]
         .into_iter()
-        .chain(SKILLS.into_iter().filter(move |s| on.has(s)))
+        .chain(SKILLS.into_iter().filter(move |s| has(on, s)))
 }
 
 fn skill_of(name: &str) -> &str {
@@ -188,7 +188,7 @@ fn link(
     copied: &mut bool,
 ) -> io::Result<bool> {
     let keep: BTreeMap<PathBuf, String> = Files::iter()
-        .filter(|name| on.has(skill_of(name)))
+        .filter(|name| has(on, skill_of(name)))
         .map(|name| (skills.join(name.as_ref()), name.into_owned()))
         .collect();
     let mut done = true;
@@ -232,50 +232,24 @@ pub enum Position {
     Child,
 }
 
-/// 설정에서 켜고 끄는 내장 스킬. 끈 스킬은 새로 띄우는 노드에 주지 않는다: 시작 지시에서 글을 빼고 스킬 폴더에서도 뺀다.
-/// 근거: 목업 docs/mockups/skill-options.html, 2026-10-21 사람 지시 "o-mode·user-doc 도 옵션에 추가해".
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(default, rename_all = "camelCase")]
-#[ts(export)]
-pub struct AlwaysOn {
-    pub o_mode: bool,
-    pub user_doc: bool,
-    #[serde(alias = "ste100")]
-    pub ste_orwell: bool,
-    pub raptor3: bool,
-}
-
-impl Default for AlwaysOn {
-    fn default() -> Self {
-        Self {
-            o_mode: true,
-            user_doc: true,
-            ste_orwell: true,
-            raptor3: true,
-        }
+fn has(on: AlwaysOn, skill: &str) -> bool {
+    match skill {
+        "o-mode" => on.o_mode,
+        "user-doc" => on.user_doc,
+        "ste-orwell" => on.ste_orwell,
+        "raptor-3" => on.raptor3,
+        ASK | DESIGN => true,
+        _ => unreachable!("`SKILLS`에 없는 스킬 폴더: {skill}"),
     }
 }
 
-impl AlwaysOn {
-    fn has(self, skill: &str) -> bool {
-        match skill {
-            "o-mode" => self.o_mode,
-            "user-doc" => self.user_doc,
-            "ste-orwell" => self.ste_orwell,
-            "raptor-3" => self.raptor3,
-            ASK | DESIGN => true,
-            _ => unreachable!("`SKILLS`에 없는 스킬 폴더: {skill}"),
-        }
-    }
-
-    fn all() -> impl Iterator<Item = Self> {
-        (0..16u8).map(|bits| Self {
-            o_mode: bits & 1 != 0,
-            user_doc: bits & 2 != 0,
-            ste_orwell: bits & 4 != 0,
-            raptor3: bits & 8 != 0,
-        })
-    }
+fn every_choice() -> impl Iterator<Item = AlwaysOn> {
+    (0..16u8).map(|bits| AlwaysOn {
+        o_mode: bits & 1 != 0,
+        user_doc: bits & 2 != 0,
+        ste_orwell: bits & 4 != 0,
+        raptor3: bits & 8 != 0,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

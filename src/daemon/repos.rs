@@ -1,5 +1,6 @@
 use super::*;
 use crate::place::{self, Machine};
+use api::canvas::CommitGraph;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -79,16 +80,6 @@ pub struct DeleteWorktree {
     pub path: String,
     #[serde(default)]
     pub delete_branch: bool,
-}
-
-/// 커밋 그래프 칸이 읽는 것: 한 구간의 커밋과, 워크트리마다 체크아웃한 커밋.
-#[derive(Serialize, TS)]
-#[ts(export)]
-pub struct CommitGraph {
-    pub commits: Vec<Commit>,
-    /// 참조의 지문(`commit_graph::version`). 같으면 이미 읽은 구간도 그대로다.
-    pub version: String,
-    pub worktrees: Vec<Worktree>,
 }
 
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {

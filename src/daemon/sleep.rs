@@ -9,13 +9,12 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::App;
 use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
-use crate::graph::{
-    Active, AgentChange, AgentEvent, AgentState, Attempt, DeafClaim, IdleEnd, NodeId, Plan,
-    ProcessOutcome,
-};
+use crate::graph::{Active, AgentChange, Attempt, DeafClaim, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
-use crate::profile::{self, Profile};
+use crate::profile;
 use crate::screen::Screen;
+use api::graph::events::{AgentEvent, AgentState, IdleEnd};
+use api::ids::NodeId;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 const KEPT_KEYS_LIMIT: usize = 4096;
@@ -438,7 +437,7 @@ impl App {
         if self.relaunch_planned(node.id) || !self.listening(node.id) {
             return false;
         }
-        profile_of(node).is_some_and(Profile::sleeps) && node.session.is_some()
+        profile_of(node).is_some_and(profile::sleeps) && node.session.is_some()
     }
 
     fn listening(&self, node: NodeId) -> bool {

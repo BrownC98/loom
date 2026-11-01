@@ -1,0 +1,769 @@
+use std::borrow::Cow;
+use std::ops::Range;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use gpui::{
+    App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement,
+    IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, Subscription,
+    TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, font, point, px,
+    rgb, size,
+};
+use unicode_width::UnicodeWidthChar;
+
+use crate::link::{self, Event, Pty};
+use crate::vt::view::Picked;
+use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
+
+mod pointer;
+
+const RESET: &[u8] = b"\x1bc";
+const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
+const FONT_FAMILY: &str = "Jetendard";
+const FONT_FILES: [&[u8]; 2] = [
+    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Regular.woff2"),
+    include_bytes!("../../../web/src/fonts/jetendard/Jetendard-Bold.woff2"),
+];
+const FONT_SIZE: f32 = 14.0;
+const LINE_HEIGHT: f32 = 1.3;
+const MARKED_BACKGROUND: vt::Rgb8 = [0x3a, 0x3a, 0x55];
+const PICKED_BACKGROUND: vt::Rgb8 = [0x26, 0x4f, 0x78];
+const READABLE_PX: f32 = 6.0;
+const SNAPSHOT_GAP: Duration = Duration::from_millis(250);
+const START: (u16, u16) = (80, 24);
+const CURSOR_ALPHA: f32 = 0.6;
+const CURSOR_IDLE_ALPHA: f32 = 0.3;
+const CURSOR_THIN: f32 = 2.0;
+
+#[derive(Clone, Copy)]
+struct Metrics {
+    cell_width: Pixels,
+    cell_height: Pixels,
+}
+
+struct Frame {
+    screen: Screen,
+    picked: Vec<Picked>,
+}
+
+struct FontsLoaded;
+
+impl Global for FontsLoaded {}
+
+pub struct TerminalView {
+    vt: Vt,
+    pty: Option<Pty>,
+    focus: FocusHandle,
+    settled: bool,
+    scale: f32,
+    area: Bounds<Pixels>,
+    cell: Option<Metrics>,
+    sent: (u16, u16),
+    ended: Option<String>,
+    marked: Option<String>,
+    cursor: Option<vt::Cursor>,
+    frame: Option<Rc<Frame>>,
+    dirty: bool,
+    taken: Instant,
+    refresh: bool,
+    picking: bool,
+    reporting: Option<MouseButton>,
+    last_cell: Option<(usize, usize)>,
+    wheel_rest: f32,
+    _focus_events: [Subscription; 2],
+}
+
+fn color([r, g, b]: vt::Rgb8) -> Rgba {
+    rgb(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b))
+}
+
+fn hsla(rgb: vt::Rgb8) -> Hsla {
+    color(rgb).into()
+}
+
+fn cheap(scale: f32) -> bool {
+    FONT_SIZE * scale <= READABLE_PX
+}
+
+fn metrics(window: &Window, scale: f32) -> Metrics {
+    let system = window.text_system();
+    let id = system.resolve_font(&font(FONT_FAMILY));
+    let em = px(FONT_SIZE * scale);
+    Metrics {
+        cell_width: system.advance(id, em, 'm').map_or(em * 0.6, |a| a.width),
+        cell_height: em * LINE_HEIGHT,
+    }
+}
+
+pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+    let opened = (|| -> Result<_, String> {
+        let (events, inbox) = async_channel::unbounded();
+        Ok((link::attach(base, node, events)?, inbox))
+    })();
+    cx.new(|cx| TerminalView::new(opened, window, cx))
+}
+
+impl TerminalView {
+    fn new(
+        opened: Result<(Pty, async_channel::Receiver<Event>), String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let (pty, ended) = match opened {
+            Ok((pty, inbox)) => {
+                cx.spawn(async move |this, cx| {
+                    while let Ok(event) = inbox.recv().await {
+                        if this.update(cx, |view, cx| view.apply(event, cx)).is_err() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
+                (Some(pty), None)
+            }
+            Err(error) => (None, Some(error)),
+        };
+        if !cx.has_global::<FontsLoaded>() {
+            let files = FONT_FILES
+                .map(|woff2| {
+                    Cow::Owned(wuff::decompress_woff2(woff2).expect("bundled terminal fonts"))
+                })
+                .to_vec();
+            cx.text_system()
+                .add_fonts(files)
+                .expect("bundled terminal fonts");
+            cx.set_global(FontsLoaded);
+        }
+        let focus = cx.focus_handle();
+        let focus_events = [
+            cx.on_focus_in(&focus, window, |this, _, _| this.report_focus(true)),
+            cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
+        ];
+        Self {
+            vt: Vt::new(START.0, START.1),
+            pty,
+            focus,
+            settled: false,
+            scale: std::env::var(SCALE_ENV)
+                .ok()
+                .and_then(|scale| scale.parse().ok())
+                .unwrap_or(1.0),
+            area: Bounds::default(),
+            cell: None,
+            sent: (0, 0),
+            ended,
+            marked: None,
+            cursor: None,
+            frame: None,
+            dirty: true,
+            taken: Instant::now(),
+            refresh: false,
+            picking: false,
+            reporting: None,
+            last_cell: None,
+            wheel_rest: 0.0,
+            _focus_events: focus_events,
+        }
+    }
+
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.focus, cx);
+    }
+
+    pub fn set_scale(&mut self, scale: f32) {
+        if scale != self.scale {
+            self.scale = scale;
+            self.dirty = true;
+        }
+    }
+
+    fn cheap(&self) -> bool {
+        cheap(self.scale)
+    }
+
+    fn changed(&mut self, cx: &mut Context<Self>) {
+        self.dirty = true;
+        let wait = SNAPSHOT_GAP.saturating_sub(self.taken.elapsed());
+        if !self.cheap() || wait.is_zero() {
+            cx.notify();
+        } else if !self.refresh {
+            self.refresh = true;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |view, cx| {
+                    view.refresh = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+
+    fn frame(&mut self) -> Rc<Frame> {
+        if let Some(frame) = self.frame.as_ref().filter(|_| !self.dirty) {
+            return frame.clone();
+        }
+        let offset = self.vt.display_offset();
+        let mut screen = self.vt.snapshot();
+        let rows = screen.rows;
+        screen.cursor = screen.cursor.and_then(|cursor| {
+            let row = cursor.row + offset;
+            (row < rows).then_some(vt::Cursor { row, ..cursor })
+        });
+        let frame = Rc::new(Frame {
+            screen,
+            picked: self.vt.picked(),
+        });
+        self.frame = Some(frame.clone());
+        self.dirty = false;
+        self.taken = Instant::now();
+        frame
+    }
+
+    fn apply(&mut self, event: Event, cx: &mut Context<Self>) {
+        match event {
+            Event::Size { cols, rows } => {
+                self.vt.resize(cols, rows);
+                self.claim();
+            }
+            Event::Settled => self.settled = true,
+            Event::Reset => {
+                self.vt.feed(RESET);
+                self.settled = false;
+                self.sent = (0, 0);
+                self.ended = None;
+            }
+            Event::Backlog(bytes) => {
+                self.vt.feed(&bytes);
+                let replies = self.vt.take_replies();
+                if !self.settled {
+                    self.reply(replies);
+                }
+            }
+            Event::Output(bytes) => {
+                self.vt.feed(&bytes);
+                let replies = self.vt.take_replies();
+                self.reply(replies);
+            }
+            Event::Gone => self.ended = Some("the terminal is gone".to_owned()),
+            Event::Closed(reason) => {
+                self.ended = Some(if reason.is_empty() {
+                    "connection closed".to_owned()
+                } else {
+                    reason
+                });
+            }
+        }
+        self.changed(cx);
+    }
+
+    fn reply(&self, bytes: Vec<u8>) {
+        if !bytes.is_empty() {
+            self.send(bytes);
+        }
+    }
+
+    fn send(&self, bytes: Vec<u8>) {
+        if let Some(pty) = &self.pty {
+            pty.input(bytes);
+        }
+    }
+
+    fn resized(&mut self, area: Bounds<Pixels>, cell: Metrics) {
+        self.area = area;
+        self.cell = Some(cell);
+        self.claim();
+    }
+
+    fn claim(&mut self) {
+        let (Some(cell), true) = (self.cell, self.area.size.width > px(0.0)) else {
+            return;
+        };
+        let cols = (self.area.size.width / self.scale / cell.cell_width).floor() as u16;
+        let rows = (self.area.size.height / self.scale / cell.cell_height).floor() as u16;
+        let fit = (cols.max(2), rows.max(1));
+        if fit != self.sent {
+            self.sent = fit;
+            if let Some(pty) = &self.pty {
+                pty.resize(fit.0, fit.1);
+            }
+        }
+    }
+
+    fn type_in(&mut self, bytes: Vec<u8>) {
+        self.claim();
+        self.vt.select_clear();
+        self.vt.scroll_to_bottom();
+        self.dirty = true;
+        self.send(bytes);
+    }
+
+    fn copy(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self.vt.selected_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+        self.vt.select_clear();
+        self.changed(cx);
+    }
+
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let bytes = self.vt.encode_paste(&text);
+            self.type_in(bytes);
+            self.changed(cx);
+        }
+    }
+
+    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let stroke = &event.keystroke;
+        let command = stroke.modifiers.secondary(cx);
+        let copying =
+            command && stroke.key == "c" && (stroke.modifiers.shift || self.vt.has_selection());
+        if copying || (command && stroke.key == "v") {
+            if copying {
+                self.copy(cx);
+            } else {
+                self.paste(cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
+        let kind = if event.is_held {
+            KeyKind::Repeat
+        } else {
+            KeyKind::Press
+        };
+        self.press_key(stroke, kind, cx);
+    }
+
+    fn press_key(&mut self, stroke: &Keystroke, kind: KeyKind, cx: &mut Context<Self>) {
+        if stroke.modifiers.platform {
+            return;
+        }
+        let key = Key {
+            name: &stroke.key,
+            text: stroke.key_char.as_deref(),
+            ctrl: stroke.modifiers.control,
+            alt: stroke.modifiers.alt,
+            shift: stroke.modifiers.shift,
+        };
+        if let Some(bytes) = self.vt.encode_key_as(&key, kind) {
+            if kind == KeyKind::Release {
+                self.send(bytes);
+            } else {
+                self.type_in(bytes);
+                self.changed(cx);
+            }
+            cx.stop_propagation();
+        }
+    }
+
+    fn report_focus(&self, focused: bool) {
+        if let Some(bytes) = self.vt.encode_focus(focused) {
+            self.send(bytes);
+        }
+    }
+
+    fn marked_len(&self) -> usize {
+        self.marked
+            .as_deref()
+            .map_or(0, |text| text.encode_utf16().count())
+    }
+}
+
+fn utf16_slice(text: &str, range: &Range<usize>) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let end = range.end.min(units.len());
+    let start = range.start.min(end);
+    String::from_utf16_lossy(&units[start..end])
+}
+
+impl EntityInputHandler for TerminalView {
+    fn text_for_range(
+        &mut self,
+        range: Range<usize>,
+        adjusted_range: &mut Option<Range<usize>>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<String> {
+        let text = self.marked.as_deref()?;
+        let end = range.end.min(self.marked_len());
+        *adjusted_range = Some(range.start.min(end)..end);
+        Some(utf16_slice(text, &range))
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _: bool,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        let end = self.marked_len();
+        Some(UTF16Selection {
+            range: end..end,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+        self.marked.as_ref().map(|_| 0..self.marked_len())
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.marked = None;
+        cx.notify();
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _: Option<Range<usize>>,
+        text: &str,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.marked = None;
+        if !text.is_empty() {
+            self.type_in(text.as_bytes().to_vec());
+        }
+        self.changed(cx);
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _: Option<Range<usize>>,
+        new_text: &str,
+        _: Option<Range<usize>>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.marked = (!new_text.is_empty()).then(|| new_text.to_owned());
+        cx.notify();
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        _: Bounds<Pixels>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        let (cursor, cell) = (self.cursor?, self.cell?);
+        let text = self.marked.as_deref().unwrap_or_default();
+        let before = utf16_slice(text, &(0..range_utf16.start));
+        let cols = before
+            .chars()
+            .map(|c| c.width().unwrap_or(1))
+            .sum::<usize>()
+            + cursor.col;
+        let (width, height) = (cell.cell_width * self.scale, cell.cell_height * self.scale);
+        Some(Bounds::new(
+            self.area.origin + point(width * cols as f32, height * cursor.row as f32),
+            size(width, height),
+        ))
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _: gpui::Point<Pixels>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<usize> {
+        None
+    }
+}
+
+impl Render for TerminalView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let frame = self.frame();
+        self.cursor = frame.screen.cursor;
+        let marked = self.marked.clone();
+        let focus = self.focus.clone();
+        let scale = self.scale;
+        let focused = self.focus.is_focused(window);
+        let view = cx.entity();
+        let view_input = view.clone();
+        let view_pointer = view.clone();
+        div()
+            .id("terminal")
+            .size_full()
+            .relative()
+            .bg(color(vt::BACKGROUND))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
+            .on_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+                this.press_key(&event.keystroke, KeyKind::Release, cx);
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
+            )
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
+                this.wheel(event, window, cx);
+            }))
+            .child(
+                canvas(
+                    move |bounds, window, cx| {
+                        let base = metrics(window, 1.0);
+                        view.update(cx, |view, _| view.resized(bounds, base));
+                        bounds
+                    },
+                    move |_, bounds, window, cx| {
+                        window.handle_input(
+                            &focus,
+                            ElementInputHandler::new(bounds, view_input.clone()),
+                            cx,
+                        );
+                        let moving = view_pointer.clone();
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                            if phase == DispatchPhase::Capture {
+                                moving.update(cx, |view, cx| view.drag(event, window, cx));
+                            }
+                        });
+                        let releasing = view_pointer.clone();
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                            if phase == DispatchPhase::Capture {
+                                releasing.update(cx, |view, cx| view.release(event, window, cx));
+                            }
+                        });
+                        paint(
+                            bounds,
+                            &frame,
+                            marked.as_deref(),
+                            scale,
+                            focused,
+                            window,
+                            cx,
+                        );
+                    },
+                )
+                .size_full(),
+            )
+            .children(self.ended.clone().map(|text| {
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .px_2()
+                    .bg(hsla([0x55, 0x57, 0x53]))
+                    .text_color(color(vt::FOREGROUND))
+                    .child(text)
+            }))
+    }
+}
+
+fn styled(cell: &vt::Cell, len: usize) -> TextRun {
+    let mut run_font: Font = font(FONT_FAMILY);
+    if cell.bold {
+        run_font.weight = FontWeight::BOLD;
+    }
+    if cell.italic {
+        run_font.style = FontStyle::Italic;
+    }
+    let fg = hsla(cell.fg);
+    TextRun {
+        len,
+        font: run_font,
+        color: fg,
+        background_color: None,
+        underline: cell.underline.then_some(UnderlineStyle {
+            thickness: px(1.0),
+            color: Some(fg),
+            wavy: false,
+        }),
+        strikethrough: cell.strike.then_some(StrikethroughStyle {
+            thickness: px(1.0),
+            color: Some(fg),
+        }),
+    }
+}
+
+fn same_style(a: &vt::Cell, b: &vt::Cell) -> bool {
+    (a.fg, a.bold, a.italic, a.underline, a.strike)
+        == (b.fg, b.bold, b.italic, b.underline, b.strike)
+}
+
+fn row_runs(cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
+    if cheap {
+        let lead = cells.iter().find(|c| c.ch != ' ').unwrap_or(&cells[0]);
+        let plain = vt::Cell {
+            bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            ..lead.clone()
+        };
+        let len = cells.iter().map(|c| c.ch.len_utf8()).sum();
+        return vec![styled(&plain, len)];
+    }
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut first = 0;
+    for (i, c) in cells.iter().enumerate() {
+        if i > first && !same_style(&cells[first], c) {
+            let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
+            runs.push(styled(&cells[first], len));
+            first = i;
+        }
+    }
+    let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
+    runs.push(styled(&cells[first], len));
+    runs
+}
+
+fn paint(
+    bounds: Bounds<Pixels>,
+    frame: &Frame,
+    marked: Option<&str>,
+    scale: f32,
+    focused: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let screen = &frame.screen;
+    let cheap = cheap(scale);
+    let cell = metrics(window, scale);
+    let em = px(FONT_SIZE * scale);
+    let at = |col: usize, row: usize| {
+        point(
+            bounds.origin.x + cell.cell_width * col as f32,
+            bounds.origin.y + cell.cell_height * row as f32,
+        )
+    };
+    for row in 0..screen.rows {
+        let cells = screen.row(row);
+        let mut col = 0;
+        while col < cells.len() {
+            let start = col;
+            while col < cells.len() && cells[col].bg == cells[start].bg {
+                col += 1;
+            }
+            if cells[start].bg != vt::BACKGROUND {
+                window.paint_quad(fill(
+                    Bounds::new(
+                        at(start, row),
+                        size(cell.cell_width * (col - start) as f32, cell.cell_height),
+                    ),
+                    hsla(cells[start].bg),
+                ));
+            }
+        }
+        for picked in frame.picked.iter().filter(|p| p.row == row) {
+            window.paint_quad(fill(
+                Bounds::new(
+                    at(picked.from, row),
+                    size(
+                        cell.cell_width * (picked.to + 1 - picked.from) as f32,
+                        cell.cell_height,
+                    ),
+                ),
+                hsla(PICKED_BACKGROUND),
+            ));
+        }
+        if cells
+            .iter()
+            .all(|c| c.ch == ' ' && !c.underline && !c.strike)
+        {
+            continue;
+        }
+        let text: String = cells.iter().map(|c| c.ch).collect();
+        let runs = row_runs(cells, cheap);
+        let line = window.text_system().shape_line(
+            text.into(),
+            em,
+            &runs,
+            (!cheap).then_some(cell.cell_width),
+        );
+        let _ = line.paint(
+            at(0, row),
+            cell.cell_height,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
+    }
+    if let Some(cursor) = screen.cursor {
+        let mut hue = hsla(vt::CURSOR);
+        hue.a = if focused {
+            CURSOR_ALPHA
+        } else {
+            CURSOR_IDLE_ALPHA
+        };
+        let thin = px(CURSOR_THIN * scale);
+        let (origin, extent) = match cursor.shape {
+            Shape::Block => (
+                at(cursor.col, cursor.row),
+                size(cell.cell_width, cell.cell_height),
+            ),
+            Shape::Beam => (at(cursor.col, cursor.row), size(thin, cell.cell_height)),
+            Shape::Underline => (
+                at(cursor.col, cursor.row + 1) - point(px(0.0), thin),
+                size(cell.cell_width, thin),
+            ),
+        };
+        window.paint_quad(fill(Bounds::new(origin, extent), hue));
+        if let Some(text) = marked {
+            paint_marked(text, cursor, &at, cell, em, window, cx);
+        }
+    }
+}
+
+fn paint_marked(
+    text: &str,
+    cursor: vt::Cursor,
+    at: &dyn Fn(usize, usize) -> gpui::Point<Pixels>,
+    cell: Metrics,
+    em: Pixels,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let glyphs: Vec<(char, usize)> = text
+        .chars()
+        .map(|c| (c, c.width().unwrap_or(1).max(1)))
+        .collect();
+    let cols: usize = glyphs.iter().map(|(_, width)| width).sum();
+    window.paint_quad(fill(
+        Bounds::new(
+            at(cursor.col, cursor.row),
+            size(cell.cell_width * cols as f32, cell.cell_height),
+        ),
+        hsla(MARKED_BACKGROUND),
+    ));
+    let mut col = cursor.col;
+    for (c, width) in glyphs {
+        let mark = vt::Cell {
+            ch: c,
+            fg: vt::FOREGROUND,
+            bg: MARKED_BACKGROUND,
+            bold: false,
+            italic: false,
+            underline: true,
+            strike: false,
+        };
+        let run = styled(&mark, c.len_utf8());
+        let line = window.text_system().shape_line(
+            c.to_string().into(),
+            em,
+            &[run],
+            Some(cell.cell_width * width as f32),
+        );
+        let _ = line.paint(
+            at(col, cursor.row),
+            cell.cell_height,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
+        col += width;
+    }
+}

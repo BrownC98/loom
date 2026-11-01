@@ -3,32 +3,15 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{IllegalStep, WaitId};
+use super::messages::IllegalStep;
+use super::text::drawable_form;
+use crate::ids::{AgentId, WaitId};
+use crate::repos::RepoProblem;
 
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
 pub const MAILBOX_LIMIT: u32 = 50;
 pub const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 pub const SUMMARY_LIMIT_BYTES: usize = 1024;
-
-/// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design/메시징.md 「상한」.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct TreeLimits {
-    /// 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다. `None`이면 상한이 없다.
-    pub max_depth: Option<u32>,
-    /// 한 부모의 자식 수. `None`이면 상한이 없다.
-    pub max_children: Option<u32>,
-}
-
-impl Default for TreeLimits {
-    fn default() -> Self {
-        Self {
-            max_depth: Some(2),
-            max_children: None,
-        }
-    }
-}
 
 /// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 영어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
 /// 이벤트 기록에도 남기므로 읽을 수 있어야 한다(`Deserialize`).
@@ -288,7 +271,7 @@ impl fmt::Display for Refusal {
             Refusal::BareLink(found) => write!(
                 f,
                 "The human sees only Markdown links whose target starts with https://, http:// or file:// and has no spaces and no parentheses. Write [label]({}) instead of `{found}`.",
-                crate::link_text::drawable_form(found)
+                drawable_form(found)
             ),
             Refusal::BadChoices => write!(
                 f,
@@ -414,8 +397,196 @@ impl fmt::Display for Refusal {
     }
 }
 
-impl From<rusqlite::Error> for Refusal {
-    fn from(e: rusqlite::Error) -> Self {
-        Refusal::Db(e.to_string())
+/// 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum LaunchError {
+    UnknownAgent(AgentId),
+    NotInstalled {
+        agent: String,
+        command: String,
+        /// WSL 노드면 찾은 배포판이다. 없으면 데몬 PATH에서 찾았다.
+        distro: Option<String>,
+    },
+    BriefTooLong {
+        #[ts(type = "number")]
+        len: usize,
+        #[ts(type = "number")]
+        limit: usize,
+    },
+    /// 에이전트 어댑터가 노드 옆에 띄우는 프로세스를 띄우지 못했다. `cause`는 그 오류 글이다.
+    Helper {
+        program: String,
+        cause: String,
+    },
+    /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
+    NoBrief(String),
+    /// 에이전트 CLI가 로그인하지 않았다고 답했다. `command`는 그 CLI, `distro`는 WSL 노드의 배포판이다.
+    NotLoggedIn {
+        command: String,
+        distro: Option<String>,
+    },
+    /// 띄우기 전 로그인 검사 `command`가 `secs`초 안에 답하지 않았다. `distro`는 WSL 노드의 배포판이다.
+    LoginCheckNoReply {
+        command: String,
+        distro: Option<String>,
+        #[ts(type = "number")]
+        secs: u64,
+    },
+    /// 띄우기 전 로그인 검사 `command`의 답을 읽지 못했다. `distro`는 WSL 노드의 배포판이다.
+    LoginCheckUnreadable {
+        command: String,
+        distro: Option<String>,
+    },
+    /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. `agent`는 그 이름, `free`는 둘을 다 받는 에이전트, `effortNeedsModel`은 모델이 있을 때만 추론 강도를 받는 에이전트다.
+    #[serde(rename_all = "camelCase")]
+    NoModelChoice {
+        agent: String,
+        free: Vec<String>,
+        effort_needs_model: Vec<String>,
+    },
+    /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
+    Wsl(InsideError),
+}
+
+fn in_distro(distro: &Option<String>) -> String {
+    distro
+        .as_ref()
+        .map(|d| format!(" in WSL · {d}"))
+        .unwrap_or_default()
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchError::UnknownAgent(id) => {
+                write!(f, "{}: this agent is not in the catalog.", id.0)
+            }
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: None,
+            } => write!(
+                f,
+                "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
+            ),
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "{agent}: could not find `{command}` in WSL · {distro}. Install it in that distro, then click Find again in settings."
+            ),
+            LaunchError::BriefTooLong { len, limit } => write!(
+                f,
+                "The brief is {len} bytes. Make it {limit} bytes or less, and put long material in a file and send its path."
+            ),
+            LaunchError::Helper { program, cause } => {
+                write!(f, "Could not start `{program}`: {cause}")
+            }
+            LaunchError::NoModelChoice {
+                agent,
+                free,
+                effort_needs_model,
+            } => write!(
+                f,
+                "{agent}: does not take this `--model` or `--effort` (these take both: {}; these take `--model` with an optional `--effort`: {}). Fix them and try again.",
+                free.join(", "),
+                effort_needs_model.join(", ")
+            ),
+            LaunchError::Wsl(e) => e.fmt(f),
+            LaunchError::NoBrief(agent) => write!(
+                f,
+                "{agent}: does not take a brief. Start it without a brief and type into its terminal."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: None,
+            } => write!(
+                f,
+                "`{command}` is not logged in. Run `{command} login` in a terminal, then start the node again."
+            ),
+            LaunchError::NotLoggedIn {
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "`{command}` is not logged in in WSL · {distro}. Run `{command} login` in that distro, then start the node again."
+            ),
+            LaunchError::LoginCheckNoReply {
+                command,
+                distro,
+                secs,
+            } => write!(
+                f,
+                "The login check `{command}`{} did not answer in {secs} s. Start the node again later.",
+                in_distro(distro)
+            ),
+            LaunchError::LoginCheckUnreadable { command, distro } => write!(
+                f,
+                "Could not read the answer of the login check `{command}`{}. Update the CLI, then start the node again.",
+                in_distro(distro)
+            ),
+        }
+    }
+}
+
+/// 배포판을 쓸 수 없다. 에이전트에게는 `Display` 글이, 화면에는 코드와 값이 간다.
+#[derive(Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "code", rename_all = "camelCase")]
+#[ts(export)]
+pub enum InsideError {
+    /// 배포판이 시작하지 못했다. `cause`는 배포판 호스트(`wsl.exe`)나 배포판 안 명령의 오류 글이다.
+    Start { distro: String, cause: String },
+    /// 배포판 안에서 Windows 프로그램을 띄울 수 없다(`/etc/wsl.conf` `[interop] enabled=false`). 노드의 `loom` 명령이 닿지 않는다.
+    Interop { distro: String },
+}
+
+impl std::fmt::Display for InsideError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InsideError::Start { distro, cause } => write!(
+                f,
+                "Could not start {distro}: {cause}. Run `wsl -d {distro}` in a terminal to see the cause."
+            ),
+            InsideError::Interop { distro } => write!(
+                f,
+                "{distro} cannot run Windows programs (WSL interop is off), so the node could not use loom commands. Set [interop] enabled=true in /etc/wsl.conf, run `wsl --shutdown`, and try again."
+            ),
+        }
+    }
+}
+
+/// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Problem {
+    Refused(Refusal),
+    Launch(LaunchError),
+    Repo(RepoProblem),
+    /// 없는 로그인 창이다.
+    NoLogin,
+    /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
+    Internal(String),
+}
+
+impl From<Refusal> for Problem {
+    fn from(e: Refusal) -> Self {
+        Problem::Refused(e)
+    }
+}
+
+impl From<RepoProblem> for Problem {
+    fn from(e: RepoProblem) -> Self {
+        Problem::Repo(e)
+    }
+}
+
+impl From<LaunchError> for Problem {
+    fn from(e: LaunchError) -> Self {
+        Problem::Launch(e)
     }
 }

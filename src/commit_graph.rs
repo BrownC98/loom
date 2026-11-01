@@ -1,36 +1,16 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use ts_rs::TS;
+
+use api::canvas::{Commit, GitRef};
 
 use crate::git;
 use crate::place::Files;
 
 const SEPARATOR: char = '\0';
 const TAG_PREFIX: &str = "tag: ";
-
-#[derive(Serialize, TS, PartialEq, Debug)]
-#[ts(export)]
-pub struct Commit {
-    pub hash: String,
-    pub parents: Vec<String>,
-    pub subject: String,
-    pub author: String,
-    /// 작성 시각, 유닉스 초.
-    #[ts(type = "number")]
-    pub time: i64,
-    pub refs: Vec<GitRef>,
-}
-
-#[derive(Serialize, TS, PartialEq, Debug)]
-#[serde(tag = "kind", content = "name", rename_all = "camelCase")]
-#[ts(export)]
-pub enum GitRef {
-    /// 로컬·원격 브랜치. 원격은 `origin/main`처럼 원격 이름이 붙는다.
-    Branch(String),
-    Tag(String),
-}
 
 const STASH_REF: &str = "refs/stash";
 

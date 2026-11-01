@@ -1,0 +1,225 @@
+{
+  "kind": "siblingLanes",
+  "input": {
+    "direction": "down",
+    "parent": {
+      "at": {
+        "x": 300,
+        "y": 0
+      },
+      "size": {
+        "width": 300,
+        "height": 100
+      }
+    },
+    "pairs": [
+      {
+        "key": "1>2",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 330,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 330,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>3",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 330,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 330,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 640,
+              "y": 40
+            },
+            "size": {
+              "width": 240,
+              "height": 260
+            }
+          },
+          "room": {
+            "at": {
+              "x": 640,
+              "y": 40
+            },
+            "size": {
+              "width": 240,
+              "height": 260
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 200,
+            "height": 40
+          },
+          "short": {
+            "width": 50,
+            "height": 40
+          }
+        }
+      },
+      {
+        "key": "1>3",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": 120
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 640,
+              "y": 40
+            },
+            "size": {
+              "width": 240,
+              "height": 260
+            }
+          },
+          "room": {
+            "at": {
+              "x": 640,
+              "y": 40
+            },
+            "size": {
+              "width": 240,
+              "height": 260
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      }
+    ]
+  },
+  "output": {
+    "1>2": {
+      "points": [
+        {
+          "x": 140,
+          "y": 120
+        },
+        {
+          "x": 140,
+          "y": 118
+        },
+        {
+          "x": 450,
+          "y": 118
+        },
+        {
+          "x": 450,
+          "y": 120
+        }
+      ],
+      "label": null,
+      "turned": false
+    }
+  }
+}

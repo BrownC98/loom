@@ -4,9 +4,10 @@ use std::sync::{Mutex, MutexGuard};
 
 use tokio::sync::watch;
 
-use crate::graph::{AgentState, NodeId};
 use crate::protocol::Handoff;
 use crate::screen::SessionStart;
+use api::graph::events::AgentState;
+use api::ids::NodeId;
 
 #[derive(Default)]
 pub struct Sessions {

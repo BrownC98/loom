@@ -20,13 +20,18 @@
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
 | Rust 검사 | `memcap -m 3G cargo clippy --all-targets` |
-| 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
+| 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --lib --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--lib`(`api/`)와 `--bin loom`(데몬)은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
 | API 계약 기준 올리기 | `memcap -m 4608M cargo test --test contract -- --ignored bump`. `tests/contract`는 데몬 경로(메서드+경로)와 `web/src/gen/` 타입을 `tests/contract/released.txt`와 맞춘다. 경로·타입·필드·변형이 빠지거나 바뀌거나, 입력 타입(`Deserialize`)에 필수 필드가 생기면 실패한다. 더하기만 한 변경은 통과한다. 깨짐을 의도하면 이 명령으로 기준을 다시 쓰고 그 diff를 커밋한다. 더한 것은 기준을 다시 쓸 때 기준에 들어간다 |
 | Windows 검사 | `memcap -m 3G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
+| 데스크톱(`desktop/`, GPUI) Linux 검사 | `cd desktop && memcap -m 3584M cargo clippy --all-targets`. 루트와 다른 `Cargo.lock`이고 루트 패키지가 아니다. 실측(2026-11-01, 처음부터): clippy 3351MiB(36초), msvc clippy 3440MiB(51초), `cargo build` 4347MiB(116초). 그래서 clippy는 3584M(3.5G), 빌드는 4608M이다 |
+| 데스크톱 Windows 검사(msvc 타입 검사) | `cd desktop && memcap -m 3584M cargo clippy --all-targets --target x86_64-pc-windows-msvc`. `rustup target add x86_64-pc-windows-msvc`와 `llvm-rc`(아래 `llvm` 패키지)가 있어야 한다. 링크와 release 빌드는 하지 않는다: release 셰이더는 Windows 호스트의 `fxc.exe`가 만든다. 실제 exe는 `.github/workflows/desktop.yml`만 만든다 |
+| 데스크톱 띄우기(시험) | `cd desktop && memcap -m 4608M cargo build` 뒤 `target/debug/loom-desktop`. 이 exe는 자기 폴더의 `loom`(없으면 PATH의 `loom`)에 `start`를 시킨다. 사람의 데몬을 건드리지 않으려면 임시 폴더에 exe와 `loom: http://…` 한 줄을 찍는 `loom` 스크립트를 나란히 둔다. WSLg에서는 `env -u WAYLAND_DISPLAY target/debug/loom-desktop`처럼 X11로 띄운다: Wayland에서는 창이 열려도 그림이 오지 않는다(2026-11-01 실측, 화면 사진도 X11에서만 찍힌다) |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 빌드 | `npm --prefix web run build` |
 | 데몬 띄우기(시험) | `memcap -m 3G cargo build` 뒤 임시 git 저장소 폴더에서 `HOME=/tmp/<이름> <워크트리>/target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. 데몬은 시작 폴더를 저장소로 등록하므로 이 저장소 폴더에서 띄우지 않는다(2026-10-23 실측: 이 저장소 폴더에서 띄운 시험 데몬에 사람의 loom 저장소가 들어갔다). `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다). WSL `~/loom/bin/loom`은 `HOME`을 무시하는 Windows `loom.exe`를 부르므로 다른 `HOME`의 `serve`·`start`·`stop`·`open`을 거부한다(`scripts/host.sh`·`install.sh`). 끝나면 `bash scripts/dev/stop-test-daemon.sh /tmp/<이름>`을 돌린다. 환경에 그 `HOME`이 있는 프로세스(데몬, pty-host, 훅)를 모두 끄고, 남으면 0이 아닌 코드로 끝난다. 보고에 그 출력을 넣는다. 근거: 시험 데몬의 pty-host가 워크트리를 지운 뒤 11시간 남았다(2026-10-25 사람 보고). Windows 시험 데몬의 `loom.exe`는 WSL에서 환경을 읽을 수 없어 이 스크립트가 찾지 못한다 |
 | 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. WSL에서는 앱 옆 `%LOCALAPPDATA%\loom\loom.exe`(Windows 데몬)를, Linux에서는 `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |
+
+- 데스크톱 빌드에 필요한 호스트 패키지(이 호스트에는 깔려 있다): `sudo apt-get install --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-dev libwayland-dev libasound2-dev libvulkan-dev libssl-dev llvm`. `llvm`은 msvc 검사의 `llvm-rc`를 준다. gpui는 Zed git `rev 08cbb88`을 쓰므로 첫 `cargo fetch`가 약 0.5GB를 `~/.cargo/git`에 받는다.
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
 
@@ -36,7 +41,7 @@
 
 - `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(docs/design/에이전트-실행.md 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
-- API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
+- API 타입은 Rust에만 선언한다. 데몬·화면·데스크톱이 함께 읽는 타입은 `api/` 크레이트(serde·serde_json·ts-rs만 쓴다. 데몬만 켜는 기능 `axum`·`clap`·`sqlite`가 `Problem` 응답, `Judgment` 인자, rusqlite 오류 변환을 더한다)에 두고, 데몬은 `api::…` 경로로 직접 읽는다. 루트 `Cargo.toml`은 작업 공간이고 기본 멤버는 데몬과 `api/`다. 그래서 위 cargo 명령이 둘을 함께 검사한다. `app/`·`desktop/`은 잠금 파일이 따로인 패키지라 작업 공간에서 뺀다. `web/src/gen/`은 위 `cargo test --lib --bin loom`이 쓴다. 손으로 고치지 않는다. 관문은 쓴 뒤 `web/src/gen/`이 커밋과 다르면 실패한다.
 
 ## 목표
 

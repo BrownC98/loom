@@ -2,11 +2,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rusqlite::params;
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::watch;
-use ts_rs::TS;
+
+use api::settings::phone::{DeviceId, DeviceView};
 
 use crate::db::Database;
 use crate::pake;
@@ -17,23 +17,6 @@ const CODE_LEN: usize = 8;
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZ23456789";
 const SEEN_EVERY_MS: i64 = 60_000;
 const LABEL_MAX: usize = 64;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
-#[ts(export)]
-pub struct DeviceId(#[ts(type = "number")] pub i64);
-
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct DeviceView {
-    pub id: DeviceId,
-    pub label: String,
-    /// Unix 밀리초.
-    #[ts(type = "number")]
-    pub paired_at: i64,
-    #[ts(type = "number")]
-    pub last_seen: i64,
-}
 
 pub struct DeviceToken(pub String);
 

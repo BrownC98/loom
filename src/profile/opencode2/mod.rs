@@ -14,13 +14,16 @@ use tokio::sync::{mpsc, watch};
 
 use super::adapter::{Chosen, Facts, LaunchAt, Logins, Port, Record, Started, TurnTake};
 use super::process::Served;
-use super::{ModelRule, VersionMismatch};
 use crate::protocol::{
-    Delivery, EndedTurn, IdleReply, IdleRequest, Kind, LaunchError, MessageId, Model, ModelChoice,
-    Prompt, PromptKey, PromptOption, Refusal, Report, Session, TakeRequest, WaitKind,
+    Delivery, EndedTurn, IdleReply, IdleRequest, MessageId, Model, Report, Session, TakeRequest,
 };
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
+use api::graph::errors::{LaunchError, Refusal};
+use api::graph::messages::Kind;
+use api::graph::waits::{Prompt, PromptKey, PromptOption, WaitKind};
+use api::profile::{ModelRule, VersionMismatch};
+use api::start::ModelChoice;
 use server::{Api, Server};
 
 pub const PINNED_VERSION: &str = "2.0.32";

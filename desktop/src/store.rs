@@ -130,10 +130,7 @@ impl Store {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let event = match cx.background_spawn(async move { link::load(&base) }).await {
-                Ok(loaded) => Graph::Loaded(Box::new(loaded)),
-                Err(error) => Graph::Failed(error),
-            };
+            let event = cx.background_spawn(async move { link::load(&base) }).await;
             let _ = this.update(cx, |store, cx| store.apply(event, cx));
         })
         .detach();
@@ -144,7 +141,10 @@ impl Store {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
             Graph::Feed(event) => cx.emit(*event),
             Graph::Link(state) => self.link = state,
-            Graph::Failed(error) => {
+            Graph::Failed { order, error } => {
+                if !self.newer(order) {
+                    return;
+                }
                 self.status = if error.is_empty() {
                     "connection closed".to_owned()
                 } else {
@@ -155,11 +155,18 @@ impl Store {
         cx.notify();
     }
 
+    fn newer(&mut self, order: u64) -> bool {
+        let newer = order > self.loaded;
+        if newer {
+            self.loaded = order;
+        }
+        newer
+    }
+
     fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
-        if loaded.order <= self.loaded {
+        if !self.newer(loaded.order) {
             return;
         }
-        self.loaded = loaded.order;
         self.status = self.base.clone().unwrap_or_default();
         let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
         if key != self.settings_key {

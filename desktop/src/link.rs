@@ -188,24 +188,30 @@ fn frame(request: &impl Serialize) -> Message {
     Message::text(serde_json::to_string(request).unwrap_or_default())
 }
 
-pub fn load(base: &str) -> Result<Loaded, String> {
+pub fn load(base: &str) -> Graph {
     let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
-    Ok(Loaded {
-        order,
-        snapshot: Snapshot {
-            nodes: read(base, "/api/nodes")?,
-            repos: read(base, "/api/repos")?,
-            layout: read(base, "/api/spots")?,
-            sizes: read(base, "/api/sizes")?,
-        },
-        settings: read(base, "/api/settings")?,
-    })
+    let read_all = || -> Result<Loaded, String> {
+        Ok(Loaded {
+            order,
+            snapshot: Snapshot {
+                nodes: read(base, "/api/nodes")?,
+                repos: read(base, "/api/repos")?,
+                layout: read(base, "/api/spots")?,
+                sizes: read(base, "/api/sizes")?,
+            },
+            settings: read(base, "/api/settings")?,
+        })
+    };
+    match read_all() {
+        Ok(loaded) => Graph::Loaded(Box::new(loaded)),
+        Err(error) => Graph::Failed { order, error },
+    }
 }
 
 pub enum Graph {
     Loaded(Box<Loaded>),
     Feed(Box<GraphEvent>),
-    Failed(String),
+    Failed { order: u64, error: String },
     Link(LinkState),
 }
 
@@ -219,10 +225,7 @@ pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), Stri
         .spawn(move || {
             while wanted.recv().is_ok() {
                 while wanted.try_recv().is_ok() {}
-                let event = match load(&base) {
-                    Ok(loaded) => Graph::Loaded(Box::new(loaded)),
-                    Err(error) => Graph::Failed(error),
-                };
+                let event = load(&base);
                 if sink.send_blocking(event).is_err() {
                     break;
                 }

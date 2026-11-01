@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod dialog;
 mod nav;
 mod patch;

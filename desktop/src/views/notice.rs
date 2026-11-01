@@ -9,9 +9,18 @@ const TOP: f32 = 60.0;
 const SIDE: f32 = 16.0;
 const MAX_WIDTH: f32 = 480.0;
 
+#[derive(Clone, Copy)]
+pub enum Level {
+    Info,
+    Ok,
+    Warn,
+    Error,
+}
+
 #[derive(Clone)]
 pub struct Notice {
     pub text: String,
+    pub level: Level,
 }
 
 pub const fn shown_for() -> Duration {
@@ -20,6 +29,12 @@ pub const fn shown_for() -> Duration {
 
 pub fn element(notice: &Notice, theme: &Theme) -> Div {
     let colors = theme.colors;
+    let tone = match notice.level {
+        Level::Info => colors.ink,
+        Level::Ok => colors.ok,
+        Level::Warn => colors.warn,
+        Level::Error => colors.err,
+    };
     div()
         .absolute()
         .top(px(TOP))
@@ -29,9 +44,9 @@ pub fn element(notice: &Notice, theme: &Theme) -> Div {
         .py(px(6.0))
         .rounded(px(6.0))
         .border_1()
-        .border_color(colors.line_strong)
+        .border_color(tone)
         .bg(colors.surface)
         .text_size(px(13.0))
-        .text_color(colors.err)
+        .text_color(tone)
         .child(notice.text.clone())
 }

@@ -6,10 +6,12 @@ use api::settings::{
 };
 use gpui::{App, Div, ParentElement, SharedString, Styled, Window, div, px};
 
+mod preview;
+
 use crate::settings::widgets::{field_reset, segmented, segmented_on, switch};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
-use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say};
+use crate::views::dock::ui::{SMALL, TEXT, colors, say};
 
 const SIZES: [(FloatSize, Str); 4] = [
     (FloatSize::Small, Str::FloatSizeSmall),
@@ -22,15 +24,6 @@ const SIZES: [(FloatSize, Str); 4] = [
 pub struct State {
     pill_hover: Rc<Cell<Option<FloatSize>>>,
     composer_hover: Rc<Cell<Option<FloatSize>>>,
-}
-
-fn zoom(size: FloatSize) -> f32 {
-    match size {
-        FloatSize::Small => 0.85,
-        FloatSize::Normal => 1.0,
-        FloatSize::Large => 1.15,
-        FloatSize::Huge => 1.3,
-    }
 }
 
 fn head(text: Str, ctx: &Ctx, cx: &App) -> Section {
@@ -92,76 +85,7 @@ fn choice<T: Copy + PartialEq + 'static>(
     with_reset(section.child(radios).child(note), reset.0, reset.1, ctx, cx)
 }
 
-fn pill_sample(size: FloatSize, name: &str, text: &str, cx: &App) -> Div {
-    let c = colors(cx);
-    let z = zoom(size);
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.0 * z))
-        .px(px(12.0 * z))
-        .py(px(5.0 * z))
-        .rounded_full()
-        .border_1()
-        .border_color(c.warn)
-        .bg(c.surface)
-        .text_size(px(TEXT * z))
-        .text_color(c.ink)
-        .child(div().size(px(8.0 * z)).rounded_full().bg(c.warn))
-        .child(name.to_owned())
-        .child(div().text_color(c.ink_2).child(text.to_owned()))
-}
-
-fn composer_sample(size: FloatSize, name: &str, cx: &App) -> Div {
-    let c = colors(cx);
-    let z = zoom(size);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0 * z))
-        .w(px(300.0 * z))
-        .p(px(8.0 * z))
-        .rounded(px(8.0 * z))
-        .border_1()
-        .border_color(c.line_strong)
-        .bg(c.surface)
-        .text_size(px(TEXT * z))
-        .text_color(c.ink)
-        .child(
-            div()
-                .flex()
-                .gap(px(4.0 * z))
-                .child(name.to_owned())
-                .child(div().text_color(c.ink_3).child(say(cx, Str::ComposerTo))),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(SMALL * z))
-                        .text_color(c.ink_3)
-                        .child(say(cx, Str::ComposerKeys)),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .px(px(8.0 * z))
-                        .py(px(2.0 * z))
-                        .rounded(px(6.0 * z))
-                        .bg(c.accent)
-                        .text_color(c.accent_ink)
-                        .child(say(cx, Str::ComposerSend)),
-                ),
-        )
-}
-
 fn preview(section: &mut Section, shown: FloatSize, pill: bool, cx: &App) -> Div {
-    let c = colors(cx);
     let name = say(cx, Str::FloatSizeSampleNode);
     let text = say(cx, Str::FloatSizeSampleText);
     let size_label = SIZES
@@ -176,33 +100,20 @@ fn preview(section: &mut Section, shown: FloatSize, pill: bool, cx: &App) -> Div
     let _ = section.text(name, cx);
     if pill {
         let _ = section.text(text, cx);
-    }
-    let sample = if pill {
-        pill_sample(shown, name, text, cx)
-    } else {
-        composer_sample(shown, name, cx)
-    };
-    let room = if pill {
-        pill_sample(FloatSize::Huge, name, text, cx)
-    } else {
-        composer_sample(FloatSize::Huge, name, cx)
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(GAP))
-        .p(px(10.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(c.line)
-        .bg(c.bg)
-        .child(div().text_size(px(SMALL)).text_color(c.ink_3).child(cap))
-        .child(
-            div()
-                .relative()
-                .child(div().invisible().child(room))
-                .child(div().absolute().top_0().left_0().child(sample)),
+        preview::frame(
+            cap,
+            preview::pill(shown, name, text, cx),
+            preview::pill(FloatSize::Huge, name, text, cx),
+            cx,
         )
+    } else {
+        preview::frame(
+            cap,
+            preview::composer(shown, name, cx),
+            preview::composer(FloatSize::Huge, name, cx),
+            cx,
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

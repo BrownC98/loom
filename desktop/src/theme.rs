@@ -1,7 +1,9 @@
 use api::settings::{
     HexColor, SettingsView, TerminalTheme, Theme as ThemeSetting, ThemedColor, UiColors,
 };
-use gpui::{Global, Rgba};
+use gpui::{App, Global, Rgba};
+
+use crate::fonts::{self, Face, Wanted};
 
 const TEXT_CONTRAST: f64 = 4.5;
 const TONE_STEP: f64 = 0.5;
@@ -63,17 +65,25 @@ pub struct Theme {
     pub scheme: Scheme,
     pub colors: Colors,
     pub terminal: &'static Terminal,
+    pub face: Wanted,
 }
 
 impl Global for Theme {}
 
 impl Theme {
+    pub fn face(cx: &App) -> Face {
+        cx.global::<Theme>()
+            .face
+            .resolve(&cx.text_system().all_font_names())
+    }
+
     pub fn resolve(settings: &SettingsView, system_dark: bool) -> Theme {
         let scheme = Scheme::resolve(settings.theme, system_dark);
         Theme {
             scheme,
             colors: colors(scheme, &settings.colors),
             terminal: terminal(&settings.terminal_theme, scheme),
+            face: fonts::wanted(&settings.terminal_font),
         }
     }
 }

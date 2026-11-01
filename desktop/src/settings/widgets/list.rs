@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Div, ElementId, InteractiveElement, ParentElement, ScrollHandle, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, Div, ElementId, InteractiveElement, ParentElement, ScrollHandle, SharedString,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::views::dock::ui::{TEXT, colors};
@@ -21,7 +21,7 @@ pub fn list_box(
 ) -> Stateful<Div> {
     list_box_on(
         id,
-        items,
+        items.into_iter().map(|label| (label, None)).collect(),
         selected,
         width,
         height,
@@ -35,7 +35,7 @@ pub fn list_box(
 #[allow(clippy::too_many_arguments)]
 pub fn list_box_on(
     id: &'static str,
-    items: Vec<SharedString>,
+    items: Vec<(SharedString, Option<AnyElement>)>,
     selected: Option<usize>,
     width: f32,
     height: f32,
@@ -47,7 +47,7 @@ pub fn list_box_on(
     let c = colors(cx);
     let change = Rc::new(change);
     let hover = hover.map(Rc::new);
-    let rows = items.into_iter().enumerate().map(|(index, label)| {
+    let rows = items.into_iter().enumerate().map(|(index, (label, lead))| {
         let change = change.clone();
         let hover = hover.clone();
         let chosen = selected == Some(index);
@@ -58,11 +58,13 @@ pub fn list_box_on(
             .px(px(10.0))
             .flex()
             .items_center()
+            .gap(px(8.0))
             .text_size(px(TEXT))
             .text_color(c.ink)
             .cursor_pointer()
             .bg(if chosen { c.accent_wash } else { c.surface })
             .hover(move |style| style.bg(c.surface_hover))
+            .children(lead)
             .child(label)
             .when_some(hover, |row, hover| {
                 row.on_hover(move |inside, window, cx| {

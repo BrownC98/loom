@@ -27,7 +27,7 @@ impl TerminalView {
     fn spot(&self, position: Point<Pixels>, window: &Window) -> Option<Spot> {
         let screen = &self.frame.as_ref()?.screen;
         let cell = metrics(window, &self.style.face, self.scale);
-        let rel = position - self.area.origin;
+        let rel = position - self.origin;
         let x = rel.x / cell.cell_width;
         let y = rel.y / cell.cell_height;
         let col = x.max(0.0).floor() as usize;

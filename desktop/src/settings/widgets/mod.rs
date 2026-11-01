@@ -13,7 +13,7 @@ pub use confirm::confirm;
 pub use list::{PITCH, list_box_on};
 pub use number::{Number, NumberEvent};
 pub use reset::field_reset;
-pub use segmented::{Label, segmented, segmented_on};
+pub use segmented::{Label, segmented, segmented_on, segmented_wide};
 pub use select::{Select, SelectEvent};
 pub use switch::switch;
 pub use text::{Text, TextEvent};

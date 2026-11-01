@@ -30,22 +30,26 @@ impl Dock {
             &c,
         )
         .on_click(move |_, _, cx| store.update(cx, |store, cx| store.arrange(direction, cx)));
-        let tabs = Tab::ALL.map(|tab| {
-            let count = if tab == Tab::Questions { waiting } else { 0 };
-            let label = ui::say(cx, tab.label());
-            let label = if count > 0 {
-                format!("{label} {count}")
-            } else {
-                label.to_owned()
-            };
-            rail::button(tab.id(), tab.glyph(), label, BUTTON, &c)
-                .children((count > 0).then(|| rail::badge(count, &c)))
-                .on_click(cx.listener(move |dock, _, _, cx| {
-                    dock.choose_tab(tab, cx);
-                    dock.store
-                        .update(cx, |store, cx| store.set_pane_open("dock", true, cx));
-                }))
-        });
+        let docked = self.docked(cx).is_some();
+        let tabs = Tab::ALL
+            .into_iter()
+            .filter(|&tab| docked || tab != Tab::Terminal)
+            .map(|tab| {
+                let count = if tab == Tab::Questions { waiting } else { 0 };
+                let label = ui::say(cx, tab.label());
+                let label = if count > 0 {
+                    format!("{label} {count}")
+                } else {
+                    label.to_owned()
+                };
+                rail::button(tab.id(), tab.glyph(), label, BUTTON, &c)
+                    .children((count > 0).then(|| rail::badge(count, &c)))
+                    .on_click(cx.listener(move |dock, _, _, cx| {
+                        dock.choose_tab(tab, cx);
+                        dock.store
+                            .update(cx, |store, cx| store.set_pane_open("dock", true, cx));
+                    }))
+            });
         rail::column(&c)
             .child(open)
             .child(rail::divider(&c))

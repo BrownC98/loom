@@ -34,7 +34,7 @@ use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::float::inputs::Inputs;
 use crate::link;
-use crate::store::{Show, Store, Target, ZoomTo};
+use crate::store::{NodeMenu, Show, Store, Target, ZoomTo};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::anchor::Anchors;
@@ -140,6 +140,10 @@ impl CanvasView {
             .detach();
         cx.subscribe(&store, |this, _, event: &Arrange, cx| {
             this.arrange(event.direction, Scope::All, cx);
+        })
+        .detach();
+        cx.subscribe(&store, |this, _, event: &NodeMenu, cx| {
+            this.open_menu(event.node, event.at, cx)
         })
         .detach();
         cx.observe_window_activation(window, |_, window, _| {

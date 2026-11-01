@@ -7,7 +7,7 @@ use api::settings::PaneWidths;
 use gpui::{
     AnyView, App, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Render, Styled, Subscription, Window, div, px,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
 use super::sidebar::Sidebar;
@@ -24,6 +24,7 @@ gpui::actions!(loom, [OpenSettings]);
 const GRIP: f32 = 7.0;
 const GRIP_BEFORE: f32 = 3.0;
 const GRIP_ALPHA: f32 = 0.55;
+const KEY_STEP: f32 = 16.0;
 
 enum Shortcut {
     Toggle(Pane),
@@ -209,7 +210,21 @@ impl Shell {
             .bottom_0()
             .w(px(GRIP))
             .cursor_col_resize()
+            .focusable()
+            .tab_index(0)
+            .focus(move |style| style.bg(accent))
             .hover(move |style| style.bg(accent))
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                let step = match e.keystroke.key.as_str() {
+                    "left" => -KEY_STEP,
+                    "right" => KEY_STEP,
+                    _ => return,
+                };
+                let wanted = width + pane.grow() * step;
+                let clamped = this.widths(window, cx).clamp(pane, wanted);
+                this.commit(pane, clamped, cx);
+                cx.stop_propagation();
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {

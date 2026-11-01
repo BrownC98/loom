@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, Layout};
+use api::canvas::{Arranged, CardSize, Layout, Placed};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
 use api::repos::RepoView;
@@ -126,13 +126,29 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
+fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), String> {
     agent()
-        .put(format!("{base}/api/settings"))
+        .put(format!("{base}{path}"))
         .header("content-type", "application/json")
-        .send(patch.to_string())
+        .send(serde_json::to_string(body).map_err(|e| e.to_string())?)
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
+    put(base, "/api/settings", patch)
+}
+
+pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), String> {
+    put(base, "/api/spots", &placed)
+}
+
+pub fn put_arranged(base: &str, arranged: &Arranged) -> Result<(), String> {
+    put(base, "/api/spots/arranged", arranged)
+}
+
+pub fn clear_spots(base: &str, repo: u32) -> Result<(), String> {
+    delete(base, &format!("/api/repos/{repo}/spots"))
 }
 
 pub fn post<T: serde::de::DeserializeOwned>(
@@ -190,6 +206,10 @@ pub struct Snapshot {
 }
 
 static LOADS: AtomicU64 = AtomicU64::new(0);
+
+pub fn issued() -> u64 {
+    LOADS.load(Ordering::Relaxed)
+}
 
 pub struct Loaded {
     pub order: u64,

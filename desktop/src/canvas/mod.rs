@@ -1,7 +1,9 @@
 pub mod camera;
+pub mod drag;
 pub mod frames;
 pub mod grid;
 pub mod hops;
+pub mod keys;
 pub mod layout;
 pub mod repos;
 pub mod scene;

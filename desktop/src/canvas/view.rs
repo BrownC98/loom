@@ -4,18 +4,22 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, Bounds, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, PinchEvent, Pixels, Point, Render, ScrollEvent,
-    Styled, Window, canvas, div, point, px, rgb, size,
+    App, AppContext, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
+    PinchEvent, Pixels, Point, Render, ScrollEvent, Styled, Window, canvas, div, point, px, rgb,
+    size,
 };
 
 use api::graph::CardView;
 use api::graph::pty::Pace;
+use api::settings::ArrangeDirection;
 
 use super::camera::Camera;
+use super::drag::{Arrange, Job, Moves};
 use super::frames::Probe;
 use super::grid;
-use super::layout::{Rect, Size};
+use super::keys;
+use super::layout::{self, Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
 use crate::link;
 use crate::store::Store;
@@ -28,6 +32,9 @@ const WHEEL_PINCH_BOOST: f32 = 10.0;
 const HANDLE: f32 = 18.0;
 const TERMINAL_STEP: f32 = 1.03;
 const HIDDEN_KEEP: Duration = Duration::from_secs(3);
+const GRAB_SLOP: f32 = 3.0;
+const REPO_HEAD: f32 = 46.0;
+const GROUP_HEAD: f32 = 44.0;
 
 struct Live {
     view: Entity<TerminalView>,
@@ -40,8 +47,16 @@ struct Resizing {
     size: Size,
 }
 
+struct Carry {
+    from: Point<Pixels>,
+    started: bool,
+}
+
 pub struct CanvasView {
     store: Entity<Store>,
+    focus: FocusHandle,
+    moves: Moves,
+    carry: Option<Carry>,
     seen: u64,
     scene: Scene,
     resized: HashMap<u32, Size>,
@@ -76,6 +91,10 @@ impl CanvasView {
             cx.notify();
         })
         .detach();
+        cx.subscribe(&store, |this, _, event: &Arrange, cx| {
+            this.arrange(event.direction, cx);
+        })
+        .detach();
         cx.observe_window_activation(window, |_, window, _| {
             link::pace(if window.is_window_active() {
                 Pace::Front
@@ -86,6 +105,9 @@ impl CanvasView {
         .detach();
         Self {
             store,
+            focus: cx.focus_handle(),
+            moves: Moves::default(),
+            carry: None,
             seen: 0,
             scene: Scene::default(),
             resized: HashMap::new(),
@@ -103,16 +125,143 @@ impl CanvasView {
     }
 
     fn sync(&mut self, cx: &App) {
-        let revision = self.store.read(cx).revision();
-        if revision != self.seen {
+        let store = self.store.read(cx);
+        let retired = self.moves.retire(store.loaded());
+        let revision = store.revision();
+        if revision != self.seen || retired {
             self.seen = revision;
             self.rebuild(cx);
         }
     }
 
     fn rebuild(&mut self, cx: &App) {
-        if let Some(snapshot) = self.store.read(cx).snapshot() {
-            self.scene = scene::build(snapshot, &self.resized);
+        let store = self.store.read(cx);
+        let Some(snapshot) = store.snapshot() else {
+            return;
+        };
+        let overlay = self
+            .moves
+            .overlay(store.settings(), self.scene.outers.clone());
+        let next = scene::build(snapshot, &self.resized, &overlay);
+        if !self.moves.dragging()
+            && self.resizing.is_none()
+            && let Some(id) = store.selected()
+            && let Some(before) = self.scene.cards.iter().find(|c| c.node == id)
+            && let Some(after) = next.cards.iter().find(|c| c.node == id)
+        {
+            let zoom = self.camera.zoom;
+            self.camera.pan_by(
+                -(after.rect.at.x - before.rect.at.x) as f32 * zoom,
+                -(after.rect.at.y - before.rect.at.y) as f32 * zoom,
+            );
+        }
+        self.scene = next;
+    }
+
+    fn arrange(&mut self, direction: ArrangeDirection, cx: &mut Context<Self>) {
+        let store = self.store.read(cx);
+        let Some(snapshot) = store.snapshot() else {
+            return;
+        };
+        let overlay = self
+            .moves
+            .arranging(&self.scene, store.settings(), direction);
+        let cleared = scene::build(snapshot, &self.resized, &overlay);
+        let job = self.moves.arranged(&cleared, direction);
+        self.persist(job, cx);
+        self.rebuild(cx);
+        cx.notify();
+    }
+
+    fn persist(&mut self, job: Job, cx: &mut Context<Self>) {
+        let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
+            return;
+        };
+        let store = self.store.clone();
+        cx.spawn(async move |this, cx| {
+            let id = job.id();
+            let _ = cx.background_spawn(async move { job.run(&base) }).await;
+            let _ = this.update(cx, |view, cx| {
+                view.moves.finish(id);
+                cx.notify();
+            });
+            store.update(cx, |store, cx| store.reload(cx));
+        })
+        .detach();
+    }
+
+    fn release(&mut self, cx: &mut Context<Self>) {
+        let Some(carry) = self.carry.take() else {
+            return;
+        };
+        let store = self.store.read(cx);
+        let job = match store.snapshot() {
+            Some(snapshot) if carry.started => {
+                self.moves
+                    .drop(&self.scene, snapshot, store.settings().always_arrange)
+            }
+            _ => {
+                self.moves.cancel();
+                None
+            }
+        };
+        if let Some(job) = job {
+            self.persist(job, cx);
+        }
+        self.rebuild(cx);
+        cx.notify();
+    }
+
+    fn grab(&mut self, key: &str, at: Point<Pixels>, cx: &App) {
+        if self
+            .moves
+            .begin(key, &self.scene, self.store.read(cx).settings())
+        {
+            self.carry = Some(Carry {
+                from: at,
+                started: false,
+            });
+        }
+    }
+
+    fn frame_head_at(&self, window_pos: Point<Pixels>) -> Option<String> {
+        let at = self.camera.to_graph(self.local(window_pos));
+        let hit = |frame: &scene::Frame, head: f32| {
+            let r = frame.rect;
+            let (x, y) = (f64::from(at.x), f64::from(at.y));
+            x >= r.at.x && x < r.at.x + r.size.width && y >= r.at.y && y < r.at.y + f64::from(head)
+        };
+        self.scene
+            .groups
+            .iter()
+            .rev()
+            .find(|f| hit(f, GROUP_HEAD))
+            .or_else(|| self.scene.repos.iter().rev().find(|f| hit(f, REPO_HEAD)))
+            .map(|f| f.key.clone())
+    }
+
+    fn grab_card(&mut self, node: u32, e: &MouseDownEvent, simple: bool, cx: &App) {
+        let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
+            return;
+        };
+        let top = self.camera.screen_box(bounds_of(card.rect)).origin.y;
+        let inside = f32::from(self.local(e.position).y - top);
+        if simple || inside < card::HEAD * self.camera.zoom {
+            self.grab(&node.to_string(), e.position, cx);
+        }
+    }
+
+    fn on_key(&mut self, event: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
+        let plain = self.focus.is_focused(window);
+        let Some(direction) = keys::direction_of(&event.keystroke, plain, cx) else {
+            return;
+        };
+        cx.stop_propagation();
+        let store = self.store.read(cx);
+        if let Some(from) = store.selected()
+            && let Some(to) = keys::neighbor(&self.scene, from, direction)
+        {
+            self.select(to, cx);
         }
     }
 
@@ -237,7 +386,12 @@ impl CanvasView {
         cx.notify();
     }
 
-    fn on_down(&mut self, event: &MouseDownEvent) {
+    fn on_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        if let Some(key) = self.frame_head_at(event.position) {
+            self.grab(&key, event.position, cx);
+            return;
+        }
         self.drag = Some(event.position);
     }
 
@@ -245,6 +399,26 @@ impl CanvasView {
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = None;
             self.resizing = None;
+            self.release(cx);
+            return;
+        }
+        if let Some(carry) = &mut self.carry {
+            let delta = event.position - carry.from;
+            let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
+            if !carry.started && dx.hypot(dy) < GRAB_SLOP {
+                return;
+            }
+            carry.started = true;
+            let zoom = f64::from(self.camera.zoom);
+            let always = self.store.read(cx).settings().always_arrange;
+            let moved = layout::Point {
+                x: f64::from(dx) / zoom,
+                y: f64::from(dy) / zoom,
+            };
+            if self.moves.drag(&self.scene, moved, always) {
+                self.rebuild(cx);
+                cx.notify();
+            }
             return;
         }
         if let Some(resizing) = &self.resizing {
@@ -268,9 +442,10 @@ impl CanvasView {
         cx.notify();
     }
 
-    fn on_up(&mut self) {
+    fn on_up(&mut self, cx: &mut Context<Self>) {
         self.drag = None;
         self.resizing = None;
+        self.release(cx);
     }
 }
 
@@ -322,9 +497,17 @@ impl Render for CanvasView {
                 false,
             )
         });
-        let cards = self.scene.cards.iter().filter_map(|placed| {
+        let grabbed = self.moves.grabbed().and_then(|k| k.parse::<u32>().ok());
+        let ordered = self
+            .scene
+            .cards
+            .iter()
+            .filter(|c| Some(c.node) != grabbed)
+            .chain(self.scene.cards.iter().filter(|c| Some(c.node) == grabbed));
+        let cards = ordered.filter_map(|placed| {
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
+            let node_simple = node.card_view == Some(CardView::Simple);
             let screen = camera.screen_box(bounds_of(placed.rect));
             let body = self
                 .live
@@ -372,7 +555,10 @@ impl Render for CanvasView {
                     }))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.grab_card(id, e, node_simple, cx);
+                            cx.stop_propagation();
+                        }),
                     )
                     .children(handle),
             )
@@ -384,18 +570,22 @@ impl Render for CanvasView {
             .bg(rgb(0x14161a))
             .on_scroll(cx.listener(|this, e: &ScrollEvent, _, cx| this.on_scroll(e, cx)))
             .on_pinch(cx.listener(|this, e: &PinchEvent, _, cx| this.on_pinch(e, cx)))
+            .track_focus(&self.focus)
+            .capture_key_down(
+                cx.listener(|this, e: &KeyDownEvent, window, cx| this.on_key(e, window, cx)),
+            )
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, e: &MouseDownEvent, _, _| this.on_down(e)),
+                cx.listener(|this, e: &MouseDownEvent, window, cx| this.on_down(e, window, cx)),
             )
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| this.on_move(e, cx)))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.on_up()),
+                cx.listener(|this, _: &MouseUpEvent, _, cx| this.on_up(cx)),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.on_up()),
+                cx.listener(|this, _: &MouseUpEvent, _, cx| this.on_up(cx)),
             )
             .child(
                 canvas(

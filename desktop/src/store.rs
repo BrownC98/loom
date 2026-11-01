@@ -2,9 +2,10 @@ use api::graph::docs::DocRow;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NodeState};
 use api::ids::WaitId;
-use api::settings::SettingsView;
+use api::settings::{ArrangeDirection, SettingsView};
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
+use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::{strings, theme};
 
@@ -24,6 +25,7 @@ pub struct Store {
 }
 
 impl EventEmitter<GraphEvent> for Store {}
+impl EventEmitter<Arrange> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -100,7 +102,10 @@ impl Store {
         self.revision
     }
 
-    #[allow(dead_code)]
+    pub fn loaded(&self) -> u64 {
+        self.loaded
+    }
+
     pub fn settings(&self) -> &SettingsView {
         &self.settings
     }
@@ -201,6 +206,30 @@ impl Store {
 }
 
 impl Store {
+    fn edit_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
+        let saved = self.call(cx, move |base| link::put_settings(base, &patch));
+        cx.spawn(async move |this, cx| {
+            if saved.await.is_ok() {
+                let _ = this.update(cx, |store, cx| store.reload(cx));
+            }
+        })
+        .detach();
+    }
+
+    pub fn arrange(&mut self, direction: ArrangeDirection, cx: &mut Context<Self>) {
+        self.edit_settings(serde_json::json!({ "arrangeDirection": direction }), cx);
+        cx.emit(Arrange { direction });
+    }
+
+    pub fn keep_arranged(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.edit_settings(serde_json::json!({ "alwaysArrange": on }), cx);
+        if on {
+            cx.emit(Arrange {
+                direction: self.settings.arrange_direction,
+            });
+        }
+    }
+
     fn call<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,

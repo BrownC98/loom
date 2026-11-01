@@ -18,6 +18,7 @@ pub enum Glyph {
     ExpandAll,
     Folder,
     Map { folded: bool },
+    Gear,
     Arrange,
 }
 
@@ -28,6 +29,19 @@ fn circle(x: f32, y: f32, r: f32) -> Poly {
             (x + r * angle.cos(), y + r * angle.sin())
         })
         .collect()
+}
+
+fn gear() -> Poly {
+    let tooth = |k: usize| {
+        let base = k as f32 * std::f32::consts::TAU / 8.0;
+        [(-10.0, 7.0), (-6.0, 10.0), (6.0, 10.0), (10.0, 7.0)].map(move |(degrees, radius)| {
+            let angle = base + f32::to_radians(degrees);
+            (12.0 + radius * angle.cos(), 12.0 + radius * angle.sin())
+        })
+    };
+    let mut ring: Poly = (0..8).flat_map(tooth).collect();
+    ring.push(ring[0]);
+    ring
 }
 
 fn strokes(glyph: &Glyph) -> Vec<Poly> {
@@ -71,6 +85,7 @@ fn strokes(glyph: &Glyph) -> Vec<Poly> {
             vec![(7.0, 15.0), (12.0, 20.0), (17.0, 15.0)],
             vec![(7.0, 9.0), (12.0, 4.0), (17.0, 9.0)],
         ],
+        Glyph::Gear => vec![gear(), circle(12.0, 12.0, 3.0)],
         Glyph::Folder => vec![vec![
             (20.0, 20.0),
             (22.0, 18.0),

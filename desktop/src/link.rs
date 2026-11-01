@@ -15,6 +15,7 @@ use api::graph::{GraphEvent, NodeView};
 use api::ids::{NodeId, RepoId};
 use api::repos::RepoView;
 use api::settings::SettingsView;
+use api::settings::places::DistroView;
 use serde::Serialize;
 
 use crate::problem::Failure;
@@ -242,6 +243,21 @@ pub fn post_within<T: serde::de::DeserializeOwned>(
     .read_to_string()
     .map_err(|e| Failure::Other(e.to_string()))?;
     serde_json::from_str(&response).map_err(|e| Failure::Other(format!("POST {path}: {e}")))
+}
+
+pub fn distro(base: &str, name: &str) -> Result<DistroView, Failure> {
+    let path = name
+        .bytes()
+        .fold(String::from("/api/distros/"), |mut path, byte| {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                    path.push(char::from(byte));
+                }
+                _ => path.push_str(&format!("%{byte:02X}")),
+            }
+            path
+        });
+    read(base, &path)
 }
 
 pub fn shutdown(base: &str) -> Result<(), Failure> {

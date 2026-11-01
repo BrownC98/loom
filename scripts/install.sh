@@ -65,11 +65,14 @@ if [ "$(uname -s)" = Darwin ]; then
     macos=$tmp/loom-desktop.app/Contents/MacOS
     mkdir -p "$macos"
     mv "$tmp/loom-desktop-macos-arm64/loom-desktop" "$tmp/loom-desktop-macos-arm64/loom" "$macos/"
+    mkdir "$tmp/loom-desktop.app/Contents/Resources"
+    mv "$tmp/loom-desktop-macos-arm64/icon.icns" "$tmp/loom-desktop.app/Contents/Resources/" 2>/dev/null || true
     cat >"$tmp/loom-desktop.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>loom-desktop</string>
+<key>CFBundleIconFile</key><string>icon</string>
 <key>CFBundleIdentifier</key><string>com.brownc98.loom.desktop</string>
 <key>CFBundleName</key><string>loom</string>
 <key>CFBundlePackageType</key><string>APPL</string>

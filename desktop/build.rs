@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 const WEB: &str = "../web/src";
+const ICON: &str = "../app/icons/icon.ico";
 const PRETENDARD: &str = "../web/node_modules/pretendard/dist/web/static/woff2";
 
 fn main() {
@@ -34,6 +35,17 @@ fn main() {
         "strings.rs",
         strings(&read("locales/ko.ts"), &read("locales/en.ts")),
     );
+
+    if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
+        let icon = manifest.join(ICON);
+        println!("cargo:rerun-if-changed={}", icon.display());
+        let rc = out.join("icon.rc");
+        let icon = icon.to_string_lossy().replace('\\', "/");
+        fs::write(&rc, format!("1 ICON \"{icon}\"\n")).expect("icon.rc");
+        embed_resource::compile(rc, embed_resource::NONE)
+            .manifest_required()
+            .expect("embed icon");
+    }
 }
 
 #[derive(Clone, Copy)]

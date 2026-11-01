@@ -5,6 +5,7 @@ on:
     paths:
       - 'desktop/**'
       - 'api/**'
+      - 'app/icons/icon.ico'
       - 'fixtures/layout/**'
       - 'web/src/fonts/jetendard/**'
       - 'web/package-lock.json'

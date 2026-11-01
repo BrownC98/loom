@@ -198,6 +198,14 @@ jobs:
           chmod +x "$dir/${{ matrix.desktop }}" "$dir/${{ matrix.loom }}"
           if [ "$RUNNER_OS" = macOS ]; then
             codesign --verify --verbose "$dir/${{ matrix.desktop }}" "$dir/${{ matrix.loom }}"
+            iconset=icon.iconset
+            mkdir "$iconset"
+            for size in 16 32 128; do
+              sips -z $size $size app/icons/icon.png --out "$iconset/icon_${size}x${size}.png"
+              sips -z $((size * 2)) $((size * 2)) app/icons/icon.png --out "$iconset/icon_${size}x${size}@2x.png"
+            done
+            cp app/icons/icon.png "$iconset/icon_256x256.png"
+            iconutil -c icns "$iconset" -o "$dir/icon.icns"
             tar -czf "${{ matrix.asset }}" "$dir"
           else
             7z a -tzip "${{ matrix.asset }}" "$dir"

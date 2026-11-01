@@ -16,6 +16,7 @@ use crate::views::cardlink;
 
 const CLONE_LIMIT: Duration = Duration::from_secs(3600);
 const SSH_SETUP_LIMIT: Duration = Duration::from_secs(600);
+const FOLDERS_LIMIT: Duration = Duration::from_secs(900);
 
 #[derive(Clone, Default)]
 pub struct Inflight(Arc<AtomicUsize>);
@@ -97,9 +98,10 @@ fn added(repo: Value) -> Result<u32, Failure> {
 }
 
 pub fn folders(base: &str, path: Option<&str>) -> Result<FolderList, Failure> {
-    link::read(
+    link::read_within(
         base,
         &format!("/api/folders{}", link::query(&[("path", path)])),
+        FOLDERS_LIMIT,
     )
 }
 

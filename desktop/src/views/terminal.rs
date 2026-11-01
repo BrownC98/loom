@@ -89,9 +89,30 @@ fn metrics(window: &Window, scale: f32) -> Metrics {
 }
 
 pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+    open_with(link::attach, base, node, window, cx)
+}
+
+pub fn open_login(
+    base: &str,
+    login: u32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<TerminalView> {
+    open_with(link::attach_login, base, login, window, cx)
+}
+
+type Attach = fn(&str, u32, async_channel::Sender<Event>) -> Result<Pty, String>;
+
+fn open_with(
+    attach: Attach,
+    base: &str,
+    id: u32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<TerminalView> {
     let opened = (|| -> Result<_, String> {
         let (events, inbox) = async_channel::unbounded();
-        Ok((link::attach(base, node, events)?, inbox))
+        Ok((attach(base, id, events)?, inbox))
     })();
     cx.new(|cx| TerminalView::new(opened, window, cx))
 }

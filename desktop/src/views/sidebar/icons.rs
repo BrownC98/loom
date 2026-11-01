@@ -18,6 +18,7 @@ pub enum Glyph {
     ExpandAll,
     Map { folded: bool },
     Gear,
+    Arrange,
 }
 
 fn circle(x: f32, y: f32, r: f32) -> Poly {
@@ -84,6 +85,23 @@ fn strokes(glyph: &Glyph) -> Vec<Poly> {
             vec![(7.0, 9.0), (12.0, 4.0), (17.0, 9.0)],
         ],
         Glyph::Gear => vec![gear(), circle(12.0, 12.0, 3.0)],
+        Glyph::Arrange => vec![
+            vec![
+                (3.0, 3.0),
+                (11.0, 3.0),
+                (11.0, 11.0),
+                (3.0, 11.0),
+                (3.0, 3.0),
+            ],
+            vec![(7.0, 11.0), (7.0, 15.0), (9.0, 17.0), (13.0, 17.0)],
+            vec![
+                (13.0, 13.0),
+                (21.0, 13.0),
+                (21.0, 21.0),
+                (13.0, 21.0),
+                (13.0, 13.0),
+            ],
+        ],
         Glyph::Map { folded } => {
             let mut lines = vec![
                 vec![

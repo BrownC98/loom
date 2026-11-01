@@ -11,6 +11,7 @@ use super::field::{self, Field};
 use crate::store::Store;
 use crate::strings::Str;
 
+mod arrange;
 mod body;
 mod docs;
 pub mod events;
@@ -70,6 +71,7 @@ pub struct Dock {
     notes: HashMap<u32, String>,
     busy: HashSet<u32>,
     open_key: String,
+    arrange_menu: bool,
     history: History,
     docs: Docs,
     events: events::Events,
@@ -90,6 +92,7 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             notes: HashMap::new(),
             busy: HashSet::new(),
             open_key: String::new(),
+            arrange_menu: false,
             history: History::default(),
             docs: Docs {
                 order: 0,
@@ -200,6 +203,7 @@ impl Render for Dock {
             .bg(c.panel)
             .text_color(c.ink)
             .text_size(px(ui::TEXT))
+            .child(self.arrange_bar(cx))
             .child(
                 div()
                     .flex()

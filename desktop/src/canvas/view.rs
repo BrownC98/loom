@@ -143,7 +143,7 @@ impl CanvasView {
         })
         .detach();
         cx.subscribe(&store, |this, _, event: &NodeMenu, cx| {
-            this.open_menu(event.node, event.at, cx)
+            this.open_menu(event.node, event.at, event.button, cx)
         })
         .detach();
         cx.observe_window_activation(window, |_, window, _| {

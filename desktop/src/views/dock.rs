@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use self::answers::Answers;
+use super::anchor::Anchors;
 use super::field::{self, Field};
 use super::icons::Lucide;
 use super::scrollbar::Bar;
@@ -132,6 +133,9 @@ pub struct Dock {
     caret: Rc<Cell<Bounds<Pixels>>>,
     tab_focus: Vec<FocusHandle>,
     terminal: Option<(u32, Entity<TerminalView>)>,
+    anchors: Anchors,
+    seen_selected: Option<u32>,
+    renaming: Option<terminal::Rename>,
     inputs: Entity<Inputs>,
     shared: Entity<Inputs>,
     history: History,
@@ -166,6 +170,9 @@ pub fn dock(
             caret: arrange::new_caret(),
             tab_focus: (0..Tab::ALL.len()).map(|_| cx.focus_handle()).collect(),
             terminal: None,
+            anchors: Anchors::default(),
+            seen_selected: None,
+            renaming: None,
             inputs: cx.new(|_| Inputs::default()),
             shared,
             history: History::default(),
@@ -265,6 +272,7 @@ impl Render for Dock {
         self.shown = shown;
         if shown != Tab::Terminal {
             self.terminal = None;
+            self.renaming = None;
         }
         let repo =
             self.store.read(cx).snapshot().is_some_and(|s| {

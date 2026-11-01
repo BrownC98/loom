@@ -1,18 +1,109 @@
 use std::rc::Rc;
 
 use api::graph::NodeView;
-use gpui::{Context, Div, MouseDownEvent, ParentElement, Styled, Window, div};
+use gpui::{
+    Context, Div, Entity, MouseDownEvent, ParentElement, Styled, Subscription, Window, div,
+};
 
 use super::Dock;
 use super::ui;
 use crate::problem::Failure;
 use crate::strings::Lang;
-use crate::views::anchor::Anchors;
+use crate::strings::Str;
 use crate::views::card::{self, Actions, Face, Press};
 use crate::views::cardlink;
+use crate::views::field::{self, Field, FieldEvent};
 use crate::views::terminal;
 
+pub(super) struct Rename {
+    node: u32,
+    field: Entity<Field>,
+    busy: bool,
+    error: Option<String>,
+    _subs: Vec<Subscription>,
+}
+
 impl Dock {
+    fn begin_rename(&mut self, id: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .store
+            .read(cx)
+            .snapshot()
+            .and_then(|s| s.nodes.iter().find(|n| n.id.0 == id))
+            .map(|n| n.name.clone())
+        else {
+            return;
+        };
+        let field = field::new(Str::RenameLabel, cx);
+        field.update(cx, |field, cx| field.set_text(&name, cx));
+        let handle = field.read(cx).handle();
+        let subs = vec![
+            cx.subscribe(&field, |this, _, event: &FieldEvent, cx| match event {
+                FieldEvent::Enter => this.end_rename(true, cx),
+                FieldEvent::Escape => this.end_rename(false, cx),
+                FieldEvent::Changed => {
+                    if let Some(r) = &mut this.renaming {
+                        r.error = None;
+                    }
+                    cx.notify();
+                }
+                FieldEvent::Step(_) => {}
+            }),
+            cx.on_blur(&handle, window, |this, _, cx| this.end_rename(true, cx)),
+        ];
+        window.focus(&handle, cx);
+        self.renaming = Some(Rename {
+            node: id,
+            field,
+            busy: false,
+            error: None,
+            _subs: subs,
+        });
+        cx.notify();
+    }
+
+    fn end_rename(&mut self, commit: bool, cx: &mut Context<Self>) {
+        let Some(r) = &mut self.renaming else {
+            return;
+        };
+        if r.busy {
+            return;
+        }
+        let id = r.node;
+        let value = r.field.read(cx).text().to_owned();
+        let unchanged = self
+            .store
+            .read(cx)
+            .snapshot()
+            .and_then(|s| s.nodes.iter().find(|n| n.id.0 == id))
+            .is_none_or(|n| n.name == value.trim());
+        if !commit || unchanged {
+            self.renaming = None;
+            cx.notify();
+            return;
+        }
+        r.busy = true;
+        cardlink::run(
+            &self.store,
+            cx,
+            move |base| cardlink::rename(base, id, &value),
+            move |this, result, cx| {
+                match result {
+                    Ok(()) => this.renaming = None,
+                    Err(text) => {
+                        if let Some(r) = &mut this.renaming {
+                            r.busy = false;
+                            r.error = Some(text);
+                        }
+                    }
+                }
+                cx.notify();
+            },
+        )
+        .detach();
+        cx.notify();
+    }
+
     fn card_call(
         &mut self,
         cx: &mut Context<Self>,
@@ -51,15 +142,18 @@ impl Dock {
                 .find(|n| n.id == parent)
                 .map(|n| n.name.clone())
         });
-        let press = |run: fn(&mut Self, u32, &MouseDownEvent, &mut Context<Self>)| -> Press {
-            Rc::new(cx.listener(move |this, e: &MouseDownEvent, _, cx| run(this, id, e, cx)))
-        };
+        let press =
+            |run: fn(&mut Self, u32, &MouseDownEvent, &mut Window, &mut Context<Self>)| -> Press {
+                Rc::new(cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    run(this, id, e, window, cx)
+                }))
+            };
         let actions = Actions {
-            anchors: Anchors::default(),
-            steer: press(|this, id, _, cx| {
+            anchors: self.anchors.clone(),
+            steer: press(|this, id, _, _, cx| {
                 this.card_call(cx, move |base| cardlink::steer_queued(base, id))
             }),
-            bookmark: press(|this, id, _, cx| {
+            bookmark: press(|this, id, _, _, cx| {
                 let on = this
                     .store
                     .read(cx)
@@ -68,19 +162,23 @@ impl Dock {
                     .is_some_and(|n| n.bookmark.is_none());
                 this.card_call(cx, move |base| crate::link::set_bookmark(base, id, on))
             }),
-            expand: press(|this, id, _, cx| this.store.update(cx, |store, cx| store.go(id, cx))),
-            menu: press(|this, id, e, cx| {
-                let at = e.position;
+            expand: press(|this, id, _, _, cx| this.store.update(cx, |store, cx| store.go(id, cx))),
+            menu: press(|this, id, e, _, cx| {
+                let (at, button) = (e.position, this.anchors.get(&format!("menu:{id}")));
                 this.store
-                    .update(cx, |store, cx| store.open_node_menu(id, at, cx))
+                    .update(cx, |store, cx| store.open_node_menu(id, at, button, cx))
             }),
-            rename: press(|_, _, _, _| {}),
+            rename: press(|this, id, _, window, cx| this.begin_rename(id, window, cx)),
         };
         let face = Face {
             lang,
             node,
             parent: parent.as_deref(),
-            rename: None,
+            rename: self
+                .renaming
+                .as_ref()
+                .filter(|r| r.node == id)
+                .map(|r| (&r.field, r.error.as_deref())),
             actions: &actions,
             collapse: false,
             width: 300.0,

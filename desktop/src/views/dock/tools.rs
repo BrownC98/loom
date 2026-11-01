@@ -1,5 +1,8 @@
 use api::settings::DefaultCardView;
-use gpui::{Context, Div, FontWeight, ParentElement, StatefulInteractiveElement, Styled, div, px};
+use gpui::{
+    Context, Div, FontWeight, ParentElement, SharedString, StatefulInteractiveElement, Styled, div,
+    px,
+};
 
 use super::ui;
 use super::{Dock, ui::SMALL};
@@ -32,7 +35,7 @@ impl Dock {
         });
         let items = VIEWS
             .iter()
-            .map(|&(value, label)| (value, Label::counted(ui::say(cx, label).into(), 0)))
+            .map(|&(value, label)| (value, Label::from(SharedString::from(ui::say(cx, label)))))
             .collect();
         let switch = segmented_wide(
             "card-view",

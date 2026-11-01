@@ -1,18 +1,21 @@
 use api::settings::{HexColor, Language, Theme as ThemeSetting, ThemedColor, UiColors};
 use gpui::{
-    Anchor, App, AppContext, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, anchored, deferred, div, point, px,
+    Anchor, App, AppContext, Div, ElementId, Entity, FocusHandle, FontWeight, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Rgba, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, anchored, deferred, div,
+    point, px,
 };
 use serde_json::Value;
 
+use super::agents::parts::badge;
+use crate::settings::widgets::button;
 use crate::settings::widgets::{
-    Label, Select, SelectEvent, Text, TextEvent, field_reset, segmented,
+    Label, Select, SelectEvent, Text, TextEvent, field_reset, segmented, tabbable,
 };
 use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
 use crate::theme::{self, Colors, Scheme, Theme, luminance_of, ratio};
-use crate::views::dock::ui::{GAP, SMALL, TEXT, button, colors, say, say_with};
+use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
 use crate::views::icons::Lucide;
 use crate::views::tooltip::tip;
 
@@ -115,6 +118,7 @@ enum Target {
 }
 
 struct Pop {
+    focus: FocusHandle,
     open: Option<usize>,
     target: Target,
     presets: Vec<(Rgba, Rgba)>,
@@ -215,13 +219,14 @@ fn setup(
     if let (Some(pop), Some(hex), Some(language)) = (&state.pop, &state.hex, &state.language) {
         return (pop.clone(), hex.clone(), language.clone());
     }
-    let pop = cx.new(|_| Pop {
+    let pop = cx.new(|cx| Pop {
+        focus: cx.focus_handle(),
         open: None,
         target: Target::Both,
         presets: Vec::new(),
     });
-    let hex = cx.new(|cx| Text::new("#rrggbb", false, window, cx));
-    let language = cx.new(|cx| Select::new("language", cx));
+    let hex = cx.new(|cx| Text::mono("#rrggbb", window, cx));
+    let language = cx.new(|cx| Select::new("language", cx).full());
     {
         let (pop, writer, dialog) = (pop.clone(), ctx.writer.clone(), ctx.dialog.clone());
         state
@@ -281,20 +286,16 @@ fn theme_section(ctx: &Ctx, cx: &mut App) -> Section {
     })
     .collect();
     let writer = ctx.writer.clone();
-    let row = div()
-        .flex()
-        .items_center()
-        .gap(px(GAP))
-        .child(segmented(
-            "theme",
-            items,
-            ctx.view.theme,
-            move |value, _, cx| writer.edit(cx, |settings| settings.theme = value),
-            cx,
-        ))
-        .children(field_reset("reset-theme", &["theme"], ctx, cx));
+    let row = div().flex().items_center().gap(px(GAP)).child(segmented(
+        "theme",
+        items,
+        ctx.view.theme,
+        move |value, _, cx| writer.edit(cx, |settings| settings.theme = value),
+        cx,
+    ));
     let hint = section.text(say(cx, Str::ThemeSystemHint), cx);
     section
+        .beside(field_reset("reset-theme", &["theme"], ctx, cx))
         .child(row)
         .child(div().text_size(px(SMALL)).text_color(c.ink_3).child(hint))
 }
@@ -318,9 +319,10 @@ fn language_section(select: &Entity<Select>, ctx: &Ctx, cx: &mut App) -> Section
         .flex()
         .items_center()
         .gap(px(GAP))
-        .child(select.clone())
-        .children(field_reset("reset-language", &["language"], ctx, cx));
-    section.child(row)
+        .child(select.clone());
+    section
+        .beside(field_reset("reset-language", &["language"], ctx, cx))
+        .child(row)
 }
 
 fn colors_section(
@@ -393,17 +395,20 @@ fn colors_section(
         let swatch = {
             let (pop, dialog) = (pop.clone(), ctx.dialog.clone());
             let both = color.light == color.dark;
-            halves(
-                (row.paint)(&light),
-                (row.paint)(&dark),
-                ("color-swatch", index),
-                SWATCH_W,
-                SWATCH_H,
+            tabbable(
+                halves(
+                    (row.paint)(&light),
+                    (row.paint)(&dark),
+                    ("color-swatch", index),
+                    SWATCH_W,
+                    SWATCH_H,
+                ),
+                cx,
             )
             .cursor_pointer()
             .border_1()
             .border_color(c.line_strong)
-            .on_click(move |_, _, cx| {
+            .on_click(move |_, window, cx| {
                 touch(&pop, &dialog, cx, |pop| {
                     if pop.open == Some(index) {
                         pop.open = None;
@@ -416,7 +421,9 @@ fn colors_section(
                         };
                         pop.presets = tones(&ROWS[index]);
                     }
-                })
+                });
+                let focus = pop.read(cx).focus.clone();
+                window.focus(&focus, cx);
             })
         };
         let host = div()
@@ -478,68 +485,87 @@ fn colors_section(
     let preview = section.text(say(cx, Str::ColorsPreview), cx);
     let pill_label = section.text(say(cx, Str::ColorsPreviewPill), cx);
     let badge_label = section.text(say(cx, Str::ColorsPreviewBadge), cx);
-    let dot = |color: Rgba| div().size(px(8.0)).rounded_full().bg(color).flex_none();
+    let dot = |color: Rgba| div().size(px(7.0)).rounded_full().bg(color).flex_none();
+    let waiting = div()
+        .size(px(7.0))
+        .flex_none()
+        .rounded_full()
+        .bg(now.ask)
+        .shadow(vec![gpui::BoxShadow {
+            color: gpui::Hsla::from(now.ask).opacity(0.25),
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: px(0.0),
+            spread_radius: px(3.0),
+            inset: false,
+        }]);
     let strip = div()
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(px(14.0))
+        .px(px(12.0))
+        .py(px(10.0))
+        .rounded(px(8.0))
+        .border_1()
+        .border_color(c.line)
+        .bg(c.bg)
         .text_size(px(SMALL))
         .child(div().text_color(c.ink_3).child(preview))
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(8.0))
+                .h(px(28.0))
                 .px(px(10.0))
-                .py(px(2.0))
-                .rounded_full()
-                .bg(now.warn)
-                .text_color(now.warn_ink)
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(pill_label))
+                .rounded(px(14.0))
+                .border_1()
+                .border_color(now.warn)
+                .bg(mix(now.warn, now.surface, 0.1))
+                .child(div().font_weight(FontWeight::BOLD).child(pill_label))
                 .child(
                     div()
+                        .min_w(px(18.0))
+                        .h(px(18.0))
                         .px(px(5.0))
-                        .rounded_full()
-                        .bg(now.notice)
-                        .text_color(now.notice_ink)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(9.0))
+                        .bg(now.warn)
+                        .text_color(now.warn_ink)
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child("3"),
                 ),
         )
-        .child(
-            div()
-                .px(px(8.0))
-                .rounded(px(9.0))
-                .border_1()
-                .border_color(now.warn)
-                .text_color(now.warn)
-                .child(badge_label),
-        )
-        .child(dot(now.warn))
+        .child(badge(badge_label, true, now))
+        .child(waiting)
         .child(dot(now.run))
         .child(dot(now.ok))
         .child(dot(now.err))
         .child(
             div()
                 .flex()
-                .items_center()
-                .gap(px(2.0))
-                .px(px(4.0))
-                .py(px(3.0))
-                .rounded(px(4.0))
-                .border_1()
+                .p(px(4.0))
+                .rounded(px(8.0))
+                .border_2()
                 .border_color(now.repo_line)
-                .child(div().size(px(8.0)).rounded(px(2.0)).bg(now.group_line))
-                .child(div().w(px(10.0)).h(px(2.0)).bg(now.edge))
-                .child(div().size(px(8.0)).rounded(px(2.0)).bg(now.group_line)),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .p(px(4.0))
+                        .rounded(px(6.0))
+                        .border_2()
+                        .border_color(now.group_line)
+                        .child(sample_card(now))
+                        .child(div().w(px(14.0)).h(px(2.0)).bg(now.edge))
+                        .child(sample_card(now)),
+                ),
         );
     let hint = section.text(say(cx, Str::ColorsHint), cx);
-    let head = div()
-        .flex()
-        .items_center()
-        .gap(px(GAP))
-        .children(field_reset("reset-colors", &["colors"], ctx, cx));
     section
-        .child(head)
+        .beside(field_reset("reset-colors", &["colors"], ctx, cx))
         .child(rows)
         .child(strip)
         .child(div().text_size(px(SMALL)).text_color(c.ink_3).child(hint))
@@ -569,6 +595,7 @@ fn popover(
     hex.update(cx, |text, cx| {
         text.show(current.as_ref().map_or("", HexColor::as_str), window, cx)
     });
+    let focus = pop.read(cx).focus.clone();
     let close = {
         let (pop, dialog) = (pop.clone(), ctx.dialog.clone());
         move |cx: &mut App| touch(&pop, &dialog, cx, |pop| pop.open = None)
@@ -665,11 +692,14 @@ fn popover(
                 };
                 let chosen = current.as_ref().map(HexColor::as_str) == Some(*text);
                 let (writer, picked) = (ctx.writer.clone(), parse(text));
-                halves(left, right, ("color-preset", at), SWATCH_W, SWATCH_H + 6.0)
-                    .cursor_pointer()
-                    .border_2()
-                    .border_color(if chosen { c.accent } else { c.line_strong })
-                    .on_click(move |_, _, cx| pick(&writer, index, target, picked.clone(), cx))
+                tabbable(
+                    halves(left, right, ("color-preset", at), SWATCH_W, SWATCH_H + 6.0),
+                    cx,
+                )
+                .cursor_pointer()
+                .border_2()
+                .border_color(if chosen { c.accent } else { c.line_strong })
+                .on_click(move |_, _, cx| pick(&writer, index, target, picked.clone(), cx))
             }),
     );
 
@@ -698,6 +728,7 @@ fn popover(
     };
     let panel = div()
         .id("color-popover")
+        .track_focus(&focus)
         .w(px(POPOVER_W))
         .occlude()
         .flex()
@@ -756,4 +787,24 @@ fn popover(
     )
     .with_priority(2);
     div().child(backdrop).child(body)
+}
+
+fn mix(top: Rgba, under: Rgba, amount: f32) -> Rgba {
+    let blend = |a: f32, b: f32| a * amount + b * (1.0 - amount);
+    Rgba {
+        r: blend(top.r, under.r),
+        g: blend(top.g, under.g),
+        b: blend(top.b, under.b),
+        a: 1.0,
+    }
+}
+
+fn sample_card(now: &Colors) -> Div {
+    div()
+        .w(px(22.0))
+        .h(px(14.0))
+        .rounded(px(3.0))
+        .border_1()
+        .border_color(now.line_strong)
+        .bg(now.term)
 }

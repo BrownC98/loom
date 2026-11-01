@@ -15,6 +15,7 @@ use crate::settings::{Ctx, Section};
 use crate::strings::Str;
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::icons::{Lucide, icon};
 
 const NAME_W: f32 = 140.0;
 const MODEL_W: f32 = 170.0;
@@ -100,10 +101,17 @@ fn runner_text(role: &Role, agents: &[AgentView], cx: &App) -> String {
 impl Form {
     fn new(target: Editing, initial: &Role, ctx: &Ctx, local: &Bound<Local>, cx: &mut App) -> Self {
         let hint = say(cx, Str::SettingsRolesCliDefault);
-        let name = field::boxed("", false, false, cx);
-        let model = field::boxed(hint, false, false, cx);
-        let effort = field::boxed(hint, false, false, cx);
-        let duty = field::boxed(say(cx, Str::SettingsRolesDutyPlaceholder), false, true, cx);
+        let plain = field::Form::Plain;
+        let name = field::form("", false, false, plain, cx);
+        let model = field::form(hint, false, false, field::Form::Mono, cx);
+        let effort = field::form(hint, false, false, field::Form::Mono, cx);
+        let duty = field::form(
+            say(cx, Str::SettingsRolesDutyPlaceholder),
+            false,
+            true,
+            plain,
+            cx,
+        );
         for (entity, text) in [
             (&name, initial.name.as_str()),
             (&model, initial.model.as_deref().unwrap_or_default()),
@@ -276,7 +284,9 @@ pub fn section(
         ));
     }
     let add_label = section.text(say(cx, Str::SettingsRolesAdd), cx);
-    let mut add = small("role-add", cx).child(add_label);
+    let mut add = small("role-add", cx)
+        .child(icon(Lucide::Plus, 14.0, colors(cx).ink))
+        .child(add_label);
     if busy {
         add = add.opacity(DIM);
     } else {
@@ -315,18 +325,15 @@ pub fn section(
         .flex()
         .flex_col()
         .gap(px(8.0))
-        .child(
-            div()
-                .flex()
-                .children(field_reset("agents-roles-reset", &["roles"], ctx, cx)),
-        )
         .child(rows(items, cx))
         .child(div().flex().child(add))
         .child(hint(note, cx));
     if !ctx.view.always_on.o_mode {
         body = body.opacity(FADED);
     }
-    let section = section.child(body);
+    let section = section
+        .beside(field_reset("agents-roles-reset", &["roles"], ctx, cx))
+        .child(body);
     match confirm {
         Some(confirm) => section.child(confirm),
         None => section,

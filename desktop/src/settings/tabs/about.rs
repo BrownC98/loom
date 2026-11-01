@@ -6,15 +6,19 @@ use gpui::{
     StatefulInteractiveElement, Styled, StyledText, WeakEntity, Window, div, px,
 };
 
+use crate::daemon;
+use crate::fonts;
 use crate::link;
 use crate::link::VERSION;
+use crate::settings::widgets::button;
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
-use crate::views::dock::ui::{GAP, SMALL, button, colors, say, say_with};
+use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
 
 const CHECK_LIMIT: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_secs(1);
 const METER: f32 = 200.0;
+const LABEL_W: f32 = 90.0;
 
 enum Outcome {
     Latest,
@@ -31,6 +35,7 @@ enum Call {
 
 #[derive(Default)]
 struct Model {
+    daemon: Option<String>,
     view: Option<UpdateView>,
     checking: bool,
     outcome: Option<Outcome>,
@@ -172,6 +177,13 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
         && !model.read(cx).started
     {
         model.update(cx, |model, _| model.started = true);
+        let (found, dialog) = (model.clone(), ctx.dialog.clone());
+        cx.spawn(async move |cx| {
+            let version = cx.background_spawn(async { daemon::version() }).await;
+            found.update(cx, |model, _| model.daemon = version);
+            let _ = dialog.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
         request(
             model.clone(),
             ctx.dialog.clone(),
@@ -183,17 +195,37 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
 
     let c = colors(cx);
     let mut section = Section::new(Some(say(cx, Str::AboutVersion)), ctx);
-    let app = section.text(say(cx, Str::AboutApp), cx);
+    let mut rows: Vec<(StyledText, String)> = Vec::new();
+    let daemon = model.read(cx).daemon.clone();
+    if let Some(daemon) = &daemon {
+        rows.push((
+            section.text(say(cx, Str::AboutDaemon), cx),
+            format!("loom v{daemon}"),
+        ));
+    }
+    if daemon.as_deref().is_none_or(|daemon| daemon != VERSION) {
+        rows.push((
+            section.text(say(cx, Str::AboutApp), cx),
+            format!("loom v{VERSION}"),
+        ));
+    }
     let versions = div()
         .flex()
-        .gap(px(12.0))
-        .text_size(px(SMALL))
-        .child(div().text_color(c.ink_3).child(app))
-        .child(
+        .flex_col()
+        .gap(px(6.0))
+        .text_size(px(TEXT))
+        .children(rows.into_iter().map(|(label, value)| {
             div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(format!("loom v{VERSION}")),
-        );
+                .flex()
+                .gap(px(12.0))
+                .child(div().w(px(LABEL_W)).text_color(c.ink_3).child(label))
+                .child(
+                    div()
+                        .font_family(fonts::TERMINAL_FAMILY)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(value),
+                )
+        }));
     section = section.child(versions);
 
     let Some(view) = model.read(cx).view.clone().filter(|view| view.checks) else {

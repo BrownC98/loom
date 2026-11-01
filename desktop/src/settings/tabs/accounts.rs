@@ -4,8 +4,8 @@ use api::ids::AccountId;
 use api::profile::Provider;
 use api::settings::accounts::AccountView;
 use gpui::{
-    AnyElement, App, AppContext as _, Entity, FocusHandle, FontWeight, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, AppContext as _, Div, Entity, FocusHandle, FontWeight, IntoElement,
+    ParentElement, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use super::agents::parts;
@@ -16,11 +16,13 @@ use crate::settings::widgets::{field_reset, switch};
 use crate::settings::{Ctx, Section, Writer};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
+use crate::views::icons::{Lucide, icon};
 use crate::views::terminal::TerminalView;
+use crate::views::tooltip::tip;
 use crate::views::usage::{
     self, ACCOUNTS, PROVIDERS, REFRESH, Switching, account_name, active_index, provider_label, slug,
 };
-use parts::{Bound, Reload, Remote, Shared, badge, hint, row, rows, small};
+use parts::{Bound, Reload, Remote, Shared, badge, ghost_small, hint, row, rows, small};
 
 mod login;
 mod switch;
@@ -153,7 +155,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
             for provider in PROVIDERS {
                 let label = provider_label(provider, cx);
                 let mut section = Section::new(Some(label), ctx);
-                let body = provider_body(
+                let (add, body) = provider_body(
                     &mut section,
                     &mut ids,
                     provider,
@@ -163,12 +165,12 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
                     actor,
                     cx,
                 );
-                sections.push(section.child(body));
+                sections.push(section.beside(Some(add)).child(body));
             }
         } else {
             for distro in &places {
                 let name = place_name(distro.as_deref(), cx);
-                let mut section = Section::new(Some(&name), ctx);
+                let mut section = Section::new(None, ctx);
                 let uses = section.text(
                     say(
                         cx,
@@ -180,10 +182,31 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
                     ),
                     cx,
                 );
-                let mut blocks = div().flex().flex_col().gap(px(14.0)).child(hint(uses, cx));
+                let c = colors(cx);
+                let glyph = if distro.is_none() {
+                    Lucide::Monitor
+                } else {
+                    Lucide::SquareTerminal
+                };
+                let name_text = section.text(&name, cx);
+                sections.push(
+                    section.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .pt(px(6.0))
+                            .border_t_1()
+                            .border_color(c.line)
+                            .text_size(px(TEXT))
+                            .child(icon(glyph, 15.0, c.ink_2))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name_text))
+                            .child(div().text_size(px(SMALL)).text_color(c.ink_3).child(uses)),
+                    ),
+                );
                 for provider in PROVIDERS {
-                    let label = section.text(provider_label(provider, cx), cx);
-                    let body = provider_body(
+                    let mut section = Section::new(Some(provider_label(provider, cx)), ctx);
+                    let (add, body) = provider_body(
                         &mut section,
                         &mut ids,
                         provider,
@@ -193,22 +216,8 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
                         actor,
                         cx,
                     );
-                    blocks = blocks.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .text_size(px(SMALL))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(colors(cx).ink_3)
-                                    .child(label),
-                            )
-                            .child(body),
-                    );
+                    sections.push(section.beside(Some(add)).child(body));
                 }
-                sections.push(section.child(blocks));
             }
         }
     }
@@ -245,27 +254,15 @@ fn auto_switch(multi: bool, local: Bound<Local>, ctx: &Ctx, cx: &mut App) -> Sec
         .child(switch(
             "accounts-auto-switch",
             ctx.view.auto_switch,
+            label,
             move |next, _, cx| writer.edit(cx, move |settings| settings.auto_switch = next),
             cx,
-        ))
-        .child(label);
-    let boxed = div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .p(px(12.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(c.line)
-        .bg(c.surface)
-        .child(
-            div()
-                .flex()
-                .children(field_reset("accounts-auto-reset", &["autoSwitch"], ctx, cx)),
-        )
+        ));
+    let section = section
+        .carded()
+        .beside(field_reset("accounts-auto-reset", &["autoSwitch"], ctx, cx))
         .child(control)
         .child(hint(note, cx));
-    let section = section.child(boxed);
     match error {
         Some(error) => section.child(div().text_size(px(SMALL)).text_color(c.err).child(error)),
         None => section,
@@ -282,7 +279,7 @@ fn provider_body(
     ctx: &Ctx,
     actor: &Actor,
     cx: &mut App,
-) -> AnyElement {
+) -> (Stateful<Div>, AnyElement) {
     let own: Vec<&AccountView> = all
         .iter()
         .filter(|a| a.provider == provider && &a.distro == distro)
@@ -295,18 +292,16 @@ fn provider_body(
     let label = provider_label(provider, cx);
     let add_label = section.text(say(cx, Str::AccountsAdd), cx);
     *ids += 1;
-    let mut add = small(("account-add", *ids), cx).child(add_label);
-    let mut add_row = div().flex().items_center().gap(px(8.0));
+    let mut add = ghost_small(("account-add", *ids), cx)
+        .child(icon(Lucide::Plus, 14.0, colors(cx).ink_2))
+        .child(add_label);
     if missing {
-        add = add.opacity(0.5);
         let reason = say_with(cx, Str::AccountsAddNeedsCli, &[("provider", label)]);
-        add_row = add_row
-            .child(add)
-            .child(hint(section.text(&reason, cx), cx));
+        add = add.opacity(0.5).tooltip(tip(reason));
     } else {
         let (actor, distro) = (actor.clone(), distro.clone());
         let title = say_with(cx, Str::AccountsAddTitle, &[("provider", label)]);
-        add_row = add_row.child(add.on_click(move |_, _, cx| {
+        add = add.on_click(move |_, _, cx| {
             login::open(
                 &actor,
                 provider,
@@ -316,7 +311,7 @@ fn provider_body(
                 true,
                 cx,
             )
-        }));
+        });
     }
     let items = own
         .iter()
@@ -335,13 +330,7 @@ fn provider_body(
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.0))
-        .child(add_row)
-        .child(rows(items, cx))
-        .into_any_element()
+    (add, rows(items, cx).into_any_element())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -482,12 +471,13 @@ fn account_row(
     let mut n = 0;
     let mut button = |label: Str, ghost: bool, cx: &mut App| {
         n += 1;
-        let mut button =
-            small(("account-action", id * 10 + n), cx).child(section.text(say(cx, label), cx));
-        if ghost {
-            button = button.border_color(gpui::transparent_black()).bg(c.panel);
-        }
-        button
+        let key = ("account-action", id * 10 + n);
+        let button = if ghost {
+            ghost_small(key, cx)
+        } else {
+            small(key, cx)
+        };
+        button.child(section.text(say(cx, label), cx))
     };
     let provider_text = provider_label(provider, cx);
     if !current && !needs_login && !absent {

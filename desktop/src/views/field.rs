@@ -9,6 +9,7 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
 };
 
+use crate::fonts::TERMINAL_FAMILY;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 
@@ -25,6 +26,13 @@ pub enum FieldEvent {
     Escape,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    Chat,
+    Plain,
+    Mono,
+}
+
 enum Hint {
     Label(Str),
     Text(SharedString),
@@ -39,6 +47,7 @@ pub struct Field {
     secret: bool,
     multiline: bool,
     boxed: bool,
+    form: Form,
     scale: f32,
     files: Option<Files>,
     selected: Range<usize>,
@@ -65,6 +74,15 @@ pub fn boxed(hint: &str, secret: bool, multiline: bool, cx: &mut App) -> Entity<
     cx.new(|cx| Field::new(hint, secret, multiline, true, cx))
 }
 
+pub fn form(hint: &str, secret: bool, multiline: bool, kind: Form, cx: &mut App) -> Entity<Field> {
+    let hint = Hint::Text(SharedString::from(hint.to_owned()));
+    cx.new(|cx| {
+        let mut field = Field::new(hint, secret, multiline, true, cx);
+        field.form = kind;
+        field
+    })
+}
+
 impl Field {
     fn new(hint: Hint, secret: bool, multiline: bool, boxed: bool, cx: &mut Context<Self>) -> Self {
         Self {
@@ -74,6 +92,7 @@ impl Field {
             secret,
             multiline,
             boxed,
+            form: Form::Chat,
             scale: 1.0,
             files: None,
             selected: 0..0,
@@ -719,7 +738,7 @@ impl Render for Field {
                     ..Default::default()
                 },
             ));
-        } else if !self.selected.is_empty() {
+        } else if focused && !self.selected.is_empty() {
             highlights.push((
                 self.shown_at(self.selected.start)..self.shown_at(self.selected.end),
                 HighlightStyle {
@@ -742,7 +761,13 @@ impl Render for Field {
         };
         if self.boxed {
             let z = self.scale;
-            skin(base, z, focused, colors).child(text)
+            let skinned = skin(base, z, focused, colors);
+            match self.form {
+                Form::Chat => skinned,
+                Form::Plain => skinned.bg(colors.bg),
+                Form::Mono => skinned.bg(colors.bg).font_family(TERMINAL_FAMILY),
+            }
+            .child(text)
         } else {
             base.flex_1()
                 .min_w_0()

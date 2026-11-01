@@ -194,6 +194,8 @@ fn live_typed(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>, bytes: &[u8
     if asleep {
         app.sleeps.knocked(id);
     }
+    let app = app.clone();
+    tokio::spawn(async move { app.give_kept_keys(id) });
     Typed::Kept
 }
 

@@ -180,7 +180,7 @@ impl Pill {
     }
 
     fn jump(&mut self, node: api::ids::NodeId, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| store.select(node.0, cx));
+        self.store.update(cx, |store, cx| store.go(node.0, cx));
     }
 
     fn toggle(&mut self, cx: &mut Context<Self>) {

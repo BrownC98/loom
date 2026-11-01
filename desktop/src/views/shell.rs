@@ -14,7 +14,7 @@ use super::sidebar::Sidebar;
 use crate::fonts;
 use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
-use crate::strings::{Lang, Str};
+use crate::strings::Lang;
 use crate::theme::Theme;
 
 use pane::{Pane, Widths};
@@ -248,16 +248,8 @@ impl Render for Shell {
         let widths = self.widths(window, cx);
         let theme = cx.global::<Theme>();
         let lang = *cx.global::<Lang>();
-        let shell = cx.entity();
-        let title = title::bar(
-            window,
-            &theme.colors,
-            Str::SettingsTitle.text(lang),
-            move |window, cx| {
-                shell.update(cx, |this, cx| this.open_settings(window, cx));
-            },
-        );
-        let status = status::bar(&self.store, cx, &theme.colors, lang, &self.zoom);
+        let title = title::bar(window, &theme.colors, lang);
+        let status = status::bar(&self.store, &theme.colors);
         let left = Self::slot(&widths, Pane::Side, theme, self.left.clone());
         let right = Self::slot(&widths, Pane::Dock, theme, self.right.clone());
         let side_grip = if widths.open(Pane::Side) {
@@ -309,6 +301,9 @@ impl Render for Shell {
             .on_action(
                 cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)),
             )
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.store.update(cx, |store, cx| store.clear_notice(cx));
+            }))
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))
@@ -335,6 +330,7 @@ impl Render for Shell {
                             .min_w_0()
                             .h_full()
                             .child(self.main.clone())
+                            .child(self.zoom.clone())
                             .children(self.layers.clone()),
                     )
                     .child(right)

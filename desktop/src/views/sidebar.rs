@@ -16,11 +16,14 @@ use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
+use api::ids::RepoId;
+
 use crate::fonts;
 use crate::link;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
+use crate::views::tooltip::tip;
 
 const STEP: f32 = 12.0;
 const MAX_DEPTH: usize = 8;
@@ -105,20 +108,17 @@ impl Sidebar {
                 self.cursor = self.built(cx).and_then(|b| b.hits.first().cloned());
                 self.reveal = true;
             }
-            FieldEvent::Step(step) => {
+            FieldEvent::Step(_) | FieldEvent::Enter => {
+                let step = match event {
+                    FieldEvent::Step(step) => *step,
+                    _ => 1,
+                };
                 let Some(built) = self.built(cx) else { return };
                 if !built.hits.is_empty() {
                     let len = built.hits.len() as isize;
                     self.at = (self.at as isize + step).rem_euclid(len) as usize;
                     self.cursor = built.hits.get(self.at).cloned();
                     self.reveal = true;
-                }
-            }
-            FieldEvent::Enter => {
-                let Some(built) = self.built(cx) else { return };
-                if let Some(Key::Node(id)) = built.hits.get(self.at) {
-                    let id = *id;
-                    self.store.update(cx, |store, cx| store.select(id, cx));
                 }
             }
             FieldEvent::Escape => {
@@ -132,23 +132,40 @@ impl Sidebar {
             Key::Group(_, path) => path.clone(),
         };
         let built = self.built(cx).filter(|b| !b.hits.is_empty());
-        let current = built.as_ref().and_then(|b| b.hits.get(self.at)).map(key_of);
+        let hit = built.as_ref().and_then(|b| b.hits.get(self.at)).cloned();
+        let current = hit.as_ref().map(key_of);
+        let moved = current.is_some() && self.store.read(cx).current() != current.as_deref();
         let found = built.map(|b| b.hits.iter().map(key_of).collect());
         self.store
             .update(cx, |store, cx| store.set_found(found, current, cx));
+        if let Some(hit) = hit.filter(|_| moved) {
+            self.show(&hit, cx);
+        }
         cx.notify();
     }
 
     fn activate(&mut self, key: Key, cx: &mut Context<Self>) {
         self.refusal = None;
         self.cursor = Some(key.clone());
-        match key {
-            Key::Node(id) | Key::Mark(id) => {
-                self.store.update(cx, |store, cx| store.select(id, cx));
-            }
-            Key::Repo(_) | Key::Group(..) => self.toggle(&key),
+        if let Some(box_key) = box_key(&key) {
+            self.store
+                .update(cx, |store, cx| store.choose_box(box_key, cx));
+            self.show(&key, cx);
+        } else if let Some(id) = key.node() {
+            self.store.update(cx, |store, cx| store.go(id, cx));
         }
         cx.notify();
+    }
+
+    fn show(&self, key: &Key, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| match key {
+            Key::Node(id) | Key::Mark(id) => store.show_node(*id, cx),
+            Key::Repo(repo) => store.show_repo(RepoId(*repo), cx),
+            Key::Group(repo, path) => {
+                store.choose_repo(RepoId(*repo), cx);
+                store.show_boxes(vec![path.clone()], cx);
+            }
+        });
     }
 
     pub fn focus_find(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -250,6 +267,14 @@ impl Sidebar {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+}
+
+fn box_key(key: &Key) -> Option<String> {
+    match key {
+        Key::Repo(repo) => Some(format!("repo:{repo}")),
+        Key::Group(_, path) => Some(path.clone()),
+        Key::Node(_) | Key::Mark(_) => None,
     }
 }
 
@@ -764,6 +789,7 @@ impl Sidebar {
             None
         };
         let clear = self.field.clone();
+        let (title_hover, title_ink) = (c.surface_hover, c.ink);
         let head = || {
             div()
                 .flex()
@@ -946,7 +972,24 @@ impl Sidebar {
             }))
             .child(
                 head()
-                    .child(Str::TreeRepos.text(lang))
+                    .child(
+                        div()
+                            .id("side-title")
+                            .px(px(4.0))
+                            .py(px(2.0))
+                            .mx(px(-4.0))
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .hover(move |d| d.bg(title_hover).text_color(title_ink))
+                            .tooltip(tip(Str::TreeShowAll.text(lang).to_owned()))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.store.update(cx, |store, cx| {
+                                    store.clear_selection(cx);
+                                    store.show_all(cx);
+                                });
+                            }))
+                            .child(Str::TreeRepos.text(lang)),
+                    )
                     .child(div().flex_1())
                     .child(expand),
             )

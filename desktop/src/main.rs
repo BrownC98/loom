@@ -4,6 +4,7 @@ mod canvas;
 mod daemon;
 mod float;
 mod fonts;
+mod frame;
 mod link;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod linux;
@@ -35,7 +36,7 @@ fn main() {
         .run(move |cx: &mut App| {
             fonts::register(cx);
             settings::notify::identify(cx);
-            cx.open_window(platform::window_options(), |window, cx| {
+            cx.open_window(platform::window_options(cx), |window, cx| {
                 let store = cx.new(|cx| store::Store::new(started, window, cx));
                 settings::notify::watch(&store, window, cx);
                 let inputs = cx.new(|_| float::inputs::Inputs::default());

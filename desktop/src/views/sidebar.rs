@@ -2,6 +2,7 @@ mod acts;
 mod add_repo;
 mod calls;
 mod pop;
+mod rename;
 mod tree;
 
 use std::collections::HashSet;
@@ -62,16 +63,6 @@ struct Open {
     _closed: Subscription,
 }
 
-struct Renaming {
-    key: Key,
-    field: Entity<Field>,
-    name: String,
-    error: Option<String>,
-    ended: bool,
-    _events: Subscription,
-    _blur: Subscription,
-}
-
 pub struct Sidebar {
     store: Entity<Store>,
     field: Entity<Field>,
@@ -88,7 +79,8 @@ pub struct Sidebar {
     agents: Vec<AgentView>,
     asked: bool,
     pop: Option<Open>,
-    renaming: Option<Renaming>,
+    renaming: Option<rename::Renaming>,
+    renames: u64,
     refocus: bool,
     anchors: Anchors,
 }
@@ -131,6 +123,7 @@ impl Sidebar {
             asked: false,
             pop: None,
             renaming: None,
+            renames: 0,
             refocus: false,
             anchors: Anchors::default(),
         }
@@ -311,97 +304,6 @@ impl Sidebar {
             .find(|r| &r.key == key)
     }
 
-    fn start_rename(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(row) = self.row_of(&key, cx).filter(acts::can_rename) else {
-            return;
-        };
-        let name = match &row.body {
-            Body::Node { name, .. } => name.clone(),
-            Body::Group {
-                branch: Some(branch),
-                ..
-            } => branch.clone(),
-            _ => return,
-        };
-        let field = field::new(Str::RenameLabel, cx);
-        field.update(cx, |field, cx| field.set_text(&name, cx));
-        let handle = field.read(cx).handle();
-        window.focus(&handle, cx);
-        let events =
-            cx.subscribe_in(
-                &field,
-                window,
-                |this, _, event: &FieldEvent, window, cx| match event {
-                    FieldEvent::Enter => this.end_rename(true, true, window, cx),
-                    FieldEvent::Escape => this.end_rename(false, true, window, cx),
-                    FieldEvent::Changed => {
-                        if let Some(r) = &mut this.renaming {
-                            r.error = None;
-                        }
-                        cx.notify();
-                    }
-                    FieldEvent::Step(_) => {}
-                },
-            );
-        let blur = cx.on_blur(&handle, window, |this, window, cx| {
-            this.end_rename(true, false, window, cx)
-        });
-        self.renaming = Some(Renaming {
-            key,
-            field,
-            name,
-            error: None,
-            ended: false,
-            _events: events,
-            _blur: blur,
-        });
-        cx.notify();
-    }
-
-    fn end_rename(&mut self, save: bool, refocus: bool, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(r) = &mut self.renaming else { return };
-        if r.ended {
-            return;
-        }
-        r.ended = true;
-        let value = r.field.read(cx).text().to_owned();
-        if !save || value.trim() == r.name {
-            self.renaming = None;
-            self.refocus = refocus;
-            cx.notify();
-            return;
-        }
-        let key = r.key.clone();
-        let store = self.store.clone();
-        let on = key.clone();
-        let work = move |url: &str| match &on {
-            Key::Node(id) => cardlink::rename(url, *id, &value),
-            Key::Group(repo, path) => calls::rename_worktree(url, *repo, path, &value),
-            _ => Ok(()),
-        };
-        calls::run(&store, cx, work, move |this, done, cx| {
-            match done {
-                Ok(()) => {
-                    this.store.update(cx, |store, cx| store.reload(cx));
-                    if this.renaming.as_ref().is_some_and(|r| r.key == key) {
-                        this.renaming = None;
-                        this.refocus = refocus;
-                    }
-                }
-                Err(text) => {
-                    if let Some(r) = this.renaming.as_mut().filter(|r| r.key == key) {
-                        r.ended = false;
-                        r.error = Some(text);
-                    } else {
-                        this.refusal = Some((key, text));
-                    }
-                }
-            }
-            cx.notify();
-        });
-        cx.notify();
-    }
-
     fn area(&self) -> Bounds<Pixels> {
         self.anchors.get(AREA).unwrap_or_default()
     }
@@ -441,7 +343,7 @@ impl Sidebar {
             .unwrap_or_default();
         let store = self.store.clone();
         let view = cx.new(|cx| AddRepo::new(store, hosts, at, window, cx));
-        let closed = cx.subscribe_in(&view, window, |this, _, _: &pop::Closed, window, cx| {
+        let closed = cx.subscribe_in(&view, window, |this, _, _: &Closed, window, cx| {
             this.close_pop(window, cx)
         });
         self.pop = Some(Open {
@@ -525,18 +427,16 @@ impl Sidebar {
         let at = self.anchor(&key);
         let store = self.store.clone();
         let view = cx.new(|cx| NewNodeView::new(store, place, label, window, cx));
-        let closed = cx.subscribe_in(
-            &view,
-            window,
-            |this, _, _: &crate::canvas::popover::Closed, window, cx| this.close_pop(window, cx),
-        );
+        let closed = cx.subscribe_in(&view, window, |this, _, _: &Closed, window, cx| {
+            this.close_pop(window, cx)
+        });
         self.host(view.into(), at, closed, cx);
     }
 
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let stroke = &event.keystroke;
         let modifiers = &stroke.modifiers;
-        if modifiers.control || modifiers.platform || modifiers.alt {
+        if modifiers.control || modifiers.platform || modifiers.alt || self.renaming.is_some() {
             return;
         }
         let Some(built) = self.built(cx) else { return };
@@ -894,23 +794,6 @@ impl Sidebar {
             .group_hover(group.to_owned(), |s| s.visible())
             .child(fade(base, wash))
             .child(body)
-    }
-
-    fn editor(&self, r: &Renaming, c: &Colors) -> gpui::Div {
-        div()
-            .flex_none()
-            .flex_basis(px(160.0))
-            .min_w(px(96.0))
-            .h(px(22.0))
-            .px(px(6.0))
-            .flex()
-            .items_center()
-            .rounded(px(4.0))
-            .border_1()
-            .border_color(if r.error.is_some() { c.err } else { c.accent })
-            .bg(c.bg)
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(r.field.clone())
     }
 
     fn row(

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -12,17 +13,18 @@ use api::repos::{FolderList, Locations, PlaceView};
 use api::settings::places::{ReachView, SystemView};
 
 use super::calls;
-use super::pop::{self, Closed};
+use super::pop;
 use crate::fonts;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
-use crate::views::worktree::{Kind, actions, button, error, hint, labelled, shell, title};
+use crate::views::worktree::{Closed, Kind, actions, button, error, hint, labelled, shell, title};
 
 const WIDTH: f32 = 440.0;
 const DIRS: f32 = 168.0;
+const RELEASE_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -84,6 +86,7 @@ pub struct AddRepo {
     connecting: Option<String>,
     reach: Option<(String, ReachView)>,
     visited: HashSet<String>,
+    inflight: calls::Inflight,
     latest: u64,
     busy: bool,
     error: Option<String>,
@@ -264,6 +267,7 @@ impl AddRepo {
             connecting: None,
             reach: None,
             visited: HashSet::new(),
+            inflight: calls::Inflight::default(),
             latest: 0,
             busy: false,
             error: None,
@@ -282,19 +286,33 @@ impl AddRepo {
         self.connect(host, cx);
     }
 
+    fn release(&mut self, cx: &mut Context<Self>) {
+        let hosts: Vec<String> = self.visited.drain().collect();
+        let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
+            return;
+        };
+        if hosts.is_empty() {
+            return;
+        }
+        let inflight = self.inflight.clone();
+        let executor = cx.background_executor().clone();
+        cx.background_executor()
+            .spawn(async move {
+                while !inflight.idle() {
+                    executor.timer(RELEASE_POLL).await;
+                }
+                for host in hosts {
+                    let _ = calls::release_ssh(&base, &host);
+                }
+            })
+            .detach();
+    }
+
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        let store = self.store.clone();
-        for host in self.visited.drain() {
-            calls::run(
-                &store,
-                cx,
-                move |url| calls::release_ssh(url, &host),
-                |_, _, _| {},
-            );
-        }
+        self.release(cx);
         cx.emit(Closed);
     }
 
@@ -306,10 +324,14 @@ impl AddRepo {
         }
         let start = path.is_none();
         let store = self.store.clone();
+        let held = self.inflight.hold();
         calls::run(
             &store,
             cx,
-            move |url| calls::folders(url, path.as_deref()),
+            move |url| {
+                let _held = held;
+                calls::folders(url, path.as_deref())
+            },
             move |this, done, cx| {
                 if ask != this.latest {
                     return;
@@ -407,10 +429,14 @@ impl AddRepo {
         self.visited.insert(host.clone());
         let name = host.clone();
         let store = self.store.clone();
+        let held = self.inflight.hold();
         calls::run(
             &store,
             cx,
-            move |url| calls::connect_ssh(url, &name),
+            move |url| {
+                let _held = held;
+                calls::connect_ssh(url, &name)
+            },
             move |this, done, cx| {
                 if ask != this.latest {
                     return;
@@ -579,7 +605,20 @@ impl AddRepo {
                             cx.notify();
                         }),
                     )
-                    .child(self.dir_field.clone()),
+                    .relative()
+                    .child(self.dir_field.clone())
+                    .children((self.asking && self.dir.is_empty()).then(|| {
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(10.0))
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .font_family(fonts::TERMINAL_FAMILY)
+                            .text_color(c.ink_3)
+                            .child(Str::PlaceSshPick.text(lang))
+                    })),
                 c,
             )
             .into_any_element(),

@@ -4,14 +4,15 @@ mod title;
 
 use api::settings::PaneWidths;
 use gpui::{
-    AnyView, App, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Styled, Window,
-    div, px,
+    AnyView, App, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Render, Styled, Subscription, Window, div, px,
 };
 
 use crate::link;
+use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
-use crate::strings::Lang;
+use crate::strings::{Lang, Str};
 use crate::theme::Theme;
 
 use pane::{Pane, Widths};
@@ -35,6 +36,8 @@ pub struct Shell {
     seen: PaneWidths,
     kept: PaneWidths,
     drag: Option<Drag>,
+    focus: FocusHandle,
+    settings: Option<(Entity<Dialog>, Subscription)>,
 }
 
 impl Shell {
@@ -63,7 +66,29 @@ impl Shell {
             seen,
             kept: PaneWidths::default(),
             drag: None,
+            focus: cx.focus_handle(),
+            settings: None,
         }
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        let store = self.store.clone();
+        let dialog = cx.new(|cx| Dialog::new(store, window, cx));
+        let closed = cx.subscribe_in(
+            &dialog,
+            window,
+            |this, dialog, _: &DialogEvent, window, cx| {
+                let back = dialog.read(cx).restore().cloned();
+                window.focus(back.as_ref().unwrap_or(&this.focus), cx);
+                this.settings = None;
+                cx.notify();
+            },
+        );
+        self.settings = Some((dialog, closed));
+        cx.notify();
     }
 
     fn widths(&self, window: &Window, cx: &App) -> Widths {
@@ -189,10 +214,21 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
         let widths = self.widths(window, cx);
         let theme = cx.global::<Theme>();
         let lang = *cx.global::<Lang>();
-        let title = title::bar(window, &theme.colors);
+        let shell = cx.entity();
+        let title = title::bar(
+            window,
+            &theme.colors,
+            Str::SettingsTitle.text(lang),
+            move |window, cx| {
+                shell.update(cx, |this, cx| this.open_settings(window, cx));
+            },
+        );
         let status = status::bar(self.store.read(cx), &theme.colors, lang);
         let left = Self::slot(&widths, Pane::Side, theme, self.left.clone());
         let right = Self::slot(&widths, Pane::Dock, theme, self.right.clone());
@@ -210,8 +246,17 @@ impl Render for Shell {
             .size_full()
             .flex()
             .flex_col()
+            .relative()
+            .track_focus(&self.focus)
             .bg(theme.colors.bg)
             .text_color(theme.colors.ink)
+            .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                let stroke = &e.keystroke;
+                if stroke.key == "," && stroke.modifiers.secondary(cx) {
+                    this.open_settings(window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))
@@ -237,5 +282,6 @@ impl Render for Shell {
                     .children(dock_grip),
             )
             .child(status)
+            .children(self.settings.as_ref().map(|(dialog, _)| dialog.clone()))
     }
 }

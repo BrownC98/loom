@@ -1,6 +1,6 @@
 use gpui::{
-    Bounds, Div, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Styled, canvas,
-    div, fill, point, px, size,
+    App, Bounds, Div, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Styled,
+    Window, canvas, div, fill, point, px, size,
 };
 
 use crate::platform;
@@ -39,7 +39,13 @@ fn mark(color: Rgba) -> impl IntoElement {
     .h(px(MARK))
 }
 
-pub fn bar(window: &gpui::Window, colors: &Colors) -> Div {
+pub fn bar(
+    window: &Window,
+    colors: &Colors,
+    settings: &'static str,
+    open: impl Fn(&mut Window, &mut App) + 'static,
+) -> Div {
+    let hover = colors.surface_hover;
     platform::drag_area(
         div()
             .h(px(HEIGHT))
@@ -62,6 +68,21 @@ pub fn bar(window: &gpui::Window, colors: &Colors) -> Div {
             .child(div().mx(px(12.0)).child(mark(colors.ink_2)))
             .child(div().text_color(colors.ink).child("loom"))
             .child(div().flex_1())
+            .child(
+                div()
+                    .id("title-settings")
+                    .px(px(10.0))
+                    .py(px(4.0))
+                    .mr(px(8.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(hover))
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        cx.stop_propagation();
+                        open(window, cx);
+                    })
+                    .child(settings),
+            )
             .children(platform::captions(window, colors)),
     )
 }

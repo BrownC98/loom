@@ -15,7 +15,7 @@ mod body;
 mod docs;
 mod history;
 mod questions;
-mod ui;
+pub mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {

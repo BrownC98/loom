@@ -396,7 +396,7 @@ pub enum Graph {
     Loaded(Box<Loaded>),
     Feed(Box<GraphEvent>),
     Failed { order: u64, error: Failure },
-    Link(LinkState),
+    Link,
 }
 
 pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), String> {
@@ -542,7 +542,7 @@ impl Conn {
         }
         self.state = state;
         match &self.target {
-            Target::Events { graph, .. } => graph.send_blocking(Graph::Link(state)).is_ok(),
+            Target::Events { graph, .. } => graph.send_blocking(Graph::Link).is_ok(),
             Target::Pty { .. } => true,
         }
     }

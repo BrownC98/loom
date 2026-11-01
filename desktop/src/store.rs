@@ -485,11 +485,12 @@ impl Store {
         &self,
         wait: WaitId,
         text: String,
+        images: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         let body = AnswerWait {
             text,
-            images: Vec::new(),
+            images: images.into_iter().map(Into::into).collect(),
         };
         self.call(cx, move |base| {
             let path = format!("/api/waits/{}/answer", wait.0);

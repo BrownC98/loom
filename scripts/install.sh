@@ -59,25 +59,59 @@ if [ "$(uname -s)" = Darwin ]; then
   curl -fL --progress-bar -o "$tmp/loom.app.tar.gz" "$url"
   tar -xzf "$tmp/loom.app.tar.gz" -C "$tmp"
   xattr -cr "$tmp/loom.app"
-  quit_for=10
-  me=$(id -u)
-  if pkill -xu "$me" loom-app; then
-    deadline=$(($(date +%s) + quit_for))
-    while pgrep -qxu "$me" loom-app; do
-      if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "loom 앱이 끝나지 않았습니다. ⌘Q로 앱을 끝내고 다시 실행합니다." >&2
-        exit 1
-      fi
-      sleep 0.2
-    done
+  with_desktop=
+  if curl -fsL -o "$tmp/desktop.tar.gz" "${url%/*}/loom-desktop-macos-arm64.tar.gz" && tar -xzf "$tmp/desktop.tar.gz" -C "$tmp" && [ -x "$tmp/loom-desktop-macos-arm64/loom-desktop" ] && [ -x "$tmp/loom-desktop-macos-arm64/loom" ]; then
+    with_desktop=1
+    macos=$tmp/loom-desktop.app/Contents/MacOS
+    mkdir -p "$macos"
+    mv "$tmp/loom-desktop-macos-arm64/loom-desktop" "$tmp/loom-desktop-macos-arm64/loom" "$macos/"
+    mkdir "$tmp/loom-desktop.app/Contents/Resources"
+    mv "$tmp/loom-desktop-macos-arm64/icon.icns" "$tmp/loom-desktop.app/Contents/Resources/" 2>/dev/null || true
+    cat >"$tmp/loom-desktop.app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>loom-desktop</string>
+<key>CFBundleIconFile</key><string>icon</string>
+<key>CFBundleIdentifier</key><string>com.brownc98.loom.desktop</string>
+<key>CFBundleName</key><string>loom</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+EOF
+    xattr -cr "$tmp/loom-desktop.app"
+  else
+    echo "이 릴리스에는 데스크톱 앱이 없습니다. 지금까지의 loom 앱만 설치합니다."
   fi
-  if [ -e "$dir/loom.app" ]; then mv "$dir/loom.app" "$tmp/old.app"; fi
-  if ! mv "$tmp/loom.app" "$dir/loom.app"; then
-    if [ -e "$tmp/old.app" ] && ! mv "$tmp/old.app" "$dir/loom.app"; then
-      trap - EXIT
-      echo "옛 loom 앱을 되돌리지 못했습니다. 옛 앱은 여기에 있습니다: $tmp/old.app" >&2
+  me=$(id -u)
+  quit_app() {
+    if pkill -xu "$me" "$1"; then
+      deadline=$(($(date +%s) + 10))
+      while pgrep -qxu "$me" "$1"; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+          echo "loom 앱이 끝나지 않았습니다. ⌘Q로 앱을 끝내고 다시 실행합니다." >&2
+          exit 1
+        fi
+        sleep 0.2
+      done
     fi
-    exit 1
+  }
+  put_app() {
+    if [ -e "$dir/$1" ]; then mv "$dir/$1" "$tmp/old-$1"; fi
+    if ! mv "$tmp/$1" "$dir/$1"; then
+      if [ -e "$tmp/old-$1" ] && ! mv "$tmp/old-$1" "$dir/$1"; then
+        trap - EXIT
+        echo "옛 $1을 되돌리지 못했습니다. 옛 앱은 여기에 있습니다: $tmp/old-$1" >&2
+      fi
+      exit 1
+    fi
+  }
+  quit_app loom-app
+  put_app loom.app
+  if [ -n "$with_desktop" ]; then
+    quit_app loom-desktop
+    put_app loom-desktop.app
+    echo "loom 데스크톱 앱을 설치했습니다: $dir/loom-desktop.app"
   fi
   echo "loom 앱을 설치했습니다: $dir/loom.app"
   exe=$dir/loom.app/Contents/MacOS/loom
@@ -90,7 +124,7 @@ if [ "$(uname -s)" = Darwin ]; then
   printf '#!/bin/sh\nexec "%s" open\n' "$exe" >"$launcher"
   chmod +x "$launcher"
   echo "브라우저로 여는 loom을 만들었습니다: $launcher"
-  open "$dir/loom.app"
+  if [ -n "$with_desktop" ]; then open "$dir/loom-desktop.app"; else open "$dir/loom.app"; fi
   exit 0
 fi
 

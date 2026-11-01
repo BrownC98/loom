@@ -11,6 +11,7 @@ use gpui::{
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::float::inputs::Inputs;
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
 use crate::theme::{Terminal, Theme};
@@ -130,9 +131,15 @@ fn metrics(window: &Window, face: &Face, scale: f32) -> Metrics {
     }
 }
 
-pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+pub fn open(
+    inputs: &Entity<Inputs>,
+    base: &str,
+    node: u32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<TerminalView> {
     let view = open_with(link::attach, base, node, window, cx);
-    crate::float::inputs::offer(node, &view, cx);
+    crate::float::inputs::offer(inputs, node, &view, cx);
     view
 }
 

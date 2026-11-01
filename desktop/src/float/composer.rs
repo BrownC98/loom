@@ -1,21 +1,18 @@
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use api::ids::NodeId;
 use api::settings::{FloatPlace, FloatSize};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, BoxShadow, ClipboardEntry, Context, Div, Entity,
-    ExternalPaths, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ObjectFit, ParentElement, PathPromptOptions, Pixels, Point,
-    Render, ScrollEvent, Size, Stateful, StatefulInteractiveElement, Styled, StyledImage,
-    Subscription, Window, canvas, div, img, point, px,
+    AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement,
+    Pixels, Point, Render, ScrollEvent, Size, Stateful, StatefulInteractiveElement, Styled,
+    Subscription, Window, canvas, div, point, px,
 };
 
-use super::inputs::{Inputs, inputs};
+use super::inputs::Inputs;
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
@@ -23,56 +20,28 @@ use crate::store::Store;
 use crate::strings::Str;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::pictures::{self, Pictures, PicturesEvent};
 use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
+use crate::views::viewer::Viewer;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 1.0 };
 const WIDTH: f32 = 600.0;
-const MEGABYTE: u64 = 1024 * 1024;
-const LIMIT_MEGABYTES: u64 = 32;
 const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
-const THUMB: f32 = 34.0;
 const BUTTON: f32 = 30.0;
 const DISABLED_ALPHA: f32 = 0.4;
 const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 const PICK_WIDTH: f32 = 380.0;
 
-#[derive(Clone)]
-enum Upload {
-    Busy,
-    Saved(String),
-    Failed,
-}
-
-struct Attached {
-    id: u32,
-    name: String,
-    picture: Option<Arc<Image>>,
-    state: Upload,
-}
-
-#[derive(Clone, Copy)]
-enum Kind {
-    Picture(u32),
-    Path,
-}
-
-enum Unreadable {
-    Folder(String),
-    Big(String, u64),
-    Io(String),
-}
-
 struct Draft {
     field: Entity<Field>,
-    images: Vec<Attached>,
+    pictures: Entity<Pictures>,
     note: Option<String>,
     filing: usize,
     sending: bool,
-    next: u32,
-    _sub: Subscription,
+    _subs: [Subscription; 2],
 }
 
 pub struct Composer {
@@ -85,14 +54,19 @@ pub struct Composer {
     kept: Option<Option<FloatPlace>>,
     seen_place: Option<FloatPlace>,
     drafts: HashMap<u32, Draft>,
+    viewer: Entity<Viewer>,
     chevron: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
 }
 
-pub fn composer(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Entity<Composer> {
+pub fn composer(
+    store: Entity<Store>,
+    registry: Entity<Inputs>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Composer> {
     cx.new(|cx| {
-        let registry = inputs(cx);
         let seen_place = store.read(cx).settings().composer_place;
         let mut composer = Composer {
             store: store.clone(),
@@ -104,6 +78,7 @@ pub fn composer(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Enti
             kept: None,
             seen_place,
             drafts: HashMap::new(),
+            viewer: cx.new(Viewer::new),
             chevron: Rc::new(Cell::new(Bounds::default())),
             listing: None,
             subscriptions: Vec::new(),
@@ -123,33 +98,6 @@ pub fn composer(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Enti
 
 fn quote(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
-}
-
-fn image_format(name: &str) -> Option<ImageFormat> {
-    let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
-    Some(match extension.as_str() {
-        "png" => ImageFormat::Png,
-        "jpg" | "jpeg" => ImageFormat::Jpeg,
-        "gif" => ImageFormat::Gif,
-        "webp" => ImageFormat::Webp,
-        "bmp" => ImageFormat::Bmp,
-        _ => return None,
-    })
-}
-
-fn read_file(path: &Path) -> Result<(String, Vec<u8>), Unreadable> {
-    let name = path
-        .file_name()
-        .map_or_else(|| "file".to_owned(), |n| n.to_string_lossy().into_owned());
-    let meta = std::fs::metadata(path).map_err(|e| Unreadable::Io(e.to_string()))?;
-    if meta.is_dir() {
-        return Err(Unreadable::Folder(name));
-    }
-    if meta.len() > LIMIT_MEGABYTES * MEGABYTE {
-        return Err(Unreadable::Big(name, meta.len()));
-    }
-    let bytes = std::fs::read(path).map_err(|e| Unreadable::Io(e.to_string()))?;
-    Ok((name, bytes))
 }
 
 fn shadow(color: gpui::Rgba) -> Vec<BoxShadow> {
@@ -193,12 +141,11 @@ impl Composer {
             return;
         }
         let field = field::boxed(ui::say(cx, Str::ComposerPlaceholder), false, true, cx);
-        let weak = cx.weak_entity();
+        let pictures = cx.new(|_| Pictures::new(self.store.clone(), NodeId(node)));
+        let attach = pictures.clone();
         field.update(cx, |field, _| {
-            field.on_files(move |entries, window, cx| {
-                let _ = weak.update(cx, |composer, cx| {
-                    composer.take_clipboard(node, entries, window, cx)
-                });
+            field.on_files(move |entries, _, cx| {
+                attach.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
             });
         });
         let sub = cx.subscribe_in(
@@ -213,16 +160,26 @@ impl Composer {
                 FieldEvent::Changed | FieldEvent::Step(_) => {}
             },
         );
+        let heard = cx.subscribe_in(
+            &pictures,
+            window,
+            move |composer, _, event: &PicturesEvent, window, cx| match event {
+                PicturesEvent::Settled => composer.flush(node, cx),
+                PicturesEvent::Refused(text) => composer.refuse(node, text.clone(), cx),
+                PicturesEvent::Other(name, bytes) => {
+                    composer.take_file(node, name.clone(), bytes.clone(), window, cx)
+                }
+            },
+        );
         self.drafts.insert(
             node,
             Draft {
                 field,
-                images: Vec::new(),
+                pictures,
                 note: None,
                 filing: 0,
                 sending: false,
-                next: 0,
-                _sub: sub,
+                _subs: [sub, heard],
             },
         );
     }
@@ -310,71 +267,6 @@ impl Composer {
         }
     }
 
-    fn too_big(name: &str, bytes: u64, cx: &App) -> String {
-        ui::say_with(
-            cx,
-            Str::TerminalTooBig,
-            &[
-                ("name", name),
-                ("size", &bytes.div_ceil(MEGABYTE).to_string()),
-                ("limit", &LIMIT_MEGABYTES.to_string()),
-            ],
-        )
-    }
-
-    fn take_clipboard(
-        &mut self,
-        node: u32,
-        entries: Vec<ClipboardEntry>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(draft) = self.drafts.get_mut(&node) {
-            draft.note = None;
-        }
-        for entry in entries {
-            match entry {
-                ClipboardEntry::Image(image) => {
-                    let name = format!("image.{}", image.format.extension());
-                    self.attach(node, name, image.format, image.bytes, window, cx);
-                }
-                ClipboardEntry::ExternalPaths(paths) => {
-                    self.take_paths(node, paths.paths().to_vec(), window, cx);
-                }
-                ClipboardEntry::String(_) => {}
-            }
-        }
-    }
-
-    fn take_paths(
-        &mut self,
-        node: u32,
-        paths: Vec<PathBuf>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        for path in paths {
-            let read = cx.background_spawn(async move { read_file(&path) });
-            cx.spawn_in(window, async move |this, cx| {
-                let read = read.await;
-                let _ = this.update_in(cx, |composer, window, cx| match read {
-                    Ok((name, bytes)) => composer.take_file(node, name, bytes, window, cx),
-                    Err(error) => {
-                        let text = match error {
-                            Unreadable::Folder(name) => {
-                                ui::say_with(cx, Str::TerminalFolder, &[("name", &name)])
-                            }
-                            Unreadable::Big(name, bytes) => Self::too_big(&name, bytes, cx),
-                            Unreadable::Io(text) => text,
-                        };
-                        composer.refuse(node, text, cx);
-                    }
-                });
-            })
-            .detach();
-        }
-    }
-
     fn take_file(
         &mut self,
         node: u32,
@@ -383,81 +275,19 @@ impl Composer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match image_format(&name) {
-            Some(format) => self.attach(node, name, format, bytes, window, cx),
-            None => {
-                let Some(draft) = self.drafts.get_mut(&node) else {
-                    return;
-                };
-                draft.filing += 1;
-                self.upload(
-                    node,
-                    name,
-                    "application/octet-stream",
-                    bytes,
-                    Kind::Path,
-                    window,
-                    cx,
-                );
-            }
-        }
-    }
-
-    fn attach(
-        &mut self,
-        node: u32,
-        name: String,
-        format: ImageFormat,
-        bytes: Vec<u8>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if bytes.len() as u64 > LIMIT_MEGABYTES * MEGABYTE {
-            let text = Self::too_big(&name, bytes.len() as u64, cx);
-            self.refuse(node, text, cx);
-            return;
-        }
         let Some(draft) = self.drafts.get_mut(&node) else {
             return;
         };
-        let id = draft.next;
-        draft.next += 1;
-        draft.images.push(Attached {
-            id,
-            name: name.clone(),
-            picture: Some(Arc::new(Image::from_bytes(format, bytes.clone()))),
-            state: Upload::Busy,
-        });
-        self.upload(
-            node,
-            name,
-            format.mime_type(),
-            bytes,
-            Kind::Picture(id),
-            window,
-            cx,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn upload(
-        &mut self,
-        node: u32,
-        name: String,
-        mime: &'static str,
-        bytes: Vec<u8>,
-        kind: Kind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        draft.note = None;
+        draft.filing += 1;
         let task = self.store.update(cx, |store, cx| {
-            store.save_paste(NodeId(node), name, mime, bytes, cx)
+            store.save_paste(NodeId(node), name, "application/octet-stream", bytes, cx)
         });
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let saved = task.await;
             let _ = this.update_in(cx, |composer, window, cx| {
-                composer.uploaded(node, kind, saved, window, cx)
+                composer.uploaded(node, saved, window, cx)
             });
         })
         .detach();
@@ -466,7 +296,6 @@ impl Composer {
     fn uploaded(
         &mut self,
         node: u32,
-        kind: Kind,
         saved: Result<String, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -474,31 +303,15 @@ impl Composer {
         let Some(draft) = self.drafts.get_mut(&node) else {
             return;
         };
-        match (kind, saved) {
-            (Kind::Picture(id), saved) => {
-                let state = match &saved {
-                    Ok(path) => Upload::Saved(path.clone()),
-                    Err(_) => Upload::Failed,
-                };
-                if let Some(image) = draft.images.iter_mut().find(|i| i.id == id) {
-                    image.state = state;
-                }
-                if let Err(error) = saved {
-                    draft.note = Some(error);
-                }
+        draft.filing = draft.filing.saturating_sub(1);
+        match saved {
+            Ok(path) => {
+                let field = draft.field.clone();
+                field.update(cx, |field, cx| {
+                    field.insert_token(&quote(&path), window, cx)
+                });
             }
-            (Kind::Path, saved) => {
-                draft.filing = draft.filing.saturating_sub(1);
-                match saved {
-                    Ok(path) => {
-                        let field = draft.field.clone();
-                        field.update(cx, |field, cx| {
-                            field.insert_token(&quote(&path), window, cx)
-                        });
-                    }
-                    Err(error) => draft.note = Some(error),
-                }
-            }
+            Err(error) => draft.note = Some(error),
         }
         cx.notify();
         self.flush(node, cx);
@@ -521,24 +334,14 @@ impl Composer {
         let Some(draft) = self.drafts.get_mut(&node) else {
             return;
         };
-        let waiting = draft
-            .images
-            .iter()
-            .any(|image| matches!(image.state, Upload::Busy));
-        if !draft.sending || draft.filing > 0 || waiting {
+        let pictures = draft.pictures.clone();
+        if !draft.sending || draft.filing > 0 || pictures.read(cx).busy() {
             return;
         }
         draft.sending = false;
         let body = draft.field.read(cx).text().trim_end().to_owned();
-        let saved: Vec<(u32, String)> = draft
-            .images
-            .iter()
-            .filter_map(|image| match &image.state {
-                Upload::Saved(path) => Some((image.id, path.clone())),
-                _ => None,
-            })
-            .collect();
-        let attached = !draft.images.is_empty();
+        let saved = pictures.read(cx).saved();
+        let attached = !pictures.read(cx).is_empty();
         if body.trim().is_empty() && saved.is_empty() {
             if attached {
                 let text = ui::say(cx, Str::ComposerNothingSaved).to_owned();
@@ -559,7 +362,7 @@ impl Composer {
             Some(InputState::Open) => {
                 if let Some(draft) = self.drafts.get_mut(&node) {
                     let ids: Vec<u32> = saved.iter().map(|(id, _)| *id).collect();
-                    draft.images.retain(|image| !ids.contains(&image.id));
+                    pictures.update(cx, |pictures, cx| pictures.forget(&ids, cx));
                     let field = draft.field.clone();
                     field.update(cx, |field, cx| field.clear(cx));
                 }
@@ -574,23 +377,6 @@ impl Composer {
             }
         }
         cx.notify();
-    }
-
-    fn pick_files(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
-        let chosen = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: None,
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = chosen.await {
-                let _ = this.update_in(cx, |composer, window, cx| {
-                    composer.take_paths(node, paths, window, cx)
-                });
-            }
-        })
-        .detach();
     }
 
     fn toggle_list(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
@@ -639,13 +425,6 @@ impl Composer {
             });
         })
         .detach();
-    }
-
-    fn remove(&mut self, node: u32, id: u32, cx: &mut Context<Self>) {
-        if let Some(draft) = self.drafts.get_mut(&node) {
-            draft.images.retain(|image| image.id != id);
-            cx.notify();
-        }
     }
 }
 
@@ -738,8 +517,10 @@ impl Render for Composer {
             .grab
             .is_some()
             .then(|| place::follow(cx.entity(), Composer::slide, Composer::release));
+        let viewer = self.viewer.read(cx).is_open().then(|| self.viewer.clone());
         root.children(follow)
             .child(float.child(wrapper).children(pop))
+            .children(viewer)
     }
 }
 
@@ -758,22 +539,22 @@ impl Composer {
         let draft = &self.drafts[&node];
         draft.field.update(cx, |field, cx| field.set_scale(z, cx));
         let focused = draft.field.read(cx).focused(window);
-        let ready =
-            !draft.field.read(cx).is_blank() || !draft.images.is_empty() || draft.filing > 0;
+        let ready = !draft.field.read(cx).is_blank()
+            || !draft.pictures.read(cx).is_empty()
+            || draft.filing > 0;
         let sendable = ready && !draft.sending;
-        let chips: Vec<_> = draft
-            .images
-            .iter()
-            .map(|image| self.chip(node, image, z, cx))
-            .collect();
-        let images = (!chips.is_empty()).then(|| {
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(6.0 * z))
-                .children(chips)
-                .into_any_element()
-        });
+        let viewer = self.viewer.clone();
+        let images = pictures::chips(
+            &draft.pictures,
+            move |picture, window, cx| {
+                viewer.update(cx, |viewer, cx| viewer.open(picture, window, cx))
+            },
+            "composer-chip",
+            node,
+            z,
+            cx,
+        )
+        .map(IntoElement::into_any_element);
         let view = ComposerView {
             name,
             home,
@@ -799,57 +580,6 @@ impl Composer {
             sendable,
         };
         face(&view, images, field, &live, cx)
-    }
-
-    fn chip(&self, node: u32, image: &Attached, z: f32, cx: &mut Context<Self>) -> Div {
-        let c = ui::colors(cx);
-        let id = image.id;
-        let state = match image.state {
-            Upload::Busy => Some(Str::ComposerUploading),
-            Upload::Failed => Some(Str::ComposerFailed),
-            Upload::Saved(_) => None,
-        };
-        div()
-            .flex()
-            .items_center()
-            .gap(px(4.0 * z))
-            .p(px(3.0 * z))
-            .rounded(px(6.0 * z))
-            .border_1()
-            .border_color(if matches!(image.state, Upload::Failed) {
-                c.err
-            } else {
-                c.line
-            })
-            .bg(c.surface)
-            .text_size(px(12.0 * z))
-            .text_color(c.ink_3)
-            .children(image.picture.clone().map(|picture| {
-                img(picture)
-                    .size(px(THUMB * z))
-                    .rounded(px(4.0 * z))
-                    .object_fit(ObjectFit::Cover)
-            }))
-            .children(state.map(|s| ui::say(cx, s)))
-            .children((!matches!(image.state, Upload::Busy)).then(|| {
-                div()
-                    .id(("composer-unattach", id as usize))
-                    .size(px(20.0 * z))
-                    .rounded(px(4.0 * z))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
-                    .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-                    .tooltip(tip(format!(
-                        "{}: {}",
-                        ui::say(cx, Str::InboxRemoveImage),
-                        image.name
-                    )))
-                    .on_mouse_down(MouseButton::Left, place::stop)
-                    .on_click(cx.listener(move |composer, _, _, cx| composer.remove(node, id, cx)))
-                    .child("\u{00d7}")
-            }))
     }
 }
 
@@ -1053,10 +783,14 @@ impl Live<'_, '_> {
 impl Live<'_, '_> {
     fn pick(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
         let node = self.node;
-        self.tool(el, label).on_click(
-            self.cx
-                .listener(move |composer, _, window, cx| composer.pick_files(node, window, cx)),
-        )
+        self.tool(el, label)
+            .on_click(self.cx.listener(move |composer, _, _, cx| {
+                if let Some(draft) = composer.drafts.get(&node) {
+                    draft
+                        .pictures
+                        .update(cx, |pictures, cx| pictures.pick_files(cx));
+                }
+            }))
     }
 }
 
@@ -1067,8 +801,12 @@ impl ComposerWire for Live<'_, '_> {
             .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
             .on_drop(
                 self.cx
-                    .listener(move |composer, paths: &ExternalPaths, window, cx| {
-                        composer.take_paths(node, paths.paths().to_vec(), window, cx)
+                    .listener(move |composer, paths: &ExternalPaths, _, cx| {
+                        if let Some(draft) = composer.drafts.get(&node) {
+                            draft.pictures.update(cx, |pictures, cx| {
+                                pictures.take_paths(paths.paths().to_vec(), cx)
+                            });
+                        }
                     }),
             )
     }

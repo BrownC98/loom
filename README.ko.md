@@ -30,7 +30,7 @@
 `loom_<판>_x64-setup.exe`를 실행합니다. loom 창이 열립니다.
 
 - 브라우저로도 씁니다. 시작 메뉴의 **loom (browser)**가 같은 loom을 기본 브라우저에 엽니다.
-- 앱 없이(브라우저만): PowerShell에서 아래 한 줄을 실행합니다. 바탕 화면에 **loom** 아이콘을 만들고 브라우저에 loom을 엽니다.
+- 설치 프로그램 없이: PowerShell에서 아래 한 줄을 실행합니다. 같은 릴리스의 `loom-desktop.exe`(네이티브 loom 창)와 `loom.exe`를 `%LOCALAPPDATA%\loom\bin`에 넣고, 바탕 화면에 창을 여는 **loom** 아이콘을 만들고, 창을 엽니다. 다시 실행하면 새 판으로 바꿉니다. 릴리스에 데스크톱 프로그램이 없으면(옛 릴리스) 브라우저 판을 설치하고, 아이콘은 브라우저에 loom을 엽니다.
 
   ```powershell
   irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex
@@ -40,7 +40,7 @@
 
 ### macOS(Apple Silicon)
 
-터미널에서 아래 한 줄을 실행합니다. loom 앱을 받아 응용 프로그램 폴더에 넣고 엽니다. 다시 실행하면 새 판으로 바꿉니다.
+터미널에서 아래 한 줄을 실행합니다. loom 앱을 받아 응용 프로그램 폴더에 넣고 엽니다. 다시 실행하면 새 판으로 바꿉니다. 릴리스에 네이티브 데스크톱 프로그램이 있으면 `loom-desktop.app`(자기 `loom`이 든 네이티브 loom 창, 같은 릴리스)도 응용 프로그램 폴더에 넣고 그 앱을 엽니다.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
@@ -62,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.
 
 ### WSL
 
-위 Linux 한 줄을 WSL 터미널에서 실행합니다. WSL에서는 Windows용 loom(브라우저 판)을 설치하고 Windows 바탕 화면에 **loom** 아이콘을 만듭니다. WSL의 `loom` 명령은 그 Windows loom을 부릅니다.
+위 Linux 한 줄을 WSL 터미널에서 실행합니다. WSL에서는 위 Windows 한 줄을 실행해 Windows용 loom(네이티브 창, 옛 릴리스는 브라우저 판)을 설치하고 Windows 바탕 화면에 **loom** 아이콘을 만듭니다. WSL의 `loom` 명령은 그 Windows loom을 부릅니다.
 
 Windows loom 하나가 Windows와 WSL의 에이전트를 함께 돌립니다. WSL의 저장소는 `\\wsl.localhost\<배포판>\…`에서 폴더를 더합니다. 그 저장소의 노드는 그 배포판의 에이전트 CLI와 git으로 그 배포판에서 돕니다. Windows 앱도 같습니다.
 

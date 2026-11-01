@@ -34,12 +34,15 @@ fn main() {
         fonts::register(cx);
         cx.open_window(platform::window_options(), |window, cx| {
             let store = cx.new(|cx| store::Store::new(started, window, cx));
-            let canvas = cx.new(|cx| canvas::view::CanvasView::new(store.clone(), window, cx));
+            let inputs = cx.new(|_| float::inputs::Inputs::default());
+            let shelf = cx.new(|_| views::pictures::Shelf::default());
+            let canvas = cx
+                .new(|cx| canvas::view::CanvasView::new(store.clone(), inputs.clone(), window, cx));
             let sidebar = views::sidebar::sidebar(store.clone(), window, cx);
-            let dock = views::dock::dock(store.clone(), window, cx);
+            let dock = views::dock::dock(store.clone(), shelf.clone(), window, cx);
             let zoom = views::shell::zoom(store.clone(), window, cx);
-            let pill = float::pill::pill(store.clone(), window, cx);
-            let composer = float::composer::composer(store.clone(), window, cx);
+            let pill = float::pill::pill(store.clone(), shelf, window, cx);
+            let composer = float::composer::composer(store.clone(), inputs, window, cx);
             cx.new(|cx| {
                 views::shell::Shell::new(
                     store,

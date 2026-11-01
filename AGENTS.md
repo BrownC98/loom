@@ -20,7 +20,8 @@
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
 | Rust 검사 | `memcap -m 3G cargo clippy --all-targets` |
-| 규칙 검사(주석, 레이어), TS 타입 생성 | `memcap -m 4608M cargo test --bin loom --test comments --test layers`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
+| 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--bin loom`은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |
+| API 계약 기준 올리기 | `memcap -m 4608M cargo test --test contract -- --ignored bump`. `tests/contract`는 데몬 경로(메서드+경로)와 `web/src/gen/` 타입을 `tests/contract/released.txt`와 맞춘다. 경로·타입·필드·변형이 빠지거나 바뀌거나, 입력 타입(`Deserialize`)에 필수 필드가 생기면 실패한다. 더하기만 한 변경은 통과한다. 깨짐을 의도하면 이 명령으로 기준을 다시 쓰고 그 diff를 커밋한다. 더한 것은 기준을 다시 쓸 때 기준에 들어간다 |
 | Windows 검사 | `memcap -m 3G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 빌드 | `npm --prefix web run build` |

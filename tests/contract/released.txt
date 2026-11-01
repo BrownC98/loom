@@ -1,0 +1,1247 @@
+route DELETE /api/accounts/{provider}/{id}	route
+route DELETE /api/logins/{id}	route
+route DELETE /api/nodes/{id}	route
+route DELETE /api/nodes/{id}/bookmark	route
+route DELETE /api/nodes/{id}/card-view	route
+route DELETE /api/phone/devices/{id}	route
+route DELETE /api/repos/{id}	route
+route DELETE /api/repos/{id}/spots	route
+route DELETE /api/repos/{id}/worktrees	route
+route DELETE /api/sizes	route
+route DELETE /api/waits/{wait}	route
+route GET /	route
+route GET /api/accounts	route
+route GET /api/accounts/{provider}/nodes	route
+route GET /api/agents	route
+route GET /api/distros/{name}	route
+route GET /api/docs	route
+route GET /api/docs/{id}/	route
+route GET /api/docs/{id}/download	route
+route GET /api/docs/{id}/question	route
+route GET /api/events	route
+route GET /api/events/log	route
+route GET /api/files/pass/{token}/{*file}	route
+route GET /api/files/view/{node}/{*path}	route
+route GET /api/folders	route
+route GET /api/locations	route
+route GET /api/logins/{id}	route
+route GET /api/logins/{id}/pty	route
+route GET /api/nodes	route
+route GET /api/nodes/{id}/pty	route
+route GET /api/phone	route
+route GET /api/repos	route
+route GET /api/repos/{id}/commits	route
+route GET /api/repos/{id}/worktrees/changes	route
+route GET /api/settings	route
+route GET /api/settings/default	route
+route GET /api/sizes	route
+route GET /api/spots	route
+route GET /api/ssh/{host}	route
+route GET /api/update	route
+route GET /api/usage/{profile}	route
+route GET /api/waits/closed	route
+route GET /api/waits/{wait}/images/{index}	route
+route GET /docs/{id}	route
+route GET /jsQR.js	route
+route POST /api/accounts/{provider}	route
+route POST /api/accounts/{provider}/logout	route
+route POST /api/accounts/{provider}/move	route
+route POST /api/agent/ack	route
+route POST /api/agent/adopt	route
+route POST /api/agent/answer	route
+route POST /api/agent/answered	route
+route POST /api/agent/ask	route
+route POST /api/agent/choice	route
+route POST /api/agent/detach	route
+route POST /api/agent/done	route
+route POST /api/agent/guard	route
+route POST /api/agent/idle	route
+route POST /api/agent/interrupt	route
+route POST /api/agent/interrupt-pending	route
+route POST /api/agent/listen	route
+route POST /api/agent/model	route
+route POST /api/agent/nodes	route
+route POST /api/agent/note	route
+route POST /api/agent/question	route
+route POST /api/agent/question-box	route
+route POST /api/agent/ready	route
+route POST /api/agent/relaunch	route
+route POST /api/agent/relaunch-unserved	route
+route POST /api/agent/report	route
+route POST /api/agent/rm	route
+route POST /api/agent/roles	route
+route POST /api/agent/roles/set	route
+route POST /api/agent/said	route
+route POST /api/agent/show	route
+route POST /api/agent/spawn	route
+route POST /api/agent/status	route
+route POST /api/agent/take	route
+route POST /api/agent/task	route
+route POST /api/agent/turn-end	route
+route POST /api/agent/verdict	route
+route POST /api/agent/wait	route
+route POST /api/agent/wake	route
+route POST /api/carry	route
+route POST /api/docs/{id}	route
+route POST /api/docs/{id}/pass	route
+route POST /api/files/open	route
+route POST /api/files/pass	route
+route POST /api/links/open	route
+route POST /api/nodes	route
+route POST /api/nodes/{id}/detach	route
+route POST /api/nodes/{id}/relaunch	route
+route POST /api/nodes/{id}/steer-queued	route
+route POST /api/pair	route
+route POST /api/pastes/{name}	route
+route POST /api/phone/firewall	route
+route POST /api/phone/invite	route
+route POST /api/phone/serve	route
+route POST /api/repos	route
+route POST /api/repos/clone	route
+route POST /api/repos/create	route
+route POST /api/repos/{id}/worktrees	route
+route POST /api/shutdown	route
+route POST /api/ssh/{host}	route
+route POST /api/ssh/{host}/reconnect	route
+route POST /api/ssh/{host}/release	route
+route POST /api/update/check	route
+route POST /api/update/install	route
+route POST /api/waits/{wait}/answer	route
+route POST /api/waits/{wait}/choose	route
+route POST /api/waits/{wait}/type	route
+route PUT /api/nodes/{id}/bookmark	route
+route PUT /api/nodes/{id}/card-view	route
+route PUT /api/nodes/{id}/name	route
+route PUT /api/nodes/{id}/parent/{parent}	route
+route PUT /api/repos/{id}/worktrees/name	route
+route PUT /api/settings	route
+route PUT /api/sizes	route
+route PUT /api/spots	route
+route PUT /api/spots/arranged	route
+type AccountId	= string
+type AccountView	= {}
+type AccountView.distro	: string | null
+type AccountView.id	: AccountId | null
+type AccountView.provider	: Provider
+type AccountView.usage	: Usage
+type AgentAt	= {}
+type AgentAt.path	: string | null
+type AgentAt.place	: PlaceView
+type AgentAt.versionWarning	: VersionMismatch | null
+type AgentEvent	= variants
+type AgentEvent|kind=busy	variant
+type AgentEvent|kind=dialog	variant
+type AgentEvent|kind=dialogCleared	variant
+type AgentEvent|kind=exited	variant
+type AgentEvent|kind=idle	variant
+type AgentEvent|kind=inputSent	variant
+type AgentEvent|kind=lost	variant
+type AgentEvent|kind=relaunchStarted	variant
+type AgentEvent|kind=relaunched	variant
+type AgentEvent|kind=slept	variant
+type AgentEvent|kind=turnEnded	variant
+type AgentEvent|kind=turnEndedWaitOpened	variant
+type AgentEvent|kind=turnStarted	variant
+type AgentEvent|kind=versionMismatch	variant
+type AgentEvent|kind=waitClosed	variant
+type AgentEvent|kind=waitClosed.by	: IdleEnd
+type AgentEvent|kind=waitOpened	variant
+type AgentId	= string
+type AgentState	= variants
+type AgentState|kind=blocked	variant
+type AgentState|kind=blocked.before	: AgentState
+type AgentState|kind=deaf	variant
+type AgentState|kind=listening	variant
+type AgentState|kind=mismatch	variant
+type AgentState|kind=starting	variant
+type AgentState|kind=turn	variant
+type AgentSwitch	= {}
+type AgentSwitch.from	: AgentId
+type AgentSwitch.to	: AgentId
+type AgentView	= {}
+type AgentView.canBypass	: boolean
+type AgentView.homepage	: string
+type AgentView.id	: AgentId
+type AgentView.label	: string
+type AgentView.modelRule	: ModelRule
+type AgentView.places	: Array<AgentAt>
+type AgentView.profile	: Profile
+type AgentView.provider	: Provider | null
+type AgentView.serves	: boolean
+type AlwaysOn	= {}
+type AlwaysOn.oMode	: boolean
+type AlwaysOn.raptor3	: boolean
+type AlwaysOn.steOrwell	: boolean
+type AlwaysOn.userDoc	: boolean
+type AnswerWait	= {}
+type AnswerWait.images	: Array<string>
+type AnswerWait.text	: string
+type ArrangeDirection	= variants
+type ArrangeDirection|down	variant
+type ArrangeDirection|left	variant
+type ArrangeDirection|right	variant
+type ArrangeDirection|up	variant
+type Arranged	= {}
+type Arranged.placed	: Array<Placed>
+type Arranged.repos	: Array<RepoId>
+type BatchMember	= {}
+type BatchMember.branch	: string
+type BatchMember.head	: string
+type BatchMember.waited_secs	: number
+type BatchResult	= variants
+type BatchResult|kind=checkFailed	variant
+type BatchResult|kind=conflict	variant
+type BatchResult|kind=conflict.branch	: string
+type BatchResult|kind=error	variant
+type BatchResult|kind=error.cause	: string
+type BatchResult|kind=interrupted	variant
+type BatchResult|kind=passed	variant
+type BatchResult|kind=targetDirty	variant
+type BatchResult|kind=targetMoved	variant
+type CardSize	= {}
+type CardSize.height	: number
+type CardSize.node	: NodeId
+type CardSize.width	: number
+type CardView	= variants
+type CardView|simple	variant
+type CardView|standard	variant
+type Choice	= {}
+type Choice.key	: string
+type Choice.label	: string
+type Choice.recommended	: boolean
+type ChooseOption	= {}
+type ChooseOption.option	: number
+type ChooseOption.prompt	: Prompt
+type CloneRepo	= {}
+type CloneRepo.parent	: string
+type CloneRepo.url	: string
+type Closed	= variants
+type ClosedBy	= variants
+type ClosedBy|agent	variant
+type ClosedBy|exit	variant
+type ClosedBy|human	variant
+type ClosedBy|restart	variant
+type ClosedPage	= {}
+type ClosedPage.more	: boolean
+type ClosedPage.waits	: Array<ClosedWait>
+type ClosedPanes	= {}
+type ClosedPanes.bookmarks	: boolean
+type ClosedPanes.dock	: boolean
+type ClosedPanes.side	: boolean
+type ClosedWait	= {}
+type ClosedWait.chosen	: string | null
+type ClosedWait.closedAt	: number
+type ClosedWait.how	: Closed
+type ClosedWait.node	: Who
+type ClosedWait.seq	: number
+type ClosedWait.wait	: ScreenWait
+type Closed|kind=answered	variant
+type Closed|kind=answered.text	: string
+type Closed|kind=confirmed	variant
+type Closed|kind=instructed	variant
+type Closed|kind=instructed.text	: string
+type Closed|kind=nodeRemoved	variant
+type Closed|kind=unanswered	variant
+type Closed|kind=unanswered.by	: ClosedBy
+type Commit	= {}
+type Commit.author	: string
+type Commit.hash	: string
+type Commit.parents	: Array<string>
+type Commit.refs	: Array<GitRef>
+type Commit.subject	: string
+type Commit.time	: number
+type CommitGraph	= {}
+type CommitGraph.commits	: Array<Commit>
+type CommitGraph.version	: string
+type CommitGraph.worktrees	: Array<Worktree>
+type CommitRange	= {}
+type CommitRange.limit	: number
+type CommitRange.skip	: number
+type CreateRepo	= {}
+type CreateRepo.name	: string
+type CreateRepo.parent	: string
+type DefaultCardView	= variants
+type DefaultCardView|rootTerminal	variant
+type DefaultCardView|simple	variant
+type DefaultCardView|standard	variant
+type DeviceId	= number
+type DeviceView	= {}
+type DeviceView.id	: DeviceId
+type DeviceView.label	: string
+type DeviceView.lastSeen	: number
+type DeviceView.pairedAt	: number
+type DistroView	= {}
+type DistroView.home	: string
+type DistroView.workspace	: string
+type DocGroup	= variants
+type DocGroup|mockup	variant
+type DocGroup|report	variant
+type DocQuestion	= variants
+type DocQuestion|kind=answered	variant
+type DocQuestion|kind=answered.at	: number
+type DocQuestion|kind=answered.text	: string
+type DocQuestion|kind=answered.wait	: WaitId
+type DocQuestion|kind=closed	variant
+type DocQuestion|kind=closed.wait	: WaitId
+type DocQuestion|kind=none	variant
+type DocQuestion|kind=open	variant
+type DocQuestion|kind=open.wait	: WaitId
+type DocRow	= {}
+type DocRow.attachedAt	: number | null
+type DocRow.folder	: string
+type DocRow.id	: string
+type DocRow.kind	: DocGroup
+type DocRow.snapshot	: boolean
+type DocRow.source	: boolean
+type DocRow.title	: string
+type EdgeStyle	= variants
+type EdgeStyle|curve	variant
+type EdgeStyle|step	variant
+type Entry	= variants
+type Entry|kind=accountSwitched	variant
+type Entry|kind=accountSwitched.distro	: string | null
+type Entry|kind=accountSwitched.failed	: number
+type Entry|kind=accountSwitched.from	: AccountId | null
+type Entry|kind=accountSwitched.later	: number
+type Entry|kind=accountSwitched.moved	: number
+type Entry|kind=accountSwitched.provider	: Provider
+type Entry|kind=accountSwitched.to	: AccountId | null
+type Entry|kind=accountSwitched.why	: SwitchCause
+type Entry|kind=adopted	variant
+type Entry|kind=adopted.from	: Who | null
+type Entry|kind=adopted.held	: number
+type Entry|kind=adopted.node	: Who
+type Entry|kind=adopted.to	: Who | null
+type Entry|kind=agentStateChanged	variant
+type Entry|kind=agentStateChanged.by	: AgentEvent
+type Entry|kind=agentStateChanged.from	: AgentState | null
+type Entry|kind=agentStateChanged.node	: Who
+type Entry|kind=agentStateChanged.to	: AgentState | null
+type Entry|kind=agentStateDisagreed	variant
+type Entry|kind=agentStateDisagreed.check	: string
+type Entry|kind=agentStateDisagreed.node	: Who
+type Entry|kind=agentStateDisagreed.old	: boolean
+type Entry|kind=agentStateDisagreed.state	: AgentState
+type Entry|kind=answered	variant
+type Entry|kind=answered.images	: number
+type Entry|kind=answered.node	: Who
+type Entry|kind=answered.text	: string
+type Entry|kind=answered.wait	: WaitId
+type Entry|kind=asked	variant
+type Entry|kind=asked.doc	: WaitDoc | null
+type Entry|kind=asked.node	: Who
+type Entry|kind=asked.text	: string
+type Entry|kind=asked.wait	: WaitId
+type Entry|kind=batch	variant
+type Entry|kind=batch.batch	: number
+type Entry|kind=batch.check_secs	: number | null
+type Entry|kind=batch.log	: string | null
+type Entry|kind=batch.members	: Array<BatchMember>
+type Entry|kind=batch.repo	: string
+type Entry|kind=batch.result	: BatchResult
+type Entry|kind=batch.step	: number
+type Entry|kind=batch.target	: string
+type Entry|kind=confirmed	variant
+type Entry|kind=confirmed.node	: Who
+type Entry|kind=confirmed.wait	: WaitId
+type Entry|kind=created	variant
+type Entry|kind=created.agent	: AgentId | null
+type Entry|kind=created.node	: Who
+type Entry|kind=created.parent	: Who | null
+type Entry|kind=endpointFailed	variant
+type Entry|kind=endpointFailed.error	: string
+type Entry|kind=endpointFailed.node	: Who
+type Entry|kind=idleEnded	variant
+type Entry|kind=idleEnded.by	: IdleEnd
+type Entry|kind=idleEnded.node	: Who
+type Entry|kind=idleOpened	variant
+type Entry|kind=idleOpened.node	: Who
+type Entry|kind=instructed	variant
+type Entry|kind=instructed.images	: number
+type Entry|kind=instructed.node	: Who
+type Entry|kind=instructed.text	: string
+type Entry|kind=instructed.wait	: WaitId
+type Entry|kind=message	variant
+type Entry|kind=message.from	: Who
+type Entry|kind=message.gate	?: GateTrace
+type Entry|kind=message.how	: Kind
+type Entry|kind=message.step	: Step
+type Entry|kind=message.to	: Who | null
+type Entry|kind=message.via	?: Via
+type Entry|kind=message.what	?: MessageKind
+type Entry|kind=noAccountLeft	variant
+type Entry|kind=noAccountLeft.distro	: string | null
+type Entry|kind=noAccountLeft.provider	: Provider
+type Entry|kind=noAccountLeft.resets_at	: number | null
+type Entry|kind=nudged	variant
+type Entry|kind=nudged.check	: TurnCheck
+type Entry|kind=nudged.node	: Who
+type Entry|kind=refused	variant
+type Entry|kind=refused.from	: Who
+type Entry|kind=refused.gate	?: GateTrace
+type Entry|kind=refused.how	: Kind
+type Entry|kind=refused.reason	: Refusal
+type Entry|kind=refused.to	: string
+type Entry|kind=refused.via	?: Via
+type Entry|kind=refused.what	?: MessageKind
+type Entry|kind=relaunched	variant
+type Entry|kind=relaunched.error	: string | null
+type Entry|kind=relaunched.node	: Who
+type Entry|kind=relaunched.switched	: AgentSwitch | null
+type Entry|kind=removed	variant
+type Entry|kind=removed.node	: Who
+type Entry|kind=renamed	variant
+type Entry|kind=renamed.from	: string
+type Entry|kind=renamed.node	: Who
+type Entry|kind=reported	variant
+type Entry|kind=reported.doc	: WaitDoc | null
+type Entry|kind=reported.instruction	: string
+type Entry|kind=reported.node	: Who
+type Entry|kind=reported.summary	: string
+type Entry|kind=reported.wait	: WaitId
+type Entry|kind=state	variant
+type Entry|kind=state.from	: NodeState
+type Entry|kind=state.node	: Who
+type Entry|kind=state.to	: NodeState
+type Entry|kind=unanswered	variant
+type Entry|kind=unanswered.by	: ClosedBy
+type Entry|kind=unanswered.node	: Who
+type Entry|kind=unanswered.wait	: WaitId
+type EventLog	= {}
+type EventLog.last	: number
+type EventLog.records	: Array<EventRecord>
+type EventRecord	= {}
+type EventRecord.at	: number
+type EventRecord.choices	: Array<Choice>
+type EventRecord.entry	: Entry
+type EventRecord.id	: number
+type EventRecord.message	: MessageFacts | null
+type EventRecord.parts	: Array<TextPart>
+type Field	= variants
+type FieldParts	= {}
+type FieldParts.name	: Field
+type FieldParts.parts	: Array<TextPart>
+type Field|branch	variant
+type Field|cause	variant
+type Field|code	variant
+type Field|commit	variant
+type Field|file	variant
+type Field|findings	variant
+type Field|head	variant
+type Field|judgment	variant
+type Field|log	variant
+type Field|node	variant
+type Field|parent	variant
+type Field|question	variant
+type Field|reviewer	variant
+type Field|sha	variant
+type Field|skills	variant
+type Field|target	variant
+type Field|warning	variant
+type Field|worktree	variant
+type Finding	= variants
+type Finding|kind=headMoved	variant
+type Finding|kind=headMoved.now	: string
+type Finding|kind=headMoved.reviewed	: string
+type Finding|kind=outOfGate	variant
+type Finding|kind=outOfGate.commit	: string
+type Finding|kind=rangeIncomplete	variant
+type Finding|kind=rangeIncomplete.oldest	: number
+type Finding|kind=rangeIncomplete.since	: number
+type Finding|kind=rawGateWord	variant
+type Finding|kind=rawGateWord.event	: number
+type Finding|kind=rawGateWord.from	: string
+type Finding|kind=rawGateWord.word	: string
+type Finding|kind=sourceDirty	variant
+type Finding|kind=sourceDirty.worktree	: string
+type FloatPlace	= {}
+type FloatPlace.x	: number
+type FloatPlace.y	: number
+type FloatSize	= variants
+type FloatSize|huge	variant
+type FloatSize|large	variant
+type FloatSize|normal	variant
+type FloatSize|small	variant
+type Folder	= {}
+type Folder.git	: boolean
+type Folder.name	: string
+type FolderList	= {}
+type FolderList.folders	: Array<Folder>
+type FolderList.parent	: string | null
+type FolderList.path	: string
+type FolderList.place	: PlaceView
+type GateState	= variants
+type GateState|failed	variant
+type GateState|merged	variant
+type GateState|merging	variant
+type GateState|passed	variant
+type GateState|ready	variant
+type GateState|working	variant
+type GateTrace	= {}
+type GateTrace.agent	: AgentId | null
+type GateTrace.branch	: string
+type GateTrace.findings	: Array<Finding>
+type GateTrace.from	: GateState | null
+type GateTrace.model	: string | null
+type GateTrace.role	: string | null
+type GateTrace.to	: GateState | null
+type GateTrace.verb	: GateVerb
+type GateVerb	= variants
+type GateVerb|fail	variant
+type GateVerb|queue	variant
+type GateVerb|ready	variant
+type GateVerb|verdict	variant
+type GitRef	= variants
+type GitRef|kind=branch	variant
+type GitRef|kind=branch.name	: string
+type GitRef|kind=tag	variant
+type GitRef|kind=tag.name	: string
+type GraphEvent	= variants
+type GraphEvent|kind=beat	variant
+type GraphEvent|kind=beat.quietMs	: number
+type GraphEvent|kind=hop	variant
+type GraphEvent|kind=hop.from	: NodeId
+type GraphEvent|kind=hop.to	: NodeId
+type GraphEvent|kind=message	variant
+type GraphEvent|kind=message.child	: NodeId
+type GraphEvent|kind=message.toward	: Toward
+type GraphEvent|kind=nodes	variant
+type GraphEvent|kind=recorded	variant
+type GraphEvent|kind=recorded.record	: EventRecord
+type GraphEvent|kind=viewChanged	variant
+type GraphScope	= variants
+type GraphScope|all	variant
+type GraphScope|repo	variant
+type HexColor	= string
+type IdleEnd	= variants
+type IdleEnd|kind=error	variant
+type IdleEnd|kind=exit	variant
+type IdleEnd|kind=gone	variant
+type IdleEnd|kind=mail	variant
+type IdleEnd|kind=newWait	variant
+type IdleEnd|kind=relaunch	variant
+type IdleEnd|kind=sleep	variant
+type IdleEnd|kind=turn	variant
+type IdleEnd|kind=turn.step	: string
+type IdleEnd|kind=typed	variant
+type IllegalStep	= {}
+type IllegalStep.allowed	: Array<GateVerb>
+type IllegalStep.state	: GateState
+type IllegalStep.verb	: GateVerb
+type InUse	= {}
+type InUse.[[key in Provider]?: AccountId]	member
+type InputField	= variants
+type InputField|secret	variant
+type InputField|text	variant
+type InsideError	= variants
+type InsideError|code=interop	variant
+type InsideError|code=interop.distro	: string
+type InsideError|code=start	variant
+type InsideError|code=start.cause	: string
+type InsideError|code=start.distro	: string
+type InviteView	= {}
+type InviteView.code	: string
+type InviteView.qrSvg	: string
+type InviteView.until	: number
+type InviteView.url	: string
+type Judgment	= variants
+type Judgment|block	variant
+type Judgment|pass	variant
+type Kind	= variants
+type Kind|interrupt	variant
+type Kind|queue	variant
+type Kind|steer	variant
+type Language	= variants
+type Language|en	variant
+type Language|ko	variant
+type Language|system	variant
+type LaunchError	= variants
+type LaunchError|code=briefTooLong	variant
+type LaunchError|code=briefTooLong.value	: {}
+type LaunchError|code=briefTooLong.value.len	: number
+type LaunchError|code=briefTooLong.value.limit	: number
+type LaunchError|code=helper	variant
+type LaunchError|code=helper.value	: {}
+type LaunchError|code=helper.value.cause	: string
+type LaunchError|code=helper.value.program	: string
+type LaunchError|code=loginCheckNoReply	variant
+type LaunchError|code=loginCheckNoReply.value	: {}
+type LaunchError|code=loginCheckNoReply.value.command	: string
+type LaunchError|code=loginCheckNoReply.value.distro	: string | null
+type LaunchError|code=loginCheckNoReply.value.secs	: number
+type LaunchError|code=loginCheckUnreadable	variant
+type LaunchError|code=loginCheckUnreadable.value	: {}
+type LaunchError|code=loginCheckUnreadable.value.command	: string
+type LaunchError|code=loginCheckUnreadable.value.distro	: string | null
+type LaunchError|code=noBrief	variant
+type LaunchError|code=noBrief.value	: string
+type LaunchError|code=noModelChoice	variant
+type LaunchError|code=noModelChoice.value	: {}
+type LaunchError|code=noModelChoice.value.agent	: string
+type LaunchError|code=noModelChoice.value.effortNeedsModel	: Array<string>
+type LaunchError|code=noModelChoice.value.free	: Array<string>
+type LaunchError|code=notInstalled	variant
+type LaunchError|code=notInstalled.value	: {}
+type LaunchError|code=notInstalled.value.agent	: string
+type LaunchError|code=notInstalled.value.command	: string
+type LaunchError|code=notInstalled.value.distro	: string | null
+type LaunchError|code=notLoggedIn	variant
+type LaunchError|code=notLoggedIn.value	: {}
+type LaunchError|code=notLoggedIn.value.command	: string
+type LaunchError|code=notLoggedIn.value.distro	: string | null
+type LaunchError|code=unknownAgent	variant
+type LaunchError|code=unknownAgent.value	: AgentId
+type LaunchError|code=wsl	variant
+type LaunchError|code=wsl.value	: InsideError
+type Layout	= {}
+type Layout.arranged	: Array<RepoId>
+type Layout.placed	: Array<Placed>
+type Limits	= variants
+type Limits|kind=failed	variant
+type Limits|kind=failed.problem	: UsageProblem
+type Limits|kind=needsLogin	variant
+type Limits|kind=ready	variant
+type Limits|kind=ready.models	: Array<ModelWindow>
+type Limits|kind=ready.plan	: Window | null
+type Limits|kind=ready.session	: Window | null
+type Limits|kind=ready.weekly	: Window | null
+type Locations	= {}
+type Locations.distros	: Array<string>
+type Locations.drives	: Array<string>
+type LoginId	= number
+type LoginState	= variants
+type LoginState|failed	variant
+type LoginState|running	variant
+type LoginState|succeeded	variant
+type LoginTarget	= variants
+type LoginTarget|kind=account	variant
+type LoginTarget|kind=account.id	: AccountId
+type LoginTarget|kind=new	variant
+type LoginTarget|kind=system	variant
+type MessageFacts	= {}
+type MessageFacts.fields	: Array<FieldParts>
+type MessageFacts.from_loom	: boolean
+type MessageFacts.id	: number
+type MessageKind	= variants
+type MessageKind|kind=adopted	variant
+type MessageKind|kind=adopted.node	: string
+type MessageKind|kind=adopted.parent	: string
+type MessageKind|kind=answer	variant
+type MessageKind|kind=answer.question	: Question
+type MessageKind|kind=ask	variant
+type MessageKind|kind=done	variant
+type MessageKind|kind=done.file	: string | null
+type MessageKind|kind=done.warning	: string | null
+type MessageKind|kind=exited	variant
+type MessageKind|kind=exited.code	: number | null
+type MessageKind|kind=exited.node	: string
+type MessageKind|kind=failed	variant
+type MessageKind|kind=failed.branch	: string
+type MessageKind|kind=failed.cause	: string | null
+type MessageKind|kind=failed.head	: string
+type MessageKind|kind=failed.log	: string | null
+type MessageKind|kind=humanInput	variant
+type MessageKind|kind=humanInput.node	: string
+type MessageKind|kind=merged	variant
+type MessageKind|kind=merged.branch	: string
+type MessageKind|kind=merged.head	: string
+type MessageKind|kind=merged.log	: string | null
+type MessageKind|kind=merged.sha	: string
+type MessageKind|kind=note	variant
+type MessageKind|kind=ready	variant
+type MessageKind|kind=ready.branch	: string
+type MessageKind|kind=ready.head	: string
+type MessageKind|kind=ready.target	: string
+type MessageKind|kind=ready.worktree	: string
+type MessageKind|kind=removed	variant
+type MessageKind|kind=removed.node	: string
+type MessageKind|kind=rework	variant
+type MessageKind|kind=rework.branch	: string
+type MessageKind|kind=rework.cause	: string | null
+type MessageKind|kind=rework.head	: string
+type MessageKind|kind=rework.log	: string | null
+type MessageKind|kind=rulesChanged	variant
+type MessageKind|kind=rulesChanged.commit	: string | null
+type MessageKind|kind=rulesChanged.skills	: Array<string>
+type MessageKind|kind=setupFailed	variant
+type MessageKind|kind=setupFailed.code	: number
+type MessageKind|kind=setupFailed.node	: string
+type MessageKind|kind=verdict	variant
+type MessageKind|kind=verdict.branch	: string
+type MessageKind|kind=verdict.findings	: string | null
+type MessageKind|kind=verdict.head	: string
+type MessageKind|kind=verdict.judgment	: Judgment
+type MessageKind|kind=verdict.reviewer	: string | null
+type MessageKind|kind=withdrawn	variant
+type MessageKind|kind=withdrawn.branch	: string
+type MessageKind|kind=withdrawn.head	: string
+type ModelRule	= variants
+type ModelRule|effortNeedsModel	variant
+type ModelRule|fixed	variant
+type ModelRule|free	variant
+type ModelWindow	= {}
+type ModelWindow.model	: string
+type ModelWindow.window	: Window
+type MovableNode	= {}
+type MovableNode.busy	: boolean
+type MovableNode.id	: NodeId
+type MovableNode.name	: string
+type MoveResult	= {}
+type MoveResult.failed	: number
+type MoveResult.later	: number
+type MoveResult.moved	: number
+type NewNode	= {}
+type NewNode.place	: Place
+type NewNode.start	: Start
+type NewRepo	= {}
+type NewRepo.path	: string
+type NewWorktree	= {}
+type NewWorktree.base	: string
+type NewWorktree.branch	: string
+type NodeId	= number
+type NodeState	= variants
+type NodeState|kind=done	variant
+type NodeState|kind=exited	variant
+type NodeState|kind=exited.code	: number | null
+type NodeState|kind=running	variant
+type NodeState|kind=setupFailed	variant
+type NodeState|kind=setupFailed.code	: number
+type NodeView	= {}
+type NodeView.agent	: AgentId | null
+type NodeView.bookmark	: number | null
+type NodeView.cardView	: CardView | null
+type NodeView.effort	: string | null
+type NodeView.id	: NodeId
+type NodeView.model	: string | null
+type NodeView.name	: string
+type NodeView.parent	: NodeId | null
+type NodeView.place	: Place
+type NodeView.relaunch	: RelaunchOffer | null
+type NodeView.reply	: string | null
+type NodeView.state	: NodeState
+type NodeView.unread	: number
+type NodeView.waits	: Array<ScreenWait>
+type OpenFile	= {}
+type OpenFile.node	: NodeId | null
+type OpenFile.path	: string
+type OpenLink	= {}
+type OpenLink.url	: string
+type Pace	= variants
+type Pace|pace=back	variant
+type Pace|pace=front	variant
+type PaneWidths	= {}
+type PaneWidths.dock	: number | null
+type PaneWidths.side	: number | null
+type PhoneAddress	= {}
+type PhoneAddress.ip	: string
+type PhoneAddress.tailnet	: boolean
+type PhoneView	= {}
+type PhoneView.addresses	: Array<PhoneAddress>
+type PhoneView.devices	: Array<DeviceView>
+type PhoneView.firewall	: boolean
+type PhoneView.inviteOpen	: boolean
+type PhoneView.port	: number | null
+type PhoneView.tailnet	: Tailnet
+type Place	= {}
+type Place.repo	: RepoId
+type Place.worktree	: string
+type PlaceUsage	= {}
+type PlaceUsage.distro	: string | null
+type PlaceUsage.usage	: Usage
+type PlaceView	= variants
+type PlaceView|kind=pc	variant
+type PlaceView|kind=ssh	variant
+type PlaceView|kind=ssh.host	: string
+type PlaceView|kind=wsl	variant
+type PlaceView|kind=wsl.distro	: string
+type Placed	= {}
+type Placed.at	: Point
+type Placed.spot	: Spot
+type Point	= {}
+type Point.x	: number
+type Point.y	: number
+type Problem	= variants
+type Problem|code=internal	variant
+type Problem|code=internal.value	: string
+type Problem|code=launch	variant
+type Problem|code=launch.value	: LaunchError
+type Problem|code=noLogin	variant
+type Problem|code=refused	variant
+type Problem|code=refused.value	: Refusal
+type Problem|code=repo	variant
+type Problem|code=repo.value	: RepoProblem
+type Profile	= variants
+type Profile|antigravity	variant
+type Profile|claude	variant
+type Profile|codex	variant
+type Profile|copilot	variant
+type Profile|crush	variant
+type Profile|cursor	variant
+type Profile|dsh	variant
+type Profile|hermes	variant
+type Profile|kilo	variant
+type Profile|mimo-code	variant
+type Profile|omp	variant
+type Profile|openclaude	variant
+type Profile|opencode2	variant
+type Profile|pi	variant
+type Profile|qwenCode	variant
+type Profile|trae	variant
+type Profile|vibe	variant
+type Prompt	= {}
+type Prompt.body	: Array<string>
+type Prompt.field	?: InputField
+type Prompt.options	: Array<PromptOption>
+type Prompt.rows	: Array<string>
+type Prompt.summary	: string
+type PromptKey	= variants
+type PromptKey|kind=backTab	variant
+type PromptKey|kind=char	variant
+type PromptKey|kind=char.value	: string
+type PromptKey|kind=enter	variant
+type PromptKey|kind=line	variant
+type PromptKey|kind=line.value	: string
+type PromptKey|kind=move	variant
+type PromptKey|kind=move.value	: number
+type PromptKey|kind=permission	variant
+type PromptKey|kind=permission.value	: string
+type PromptKey|kind=tab	variant
+type PromptKey|kind=tick	variant
+type PromptKey|kind=tick.value	: number
+type PromptOption	= {}
+type PromptOption.key	: PromptKey
+type PromptOption.label	: string
+type PromptOption.writes	: boolean
+type Provider	= variants
+type Provider|claude	variant
+type Provider|codex	variant
+type PtyNotice	= variants
+type PtyNotice|beat	variant
+type PtyNotice|beat.beat	: {}
+type PtyNotice|beat.beat.quietMs	: number
+type PtyNotice|gone	variant
+type PtyNotice|settled	variant
+type PtyNotice|size	variant
+type PtyNotice|size.size	: Resize
+type PtyRequest	= variants
+type PtyRequest|borrow	variant
+type PtyRequest|borrow.borrow	: Resize
+type PtyRequest|giveBack	variant
+type PtyRequest|resize	variant
+type PtyRequest|resize.resize	: Resize
+type Question	= variants
+type QuestionPill	= variants
+type QuestionPill|answer	variant
+type QuestionPill|line	variant
+type QuestionPill|off	variant
+type Question|in=inbox	variant
+type Question|in=inbox.id	: number
+type Question|in=message	variant
+type Question|in=message.id	: number
+type ReachView	= variants
+type ReachView|kind=authFailed	variant
+type ReachView|kind=authFailed.folder	: string
+type ReachView|kind=failed	variant
+type ReachView|kind=failed.cause	: string
+type ReachView|kind=reached	variant
+type ReachView|kind=reached.home	: string
+type ReachView|kind=reached.system	: SystemView
+type ReachView|kind=unknownHostKey	variant
+type ReachView|kind=unknownHostKey.folder	: string
+type ReachView|kind=unreachable	variant
+type ReachView|kind=unreachable.cause	: string
+type ReachView|kind=unsupportedMac	variant
+type ReachView|kind=unsupportedMac.cpu	: string
+type ReachView|kind=versionMismatch	variant
+type Refusal	= variants
+type Refusal|code=alreadyRoot	variant
+type Refusal|code=alreadyRoot.value	: string
+type Refusal|code=ambiguous	variant
+type Refusal|code=ambiguous.value	: {}
+type Refusal|code=ambiguous.value.candidates	: string
+type Refusal|code=ambiguous.value.name	: string
+type Refusal|code=badChoices	variant
+type Refusal|code=badRoleSetting	variant
+type Refusal|code=badRoleSetting.value	: string
+type Refusal|code=bareLink	variant
+type Refusal|code=bareLink.value	: string
+type Refusal|code=briefTooLong	variant
+type Refusal|code=briefTooLong.value	: number
+type Refusal|code=childrenStay	variant
+type Refusal|code=childrenStay.value	: string
+type Refusal|code=coordinatorAccepts	variant
+type Refusal|code=coordinatorAccepts.value	: {}
+type Refusal|code=coordinatorAccepts.value.branch	: string
+type Refusal|code=coordinatorAccepts.value.gate	: string
+type Refusal|code=cycle	variant
+type Refusal|code=db	variant
+type Refusal|code=db.value	: string
+type Refusal|code=docHasParent	variant
+type Refusal|code=docLinkLabel	variant
+type Refusal|code=docLinkLabel.value	: {}
+type Refusal|code=docLinkLabel.value.h1	: string
+type Refusal|code=docLinkLabel.value.label	: string
+type Refusal|code=emptyAnswer	variant
+type Refusal|code=emptyName	variant
+type Refusal|code=emptyQuestion	variant
+type Refusal|code=ended	variant
+type Refusal|code=ended.value	: string
+type Refusal|code=gate	variant
+type Refusal|code=gate.value	: IllegalStep
+type Refusal|code=git	variant
+type Refusal|code=git.value	: string
+type Refusal|code=heldFull	variant
+type Refusal|code=kindWord	variant
+type Refusal|code=kindWord.value	: {}
+type Refusal|code=kindWord.value.verb	: string
+type Refusal|code=kindWord.value.word	: string
+type Refusal|code=launch	variant
+type Refusal|code=launch.value	: string
+type Refusal|code=leadChildNeedsWorktree	variant
+type Refusal|code=leadChildNeedsWorktree.value	: string
+type Refusal|code=mailboxFull	variant
+type Refusal|code=mailboxFull.value	: string
+type Refusal|code=nameTaken	variant
+type Refusal|code=nameTaken.value	: string
+type Refusal|code=noAsked	variant
+type Refusal|code=noFindings	variant
+type Refusal|code=noLink	variant
+type Refusal|code=noLink.value	: {}
+type Refusal|code=noLink.value.agent	: string
+type Refusal|code=noLink.value.linked	: Array<string>
+type Refusal|code=noRepo	variant
+type Refusal|code=noResume	variant
+type Refusal|code=noResume.value	: string
+type Refusal|code=noRound	variant
+type Refusal|code=noRound.value	: string
+type Refusal|code=noWait	variant
+type Refusal|code=noWait.value	: WaitId
+type Refusal|code=notAsk	variant
+type Refusal|code=notAsk.value	: number
+type Refusal|code=notFound	variant
+type Refusal|code=notFound.value	: string
+type Refusal|code=notGate	variant
+type Refusal|code=notGate.value	: {}
+type Refusal|code=notGate.value.branch	: string
+type Refusal|code=notGate.value.gate	: string
+type Refusal|code=notImage	variant
+type Refusal|code=notImage.value	: string
+type Refusal|code=notOwner	variant
+type Refusal|code=notOwner.value	: {}
+type Refusal|code=notOwner.value.branch	: string
+type Refusal|code=notOwner.value.yours	: string | null
+type Refusal|code=notReviewer	variant
+type Refusal|code=notReviewer.value	: {}
+type Refusal|code=notReviewer.value.branch	: string
+type Refusal|code=notReviewer.value.review	: string | null
+type Refusal|code=notSteerable	variant
+type Refusal|code=notSteerable.value	: {}
+type Refusal|code=notSteerable.value.linked	: Array<string>
+type Refusal|code=notSteerable.value.name	: string
+type Refusal|code=nothingToMerge	variant
+type Refusal|code=nothingToMerge.value	: {}
+type Refusal|code=nothingToMerge.value.branch	: string
+type Refusal|code=nothingToMerge.value.target	: string
+type Refusal|code=ownVerdict	variant
+type Refusal|code=ownVerdict.value	: string
+type Refusal|code=promptChanged	variant
+type Refusal|code=promptChanged.value	: WaitId
+type Refusal|code=publishing	variant
+type Refusal|code=publishing.value	: string
+type Refusal|code=relaunching	variant
+type Refusal|code=relaunching.value	: string
+type Refusal|code=reservedName	variant
+type Refusal|code=reservedName.value	: string
+type Refusal|code=reviewerSeated	variant
+type Refusal|code=reviewerSeated.value	: {}
+type Refusal|code=reviewerSeated.value.branch	: string
+type Refusal|code=reviewerSeated.value.reviewer	: string
+type Refusal|code=reviewerSeated.value.role	: string
+type Refusal|code=roleHasNoAgent	variant
+type Refusal|code=roleHasNoAgent.value	: {}
+type Refusal|code=roleHasNoAgent.value.role	: string
+type Refusal|code=rolesHaveParent	variant
+type Refusal|code=sameAsTarget	variant
+type Refusal|code=sameAsTarget.value	: string
+type Refusal|code=sameHead	variant
+type Refusal|code=sameHead.value	: string
+type Refusal|code=severalOpen	variant
+type Refusal|code=severalOpen.value	: Array<WaitId>
+type Refusal|code=staleHead	variant
+type Refusal|code=staleHead.value	: {}
+type Refusal|code=staleHead.value.branch	: string
+type Refusal|code=staleHead.value.head	: string
+type Refusal|code=summaryTooLong	variant
+type Refusal|code=summaryTooLong.value	: number
+type Refusal|code=tooDeep	variant
+type Refusal|code=tooManyChildren	variant
+type Refusal|code=tooManyChildren.value	: number
+type Refusal|code=uncheckedDoc	variant
+type Refusal|code=uncheckedDoc.value	: string
+type Refusal|code=uncommitted	variant
+type Refusal|code=uncommitted.value	: string
+type Refusal|code=unknownRole	variant
+type Refusal|code=unknownRole.value	: {}
+type Refusal|code=unknownRole.value.names	: Array<string>
+type Refusal|code=unknownRole.value.role	: string
+type RelaunchOffer	= variants
+type RelaunchOffer|queued	variant
+type RelaunchOffer|ready	variant
+type Relaunched	= variants
+type Relaunched|atTurnEnd	variant
+type Relaunched|now	variant
+type RenameNode	= {}
+type RenameNode.name	: string
+type RenameWorktree	= {}
+type RenameWorktree.name	: string
+type RenameWorktree.path	: string
+type RepoId	= number
+type RepoProblem	= variants
+type RepoProblem|code=badName	variant
+type RepoProblem|code=badName.value	: string
+type RepoProblem|code=detached	variant
+type RepoProblem|code=emptyBranch	variant
+type RepoProblem|code=exists	variant
+type RepoProblem|code=exists.value	: string
+type RepoProblem|code=git	variant
+type RepoProblem|code=git.value	: string
+type RepoProblem|code=hasNodes	variant
+type RepoProblem|code=hasNodes.value	: number
+type RepoProblem|code=noCommit	variant
+type RepoProblem|code=noRepo	variant
+type RepoProblem|code=noWorkspace	variant
+type RepoProblem|code=noWorkspace.value	: string
+type RepoProblem|code=notAbsolute	variant
+type RepoProblem|code=notAbsolute.value	: string
+type RepoProblem|code=notEmpty	variant
+type RepoProblem|code=notEmpty.value	: string
+type RepoProblem|code=notFound	variant
+type RepoProblem|code=notFound.value	: string
+type RepoProblem|code=notGit	variant
+type RepoProblem|code=notGit.value	: string
+type RepoProblem|code=notInRepo	variant
+type RepoProblem|code=notInRepo.value	: string
+type RepoProblem|code=openRound	variant
+type RepoProblem|code=openRound.value	: string
+type RepoProblem|code=original	variant
+type RepoProblem|code=otherPlace	variant
+type RepoProblem|code=otherPlace.value	: string
+type RepoView	= {}
+type RepoView.branches	: Array<string>
+type RepoView.hasCommits	: boolean
+type RepoView.id	: RepoId
+type RepoView.name	: string
+type RepoView.path	: string
+type RepoView.place	: PlaceView
+type RepoView.shownPath	: string
+type RepoView.worktrees	: Array<Worktree>
+type Resize	= {}
+type Resize.cols	: number
+type Resize.rows	: number
+type Role	= {}
+type Role.agent	: AgentId | null
+type Role.duty	: string
+type Role.effort	: string | null
+type Role.model	: string | null
+type Role.name	: string
+type Roles	= Array<Role>
+type ScreenWait	= {}
+type ScreenWait.answerable	: boolean
+type ScreenWait.choices	?: Array<Choice>
+type ScreenWait.doc	: WaitDoc | null
+type ScreenWait.id	: WaitId
+type ScreenWait.images	: Array<string>
+type ScreenWait.instruction	?: string
+type ScreenWait.kind	: WaitKind
+type ScreenWait.parts	?: Array<TextPart>
+type ScreenWait.prompt	?: Prompt
+type ScreenWait.since	: number
+type ScreenWait.summary	: string
+type ScreenWait.text	: string
+type ScreenWait.tone	: WaitTone
+type Served	= variants
+type Served|kind=needsConsent	variant
+type Served|kind=needsConsent.url	: string
+type Served|kind=on	variant
+type SettingsView	= {}
+type SettingsView.accounts	: InUse
+type SettingsView.alwaysArrange	: boolean
+type SettingsView.alwaysOn	: AlwaysOn
+type SettingsView.arrangeDirection	: ArrangeDirection
+type SettingsView.autoSwitch	: boolean
+type SettingsView.bypassOff	: Array<AgentId>
+type SettingsView.cardView	: DefaultCardView
+type SettingsView.closedPanes	: ClosedPanes
+type SettingsView.closedPill	: WaitId | null
+type SettingsView.closedSwitchNotice	: number | null
+type SettingsView.colors	: UiColors
+type SettingsView.composerOff	: boolean
+type SettingsView.composerPlace	: FloatPlace | null
+type SettingsView.composerSize	: FloatSize
+type SettingsView.edgeStyle	: EdgeStyle
+type SettingsView.graphScope	: GraphScope
+type SettingsView.language	: Language
+type SettingsView.minimapFolded	: boolean
+type SettingsView.osNotify	: boolean
+type SettingsView.paneWidths	: PaneWidths
+type SettingsView.pillPlace	: FloatPlace | null
+type SettingsView.pillSize	: FloatSize
+type SettingsView.questionPill	: QuestionPill
+type SettingsView.repo	: RepoId | null
+type SettingsView.roles	: Roles
+type SettingsView.terminalFont	: TerminalFont
+type SettingsView.terminalTheme	: TerminalTheme
+type SettingsView.theme	: Theme
+type SettingsView.treeLimits	: TreeLimits
+type SettingsView.workspaceDir	: string | null
+type SettingsView.wslAccounts	: {}
+type SettingsView.wslAccounts.[[key in string]: InUse]	member
+type SettingsView.wslWorkspaceDirs	: {}
+type SettingsView.wslWorkspaceDirs.[[key in string]: string]	member
+type Spot	= variants
+type Spot|kind=node	variant
+type Spot|kind=node.node	: NodeId
+type Spot|kind=repo	variant
+type Spot|kind=repo.repo	: RepoId
+type Spot|kind=worktree	variant
+type Spot|kind=worktree.path	: string
+type Spot|kind=worktree.repo	: RepoId
+type Start	= variants
+type Start|kind=agent	variant
+type Start|kind=agent.agent	: AgentId
+type Start|kind=agent.brief	: string
+type Start|kind=command	variant
+type Start|kind=command.line	: string
+type Step	= variants
+type Step|delivered	variant
+type Step|held	variant
+type Step|sent	variant
+type SwitchCause	= variants
+type SwitchCause|kind=manual	variant
+type SwitchCause|kind=rateLimit	variant
+type SystemView	= variants
+type SystemView|kind=linux	variant
+type SystemView|kind=mac	variant
+type SystemView|kind=windows	variant
+type SystemView|kind=windows.distro	: string
+type Tailnet	= variants
+type Tailnet|kind=missing	variant
+type Tailnet|kind=ready	variant
+type Tailnet|kind=ready.host	: string
+type Tailnet|kind=ready.serving	: boolean
+type Tailnet|kind=stopped	variant
+type TerminalFont	= {}
+type TerminalFont.family	: string | null
+type TerminalFont.size	: number | null
+type TerminalTheme	= {}
+type TerminalTheme.dark	: string | null
+type TerminalTheme.light	: string | null
+type TerminalTheme.matchDark	: boolean
+type TextPart	= variants
+type TextPart|part=doc	variant
+type TextPart|part=doc.label	: string
+type TextPart|part=link	variant
+type TextPart|part=link.href	: string
+type TextPart|part=link.label	: string
+type TextPart|part=text	variant
+type TextPart|part=text.text	: string
+type Theme	= variants
+type ThemedColor	= {}
+type ThemedColor.dark	: HexColor | null
+type ThemedColor.light	: HexColor | null
+type Theme|dark	variant
+type Theme|light	variant
+type Theme|system	variant
+type Toward	= variants
+type Toward|child	variant
+type Toward|parent	variant
+type TreeLimits	= {}
+type TreeLimits.maxChildren	: number | null
+type TreeLimits.maxDepth	: number | null
+type TurnCheck	= variants
+type TurnCheck|kindLine	variant
+type TurnCheck|questionBox	variant
+type TurnCheck|unreported	variant
+type TypeText	= {}
+type TypeText.option	?: number
+type TypeText.prompt	: Prompt
+type TypeText.text	: string
+type UiColors	= {}
+type UiColors.accent	: ThemedColor
+type UiColors.edge	: ThemedColor
+type UiColors.err	: ThemedColor
+type UiColors.notice	: ThemedColor
+type UiColors.ok	: ThemedColor
+type UiColors.repo	: ThemedColor
+type UiColors.run	: ThemedColor
+type UiColors.warn	: ThemedColor
+type UiColors.worktree	: ThemedColor
+type UpdateStep	= variants
+type UpdateStep|kind=available	variant
+type UpdateStep|kind=downloading	variant
+type UpdateStep|kind=downloading.percent	: number
+type UpdateStep|kind=failed	variant
+type UpdateStep|kind=failed.message	: string
+type UpdateStep|kind=restarting	variant
+type UpdateView	= {}
+type UpdateView.checks	: boolean
+type UpdateView.latest	: string | null
+type UpdateView.step	: UpdateStep | null
+type Usage	= {}
+type Usage.email	: string | null
+type Usage.limits	: Limits
+type Usage.plan	: string | null
+type Usage.readAt	: number
+type UsageProblem	= variants
+type UsageProblem|code=cliFailed	variant
+type UsageProblem|code=cliFailed.value	: {}
+type UsageProblem|code=cliFailed.value.command	: string
+type UsageProblem|code=cliFailed.value.detail	: string
+type UsageProblem|code=cliFormat	variant
+type UsageProblem|code=cliFormat.value	: string
+type UsageProblem|code=loginNotSupported	variant
+type UsageProblem|code=noReply	variant
+type UsageProblem|code=noReply.value	: string
+type UsageProblem|code=noToken	variant
+type UsageProblem|code=noToken.value	: string
+type UsageProblem|code=notInstalled	variant
+type UsageProblem|code=notInstalled.value	: string
+type UsageProblem|code=rateLimited	variant
+type UsageProblem|code=rateLimited.value	: {}
+type UsageProblem|code=rateLimited.value.retryAt	: number
+type UsageProblem|code=responseFormat	variant
+type UsageProblem|code=tokenExpired	variant
+type UsageProblem|code=tokenExpired.value	: string
+type UsageProblem|code=unavailable	variant
+type UsageProblem|code=unavailable.value	: string
+type VersionMismatch	= {}
+type VersionMismatch.installed	: string
+type VersionMismatch.pinned	: string
+type Via	= {}
+type Via.tool	: string
+type Via.version	: string | null
+type WaitDoc	= {}
+type WaitDoc.id	: string
+type WaitDoc.title	: string
+type WaitId	= number
+type WaitKind	= variants
+type WaitKind|approval	variant
+type WaitKind|auth	variant
+type WaitKind|done	variant
+type WaitKind|input	variant
+type WaitKind|question	variant
+type WaitKind|trust	variant
+type WaitTone	= variants
+type WaitTone|ask	variant
+type WaitTone|done	variant
+type Who	= {}
+type Who.id	: NodeId | null
+type Who.name	: string
+type Window	= {}
+type Window.resetsAt	: number | null
+type Window.used	: number
+type Worktree	= {}
+type Worktree.branch	: string | null
+type Worktree.head	: string
+type Worktree.original	: boolean
+type Worktree.path	: string

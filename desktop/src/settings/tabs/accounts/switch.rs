@@ -1,9 +1,7 @@
 use std::rc::Rc;
-use std::time::Duration;
 
 use api::ids::AccountId;
 use api::profile::Provider;
-use api::settings::SettingsView;
 use gpui::{
     AnyElement, App, AppContext as _, FocusHandle, FontWeight, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, px,
@@ -12,12 +10,10 @@ use gpui::{
 use super::parts::{keep_focus, modal, small};
 use super::{Actor, State, Switching, provider_label, slug};
 use crate::link;
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 
 const WIDTH: f32 = 420.0;
-const POLL: Duration = Duration::from_millis(100);
-const POLLS: usize = 50;
 
 pub fn choose(
     actor: &Actor,
@@ -96,36 +92,44 @@ fn move_all(actor: &Actor, cx: &mut App) {
             switching.busy = true;
         }
     });
-    set(actor, provider, distro.clone(), to.clone(), cx);
     let path = format!(
         "/api/accounts/{}/move{}",
         slug(provider),
         link::query(&[("distro", distro.as_deref())])
     );
+    let lang = *cx.global::<Lang>();
     let (base, actor) = (actor.base.clone(), actor.clone());
-    cx.spawn(async move |cx| {
-        let moved = cx
-            .background_spawn(async move {
-                for _ in 0..POLLS {
-                    let saved = link::read::<SettingsView>(&base, "/api/settings")?;
-                    if saved.account(provider, distro.as_deref()) == to.as_ref() {
-                        break;
-                    }
-                    std::thread::sleep(POLL);
-                }
-                link::post::<serde_json::Value>(&base, &path, None).map(|_| ())
+    let saved = actor.clone();
+    actor.writer.edit_then(
+        cx,
+        move |settings| settings.set_account(provider, distro.as_deref(), to),
+        move |saved_ok, cx| {
+            if let Err(error) = saved_ok {
+                let text = error.text(lang);
+                saved.local.change(cx, |local| {
+                    local.switching = None;
+                    local.error = Some(text);
+                });
+                return;
+            }
+            cx.spawn(async move |cx| {
+                let moved = cx
+                    .background_spawn(async move {
+                        link::post::<serde_json::Value>(&base, &path, None).map(|_| ())
+                    })
+                    .await;
+                cx.update(|cx| {
+                    saved.local.change(cx, |local| {
+                        local.switching = None;
+                        if let Err(error) = moved {
+                            local.error = Some(error.text(lang));
+                        }
+                    })
+                });
             })
-            .await;
-        cx.update(|cx| {
-            actor.local.change(cx, |local| {
-                local.switching = None;
-                if let Err(error) = moved {
-                    local.error = Some(error);
-                }
-            })
-        });
-    })
-    .detach();
+            .detach();
+        },
+    );
 }
 
 pub fn dialog(

@@ -11,7 +11,7 @@ use gpui::{
 use super::parts::{modal, small};
 use super::{Actor, Login, State, slug};
 use crate::link;
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say};
 use crate::views::terminal;
 
@@ -45,6 +45,7 @@ pub fn open(
     cx: &mut App,
 ) {
     actor.local.change(cx, |local| local.error = None);
+    let lang = *cx.global::<Lang>();
     let path = format!(
         "/api/accounts/{}{}",
         slug(provider),
@@ -68,7 +69,9 @@ pub fn open(
                 });
                 watch(&actor, id, cx);
             }
-            Err(error) => actor.local.change(cx, |local| local.error = Some(error)),
+            Err(error) => actor
+                .local
+                .change(cx, |local| local.error = Some(error.text(lang))),
         });
     })
     .detach();

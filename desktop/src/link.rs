@@ -9,12 +9,15 @@ use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
 use api::canvas::{CardSize, Layout, Placed};
+use api::graph::errors::Problem;
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
 use api::ids::NodeId;
 use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
+
+use crate::problem::Failure;
 
 const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
@@ -124,6 +127,7 @@ fn host(base: &str) -> Result<&str, String> {
 fn agent_within(limit: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(limit))
+        .http_status_as_error(false)
         .build()
         .into()
 }
@@ -155,44 +159,61 @@ pub fn query(pairs: &[(&str, Option<&str>)]) -> String {
     }
 }
 
-pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
+fn answer(
+    sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<ureq::http::Response<ureq::Body>, Failure> {
+    let mut response = sent.map_err(|e| Failure::Other(e.to_string()))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    Err(Failure::Refused {
+        status: status.as_u16(),
+        body,
+    })
+}
+
+pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), Failure> {
     put(base, "/api/settings", patch)
 }
 
-fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), String> {
-    let text = serde_json::to_string(body).map_err(|e| e.to_string())?;
-    agent()
-        .put(format!("{base}{path}"))
-        .header("content-type", "application/json")
-        .send(text)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
+    let text = serde_json::to_string(body).map_err(|e| Failure::Other(e.to_string()))?;
+    answer(
+        agent()
+            .put(format!("{base}{path}"))
+            .header("content-type", "application/json")
+            .send(text),
+    )
+    .map(|_| ())
 }
 
-pub fn put_sizes(base: &str, sizes: &[CardSize]) -> Result<(), String> {
+pub fn put_sizes(base: &str, sizes: &[CardSize]) -> Result<(), Failure> {
     put(base, "/api/sizes", &sizes)
 }
 
-pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), String> {
+pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), Failure> {
     put(base, "/api/spots", &placed)
 }
 
-pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), String> {
-    let text = serde_json::to_string(nodes).map_err(|e| e.to_string())?;
-    agent()
-        .delete(format!("{base}/api/sizes"))
-        .force_send_body()
-        .header("content-type", "application/json")
-        .send(text)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), Failure> {
+    let text = serde_json::to_string(nodes).map_err(|e| Failure::Other(e.to_string()))?;
+    answer(
+        agent()
+            .delete(format!("{base}/api/sizes"))
+            .force_send_body()
+            .header("content-type", "application/json")
+            .send(text),
+    )
+    .map(|_| ())
 }
 
 pub fn post<T: serde::de::DeserializeOwned>(
     base: &str,
     path: &str,
     body: Option<String>,
-) -> Result<T, String> {
+) -> Result<T, Failure> {
     post_within(base, path, body, HTTP_LIMIT)
 }
 
@@ -201,55 +222,67 @@ pub fn post_within<T: serde::de::DeserializeOwned>(
     path: &str,
     body: Option<String>,
     limit: Duration,
-) -> Result<T, String> {
+) -> Result<T, Failure> {
     let request = agent_within(limit).post(format!("{base}{path}"));
-    let response = match body {
+    let response = answer(match body {
         Some(body) => request
             .header("content-type", "application/json")
             .send(body),
         None => request.send_empty(),
-    }
-    .map_err(|e| e.to_string())?
+    })?
     .body_mut()
     .read_to_string()
-    .map_err(|e| e.to_string())?;
-    serde_json::from_str(&response).map_err(|e| format!("POST {path}: {e}"))
+    .map_err(|e| Failure::Other(e.to_string()))?;
+    serde_json::from_str(&response).map_err(|e| Failure::Other(format!("POST {path}: {e}")))
 }
 
-pub fn shutdown(base: &str) -> Result<(), String> {
-    agent()
-        .post(format!("{base}/api/shutdown"))
-        .send_empty()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+pub fn shutdown(base: &str) -> Result<(), Failure> {
+    answer(agent().post(format!("{base}/api/shutdown")).send_empty()).map(|_| ())
 }
 
-pub fn delete(base: &str, path: &str) -> Result<(), String> {
-    agent()
-        .delete(format!("{base}{path}"))
-        .call()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+pub fn delete(base: &str, path: &str) -> Result<(), Failure> {
+    answer(agent().delete(format!("{base}{path}")).call()).map(|_| ())
 }
 
-pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
+pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), Failure> {
     let url = format!("{base}/api/nodes/{node}/bookmark");
-    if on {
-        agent().put(url).send_empty().map(|_| ())
+    answer(if on {
+        agent().put(url).send_empty()
     } else {
-        agent().delete(url).call().map(|_| ())
-    }
-    .map_err(|e| e.to_string())
+        agent().delete(url).call()
+    })
+    .map(|_| ())
 }
 
-fn get(base: &str, path: &str) -> Result<String, String> {
-    agent()
-        .get(format!("{base}{path}"))
-        .call()
-        .map_err(|e| e.to_string())?
+pub enum Rejected {
+    Problem(Problem),
+    Status(u16),
+    Link(String),
+}
+
+pub fn adopt(base: &str, child: u32, parent: u32) -> Result<(), Rejected> {
+    let mut response = agent()
+        .put(format!("{base}/api/nodes/{child}/parent/{parent}"))
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send_empty()
+        .map_err(|e| Rejected::Link(e.to_string()))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    Err(serde_json::from_str(&body)
+        .map(Rejected::Problem)
+        .unwrap_or(Rejected::Status(status.as_u16())))
+}
+
+fn get(base: &str, path: &str) -> Result<String, Failure> {
+    answer(agent().get(format!("{base}{path}")).call())?
         .body_mut()
         .read_to_string()
-        .map_err(|e| e.to_string())
+        .map_err(|e| Failure::Other(e.to_string()))
 }
 
 pub struct Snapshot {
@@ -267,8 +300,8 @@ pub struct Loaded {
     pub settings: SettingsView,
 }
 
-pub fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
-    serde_json::from_str(&get(base, path)?).map_err(|e| format!("GET {path}: {e}"))
+pub fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, Failure> {
+    serde_json::from_str(&get(base, path)?).map_err(|e| Failure::Other(format!("GET {path}: {e}")))
 }
 
 fn frame(request: &impl Serialize) -> Message {
@@ -277,7 +310,7 @@ fn frame(request: &impl Serialize) -> Message {
 
 pub fn load(base: &str) -> Graph {
     let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
-    let read_all = || -> Result<Loaded, String> {
+    let read_all = || -> Result<Loaded, Failure> {
         Ok(Loaded {
             order,
             snapshot: Snapshot {
@@ -298,7 +331,7 @@ pub fn load(base: &str) -> Graph {
 pub enum Graph {
     Loaded(Box<Loaded>),
     Feed(Box<GraphEvent>),
-    Failed { order: u64, error: String },
+    Failed { order: u64, error: Failure },
     Link(LinkState),
 }
 
@@ -528,8 +561,14 @@ impl Conn {
                         self.limit = Duration::from_millis(quiet_ms.into());
                         None
                     }
-                    Ok(GraphEvent::Nodes | GraphEvent::ViewChanged) => {
-                        reload.send(()).err().map(|_| Fate::Dead)
+                    Ok(GraphEvent::Nodes) => reload.send(()).err().map(|_| Fate::Dead),
+                    Ok(GraphEvent::ViewChanged) => {
+                        let reloaded = reload.send(()).err().map(|_| Fate::Dead);
+                        let fed = graph
+                            .send_blocking(Graph::Feed(Box::new(GraphEvent::ViewChanged)))
+                            .err()
+                            .map(|_| Fate::Dead);
+                        reloaded.or(fed)
                     }
                     Ok(event) => graph
                         .send_blocking(Graph::Feed(Box::new(event)))

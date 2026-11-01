@@ -29,7 +29,7 @@ pub struct State {
 }
 
 pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App) -> Vec<Section> {
-    state.agents.ensure(AGENTS, ctx, cx);
+    let _ = state.agents.ensure(AGENTS, ctx, cx);
     let loaded = state.agents.value();
     let agents: &[AgentView] = loaded.as_deref().map_or(&[], Vec::as_slice);
     vec![

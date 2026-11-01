@@ -13,8 +13,9 @@ use super::tabs;
 use super::widgets::confirm;
 use super::{Ctx, Section, search};
 use crate::link;
+use crate::problem::Failure;
 use crate::store::Store;
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, button, colors, say, say_with};
 use crate::views::field::{self, Field, FieldEvent};
@@ -189,7 +190,7 @@ impl Dialog {
                 }
                 Err(error) => {
                     let _ = this.update(cx, |dialog, cx| {
-                        dialog.error = Some(error);
+                        dialog.error = Some(error.text(*cx.global::<Lang>()));
                         cx.notify();
                     });
                 }
@@ -199,16 +200,38 @@ impl Dialog {
     }
 
     pub fn edit(&mut self, change: impl FnOnce(&mut SettingsView), cx: &mut Context<Self>) {
+        self.edit_then(change, |_, _| {}, cx);
+    }
+
+    pub fn edit_then(
+        &mut self,
+        change: impl FnOnce(&mut SettingsView),
+        done: impl FnOnce(Result<(), &Failure>, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
         let mut next = self.view.clone();
         change(&mut next);
-        if let Some(patch) = patch::settings_patch(&self.view, &next) {
-            self.view = next;
-            self.send(patch, cx);
+        match patch::settings_patch(&self.view, &next) {
+            Some(patch) => {
+                self.view = next;
+                self.send_then(patch, done, cx);
+            }
+            None => done(Ok(()), cx),
         }
     }
 
     pub fn send(&mut self, patch: Value, cx: &mut Context<Self>) {
+        self.send_then(patch, |_, _| {}, cx);
+    }
+
+    pub fn send_then(
+        &mut self,
+        patch: Value,
+        done: impl FnOnce(Result<(), &Failure>, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
         let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
+            done(Err(&Failure::Other(String::new())), cx);
             return;
         };
         self.inflight += 1;
@@ -224,17 +247,18 @@ impl Dialog {
                 .await;
             let _ = this.update(cx, |dialog, cx| {
                 dialog.inflight -= 1;
-                match saved {
-                    Ok(fresh) if dialog.inflight == 0 => dialog.view = fresh,
-                    Ok(_) => {}
-                    Err(error) => {
-                        dialog.error = Some(error);
-                        if dialog.inflight == 0 {
-                            dialog.view = dialog.store.read(cx).settings().clone();
-                        }
+                if let Err(error) = &saved {
+                    dialog.error = Some(error.text(*cx.global::<Lang>()));
+                }
+                match &saved {
+                    Ok(fresh) if dialog.inflight == 0 => dialog.view = fresh.clone(),
+                    Err(_) if dialog.inflight == 0 => {
+                        dialog.view = dialog.store.read(cx).settings().clone();
                     }
+                    _ => {}
                 }
                 cx.notify();
+                done(saved.as_ref().map(|_| ()), cx);
             });
             store.update(cx, |store, cx| store.reload(cx));
         })

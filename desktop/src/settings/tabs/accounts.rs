@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::time::Duration;
 
 use api::ids::AccountId;
 use api::profile::Provider;
@@ -11,9 +12,10 @@ use gpui::{
 use super::agents::parts;
 use crate::fonts;
 use crate::link;
+use crate::problem::Failure;
 use crate::settings::widgets::{field_reset, switch};
 use crate::settings::{Ctx, Section, Writer};
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 use crate::views::terminal::TerminalView;
 use parts::{Bound, Reload, Remote, Shared, badge, hint, row, rows, small};
@@ -23,6 +25,7 @@ mod switch;
 mod usage;
 
 const ACCOUNTS: &str = "/api/accounts";
+const REFRESH: Duration = Duration::from_secs(5 * 60);
 const SYSTEM_DIR: [(Provider, &str); 2] = [
     (Provider::Claude, "~/.claude"),
     (Provider::Codex, "~/.codex"),
@@ -91,15 +94,18 @@ impl Actor {
     pub fn run(
         &self,
         cx: &mut App,
-        work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+        work: impl FnOnce(&str) -> Result<(), Failure> + Send + 'static,
     ) {
         self.local.change(cx, |local| local.error = None);
+        let lang = *cx.global::<Lang>();
         let (base, actor) = (self.base.clone(), self.clone());
         cx.spawn(async move |cx| {
             let done = cx.background_spawn(async move { work(&base) }).await;
             cx.update(|cx| {
                 if let Err(error) = done {
-                    actor.local.change(cx, |local| local.error = Some(error));
+                    actor
+                        .local
+                        .change(cx, |local| local.error = Some(error.text(lang)));
                 }
                 actor.reload.run(cx);
             });
@@ -147,7 +153,12 @@ fn place_name(distro: Option<&str>, cx: &App) -> String {
 }
 
 pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App) -> Vec<Section> {
-    state.accounts.ensure(ACCOUNTS, ctx, cx);
+    if state.accounts.ensure(ACCOUNTS, ctx, cx) {
+        state
+            .accounts
+            .reloader(ACCOUNTS, ctx, cx)
+            .repeat(REFRESH, cx);
+    }
     let loaded = state.accounts.value();
     let all: &[AccountView] = loaded.as_deref().map_or(&[], Vec::as_slice);
     let focus = state.focus.get_or_insert_with(|| cx.focus_handle()).clone();

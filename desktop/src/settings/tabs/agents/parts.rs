@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{
     Anchor, AnyElement, App, AppContext, Div, FocusHandle, FontWeight, InteractiveElement,
@@ -11,7 +12,7 @@ use serde::de::DeserializeOwned;
 use crate::link;
 use crate::settings::widgets::confirm;
 use crate::settings::{Ctx, Dialog};
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, TEXT, button, colors, say, say_with};
 use api::repos::PlaceView;
@@ -120,11 +121,12 @@ impl<T: DeserializeOwned + Send + 'static> Remote<T> {
         }
     }
 
-    pub fn ensure(&self, path: &str, ctx: &Ctx, cx: &mut App) {
+    pub fn ensure(&self, path: &str, ctx: &Ctx, cx: &mut App) -> bool {
         let first = !std::mem::replace(&mut self.0.borrow_mut().started, true);
         if first {
             self.reloader(path, ctx, cx).run(cx);
         }
+        first
     }
 }
 
@@ -147,6 +149,26 @@ impl<T> Clone for Reload<T> {
 }
 
 impl<T: DeserializeOwned + Send + 'static> Reload<T> {
+    pub fn repeat(&self, every: Duration, cx: &mut App) {
+        let reload = self.clone();
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(every).await;
+                let alive = cx.update(|cx| {
+                    let alive = reload.dialog.upgrade().is_some();
+                    if alive {
+                        reload.run(cx);
+                    }
+                    alive
+                });
+                if !alive {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     pub fn run(&self, cx: &mut App) {
         let Some(base) = self.base.clone() else {
             return;
@@ -156,6 +178,7 @@ impl<T: DeserializeOwned + Send + 'static> Reload<T> {
             slot.ticket += 1;
             slot.ticket
         };
+        let lang = *cx.global::<Lang>();
         let (remote, path, dialog) = (self.remote.clone(), self.path.clone(), self.dialog.clone());
         cx.spawn(async move |cx| {
             let loaded = cx
@@ -171,7 +194,7 @@ impl<T: DeserializeOwned + Send + 'static> Reload<T> {
                         slot.value = Some(Rc::new(value));
                         slot.error = None;
                     }
-                    Err(error) => slot.error = Some(error),
+                    Err(error) => slot.error = Some(error.text(lang)),
                 }
             }
             let _ = dialog.update(cx, |_, cx| cx.notify());

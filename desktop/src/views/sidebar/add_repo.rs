@@ -25,6 +25,7 @@ use crate::views::worktree::{Closed, Kind, actions, button, error, hint, labelle
 const WIDTH: f32 = 440.0;
 const DIRS: f32 = 168.0;
 const RELEASE_POLL: Duration = Duration::from_millis(100);
+const TYPING_PAUSE: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -210,7 +211,7 @@ impl AddRepo {
                     let text = field.read(cx).text().to_owned();
                     if text != this.dir {
                         this.open = true;
-                        this.go(text, None, cx);
+                        this.go_typed(text, cx);
                     }
                 }
                 FieldEvent::Enter => this.submit(cx),
@@ -366,21 +367,45 @@ impl AddRepo {
             .update(cx, |field, cx| field.set_text_at_end(path, cx));
     }
 
-    fn go(&mut self, path: String, distro: Option<String>, cx: &mut Context<Self>) {
+    fn reset(&mut self, path: &str, distro: Option<String>, cx: &mut Context<Self>) {
         self.connecting = None;
         self.reach = None;
-        self.set_dir(&path, cx);
+        self.set_dir(path, cx);
         self.selected = None;
-        self.picked = path.clone();
+        self.picked = path.to_owned();
         self.list = None;
         self.failed.clear();
         self.waiting = distro;
         if path.trim().is_empty() {
             self.latest += 1;
-        } else {
-            self.load(Some(path.trim().to_owned()), cx);
         }
         cx.notify();
+    }
+
+    fn go(&mut self, path: String, distro: Option<String>, cx: &mut Context<Self>) {
+        self.reset(&path, distro, cx);
+        if !path.trim().is_empty() {
+            self.load(Some(path.trim().to_owned()), cx);
+        }
+    }
+
+    fn go_typed(&mut self, path: String, cx: &mut Context<Self>) {
+        self.reset(&path, None, cx);
+        if path.trim().is_empty() {
+            return;
+        }
+        self.latest += 1;
+        let ask = self.latest;
+        let wanted = path.trim().to_owned();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(TYPING_PAUSE).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.latest == ask {
+                    this.load(Some(wanted), cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn home(&mut self, distro: String, cx: &mut Context<Self>) {

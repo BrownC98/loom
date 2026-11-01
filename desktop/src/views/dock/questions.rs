@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use api::graph::waits::{InputField, Prompt, PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::{NodeId, WaitId};
@@ -11,6 +11,7 @@ use super::body::{self, Target};
 use super::field::{self, Field, FieldEvent};
 use super::ui::{self, GAP, PAD, SMALL};
 use super::{Dock, Draft, Inbox, Slot};
+use crate::link::Snapshot;
 use crate::strings::Str;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
@@ -26,6 +27,35 @@ pub fn kind_label(kind: WaitKind) -> Str {
     }
 }
 
+pub(crate) fn shown_prompts(snapshot: Option<&Snapshot>) -> HashMap<u32, Prompt> {
+    snapshot
+        .map(|s| {
+            s.nodes
+                .iter()
+                .flat_map(|n| n.waits.iter())
+                .filter_map(|w| Some((w.wait.id.0, w.wait.prompt.clone()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn drop_absent_slots(
+    fields: &mut HashMap<(u32, Slot), Draft>,
+    id: u32,
+    prompt: Option<&Prompt>,
+) {
+    fields.retain(|&(wait_id, slot), _| {
+        wait_id != id
+            || match slot {
+                Slot::Answer => true,
+                Slot::Option(index) => prompt
+                    .and_then(|p| p.options.get(index))
+                    .is_some_and(|o| o.writes),
+                Slot::Field => prompt.is_some_and(|p| p.field.is_some()),
+            }
+    });
+}
+
 pub fn key_label(key: &PromptKey, index: usize) -> String {
     match key {
         PromptKey::Char(c) => c.to_string(),
@@ -37,33 +67,38 @@ pub fn key_label(key: &PromptKey, index: usize) -> String {
     }
 }
 
-struct Group {
-    node: NodeId,
-    name: String,
-    waits: Vec<ScreenWait>,
+pub(crate) struct Group {
+    pub node: NodeId,
+    pub name: String,
+    pub waits: Vec<ScreenWait>,
+}
+
+pub(crate) fn groups_of(snapshot: &Snapshot) -> Vec<Group> {
+    let mut groups: Vec<Group> = snapshot
+        .nodes
+        .iter()
+        .filter(|n| !n.waits.is_empty())
+        .map(|n| {
+            let mut waits = n.waits.clone();
+            waits.sort_by_key(|w| w.wait.since);
+            Group {
+                node: n.id,
+                name: n.name.clone(),
+                waits,
+            }
+        })
+        .collect();
+    groups.sort_by_key(|g| g.waits[0].wait.since);
+    groups
 }
 
 impl Dock {
     fn groups(&self, cx: &Context<Self>) -> Vec<Group> {
-        let Some(snapshot) = self.store.read(cx).snapshot() else {
-            return Vec::new();
-        };
-        let mut groups: Vec<Group> = snapshot
-            .nodes
-            .iter()
-            .filter(|n| !n.waits.is_empty())
-            .map(|n| {
-                let mut waits = n.waits.clone();
-                waits.sort_by_key(|w| w.wait.since);
-                Group {
-                    node: n.id,
-                    name: n.name.clone(),
-                    waits,
-                }
-            })
-            .collect();
-        groups.sort_by_key(|g| g.waits[0].wait.since);
-        groups
+        self.store
+            .read(cx)
+            .snapshot()
+            .map(groups_of)
+            .unwrap_or_default()
     }
 
     pub(super) fn sync(&mut self, cx: &mut Context<Self>) {
@@ -93,18 +128,7 @@ impl Dock {
     }
 
     pub(super) fn remember(&mut self, cx: &Context<Self>) {
-        self.shown = self
-            .store
-            .read(cx)
-            .snapshot()
-            .map(|s| {
-                s.nodes
-                    .iter()
-                    .flat_map(|n| n.waits.iter())
-                    .filter_map(|w| Some((w.wait.id.0, w.wait.prompt.clone()?)))
-                    .collect()
-            })
-            .unwrap_or_default();
+        self.shown = shown_prompts(self.store.read(cx).snapshot());
     }
 
     fn ensure_fields(&mut self, wait: &ScreenWait, cx: &mut Context<Self>) {
@@ -122,16 +146,7 @@ impl Dock {
             self.make_field(id, Slot::Answer, hint, false, true, cx);
         }
         let prompt = wait.wait.prompt.as_ref();
-        self.fields.retain(|&(wait_id, slot), _| {
-            wait_id != id
-                || match slot {
-                    Slot::Answer => true,
-                    Slot::Option(index) => prompt
-                        .and_then(|p| p.options.get(index))
-                        .is_some_and(|o| o.writes),
-                    Slot::Field => prompt.is_some_and(|p| p.field.is_some()),
-                }
-        });
+        drop_absent_slots(&mut self.fields, id, prompt);
         let Some(prompt) = prompt else {
             return;
         };

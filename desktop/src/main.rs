@@ -2,6 +2,7 @@
 
 mod canvas;
 mod daemon;
+mod float;
 mod fonts;
 mod link;
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -37,6 +38,7 @@ fn main() {
             let sidebar = views::sidebar::sidebar(store.clone(), window, cx);
             let dock = views::dock::dock(store.clone(), window, cx);
             let zoom = views::shell::zoom(store.clone(), window, cx);
+            let pill = float::pill::pill(store.clone(), window, cx);
             cx.new(|cx| {
                 views::shell::Shell::new(
                     store,
@@ -44,6 +46,7 @@ fn main() {
                     canvas.into(),
                     Some(sidebar.into()),
                     Some(dock.into()),
+                    vec![pill.into()],
                     cx,
                 )
             })

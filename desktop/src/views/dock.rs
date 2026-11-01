@@ -15,7 +15,7 @@ mod body;
 mod docs;
 pub mod events;
 mod history;
-mod questions;
+pub(crate) mod questions;
 pub mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -32,7 +32,7 @@ enum Inbox {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Slot {
+pub(crate) enum Slot {
     Answer,
     Option(usize),
     Field,
@@ -46,10 +46,10 @@ struct History {
     error: Option<String>,
 }
 
-struct Draft {
-    field: Entity<Field>,
-    secret: bool,
-    _sub: Subscription,
+pub(crate) struct Draft {
+    pub(crate) field: Entity<Field>,
+    pub(crate) secret: bool,
+    pub(crate) _sub: Subscription,
 }
 
 struct Docs {

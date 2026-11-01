@@ -1,6 +1,6 @@
 use gpui::{
-    Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Point, Styled, div, point, px, rgb,
+    Bounds, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, ParentElement, Pixels, Point, Styled, canvas, div, point, px, rgb, size,
 };
 
 use api::graph::waits::WaitTone;
@@ -24,6 +24,9 @@ const IDLE: u32 = 0xe2e2e2;
 const MASK_ALPHA: f32 = 0.7;
 const REPO_LINE: f32 = 1.5;
 const GROUP_LINE: f32 = 1.0;
+const DASH: f32 = 4.0;
+const DASH_GAP: f32 = 3.0;
+const TILE_GAP: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub struct Plan {
@@ -63,6 +66,47 @@ fn edges(rect: Rect) -> (f32, f32, f32, f32) {
         (rect.at.x + rect.size.width) as f32,
         (rect.at.y + rect.size.height) as f32,
     )
+}
+
+fn dashed(color: Hsla) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<Pixels>, _, window, _| {
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            let period = DASH + DASH_GAP;
+            let mut done = 0.0;
+            for side in 0..4 {
+                let length = if side % 2 == 0 { w } else { h };
+                let mut at = 0.0;
+                while at < length {
+                    let phase = (done + at) % period;
+                    let to = (at
+                        + if phase < DASH {
+                            DASH - phase
+                        } else {
+                            period - phase
+                        })
+                    .min(length);
+                    if phase < DASH {
+                        let (x, y, bw, bh) = match side {
+                            0 => (at, 0.0, to - at, GROUP_LINE),
+                            1 => (w - GROUP_LINE, at, GROUP_LINE, to - at),
+                            2 => (w - to, h - GROUP_LINE, to - at, GROUP_LINE),
+                            _ => (0.0, h - to, GROUP_LINE, to - at),
+                        };
+                        window.paint_quad(gpui::fill(
+                            Bounds::new(bounds.origin + point(px(x), px(y)), size(px(bw), px(bh))),
+                            color,
+                        ));
+                    }
+                    at = to;
+                }
+                done += length;
+            }
+        },
+    )
+    .absolute()
+    .size_full()
 }
 
 fn plan_of(canvas: &CanvasView) -> Plan {
@@ -210,13 +254,18 @@ pub fn view(
             .w(px((x2 - x).max(1.0)))
             .h(px((y2 - y).max(1.0)))
             .rounded(px(TILE_ROUND * plan.scale));
+        let inset = |tile: gpui::Div| match mark {
+            Mark::Card(_) => tile
+                .left(px(x + TILE_GAP))
+                .top(px(y + TILE_GAP))
+                .w(px((x2 - x - 2.0 * TILE_GAP).max(1.0)))
+                .h(px((y2 - y - 2.0 * TILE_GAP).max(1.0))),
+            _ => tile,
+        };
         match mark {
             Mark::Repo => tile.border(px(REPO_LINE)).border_color(colors.ink_3),
-            Mark::Group => tile
-                .border(px(GROUP_LINE))
-                .border_dashed()
-                .border_color(colors.ink_3),
-            Mark::Card(fill) => tile.bg(fill.unwrap_or(idle)),
+            Mark::Group => tile.child(dashed(colors.ink_3.into())),
+            Mark::Card(fill) => inset(tile).bg(fill.unwrap_or(idle)),
         }
     });
     let (vx, vy) = plan.to_map(-camera.x / camera.zoom, -camera.y / camera.zoom);

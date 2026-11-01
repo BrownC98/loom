@@ -33,6 +33,8 @@
 
 - 데스크톱 빌드에 필요한 호스트 패키지(이 호스트에는 깔려 있다): `sudo apt-get install --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-dev libwayland-dev libasound2-dev libvulkan-dev libssl-dev llvm`. `llvm`은 msvc 검사의 `llvm-rc`를 준다. gpui는 Zed git `rev 08cbb88`을 쓰므로 첫 `cargo fetch`가 약 0.5GB를 `~/.cargo/git`에 받는다.
 
+- Tauri 앱(`app/`)의 Linux 빌드에 필요한 호스트 패키지(이 호스트에는 깔려 있다): `sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`. 옆에 둘 `loom` 파일 없이 빌드하려면 `cd app && TAURI_CONFIG='{"bundle":{"externalBin":[],"active":false}}' memcap -m 6G cargo build --release`다(2026-11-02 실측 2분 9초). 성능 측정처럼 WebView를 자동으로 다룰 때는 `webkit2gtk-driver`를 더 깔고 `TAURI_WEBVIEW_AUTOMATION=true`로 띄운다.
+
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
 
 - 데스크톱(GPUI) 실행 파일도 `release.yml`의 `desktop` 잡이 만든다(Windows x64 msvc `loom-desktop-windows-x64.zip`, macOS arm64 `loom-desktop-macos-arm64.tar.gz`). 잡은 `installer` 잡 뒤에 돌아 `LOOM_VERSION`을 데몬과 같은 판(`scripts/version.sh`)으로 넣고, 같은 Release의 `loom-web-*` 파일을 받아 `loom`(`.exe`)으로 이름을 바꿔 `loom-desktop` 옆에 묶는다. exe는 자기 옆의 `loom`을 띄우므로 한 폴더에 풀면 판이 맞는다. macOS는 `.app` 없이 폴더째 묶는다: `desktop/`에 Info.plist·아이콘이 없고, Tauri 앱도 데몬을 주 실행 파일 옆(`Contents/MacOS`)에 두는 같은 배치다. 검증용 빌드와 실행 파일 내려받기는 `.github/workflows/desktop.yml`(두 OS)이 한다.

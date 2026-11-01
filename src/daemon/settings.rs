@@ -11,7 +11,7 @@ use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::nodes::serve_pty;
+use super::nodes::{Typed, serve_pty};
 use super::origin::ViaRemote;
 use super::ssh_hosts::{self, Reach};
 use super::{App, Problem, internal};
@@ -469,7 +469,7 @@ async fn login_pty(
         via,
         app,
         |app| &app.logins.host,
-        |_, _, _| {},
+        |_, _, _| Typed::Write,
         LoginId(id),
     )
 }

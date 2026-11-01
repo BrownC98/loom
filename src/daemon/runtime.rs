@@ -493,6 +493,7 @@ impl App {
                 if profile::input_seen(profile, &now).is_some_and(|seen| seen.empty) {
                     app.draft_ended(id);
                 }
+                app.give_kept_keys(id);
             }
         });
     }

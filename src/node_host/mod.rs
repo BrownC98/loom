@@ -666,6 +666,10 @@ fn distro_commands(start: distro::Start) -> (String, CommandBuilder, Option<Comm
 pub struct Keys<'a>(Option<&'a Pty>);
 
 impl Keys<'_> {
+    pub fn open(&self) -> bool {
+        self.0.is_some()
+    }
+
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }

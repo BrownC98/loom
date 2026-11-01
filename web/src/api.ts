@@ -197,6 +197,8 @@ export async function newBuildServed(): Promise<boolean> {
   return entry(new DOMParser().parseFromString(html, 'text/html')) !== entry(document);
 }
 
+const HELD_INPUT_LIMIT = 4096;
+
 export interface PtyLink {
   sendInput(data: string | Uint8Array): void;
   sendRequest(request: PtyRequest): void;
@@ -215,10 +217,14 @@ export function attachPty(
 ): PtyLink {
   const encoder = new TextEncoder();
   let backlogNext = false;
+  const held: Uint8Array<ArrayBuffer>[] = [];
+  let heldBytes = 0;
   const link = reconnecting(socketUrl(path), {
     onOpen: () => {
       backlogNext = true;
       handlers.onAttach();
+      for (const bytes of held.splice(0)) link.send(bytes);
+      heldBytes = 0;
     },
     onMessage: (e) => {
       if (typeof e.data === 'string') {
@@ -235,7 +241,13 @@ export function attachPty(
     },
   });
   return {
-    sendInput: (data) => link.send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),
+    sendInput: (data) => {
+      const bytes = typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data);
+      if (link.connected()) return link.send(bytes);
+      if (heldBytes + bytes.length > HELD_INPUT_LIMIT) return;
+      held.push(bytes);
+      heldBytes += bytes.length;
+    },
     sendRequest: (request) => link.send(JSON.stringify(request)),
     connected: link.connected,
     close: link.close,

@@ -171,7 +171,29 @@ async fn pty(
     if app.host.attach(id).is_none() {
         return coming_pty(ws, via, app, id);
     }
-    serve_pty(ws, via, app, |app| &app.host, human_typed, id)
+    serve_pty(ws, via, app, |app| &app.host, live_typed, id)
+}
+
+pub(super) enum Typed {
+    Write,
+    Kept,
+}
+
+fn live_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) -> Typed {
+    if app.sleeps.keep_more(id, bytes) {
+        return Typed::Kept;
+    }
+    if app
+        .graph
+        .process(id)
+        .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep))
+    {
+        app.sleeps.keep(id, bytes);
+        app.sleeps.knocked(id);
+        return Typed::Kept;
+    }
+    human_typed(app, id, bytes);
+    Typed::Write
 }
 
 pub(super) fn human_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) {
@@ -258,7 +280,12 @@ fn coming_pty(
                 }
                 tokio::select! {
                     heard = pulse.listen(&mut socket) => match heard {
-                        Heard::Frame(Some(Ok(Message::Binary(_)))) if !gone => app.sleeps.knocked(id),
+                        Heard::Frame(Some(Ok(Message::Binary(bytes)))) if !gone => {
+                            if node_host::typed(&bytes) {
+                                app.sleeps.keep(id, &bytes);
+                            }
+                            app.sleeps.knocked(id);
+                        }
                         Heard::Frame(Some(Ok(Message::Text(text)))) => {
                             if pulse.paced(&text) && send_beat(&mut socket, &pulse).await.is_err() {
                                 return;
@@ -340,7 +367,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &[u8]),
+    typed: fn(&Arc<App>, K, &[u8]) -> Typed,
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -388,7 +415,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     attached: node_host::Attached,
     app: &Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &[u8]),
+    typed: fn(&Arc<App>, K, &[u8]) -> Typed,
     id: K,
     borrower: node_host::Borrower,
 ) {
@@ -437,8 +464,8 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                 }
                 Heard::Frame(Some(Ok(Message::Binary(bytes)))) => {
                     let _ = host(app).write_if(id, |_| {
-                        if node_host::typed(&bytes) {
-                            typed(app, id, &bytes);
+                        if node_host::typed(&bytes) && matches!(typed(app, id, &bytes), Typed::Kept) {
+                            return Ok(Vec::new());
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())
                     });

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -17,6 +18,8 @@ use crate::profile::{self, Profile};
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
+const KEPT_KEYS_LIMIT: usize = 4096;
+const SUBMIT: u8 = b'\r';
 
 type Recovery = (Active, Plan, Guard, fn(&Arc<App>, NodeId));
 
@@ -24,6 +27,7 @@ type Recovery = (Active, Plan, Guard, fn(&Arc<App>, NodeId));
 pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
     knocked: Mutex<HashSet<NodeId>>,
+    kept: Mutex<HashMap<NodeId, Vec<u8>>>,
     changed: Notify,
 }
 
@@ -35,6 +39,27 @@ impl Sleeps {
     pub fn knocked(&self, node: NodeId) {
         self.knocked.lock().unwrap().insert(node);
         self.changed();
+    }
+
+    pub fn keep(&self, node: NodeId, bytes: &[u8]) {
+        add_kept(self.kept.lock().unwrap().entry(node).or_default(), bytes);
+    }
+
+    pub fn keep_more(&self, node: NodeId, bytes: &[u8]) -> bool {
+        let mut kept = self.kept.lock().unwrap();
+        let Some(keys) = kept.get_mut(&node) else {
+            return false;
+        };
+        add_kept(keys, bytes);
+        true
+    }
+
+    fn has_kept(&self, node: NodeId) -> bool {
+        self.kept.lock().unwrap().contains_key(&node)
+    }
+
+    fn take_kept(&self, node: NodeId) -> Vec<u8> {
+        self.kept.lock().unwrap().remove(&node).unwrap_or_default()
     }
 
     pub fn changed(&self) {
@@ -64,6 +89,11 @@ impl Sleeps {
             .filter(|due| *due > now)
             .min()
     }
+}
+
+fn add_kept(keys: &mut Vec<u8>, bytes: &[u8]) {
+    let room = KEPT_KEYS_LIMIT.saturating_sub(keys.len());
+    keys.extend(bytes.iter().filter(|b| **b != SUBMIT).take(room));
 }
 
 fn now() -> Instant {
@@ -121,6 +151,9 @@ impl App {
 
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
+        if change.to == Some(AgentState::Listening) {
+            self.give_kept_keys(change.node);
+        }
         match change.to {
             Some(AgentState::Deaf) => {}
             Some(AgentState::Blocked { .. }) => return,
@@ -194,6 +227,25 @@ impl App {
                 }
             }
         });
+    }
+
+    pub(super) fn give_kept_keys(self: &Arc<Self>, id: NodeId) {
+        if !self.sleeps.has_kept(id) || !self.listening(id) {
+            return;
+        }
+        let profile = self.profile(id);
+        let mut given = Vec::new();
+        let _ = self.host.strokes_if(id, Duration::ZERO, |keys| {
+            if keys.open()
+                && profile::input_seen(profile, &keys.screen()).is_none_or(|seen| seen.empty)
+            {
+                given = self.sleeps.take_kept(id);
+            }
+            Ok::<_, Infallible>(Vec::from_iter((!given.is_empty()).then(|| given.clone())))
+        });
+        if !given.is_empty() {
+            super::nodes::human_typed(self, id, &given);
+        }
     }
 
     pub(super) fn draft_ended(self: &Arc<Self>, id: NodeId) {

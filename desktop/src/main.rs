@@ -12,15 +12,20 @@ mod wire;
 use gpui::{App, AppContext, WindowOptions};
 
 fn main() {
-    let status = match daemon::start() {
-        Ok(url) => url,
-        Err(error) => error,
-    };
+    let started = daemon::start();
     gpui_platform::application().run(move |cx: &mut App| {
-        cx.open_window(WindowOptions::default(), |_, cx| {
-            cx.new(|_| canvas::camera::CanvasView::new(status))
-        })
-        .expect("could not open the window");
+        if std::env::var_os(views::terminal::NODE_ENV).is_some() {
+            cx.open_window(WindowOptions::default(), |window, cx| {
+                views::terminal::show(started, window, cx)
+            })
+            .expect("could not open the window");
+        } else {
+            let status = started.unwrap_or_else(|error| error);
+            cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|_| canvas::camera::CanvasView::new(status))
+            })
+            .expect("could not open the window");
+        }
         cx.activate(true);
     });
 }

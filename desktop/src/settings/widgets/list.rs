@@ -2,11 +2,12 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Div, ElementId, InteractiveElement, ParentElement, ScrollHandle, SharedString,
-    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, Div, ElementId, InteractiveElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::views::dock::ui::{TEXT, colors};
+use crate::views::scrollbar::Bar;
 
 const ROW: f32 = 28.0;
 
@@ -19,9 +20,9 @@ pub fn list_box_on(
     height: f32,
     change: impl Fn(usize, &mut Window, &mut App) + 'static,
     hover: Option<impl Fn(Option<usize>, &mut Window, &mut App) + 'static>,
-    scroll: Option<&ScrollHandle>,
+    scroll: &Bar,
     cx: &App,
-) -> Stateful<Div> {
+) -> Div {
     let c = colors(cx);
     let change = Rc::new(change);
     let hover = hover.map(Rc::new);
@@ -53,16 +54,10 @@ pub fn list_box_on(
             })
             .on_click(move |_, window, cx| change(index, window, cx))
     });
-    div()
+    let area = div()
         .id(id)
-        .w(px(width))
-        .h(px(height))
-        .flex_none()
         .overflow_y_scroll()
-        .when_some(scroll, |list, scroll| list.track_scroll(scroll))
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(c.line_strong)
+        .track_scroll(scroll.handle())
         .flex()
         .flex_col()
         .when_some(hover.clone(), |list, hover| {
@@ -72,5 +67,14 @@ pub fn list_box_on(
                 }
             })
         })
-        .children(rows)
+        .children(rows);
+    scroll
+        .on_overflow(area)
+        .w(px(width))
+        .h(px(height))
+        .flex_none()
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(c.line_strong)
+        .overflow_hidden()
 }

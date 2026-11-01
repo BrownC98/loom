@@ -424,6 +424,10 @@ impl Store {
         .detach();
     }
 
+    pub fn set_pane_open(&self, pane: &str, open: bool, cx: &mut Context<Self>) {
+        self.save_settings(serde_json::json!({ "closedPanes": { pane: !open } }), cx);
+    }
+
     pub fn select_when_loaded(&mut self, node: u32, cx: &mut Context<Self>) {
         self.wanted = Some(node);
         self.reload(cx);

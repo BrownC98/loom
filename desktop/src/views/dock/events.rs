@@ -13,6 +13,7 @@ use super::field::{self, Field};
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
+use crate::views::scrollbar::Bar;
 use what::{Category, Ctx, Family, Seg, Tone};
 
 pub mod refusal;
@@ -41,10 +42,12 @@ pub struct Events {
     focus: FocusHandle,
     shown: Vec<usize>,
     list: ListState,
+    bar: Bar<ListState>,
 }
 
 impl Events {
     pub fn new(cx: &mut App) -> Self {
+        let list = ListState::new(0, ListAlignment::Top, px(240.0));
         Self {
             records: None,
             agents: Vec::new(),
@@ -58,7 +61,8 @@ impl Events {
             open: None,
             focus: cx.focus_handle(),
             shown: Vec::new(),
-            list: ListState::new(0, ListAlignment::Top, px(240.0)),
+            list: list.clone(),
+            bar: Bar::over(list.clone()),
         }
     }
 
@@ -295,13 +299,14 @@ impl Dock {
             Some(records) if records.is_empty() => panel.child(note(Str::EventsEmpty, cx)),
             Some(_) if self.events.shown.is_empty() => panel.child(note(Str::EventsNoMatch, cx)),
             Some(_) => panel.child(
-                div().flex_1().min_h_0().child(
-                    list(
+                self.events
+                    .bar
+                    .reserved(list(
                         self.events.list.clone(),
                         cx.processor(|dock: &mut Dock, ix: usize, _, cx| dock.event_row(ix, cx)),
-                    )
-                    .size_full(),
-                ),
+                    ))
+                    .flex_1()
+                    .min_h_0(),
             ),
         }
     }

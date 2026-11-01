@@ -19,7 +19,7 @@ use crate::link;
 use crate::problem::Failure;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 use crate::views::tooltip::tip;
 
 const PAGE: usize = 100;
@@ -110,6 +110,7 @@ impl Dock {
             poll: self.commits.poll,
             ..Commits::default()
         };
+        self.commit_bar.reset();
         if self.tab == Tab::Commits {
             self.commits_refresh(cx);
         }
@@ -309,7 +310,7 @@ fn ref_pill(
             .id(("folder", key))
             .flex()
             .tooltip(tip(label))
-            .child(icon(Glyph::Folder, FOLDER, c.ink))
+            .child(icon(Lucide::Folder, FOLDER, c.ink))
     }))
     .child(name)
 }
@@ -471,6 +472,7 @@ impl Dock {
                 cx,
             ));
         }
+        let handle = self.commit_bar.handle().clone();
         let list = uniform_list(
             ("commits", self.commits.epoch),
             count,
@@ -484,9 +486,9 @@ impl Dock {
                     .collect::<Vec<_>>()
             }),
         )
-        .flex_1()
-        .min_h_0();
-        panel.child(list)
+        .size_full()
+        .track_scroll(&handle);
+        panel.child(self.commit_bar.on_overflow(list).flex_1().min_h_0())
     }
 }
 

@@ -7,15 +7,15 @@ use gpui::{
 };
 
 use crate::views::dock::ui::{TEXT, colors};
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 
 pub struct Label {
     text: SharedString,
-    glyph: Option<Glyph>,
+    glyph: Option<Lucide>,
 }
 
 impl Label {
-    pub fn with_icon(text: SharedString, glyph: Glyph) -> Self {
+    pub fn with_icon(text: SharedString, glyph: Lucide) -> Self {
         Self {
             text,
             glyph: Some(glyph),

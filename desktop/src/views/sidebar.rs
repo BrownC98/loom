@@ -1,17 +1,18 @@
-pub mod icons;
 mod tree;
 
 use std::collections::HashSet;
 
 use gpui::{
     App, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, Rgba, ScrollHandle,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, Rgba,
     StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 
 use super::field::{self, Field, FieldEvent};
+use super::rail;
+use super::scrollbar::Bar;
 use super::shell::OpenSettings;
-use icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
@@ -39,8 +40,8 @@ pub struct Sidebar {
     store: Entity<Store>,
     field: Entity<Field>,
     focus: FocusHandle,
-    marks_scroll: ScrollHandle,
-    tree_scroll: ScrollHandle,
+    marks_scroll: Bar,
+    tree_scroll: Bar,
     closed: HashSet<Key>,
     marks_open: bool,
     cursor: Option<Key>,
@@ -48,6 +49,7 @@ pub struct Sidebar {
     seen: Option<u32>,
     at: usize,
     refusal: Option<(Key, String)>,
+    want_find: bool,
 }
 
 pub fn sidebar(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Sidebar> {
@@ -75,8 +77,8 @@ impl Sidebar {
             store,
             field,
             focus: cx.focus_handle().tab_stop(true),
-            marks_scroll: ScrollHandle::new(),
-            tree_scroll: ScrollHandle::new(),
+            marks_scroll: Bar::new(),
+            tree_scroll: Bar::new(),
             closed: HashSet::new(),
             marks_open: true,
             cursor: None,
@@ -84,6 +86,7 @@ impl Sidebar {
             seen: None,
             at: 0,
             refusal: None,
+            want_find: false,
         }
     }
 
@@ -390,9 +393,9 @@ fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
 fn chevron(open: bool, c: &Colors) -> impl IntoElement {
     icon(
         if open {
-            Glyph::ChevronOpen
+            Lucide::ChevronDown
         } else {
-            Glyph::ChevronClosed
+            Lucide::ChevronRight
         },
         ICON,
         c.ink_3,
@@ -498,7 +501,7 @@ impl Sidebar {
                     cx.stop_propagation();
                     cx.notify();
                 }))
-                .child(icon(Glyph::Bookmark { filled: on }, ICON, c.ink_2))
+                .child(icon_styled(Lucide::Bookmark, ICON, c.ink_2, 2.0, on))
         };
         let lang_unread = |n: u32| {
             div()
@@ -513,7 +516,7 @@ impl Sidebar {
                 .font_weight(FontWeight::SEMIBOLD)
                 .flex()
                 .items_center()
-                .child(icon(Glyph::Mail, 13.0, c.accent_ink))
+                .child(icon(Lucide::Mail, 13.0, c.accent_ink))
                 .child(n.to_string())
         };
         match &row.body {
@@ -540,7 +543,7 @@ impl Sidebar {
                 )
                 .into_any_element(),
             Body::Group { label, tag } => shell
-                .child(icon(Glyph::Branch, ICON, c.ink_3))
+                .child(icon(Lucide::GitBranch, ICON, c.ink_3))
                 .child(
                     div()
                         .min_w_0()
@@ -586,7 +589,10 @@ impl Sidebar {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(name.clone()),
                     )
-                    .children(from.as_ref().map(|_| icon(Glyph::Reply, 12.0, c.ink_3)))
+                    .children(
+                        from.as_ref()
+                            .map(|_| icon(Lucide::CornerLeftUp, 12.0, c.ink_3)),
+                    )
                     .child(div().flex_1())
                     .children((*unread > 0).then(|| {
                         div()
@@ -653,6 +659,70 @@ impl Sidebar {
 
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.store.read(cx).settings().closed_panes.side {
+            self.rail(cx).into_any_element()
+        } else {
+            if self.want_find {
+                self.want_find = false;
+                self.focus_find(window, cx);
+            }
+            self.expanded(window, cx).into_any_element()
+        }
+    }
+}
+
+impl Sidebar {
+    fn rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = cx.global::<Theme>().colors;
+        let lang = *cx.global::<Lang>();
+        let finding = !self.field.read(cx).text().trim().is_empty();
+        let open = rail::button(
+            "side-open",
+            Lucide::PanelLeftOpen,
+            rail::titled(Str::AppSideExpand.text(lang), "["),
+            rail::BUTTON,
+            &c,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.set_open(true, cx)));
+        let find = rail::button(
+            "side-find",
+            Lucide::Search,
+            rail::titled(Str::FindOpen.text(lang), "F"),
+            rail::BUTTON,
+            &c,
+        )
+        .children(finding.then(|| rail::dot(&c)))
+        .on_click(cx.listener(|this, _, _, cx| this.reveal_find(cx)));
+        let settings = rail::button(
+            "side-settings-rail",
+            Lucide::Settings,
+            Str::SettingsTitle.text(lang).to_owned(),
+            rail::BUTTON,
+            &c,
+        )
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx));
+        rail::column(&c)
+            .child(open)
+            .child(find)
+            .child(div().flex_1())
+            .child(settings)
+    }
+
+    fn set_open(&self, open: bool, cx: &mut Context<Self>) {
+        self.store
+            .update(cx, |store, cx| store.set_pane_open("side", open, cx));
+    }
+
+    pub fn reveal_find(&mut self, cx: &mut Context<Self>) {
+        self.want_find = true;
+        if self.store.read(cx).settings().closed_panes.side {
+            self.set_open(true, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn expanded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.global::<Theme>().colors;
         let c = &c;
         let lang = *cx.global::<Lang>();
@@ -683,10 +753,10 @@ impl Render for Sidebar {
                     .iter()
                     .position(|r| Some(&r.key) == self.cursor.as_ref());
                 if let Some(i) = in_marks {
-                    self.marks_scroll.scroll_to_item(i);
+                    self.marks_scroll.handle().scroll_to_item(i);
                 }
                 if let Some(i) = in_tree {
-                    self.tree_scroll.scroll_to_item(i);
+                    self.tree_scroll.handle().scroll_to_item(i);
                 }
             }
             for (i, row) in built.marks.iter().enumerate() {
@@ -748,10 +818,8 @@ impl Render for Sidebar {
 
         let mark_rows = div()
             .id("marks")
-            .flex_none()
-            .max_h(relative(0.4))
             .overflow_y_scroll()
-            .track_scroll(&self.marks_scroll)
+            .track_scroll(self.marks_scroll.handle())
             .px(px(8.0))
             .flex()
             .flex_col()
@@ -762,13 +830,16 @@ impl Render for Sidebar {
                     .child(el)
                     .children(refusal.map(|text| refusal_line(text, c)))
             }));
+        let mark_rows = self
+            .marks_scroll
+            .reserved(mark_rows)
+            .flex_none()
+            .max_h(relative(0.4));
 
         let tree_rows = div()
             .id("tree")
-            .flex_1()
-            .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.tree_scroll)
+            .track_scroll(self.tree_scroll.handle())
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event, window, cx| this.key(event, window, cx)))
             .px(px(8.0))
@@ -789,6 +860,7 @@ impl Render for Sidebar {
                     .text_color(c.ink_3)
                     .child(Str::FindNoMatch.text(lang))
             }));
+        let tree_rows = self.tree_scroll.reserved(tree_rows).flex_1().min_h_0();
 
         let expand = div()
             .id("expand-all")
@@ -806,7 +878,7 @@ impl Render for Sidebar {
                 this.closed.clear();
                 cx.notify();
             }))
-            .child(icon(Glyph::ExpandAll, ICON, c.ink_2));
+            .child(icon(Lucide::ChevronsUpDown, ICON, c.ink_2));
 
         div()
             .size_full()
@@ -818,44 +890,65 @@ impl Render for Sidebar {
             .border_r_1()
             .border_color(c.line)
             .child(
-                div().px(px(10.0)).pt(px(10.0)).pb(px(6.0)).child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .h(px(30.0))
-                        .pl(px(8.0))
-                        .pr(px(2.0))
-                        .bg(c.bg)
-                        .border_1()
-                        .border_color(find_edge)
-                        .rounded(px(6.0))
-                        .child(icon(Glyph::Search, ICON, c.ink_3))
-                        .child(self.field.clone())
-                        .children(count.map(|(text, color)| {
-                            div()
-                                .flex_none()
-                                .text_size(px(12.0))
-                                .text_color(color)
-                                .child(text)
-                        }))
-                        .children(searching.then(|| {
-                            div()
-                                .id("find-clear")
-                                .flex_none()
-                                .size(px(26.0))
-                                .rounded(px(5.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(move |_, _, cx| {
-                                    clear.update(cx, |field, cx| field.clear(cx));
-                                })
-                                .child(icon(Glyph::Clear, ICON, c.ink_2))
-                        })),
-                ),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .px(px(10.0))
+                    .pt(px(10.0))
+                    .pb(px(6.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .h(px(30.0))
+                            .pl(px(8.0))
+                            .pr(px(2.0))
+                            .bg(c.bg)
+                            .border_1()
+                            .border_color(find_edge)
+                            .rounded(px(6.0))
+                            .child(icon(Lucide::Search, ICON, c.ink_3))
+                            .child(self.field.clone())
+                            .children(count.map(|(text, color)| {
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.0))
+                                    .text_color(color)
+                                    .child(text)
+                            }))
+                            .children(searching.then(|| {
+                                div()
+                                    .id("find-clear")
+                                    .flex_none()
+                                    .size(px(26.0))
+                                    .rounded(px(5.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        clear.update(cx, |field, cx| field.clear(cx));
+                                    })
+                                    .child(icon(Lucide::X, ICON, c.ink_2))
+                            })),
+                    )
+                    .child(
+                        rail::button(
+                            "side-collapse",
+                            Lucide::PanelLeftClose,
+                            rail::titled(Str::AppSideCollapse.text(lang), "["),
+                            rail::SMALL_BUTTON,
+                            c,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.set_open(false, cx))),
+                    ),
             )
             .child(marks_head)
             .children(self.marks_open.then(|| {
@@ -921,7 +1014,7 @@ impl Render for Sidebar {
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx)
                             })
-                            .child(icon(Glyph::Gear, ICON, c.ink_2))
+                            .child(icon(Lucide::Settings, ICON, c.ink_2))
                             .child(Str::SettingsTitle.text(lang)),
                     ),
             )

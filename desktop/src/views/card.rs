@@ -32,6 +32,7 @@ pub enum Mark {
     Plain,
     Lit,
     Dim,
+    Chosen,
 }
 
 pub fn mark(lit: Option<&HashSet<String>>, key: &str) -> Mark {
@@ -102,16 +103,15 @@ pub fn frame(
     } else {
         (GROUP_LINE, GROUP_ROUND, colors.group_line)
     };
-    let lit = mark == Mark::Lit;
+    let lit = matches!(mark, Mark::Lit | Mark::Chosen);
     placed(bounds)
         .rounded(px(round * zoom))
         .border(px((line * zoom).max(0.5)))
         .border_color(if lit { colors.accent } else { line_color })
         .bg(wash(colors.ink, FRAME_WASH))
-        .shadow(if lit {
-            vec![ring(colors.accent_wash, HALO * zoom)]
-        } else {
-            Vec::new()
+        .shadow(match mark {
+            Mark::Lit => vec![ring(colors.accent_wash, HALO * zoom)],
+            _ => Vec::new(),
         })
         .when(mark == Mark::Dim, |d| d.opacity(DIM))
         .px(px(SIDE * zoom))

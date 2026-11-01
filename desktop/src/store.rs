@@ -35,6 +35,7 @@ pub struct Store {
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    chosen: Option<String>,
     wanted: Option<u32>,
     zoom_percent: u32,
     notice: Option<(u64, Notice)>,
@@ -144,6 +145,7 @@ impl Store {
             settings,
             settings_key: String::new(),
             selected: None,
+            chosen: None,
             wanted: None,
             zoom_percent: 100,
             notice: None,
@@ -337,7 +339,7 @@ impl Store {
         cx.emit(Show(Target::All));
     }
 
-    fn chosen(&self) -> Option<RepoId> {
+    fn current_repo(&self) -> Option<RepoId> {
         let snapshot = self.snapshot.as_ref()?;
         chosen_repo(&snapshot.repos, self.settings.repo).map(|r| r.id)
     }
@@ -345,12 +347,12 @@ impl Store {
     pub fn shown_repos(&self) -> Vec<RepoId> {
         match (self.settings.graph_scope, &self.snapshot) {
             (GraphScope::All, Some(snapshot)) => snapshot.repos.iter().map(|r| r.id).collect(),
-            _ => self.chosen().into_iter().collect(),
+            _ => self.current_repo().into_iter().collect(),
         }
     }
 
     pub fn choose_repo(&mut self, repo: RepoId, cx: &mut Context<Self>) {
-        if self.chosen() == Some(repo) {
+        if self.current_repo() == Some(repo) {
             return;
         }
         self.settings.repo = Some(repo);
@@ -437,14 +439,24 @@ impl Store {
         if let Some(repo) = self.repo_of(node) {
             self.choose_repo(repo, cx);
         }
-        if self.selected != Some(node) {
+        if self.selected != Some(node) || self.chosen.take().is_some() {
             self.selected = Some(node);
             cx.notify();
         }
     }
 
+    pub fn chosen(&self) -> Option<&str> {
+        self.chosen.as_deref()
+    }
+
+    pub fn choose_box(&mut self, key: String, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.chosen = Some(key);
+        cx.notify();
+    }
+
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if self.selected.take().is_some() {
+        if self.selected.take().is_some() | self.chosen.take().is_some() {
             cx.notify();
         }
     }

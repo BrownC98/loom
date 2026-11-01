@@ -20,11 +20,11 @@ const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
-const RESET: &[u8] = b"\x1bc";
 
 pub enum Event {
     Size { cols: u16, rows: u16 },
     Settled,
+    Reset,
     Backlog(Vec<u8>),
     Output(Vec<u8>),
     Gone,
@@ -252,7 +252,6 @@ enum Target {
 
 enum Fate {
     Down,
-    Done,
     Dead,
 }
 
@@ -268,7 +267,6 @@ struct Conn {
     state: LinkState,
     down_since: Option<Instant>,
     opened_once: bool,
-    done: bool,
     dirty: bool,
 }
 
@@ -287,7 +285,6 @@ impl Conn {
             state: LinkState::Reconnecting,
             down_since: None,
             opened_once: false,
-            done: false,
             dirty: false,
         }
     }
@@ -407,11 +404,7 @@ impl Conn {
                     Message::Text(text) => match serde_json::from_str(&text) {
                         Ok(PtyNotice::Size(Resize { cols, rows })) => Event::Size { cols, rows },
                         Ok(PtyNotice::Settled) => Event::Settled,
-                        Ok(PtyNotice::Gone) => {
-                            self.done = true;
-                            let fate = self.emit(Event::Gone);
-                            return fate.or(Some(Fate::Done));
-                        }
+                        Ok(PtyNotice::Gone) => Event::Gone,
                         Ok(PtyNotice::Beat { quiet_ms }) => {
                             self.limit = Duration::from_millis(quiet_ms.into());
                             return None;
@@ -456,7 +449,7 @@ impl Worker {
         let now = Instant::now();
         self.conns
             .values()
-            .filter(|c| !c.done && !c.connecting)
+            .filter(|c| !c.connecting)
             .map(|c| match c.socket {
                 Some(_) if c.dirty => now + FLUSH,
                 Some(_) => c.heard + c.limit,
@@ -551,9 +544,7 @@ impl Worker {
         let mut fate = (!conn.report(LinkState::Connected)).then_some(Fate::Dead);
         if let Target::Pty { backlog, .. } = &mut conn.target {
             *backlog = true;
-            if conn.opened_once {
-                fate = fate.or(conn.emit(Event::Output(RESET.to_vec())));
-            }
+            fate = fate.or(conn.emit(Event::Reset));
         }
         conn.opened_once = true;
         conn.flush();
@@ -580,7 +571,6 @@ impl Worker {
         match fate {
             None => {}
             Some(Fate::Dead) => self.forget(key),
-            Some(Fate::Done) => self.close(key),
             Some(Fate::Down) => self.down(key),
         }
     }
@@ -617,7 +607,7 @@ impl Worker {
             let Some(conn) = self.conns.get_mut(&key) else {
                 continue;
             };
-            if conn.done || conn.connecting {
+            if conn.connecting {
                 continue;
             }
             if conn.socket.is_some() {

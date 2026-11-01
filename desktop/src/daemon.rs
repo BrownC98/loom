@@ -52,7 +52,9 @@ pub fn start() -> Result<String, String> {
             ));
         }
     };
-    child.wait().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     line.trim()
         .strip_prefix(READY_PREFIX)
         .map(str::to_owned)

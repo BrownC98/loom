@@ -19,6 +19,7 @@ use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
 
 mod pointer;
 
+const RESET: &[u8] = b"\x1bc";
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
 const FONT_FAMILY: &str = "Jetendard";
 const FONT_FILES: [&[u8]; 2] = [
@@ -228,6 +229,12 @@ impl TerminalView {
                 self.claim();
             }
             Event::Settled => self.settled = true,
+            Event::Reset => {
+                self.vt.feed(RESET);
+                self.settled = false;
+                self.sent = (0, 0);
+                self.ended = None;
+            }
             Event::Backlog(bytes) => {
                 self.vt.feed(&bytes);
                 let replies = self.vt.take_replies();

@@ -1,12 +1,15 @@
 use api::graph::docs::{DocGroup, DocRow};
 use api::graph::waits::ClosedWait;
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
 use self::answers::Answers;
 use super::field::{self, Field};
+use super::icons::{Lucide, icon};
+use super::rail;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::pictures::Shelf;
@@ -20,6 +23,7 @@ pub mod events;
 mod history;
 mod lanes;
 pub(crate) mod questions;
+mod strip;
 mod strokes;
 pub mod ui;
 
@@ -29,6 +33,37 @@ enum Tab {
     Docs,
     Events,
     Commits,
+}
+
+impl Tab {
+    const ALL: [Tab; 4] = [Tab::Questions, Tab::Docs, Tab::Events, Tab::Commits];
+
+    fn id(self) -> &'static str {
+        match self {
+            Tab::Questions => "tab-questions",
+            Tab::Docs => "tab-docs",
+            Tab::Events => "tab-events",
+            Tab::Commits => "tab-commits",
+        }
+    }
+
+    fn glyph(self) -> Lucide {
+        match self {
+            Tab::Questions => Lucide::Bell,
+            Tab::Docs => Lucide::FileText,
+            Tab::Events => Lucide::AlignLeft,
+            Tab::Commits => Lucide::GitCommitVertical,
+        }
+    }
+
+    fn label(self) -> Str {
+        match self {
+            Tab::Questions => Str::InboxTab,
+            Tab::Docs => Str::DocsTitle,
+            Tab::Events => Str::EventsTitle,
+            Tab::Commits => Str::AppCommitGraph,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -146,22 +181,25 @@ impl Dock {
 
 impl Render for Dock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.store.read(cx).settings().closed_panes.dock {
+            return self.strip(cx).into_any_element();
+        }
         let c = ui::colors(cx);
         let waiting = self.waiting(cx);
         let current = self.tab;
-        let tab = |id: &'static str,
-                   label: &'static str,
-                   tab: Tab,
-                   count: usize,
-                   cx: &mut Context<Self>| {
+        let tabs = Tab::ALL.map(|tab| {
             let on = current == tab;
+            let count = if tab == Tab::Questions { waiting } else { 0 };
+            let color = if on { c.ink } else { c.ink_2 };
+            let label = ui::say(cx, tab.label());
             div()
-                .id(id)
+                .id(tab.id())
                 .flex()
                 .items_center()
                 .gap(px(ui::GAP))
                 .h(px(36.0))
                 .px(px(ui::PAD))
+                .min_w_0()
                 .border_b_2()
                 .border_color(if on {
                     gpui::Hsla::from(c.accent)
@@ -169,11 +207,21 @@ impl Render for Dock {
                     gpui::transparent_black()
                 })
                 .text_size(px(ui::TEXT))
-                .text_color(if on { c.ink } else { c.ink_2 })
+                .text_color(color)
+                .when(on, |tab| tab.flex_none().font_weight(FontWeight::SEMIBOLD))
                 .cursor_pointer()
-                .child(label)
+                .child(icon(tab.glyph(), 14.0, color))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(label),
+                )
                 .children((count > 0).then(|| {
                     div()
+                        .flex_none()
                         .min_w(px(18.0))
                         .h(px(18.0))
                         .px(px(5.0))
@@ -187,17 +235,24 @@ impl Render for Dock {
                         .child(count.to_string())
                 }))
                 .on_click(cx.listener(move |dock, _, _, cx| dock.choose_tab(tab, cx)))
-        };
-        let questions = ui::say(cx, Str::WaitQuestion);
-        let documents = ui::say(cx, Str::DocsTitle);
-        let events = ui::say(cx, Str::EventsTitle);
-        let graph = ui::say(cx, Str::AppCommitGraph);
+        });
         let panel = match self.tab {
             Tab::Questions => self.questions(cx).into_any_element(),
             Tab::Docs => self.documents(cx).into_any_element(),
             Tab::Events => self.events(cx).into_any_element(),
             Tab::Commits => self.commits_panel(cx).into_any_element(),
         };
+        let store = self.store.clone();
+        let collapse = rail::button(
+            "dock-collapse",
+            Lucide::PanelRightClose,
+            rail::titled(ui::say(cx, Str::DockCollapse), "]"),
+            rail::SMALL_BUTTON,
+            &c,
+        )
+        .on_click(move |_, _, cx| {
+            store.update(cx, |store, cx| store.set_pane_open("dock", false, cx))
+        });
         div()
             .size_full()
             .flex()
@@ -205,17 +260,32 @@ impl Render for Dock {
             .bg(c.panel)
             .text_color(c.ink)
             .text_size(px(ui::TEXT))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .pl(px(12.0))
+                    .pr(px(ui::PAD))
+                    .pt(px(ui::PAD))
+                    .child(
+                        div()
+                            .text_size(px(ui::SMALL))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.ink_3)
+                            .child(ui::say(cx, Str::DockView)),
+                    )
+                    .child(collapse),
+            )
             .child(self.arrange_bar(cx))
             .child(
                 div()
                     .flex()
+                    .gap(px(2.0))
                     .px(px(ui::PAD))
                     .border_b_1()
                     .border_color(c.line)
-                    .child(tab("tab-questions", questions, Tab::Questions, waiting, cx))
-                    .child(tab("tab-docs", documents, Tab::Docs, 0, cx))
-                    .child(tab("tab-events", events, Tab::Events, 0, cx))
-                    .child(tab("tab-commits", graph, Tab::Commits, 0, cx)),
+                    .children(tabs),
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
             .child(
@@ -226,5 +296,6 @@ impl Render for Dock {
                     .overflow_y_scroll()
                     .child(panel),
             )
+            .into_any_element()
     }
 }

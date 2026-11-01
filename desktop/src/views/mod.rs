@@ -5,6 +5,7 @@ pub mod field;
 pub mod icons;
 pub mod notice;
 pub mod pictures;
+pub mod rail;
 pub mod shell;
 pub mod sidebar;
 pub mod terminal;

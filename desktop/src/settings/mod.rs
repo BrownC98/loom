@@ -8,11 +8,12 @@ mod tabs;
 mod widgets;
 
 use api::settings::SettingsView;
-use gpui::{AnyElement, App, IntoElement, StyledText};
+use gpui::{AnyElement, App, Entity, IntoElement, StyledText, WeakEntity};
 
 pub use dialog::{Dialog, DialogEvent};
 pub use patch::Writer;
 
+use crate::store::Store;
 use crate::theme::Theme;
 
 pub struct Ctx<'a> {
@@ -20,6 +21,8 @@ pub struct Ctx<'a> {
     pub defaults: Option<&'a SettingsView>,
     pub writer: Writer,
     pub query: &'a str,
+    pub store: &'a Entity<Store>,
+    pub dialog: WeakEntity<Dialog>,
 }
 
 pub struct Section {

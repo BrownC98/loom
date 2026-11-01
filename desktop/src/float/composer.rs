@@ -607,7 +607,17 @@ impl Composer {
                     .tooltip(tip(ui::say(cx, Str::ComposerResetPlace).to_owned()))
                     .on_click(cx.listener(|composer, _, _, cx| composer.reset(cx)))
             }));
-        let images = pictures::chips(&draft.pictures, &self.viewer, "composer-chip", node, z, cx);
+        let viewer = self.viewer.clone();
+        let images = pictures::chips(
+            &draft.pictures,
+            move |picture, window, cx| {
+                viewer.update(cx, |viewer, cx| viewer.open(picture, window, cx))
+            },
+            "composer-chip",
+            node,
+            z,
+            cx,
+        );
         let filing = (draft.filing > 0).then(|| {
             div()
                 .text_size(px(12.0 * z))

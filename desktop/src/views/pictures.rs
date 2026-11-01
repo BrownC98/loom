@@ -5,12 +5,11 @@ use api::ids::NodeId;
 use gpui::{
     App, AppContext, ClipboardEntry, Context, Div, Entity, EventEmitter, Image, ImageFormat,
     InteractiveElement, MouseButton, ObjectFit, ParentElement, PathPromptOptions,
-    StatefulInteractiveElement, Styled, StyledImage, div, img, px,
+    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
 };
 
 use super::dock::ui;
 use super::tooltip::tip;
-use super::viewer::Viewer;
 use crate::store::Store;
 use crate::strings::Str;
 
@@ -238,7 +237,7 @@ impl Pictures {
 
 pub fn chips(
     pictures: &Entity<Pictures>,
-    viewer: &Entity<Viewer>,
+    zoom: impl Fn(Arc<Image>, &mut Window, &mut App) + Clone + 'static,
     id: &'static str,
     scope: u32,
     z: f32,
@@ -260,7 +259,7 @@ pub fn chips(
             };
             let picture = image.picture.clone();
             let name = image.name.clone();
-            let open = viewer.clone();
+            let open = zoom.clone();
             let zoomed = picture.clone();
             let owner = pictures.clone();
             div()
@@ -289,8 +288,7 @@ pub fn chips(
                         )))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, window, cx| {
-                            let picture = zoomed.clone();
-                            open.update(cx, |viewer, cx| viewer.open(picture, window, cx));
+                            open(zoomed.clone(), window, cx);
                         })
                         .child(
                             img(picture)

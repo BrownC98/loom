@@ -193,8 +193,9 @@ impl Answers {
             return;
         }
         if !self.attached.contains_key(&id) {
-            let store = self.store.clone();
-            let pictures = cx.new(|_| Pictures::new(store, node));
+            let pictures = self
+                .store
+                .update(cx, |store, cx| store.pictures(node, id, cx));
             let sub =
                 cx.subscribe(
                     &pictures,
@@ -667,8 +668,17 @@ fn wait_body(
             .get(&id)
             .map(|a| a.pictures.clone());
         if let Some(pictures) = &pictures {
-            let viewer = answers.read(cx).viewer.clone();
-            body = body.children(pictures::chips(pictures, &viewer, "answer-chip", id, z, cx));
+            let owner = answers.clone();
+            body = body.children(pictures::chips(
+                pictures,
+                move |picture, window, cx| {
+                    owner.update(cx, |answers, cx| answers.zoom(id, picture, window, cx))
+                },
+                "answer-chip",
+                id,
+                z,
+                cx,
+            ));
         }
         let field = scaled(answers, id, Slot::Answer, z, cx);
         if let Some(field) = field {

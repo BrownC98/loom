@@ -1,6 +1,6 @@
 use gpui::{
     Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Point, Styled, div, point, px,
+    ParentElement, Pixels, Point, Styled, div, point, px, rgb,
 };
 
 use api::graph::waits::WaitTone;
@@ -10,14 +10,20 @@ use super::layout::Rect;
 use super::view::CanvasView;
 use crate::theme::{Colors, Theme};
 
-pub const WIDTH: f32 = 168.0;
-pub const HEIGHT: f32 = 108.0;
-const MARGIN: f32 = 12.0;
+pub const WIDTH: f32 = 200.0;
+pub const HEIGHT: f32 = 150.0;
+const MARGIN: f32 = 15.0;
+const BORDER: f32 = 1.0;
+pub const CORNER: f32 = MARGIN + 2.0 * BORDER + WIDTH;
+pub const CORNER_FOLDED: f32 = 80.0;
 const PADDING: f32 = 5.0;
 const CLICK: f32 = 3.0;
 const ROUND: f32 = 8.0;
-const TILE_ROUND: f32 = 2.0;
-const IDLE_ALPHA: f32 = 0.22;
+const TILE_ROUND: f32 = 5.0;
+const IDLE: u32 = 0xe2e2e2;
+const MASK_ALPHA: f32 = 0.7;
+const REPO_LINE: f32 = 1.5;
+const GROUP_LINE: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub struct Plan {
@@ -94,8 +100,8 @@ fn plan_of(canvas: &CanvasView) -> Plan {
 fn origin(canvas: &CanvasView) -> Point<Pixels> {
     let area = canvas.area.get();
     point(
-        area.origin.x + area.size.width - px(MARGIN + WIDTH),
-        area.origin.y + area.size.height - px(MARGIN + HEIGHT),
+        area.origin.x + area.size.width - px(MARGIN + BORDER + WIDTH),
+        area.origin.y + area.size.height - px(MARGIN + BORDER + HEIGHT),
     )
 }
 
@@ -179,7 +185,7 @@ pub fn view(
     let plan = plan_of(canvas);
     canvas.map.plan = Some(plan);
     let colors = cx.global::<Theme>().colors;
-    let idle: Hsla = Hsla::from(colors.ink).opacity(IDLE_ALPHA);
+    let idle = Hsla::from(rgb(IDLE));
     let camera = canvas.camera;
     let snapshot = canvas.store.read(cx).snapshot();
     let marks: Vec<(Rect, Mark)> = canvas
@@ -203,10 +209,13 @@ pub fn view(
             .top(px(y))
             .w(px((x2 - x).max(1.0)))
             .h(px((y2 - y).max(1.0)))
-            .rounded(px(TILE_ROUND));
+            .rounded(px(TILE_ROUND * plan.scale));
         match mark {
-            Mark::Repo => tile.border_1().border_color(colors.ink_3),
-            Mark::Group => tile.border_1().border_dashed().border_color(colors.ink_3),
+            Mark::Repo => tile.border(px(REPO_LINE)).border_color(colors.ink_3),
+            Mark::Group => tile
+                .border(px(GROUP_LINE))
+                .border_dashed()
+                .border_color(colors.ink_3),
             Mark::Card(fill) => tile.bg(fill.unwrap_or(idle)),
         }
     });
@@ -215,24 +224,41 @@ pub fn view(
         (f32::from(area.width) - camera.x) / camera.zoom,
         (f32::from(area.height) - camera.y) / camera.zoom,
     );
+    let shade = Hsla::from(colors.bg).opacity(MASK_ALPHA);
+    let (left, top) = (vx.clamp(0.0, WIDTH), vy.clamp(0.0, HEIGHT));
+    let (right, bottom) = (vx2.clamp(left, WIDTH), vy2.clamp(top, HEIGHT));
+    let band = |x: f32, y: f32, w: f32, h: f32| {
+        div()
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(w))
+            .h(px(h))
+            .bg(shade)
+    };
+    let mask = [
+        band(0.0, 0.0, WIDTH, top),
+        band(0.0, bottom, WIDTH, HEIGHT - bottom),
+        band(0.0, top, left, bottom - top),
+        band(right, top, WIDTH - right, bottom - top),
+    ];
     let window = div()
         .absolute()
         .left(px(vx))
         .top(px(vy))
         .w(px(vx2 - vx))
         .h(px(vy2 - vy))
-        .rounded(px(3.0))
-        .border_2()
-        .border_color(colors.ink_2);
+        .border_1()
+        .border_color(colors.line_strong);
     Some(
         div()
             .absolute()
             .right(px(MARGIN))
             .bottom(px(MARGIN))
-            .w(px(WIDTH))
-            .h(px(HEIGHT))
+            .w(px(WIDTH + 2.0 * BORDER))
+            .h(px(HEIGHT + 2.0 * BORDER))
             .rounded(px(ROUND))
-            .border_1()
+            .border(px(BORDER))
             .border_color(colors.line)
             .bg(colors.panel)
             .overflow_hidden()
@@ -242,6 +268,7 @@ pub fn view(
                 cx.listener(|this, e: &MouseDownEvent, _, cx| press(this, e, cx)),
             )
             .children(tiles)
+            .children(mask)
             .child(window),
     )
 }

@@ -5,16 +5,17 @@ use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
 use api::graph::events::EventLog;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
-use api::graph::{GraphEvent, NewNode, NodeState};
-use api::ids::{NodeId, WaitId};
+use api::graph::{GraphEvent, NewNode, NodeView};
+use api::ids::{NodeId, RepoId, WaitId};
 use api::profile::AgentView;
-use api::settings::{ArrangeDirection, SettingsView};
+use api::settings::{ArrangeDirection, GraphScope, SettingsView};
 use gpui::{
     App, AppContext, Bounds, Context, EventEmitter, Image, ImageFormat, Pixels, Task, Window,
     WindowAppearance,
 };
 
 use crate::canvas::drag::Arrange;
+use crate::canvas::repos::{chosen_repo, groups_of};
 use crate::link::{self, Graph, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::{strings, theme};
@@ -31,6 +32,7 @@ pub struct Store {
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    chosen: Option<String>,
     wanted: Option<u32>,
     zoom_percent: u32,
     notice: Option<Notice>,
@@ -57,7 +59,14 @@ pub enum Slot {
 
 pub struct ZoomTo(pub f32);
 
-pub struct ShowNode(pub u32);
+#[derive(Clone)]
+pub enum Target {
+    Nodes(Vec<u32>),
+    Boxes(Vec<String>),
+    All,
+}
+
+pub struct Show(pub Target);
 pub struct DraftChanged(pub u32, pub Slot);
 
 pub struct BusyChanged;
@@ -65,7 +74,7 @@ pub struct BusyChanged;
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
-impl EventEmitter<ShowNode> for Store {}
+impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
 
@@ -119,6 +128,7 @@ impl Store {
             settings,
             settings_key: String::new(),
             selected: None,
+            chosen: None,
             wanted: None,
             zoom_percent: 100,
             notice,
@@ -228,6 +238,10 @@ impl Store {
         }
     }
 
+    pub fn has_picked(&self) -> bool {
+        self.picked.is_some()
+    }
+
     pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
         if self.picked != keys {
             self.picked = keys;
@@ -236,7 +250,97 @@ impl Store {
     }
 
     pub fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
-        cx.emit(ShowNode(node));
+        self.show_nodes(vec![node], cx);
+    }
+
+    pub fn go(&mut self, node: u32, cx: &mut Context<Self>) {
+        self.select(node, cx);
+        self.show_node(node, cx);
+    }
+
+    pub fn show_nodes(&mut self, nodes: Vec<u32>, cx: &mut Context<Self>) {
+        let present: Vec<(u32, RepoId)> = nodes
+            .into_iter()
+            .filter_map(|id| Some((id, self.repo_of(id)?)))
+            .collect();
+        let shown = self.shown_repos();
+        let mut ids: Vec<u32> = present
+            .iter()
+            .filter(|(_, repo)| shown.contains(repo))
+            .map(|(id, _)| *id)
+            .collect();
+        if ids.is_empty()
+            && let Some(&(_, repo)) = present.first()
+        {
+            self.choose_repo(repo, cx);
+            ids = present
+                .iter()
+                .filter(|(_, r)| *r == repo)
+                .map(|(id, _)| *id)
+                .collect();
+        }
+        if !ids.is_empty() {
+            cx.emit(Show(Target::Nodes(ids)));
+        }
+    }
+
+    pub fn show_boxes(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
+        cx.emit(Show(Target::Boxes(paths)));
+    }
+
+    pub fn show_repo(&mut self, repo: RepoId, cx: &mut Context<Self>) {
+        self.choose_repo(repo, cx);
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let Some(info) = snapshot.repos.iter().find(|r| r.id == repo) else {
+            return;
+        };
+        let views: Vec<&NodeView> = snapshot
+            .nodes
+            .iter()
+            .filter(|n| n.place.repo == repo)
+            .collect();
+        let paths = groups_of(info, &views)
+            .into_iter()
+            .map(|g| g.path)
+            .collect();
+        cx.emit(Show(Target::Boxes(paths)));
+    }
+
+    pub fn show_all(&mut self, cx: &mut Context<Self>) {
+        cx.emit(Show(Target::All));
+    }
+
+    fn current_repo(&self) -> Option<RepoId> {
+        let snapshot = self.snapshot.as_ref()?;
+        chosen_repo(&snapshot.repos, self.settings.repo).map(|r| r.id)
+    }
+
+    pub fn shown_repos(&self) -> Vec<RepoId> {
+        match (self.settings.graph_scope, &self.snapshot) {
+            (GraphScope::All, Some(snapshot)) => snapshot.repos.iter().map(|r| r.id).collect(),
+            _ => self.current_repo().into_iter().collect(),
+        }
+    }
+
+    pub fn choose_repo(&mut self, repo: RepoId, cx: &mut Context<Self>) {
+        if self.current_repo() == Some(repo) {
+            return;
+        }
+        self.settings.repo = Some(repo);
+        self.settings_key.clear();
+        self.save_settings(serde_json::json!({ "repo": repo }), cx);
+        cx.notify();
+    }
+
+    fn repo_of(&self, node: u32) -> Option<RepoId> {
+        let snapshot = self.snapshot.as_ref()?;
+        snapshot
+            .nodes
+            .iter()
+            .find(|n| n.id.0 == node)
+            .map(|n| n.place.repo)
     }
 
     pub fn zoomed(&self) -> bool {
@@ -281,7 +385,8 @@ impl Store {
                 Ok(()) => store.reload(cx),
                 Err(error) => {
                     let text = error.text(*cx.global::<strings::Lang>());
-                    store.tell(text, cx)
+                    store.tell(text, cx);
+                    store.reload(cx)
                 }
             });
         })
@@ -298,8 +403,27 @@ impl Store {
     }
 
     pub fn select(&mut self, node: u32, cx: &mut Context<Self>) {
-        if self.selected != Some(node) {
+        if let Some(repo) = self.repo_of(node) {
+            self.choose_repo(repo, cx);
+        }
+        if (self.selected != Some(node)) | self.chosen.take().is_some() {
             self.selected = Some(node);
+            cx.notify();
+        }
+    }
+
+    pub fn chosen(&self) -> Option<&str> {
+        self.chosen.as_deref()
+    }
+
+    pub fn choose_box(&mut self, key: String, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.chosen = Some(key);
+        cx.notify();
+    }
+
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selected.take().is_some() | self.chosen.take().is_some() {
             cx.notify();
         }
     }
@@ -368,19 +492,17 @@ impl Store {
             self.selected = Some(id);
             self.wanted = None;
         }
-        if self.selected.is_none_or(|id| !present(id)) {
-            let wanted = std::env::var(NODE_ENV)
+        if self.selected.is_some_and(|id| !present(id)) {
+            self.selected = None;
+        }
+        if self.revision == 1
+            && self.selected.is_none()
+            && let Some(id) = std::env::var(NODE_ENV)
                 .ok()
                 .and_then(|id| id.parse().ok())
-                .filter(|&id| present(id));
-            let running = snapshot
-                .nodes
-                .iter()
-                .find(|n| n.state == NodeState::Running)
-                .map(|n| n.id.0);
-            self.selected = wanted
-                .or(running)
-                .or(snapshot.nodes.first().map(|n| n.id.0));
+                .filter(|&id| present(id))
+        {
+            self.selected = Some(id);
         }
     }
 }

@@ -46,9 +46,7 @@ fn main() {
         .iter()
         .filter(|(_, text)| text.contains("from 'lucide-react'"))
         .collect();
-    for (path, _) in &lucide_users {
-        println!("cargo:rerun-if-changed={}", path.display());
-    }
+    println!("cargo:rerun-if-changed={}", web.display());
     let lucide_texts: Vec<&str> = lucide_users.iter().map(|(_, text)| text.as_str()).collect();
     write(
         "icons.rs",

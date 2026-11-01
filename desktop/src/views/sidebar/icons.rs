@@ -1,0 +1,116 @@
+use gpui::{IntoElement, PathBuilder, Rgba, Styled, canvas, point, px};
+
+const GRID: f32 = 24.0;
+const STROKE: f32 = 2.0;
+const ARC_STEPS: usize = 20;
+
+type Poly = Vec<(f32, f32)>;
+
+pub enum Glyph {
+    ChevronOpen,
+    ChevronClosed,
+    Search,
+    Clear,
+    Branch,
+    Bookmark { filled: bool },
+    Mail,
+    Reply,
+    ExpandAll,
+}
+
+fn circle(x: f32, y: f32, r: f32) -> Poly {
+    (0..=ARC_STEPS)
+        .map(|i| {
+            let angle = i as f32 / ARC_STEPS as f32 * std::f32::consts::TAU;
+            (x + r * angle.cos(), y + r * angle.sin())
+        })
+        .collect()
+}
+
+fn strokes(glyph: &Glyph) -> Vec<Poly> {
+    match glyph {
+        Glyph::ChevronOpen => vec![vec![(6.0, 9.0), (12.0, 15.0), (18.0, 9.0)]],
+        Glyph::ChevronClosed => vec![vec![(9.0, 6.0), (15.0, 12.0), (9.0, 18.0)]],
+        Glyph::Search => vec![circle(11.0, 11.0, 8.0), vec![(21.0, 21.0), (16.7, 16.7)]],
+        Glyph::Clear => vec![
+            vec![(18.0, 6.0), (6.0, 18.0)],
+            vec![(6.0, 6.0), (18.0, 18.0)],
+        ],
+        Glyph::Branch => vec![
+            vec![(6.0, 3.0), (6.0, 15.0)],
+            circle(18.0, 6.0, 3.0),
+            circle(6.0, 18.0, 3.0),
+            vec![(18.0, 9.0), (17.0, 13.0), (14.0, 16.5), (9.0, 18.0)],
+        ],
+        Glyph::Bookmark { .. } => vec![vec![
+            (5.0, 3.0),
+            (19.0, 3.0),
+            (19.0, 21.0),
+            (12.0, 16.5),
+            (5.0, 21.0),
+            (5.0, 3.0),
+        ]],
+        Glyph::Mail => vec![
+            vec![
+                (3.0, 5.0),
+                (21.0, 5.0),
+                (21.0, 19.0),
+                (3.0, 19.0),
+                (3.0, 5.0),
+            ],
+            vec![(3.0, 7.0), (12.0, 13.0), (21.0, 7.0)],
+        ],
+        Glyph::Reply => vec![
+            vec![(9.0, 14.0), (4.0, 9.0), (9.0, 4.0)],
+            vec![(20.0, 20.0), (20.0, 13.0), (17.0, 9.0), (4.0, 9.0)],
+        ],
+        Glyph::ExpandAll => vec![
+            vec![(7.0, 15.0), (12.0, 20.0), (17.0, 15.0)],
+            vec![(7.0, 9.0), (12.0, 4.0), (17.0, 9.0)],
+        ],
+    }
+}
+
+pub fn icon(glyph: Glyph, size: f32, color: Rgba) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let scale = size / GRID;
+            let at = |(x, y): (f32, f32)| {
+                point(
+                    bounds.origin.x + px(x * scale),
+                    bounds.origin.y + px(y * scale),
+                )
+            };
+            if let Glyph::Bookmark { filled: true } = glyph {
+                let mut fill = PathBuilder::fill();
+                for (i, p) in strokes(&glyph)[0].iter().enumerate() {
+                    if i == 0 {
+                        fill.move_to(at(*p));
+                    } else {
+                        fill.line_to(at(*p));
+                    }
+                }
+                fill.close();
+                if let Ok(path) = fill.build() {
+                    window.paint_path(path, color);
+                }
+            }
+            for poly in strokes(&glyph) {
+                let mut line = PathBuilder::stroke(px(STROKE * scale.max(0.6)));
+                for (i, p) in poly.iter().enumerate() {
+                    if i == 0 {
+                        line.move_to(at(*p));
+                    } else {
+                        line.line_to(at(*p));
+                    }
+                }
+                if let Ok(path) = line.build() {
+                    window.paint_path(path, color);
+                }
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
+}

@@ -145,6 +145,16 @@ pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
+pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
+    let url = format!("{base}/api/nodes/{node}/bookmark");
+    if on {
+        agent().put(url).send_empty().map(|_| ())
+    } else {
+        agent().delete(url).call().map(|_| ())
+    }
+    .map_err(|e| e.to_string())
+}
+
 fn get(base: &str, path: &str) -> Result<String, String> {
     agent()
         .get(format!("{base}{path}"))

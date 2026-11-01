@@ -80,7 +80,7 @@ impl Dialog {
                 window,
                 |this, _, event: &FieldEvent, _, cx| match event {
                     FieldEvent::Changed => {
-                        this.scroll.handle().set_offset(point(px(0.0), px(0.0)));
+                        this.scroll.reset();
                         cx.notify();
                     }
                     FieldEvent::Escape => this.escape_search(cx),
@@ -154,7 +154,7 @@ impl Dialog {
     pub(super) fn choose(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.search.update(cx, |field, cx| field.clear(cx));
         self.tab = tab;
-        self.scroll.handle().set_offset(point(px(0.0), px(0.0)));
+        self.scroll.reset();
         cx.notify();
     }
 
@@ -441,7 +441,7 @@ impl Render for Dialog {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.scroll.handle())
+            .track_scroll(self.scroll.handle())
             .px(px(22.0))
             .pb(px(18.0))
             .flex()
@@ -461,7 +461,7 @@ impl Render for Dialog {
             }));
         let pane = self
             .scroll
-            .wrap(div().flex().flex_col().child(head).child(body), false)
+            .on_overflow(div().flex().flex_col().child(head).child(body))
             .flex_1()
             .min_w_0()
             .h_full();

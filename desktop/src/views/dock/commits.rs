@@ -110,7 +110,7 @@ impl Dock {
             poll: self.commits.poll,
             ..Commits::default()
         };
-        self.commit_bar.handle().set_offset(point(px(0.0), px(0.0)));
+        self.commit_bar.reset();
         if self.tab == Tab::Commits {
             self.commits_refresh(cx);
         }
@@ -472,7 +472,7 @@ impl Dock {
                 cx,
             ));
         }
-        let handle = self.commit_bar.uniform_handle().unwrap_or_default();
+        let handle = self.commit_bar.handle().clone();
         let list = uniform_list(
             ("commits", self.commits.epoch),
             count,
@@ -488,7 +488,7 @@ impl Dock {
         )
         .size_full()
         .track_scroll(&handle);
-        panel.child(self.commit_bar.wrap(list, false).flex_1().min_h_0())
+        panel.child(self.commit_bar.on_overflow(list).flex_1().min_h_0())
     }
 }
 

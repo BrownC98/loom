@@ -57,7 +57,7 @@ pub fn list_box_on(
     let area = div()
         .id(id)
         .overflow_y_scroll()
-        .track_scroll(&scroll.handle())
+        .track_scroll(scroll.handle())
         .flex()
         .flex_col()
         .when_some(hover.clone(), |list, hover| {
@@ -69,7 +69,7 @@ pub fn list_box_on(
         })
         .children(rows);
     scroll
-        .wrap(area, false)
+        .on_overflow(area)
         .w(px(width))
         .h(px(height))
         .flex_none()

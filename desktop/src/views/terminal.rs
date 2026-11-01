@@ -368,7 +368,8 @@ impl TerminalView {
         let (Some(cell), true) = (self.cell, self.area.size.width > px(0.0)) else {
             return;
         };
-        let cols = ((self.area.size.width / self.scale - px(SCROLLBAR)) / cell.cell_width + FIT_SLACK)
+        let cols = ((self.area.size.width / self.scale - px(SCROLLBAR)) / cell.cell_width
+            + FIT_SLACK)
             .floor() as u16;
         let rows =
             (self.area.size.height / self.scale / cell.cell_height + FIT_SLACK).floor() as u16;
@@ -639,7 +640,10 @@ impl Render for TerminalView {
                                 cell.cell_height * grid.1 as f32,
                             );
                         let origin = bounds.origin
-                            + point(spare.width.max(px(0.0)) / 2.0, spare.height.max(px(0.0)) / 2.0);
+                            + point(
+                                spare.width.max(px(0.0)) / 2.0,
+                                spare.height.max(px(0.0)) / 2.0,
+                            );
                         view.update(cx, |view, _| view.resized(bounds, base, origin));
                         Bounds::new(origin, bounds.size)
                     },
@@ -796,7 +800,12 @@ fn paint(
             continue;
         }
         let marked_cells;
-        let cells = match frame.picked.iter().filter(|p| p.row == row).collect::<Vec<_>>() {
+        let cells = match frame
+            .picked
+            .iter()
+            .filter(|p| p.row == row)
+            .collect::<Vec<_>>()
+        {
             picks if picks.is_empty() => cells,
             picks => {
                 let mut owned = cells.to_vec();

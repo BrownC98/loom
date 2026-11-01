@@ -3,7 +3,8 @@ use api::graph::waits::ClosedWait;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    Render, StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, Window, div,
+    px,
 };
 
 use self::answers::Answers;
@@ -100,7 +101,7 @@ pub struct Dock {
     history: History,
     docs: Docs,
     commits: commits::Commits,
-    commit_bar: Bar,
+    commit_bar: Bar<UniformListScrollHandle>,
     panel_bar: Bar,
     events: events::Events,
     fault: Option<String>,
@@ -133,7 +134,7 @@ pub fn dock(
                 query: query.clone(),
             },
             commits: commits::Commits::default(),
-            commit_bar: Bar::uniform(),
+            commit_bar: Bar::over(UniformListScrollHandle::new()),
             panel_bar: Bar::new(),
             events: events::Events::new(cx),
             fault: None,
@@ -293,19 +294,19 @@ impl Render for Dock {
                     .children(tabs),
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
-            .child(
-                self.panel_bar
-                    .wrap(
-                        div()
-                            .id("dock-panel")
-                            .overflow_y_scroll()
-                            .track_scroll(&self.panel_bar.handle())
-                            .child(panel),
-                        matches!(self.tab, Tab::Questions | Tab::Docs),
-                    )
-                    .flex_1()
-                    .min_h_0(),
-            )
+            .child({
+                let area = div()
+                    .id("dock-panel")
+                    .overflow_y_scroll()
+                    .track_scroll(self.panel_bar.handle())
+                    .child(panel);
+                let column = if matches!(self.tab, Tab::Questions | Tab::Docs) {
+                    self.panel_bar.reserved(area)
+                } else {
+                    self.panel_bar.on_overflow(area)
+                };
+                column.flex_1().min_h_0()
+            })
             .into_any_element()
     }
 }

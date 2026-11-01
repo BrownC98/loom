@@ -799,7 +799,7 @@ impl Sidebar {
         let mark_rows = div()
             .id("marks")
             .overflow_y_scroll()
-            .track_scroll(&self.marks_scroll.handle())
+            .track_scroll(self.marks_scroll.handle())
             .px(px(8.0))
             .flex()
             .flex_col()
@@ -812,14 +812,14 @@ impl Sidebar {
             }));
         let mark_rows = self
             .marks_scroll
-            .wrap(mark_rows, true)
+            .reserved(mark_rows)
             .flex_none()
             .max_h(relative(0.4));
 
         let tree_rows = div()
             .id("tree")
             .overflow_y_scroll()
-            .track_scroll(&self.tree_scroll.handle())
+            .track_scroll(self.tree_scroll.handle())
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event, window, cx| this.key(event, window, cx)))
             .px(px(8.0))
@@ -840,7 +840,7 @@ impl Sidebar {
                     .text_color(c.ink_3)
                     .child(Str::FindNoMatch.text(lang))
             }));
-        let tree_rows = self.tree_scroll.wrap(tree_rows, true).flex_1().min_h_0();
+        let tree_rows = self.tree_scroll.reserved(tree_rows).flex_1().min_h_0();
 
         let expand = div()
             .id("expand-all")

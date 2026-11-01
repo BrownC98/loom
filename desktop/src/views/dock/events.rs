@@ -41,7 +41,7 @@ pub struct Events {
     open: Option<u32>,
     shown: Vec<usize>,
     list: ListState,
-    bar: Bar,
+    bar: Bar<ListState>,
 }
 
 impl Events {
@@ -60,7 +60,7 @@ impl Events {
             open: None,
             shown: Vec::new(),
             list: list.clone(),
-            bar: Bar::list(&list),
+            bar: Bar::over(list.clone()),
         }
     }
 
@@ -288,15 +288,10 @@ impl Dock {
             Some(_) => panel.child(
                 self.events
                     .bar
-                    .wrap(
-                        list(
-                            self.events.list.clone(),
-                            cx.processor(|dock: &mut Dock, ix: usize, _, cx| {
-                                dock.event_row(ix, cx)
-                            }),
-                        ),
-                        true,
-                    )
+                    .reserved(list(
+                        self.events.list.clone(),
+                        cx.processor(|dock: &mut Dock, ix: usize, _, cx| dock.event_row(ix, cx)),
+                    ))
                     .flex_1()
                     .min_h_0(),
             ),

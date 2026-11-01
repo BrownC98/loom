@@ -2,9 +2,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Corners, Div, IntoElement, ListState, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, PathBuilder, Pixels, Rgba, ScrollHandle, Styled,
-    UniformListScrollHandle, Window, canvas, div, fill, point, px, rgb,
+    App, Bounds, Corners, Div, Hitbox, HitboxBehavior, IntoElement, ListState, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels, Rgba,
+    ScrollHandle, Styled, UniformListScrollHandle, Window, canvas, div, fill, point, px, rgb,
 };
 
 use crate::theme::{Scheme, Theme};
@@ -22,57 +22,73 @@ const GLYPH_GAP: f32 = 6.5;
 struct Shared {
     grab: Cell<Option<f32>>,
     hover: Cell<bool>,
+    shown: Cell<bool>,
+    flips: Cell<u8>,
+    height: Cell<f32>,
 }
 
-#[derive(Clone)]
-enum Source {
-    Scroll(ScrollHandle),
-    Uniform(UniformListScrollHandle),
-    List(ListState),
+pub trait Track: Clone + 'static {
+    fn max(&self) -> f32;
+    fn offset(&self) -> f32;
+    fn set(&self, y: f32);
+    fn drag(&self, _on: bool) {}
 }
 
-impl Source {
+impl Track for ScrollHandle {
     fn max(&self) -> f32 {
-        match self {
-            Source::Scroll(h) => h.max_offset().y.as_f32().abs(),
-            Source::Uniform(h) => h.0.borrow().base_handle.max_offset().y.as_f32().abs(),
-            Source::List(l) => l.max_offset_for_scrollbar().y.as_f32().abs(),
-        }
+        self.max_offset().y.as_f32().abs()
     }
 
     fn offset(&self) -> f32 {
-        match self {
-            Source::Scroll(h) => -h.offset().y.as_f32(),
-            Source::Uniform(h) => -h.0.borrow().base_handle.offset().y.as_f32(),
-            Source::List(l) => -l.scroll_px_offset_for_scrollbar().y.as_f32(),
-        }
+        -ScrollHandle::offset(self).y.as_f32()
     }
 
     fn set(&self, y: f32) {
-        match self {
-            Source::Scroll(h) => h.set_offset(point(h.offset().x, px(-y))),
-            Source::Uniform(h) => {
-                let base = &h.0.borrow().base_handle;
-                base.set_offset(point(base.offset().x, px(-y)));
-            }
-            Source::List(l) => l.set_offset_from_scrollbar(point(px(0.0), px(-y))),
-        }
+        self.set_offset(point(ScrollHandle::offset(self).x, px(-y)));
+    }
+}
+
+impl Track for UniformListScrollHandle {
+    fn max(&self) -> f32 {
+        self.0.borrow().base_handle.max()
+    }
+
+    fn offset(&self) -> f32 {
+        Track::offset(&self.0.borrow().base_handle)
+    }
+
+    fn set(&self, y: f32) {
+        self.0.borrow().base_handle.set(y);
+    }
+}
+
+impl Track for ListState {
+    fn max(&self) -> f32 {
+        self.max_offset_for_scrollbar().y.as_f32().abs()
+    }
+
+    fn offset(&self) -> f32 {
+        -self.scroll_px_offset_for_scrollbar().y.as_f32()
+    }
+
+    fn set(&self, y: f32) {
+        self.set_offset_from_scrollbar(point(px(0.0), px(-y)));
     }
 
     fn drag(&self, on: bool) {
-        if let Source::List(l) = self {
-            if on {
-                l.scrollbar_drag_started();
-            } else {
-                l.scrollbar_drag_ended();
-            }
+        if on {
+            self.scrollbar_drag_started();
+        } else {
+            self.scrollbar_drag_ended();
         }
     }
 }
 
+const FLIPS: u8 = 4;
+
 #[derive(Clone)]
-pub struct Bar {
-    source: Source,
+pub struct Bar<T: Track = ScrollHandle> {
+    track: T,
     corner: f32,
     shared: Rc<Shared>,
 }
@@ -111,67 +127,57 @@ struct Metrics {
     offset: f32,
 }
 
-impl Default for Bar {
-    fn default() -> Bar {
-        Bar::new()
+impl<T: Track + Default> Default for Bar<T> {
+    fn default() -> Bar<T> {
+        Bar::over(T::default())
     }
 }
 
 impl Bar {
-    fn with(source: Source) -> Bar {
+    pub fn new() -> Bar {
+        Bar::over(ScrollHandle::new())
+    }
+}
+
+impl<T: Track> Bar<T> {
+    pub fn over(track: T) -> Bar<T> {
         Bar {
-            source,
+            track,
             corner: 0.0,
             shared: Rc::new(Shared {
                 grab: Cell::new(None),
                 hover: Cell::new(false),
+                shown: Cell::new(false),
+                flips: Cell::new(0),
+                height: Cell::new(0.0),
             }),
         }
     }
 
-    pub fn round(mut self, radius: f32) -> Bar {
+    pub fn round(mut self, radius: f32) -> Bar<T> {
         self.corner = radius;
         self
     }
 
-    pub fn new() -> Bar {
-        Bar::with(Source::Scroll(ScrollHandle::new()))
+    pub fn handle(&self) -> &T {
+        &self.track
     }
 
-    pub fn uniform() -> Bar {
-        Bar::with(Source::Uniform(UniformListScrollHandle::new()))
-    }
-
-    pub fn uniform_handle(&self) -> Option<UniformListScrollHandle> {
-        match &self.source {
-            Source::Uniform(h) => Some(h.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn list(state: &ListState) -> Bar {
-        Bar::with(Source::List(state.clone()))
-    }
-
-    pub fn handle(&self) -> ScrollHandle {
-        match &self.source {
-            Source::Scroll(h) => h.clone(),
-            Source::Uniform(h) => h.0.borrow().base_handle.clone(),
-            Source::List(_) => ScrollHandle::new(),
-        }
+    pub fn reset(&self) {
+        self.track.set(0.0);
     }
 
     fn overflows(&self) -> bool {
-        self.source.max() > 0.5
+        self.track.max() > 0.5
     }
 
     fn metrics(&self, height: f32) -> Option<Metrics> {
-        let max = self.source.max();
+        let max = self.track.max();
         if max <= 0.5 {
             return None;
         }
         let view = height;
-        let offset = self.source.offset().clamp(0.0, max);
+        let offset = self.track.offset().clamp(0.0, max);
         let start = ARROW + INSET;
         let room = (height - 2.0 * start).max(0.0);
         let thumb = (room * view / (view + max)).clamp(MIN_THUMB.min(room), room);
@@ -188,11 +194,19 @@ impl Bar {
     }
 
     fn scroll_to(&self, y: f32, max: f32) {
-        self.source.set(y.clamp(0.0, max));
+        self.track.set(y.clamp(0.0, max));
     }
 
-    pub fn wrap(&self, area: impl IntoElement + Styled, gutter: bool) -> Div {
-        let show = gutter || self.overflows();
+    pub fn reserved(&self, area: impl IntoElement + Styled) -> Div {
+        self.column(area, true)
+    }
+
+    pub fn on_overflow(&self, area: impl IntoElement + Styled) -> Div {
+        self.column(area, false)
+    }
+
+    fn column(&self, area: impl IntoElement + Styled, gutter: bool) -> Div {
+        let show = gutter || self.shared.shown.get();
         let bar = self.clone();
         div()
             .flex()
@@ -204,9 +218,11 @@ impl Bar {
                     .w(px(if show { WIDTH } else { 0.0 }))
                     .child(
                         canvas(
-                            |bounds, _, _| bounds,
-                            move |bounds, _, window, cx| {
-                                bar.paint(bounds, show, gutter, window, cx)
+                            |bounds, window, _| {
+                                (bounds, window.insert_hitbox(bounds, HitboxBehavior::Normal))
+                            },
+                            move |_, (bounds, hitbox), window, cx| {
+                                bar.paint(bounds, hitbox, show, gutter, window, cx)
                             },
                         )
                         .size_full(),
@@ -214,18 +230,32 @@ impl Bar {
             )
     }
 
+    fn settle(&self, height: f32, shown: bool, window: &mut Window) {
+        if (self.shared.height.get() - height).abs() > 0.5 {
+            self.shared.height.set(height);
+            self.shared.flips.set(0);
+        }
+        let wants = self.overflows();
+        if wants != shown && self.shared.flips.get() < FLIPS {
+            self.shared.flips.set(self.shared.flips.get() + 1);
+            self.shared.shown.set(wants);
+            window.refresh();
+        }
+    }
+
     fn paint(
         &self,
         bounds: Bounds<Pixels>,
+        hitbox: Hitbox,
         shown: bool,
         gutter: bool,
         window: &mut Window,
         cx: &mut App,
     ) {
-        if !gutter && self.overflows() != shown {
-            window.refresh();
-        }
         let height = bounds.size.height.as_f32();
+        if !gutter {
+            self.settle(height, shown, window);
+        }
         let Some(m) = self.metrics(height) else {
             return;
         };
@@ -277,11 +307,9 @@ impl Bar {
         }
 
         let bar = self.clone();
+        let down = hitbox.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, _| {
-            if !phase.bubble()
-                || event.button != MouseButton::Left
-                || !bounds.contains(&event.position)
-            {
+            if !phase.bubble() || event.button != MouseButton::Left || !down.is_hovered(window) {
                 return;
             }
             let Some(m) = bar.metrics(height) else {
@@ -294,7 +322,7 @@ impl Bar {
                 bar.scroll_to(m.offset + STEP, m.max);
             } else if y >= m.top && y <= m.top + m.thumb {
                 bar.shared.grab.set(Some(y - m.top));
-                bar.source.drag(true);
+                bar.track.drag(true);
             } else {
                 let page = (m.view * 0.875).max(STEP);
                 let delta = if y < m.top { -page } else { page };
@@ -303,7 +331,10 @@ impl Bar {
             window.refresh();
         });
         let bar = self.clone();
-        window.on_mouse_event(move |event: &MouseMoveEvent, _, window, _| {
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _| {
+            if !phase.bubble() {
+                return;
+            }
             let Some(m) = bar.metrics(height) else {
                 return;
             };
@@ -315,21 +346,24 @@ impl Bar {
                     bar.scroll_to(top / span * m.max, m.max);
                 } else {
                     bar.shared.grab.set(None);
-                    bar.source.drag(false);
+                    bar.track.drag(false);
                 }
                 window.refresh();
                 return;
             }
-            let over = bounds.contains(&event.position) && y >= m.top && y <= m.top + m.thumb;
+            let over = hitbox.is_hovered(window) && y >= m.top && y <= m.top + m.thumb;
             if over != bar.shared.hover.get() {
                 bar.shared.hover.set(over);
                 window.refresh();
             }
         });
         let bar = self.clone();
-        window.on_mouse_event(move |_: &MouseUpEvent, _, window, _| {
+        window.on_mouse_event(move |_: &MouseUpEvent, phase, window, _| {
+            if !phase.bubble() {
+                return;
+            }
             if bar.shared.grab.take().is_some() {
-                bar.source.drag(false);
+                bar.track.drag(false);
                 window.refresh();
             }
         });

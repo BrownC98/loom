@@ -27,6 +27,11 @@ pub enum Glyph {
     Paperclip,
     ArrowUp,
     SquareTerminal,
+    Panel { right: bool, open: bool },
+    Bell,
+    Document,
+    Lines,
+    Commit,
 }
 
 fn circle(x: f32, y: f32, r: f32) -> Poly {
@@ -45,6 +50,31 @@ fn arc(x: f32, y: f32, r: f32, from: f32, to: f32) -> Poly {
             (x + r * angle.cos(), y + r * angle.sin())
         })
         .collect()
+}
+
+fn rounded(left: f32, top: f32, right: f32, bottom: f32, r: f32) -> Poly {
+    let mut outline = arc(left + r, top + r, r, 180.0, 270.0);
+    outline.extend(arc(right - r, top + r, r, 270.0, 360.0));
+    outline.extend(arc(right - r, bottom - r, r, 0.0, 90.0));
+    outline.extend(arc(left + r, bottom - r, r, 90.0, 180.0));
+    outline.push(outline[0]);
+    outline
+}
+
+fn bell() -> Poly {
+    let mut outline = arc(12.0, 8.0, 6.0, 180.0, 360.0);
+    outline.extend([
+        (18.0, 10.5),
+        (19.0, 13.2),
+        (20.74, 15.33),
+        (20.0, 17.0),
+        (4.0, 17.0),
+        (3.26, 15.33),
+        (5.0, 13.2),
+        (6.0, 10.5),
+    ]);
+    outline.push(outline[0]);
+    outline
 }
 
 fn moon() -> Poly {
@@ -207,6 +237,50 @@ fn strokes(glyph: &Glyph) -> Vec<Poly> {
             ],
             vec![(7.0, 11.0), (9.0, 9.0), (7.0, 7.0)],
             vec![(11.0, 13.0), (15.0, 13.0)],
+        ],
+        Glyph::Panel { right, open } => {
+            let line = if *right { 15.0 } else { 9.0 };
+            let chevron = match (*right, *open) {
+                (false, false) => [(16.0, 9.0), (13.0, 12.0), (16.0, 15.0)],
+                (false, true) => [(14.0, 9.0), (17.0, 12.0), (14.0, 15.0)],
+                (true, false) => [(8.0, 9.0), (11.0, 12.0), (8.0, 15.0)],
+                (true, true) => [(10.0, 15.0), (7.0, 12.0), (10.0, 9.0)],
+            };
+            vec![
+                rounded(3.0, 3.0, 21.0, 21.0, 2.0),
+                vec![(line, 3.0), (line, 21.0)],
+                chevron.to_vec(),
+            ]
+        }
+        Glyph::Bell => vec![bell(), vec![(10.27, 21.0), (12.0, 22.0), (13.73, 21.0)]],
+        Glyph::Document => vec![
+            vec![
+                (6.0, 22.0),
+                (4.0, 20.0),
+                (4.0, 4.0),
+                (6.0, 2.0),
+                (14.0, 2.0),
+                (15.7, 2.7),
+                (19.3, 6.3),
+                (20.0, 8.0),
+                (20.0, 20.0),
+                (18.0, 22.0),
+                (6.0, 22.0),
+            ],
+            vec![(14.0, 2.0), (14.0, 7.0), (15.0, 8.0), (20.0, 8.0)],
+            vec![(10.0, 9.0), (8.0, 9.0)],
+            vec![(16.0, 13.0), (8.0, 13.0)],
+            vec![(16.0, 17.0), (8.0, 17.0)],
+        ],
+        Glyph::Lines => vec![
+            vec![(21.0, 6.0), (3.0, 6.0)],
+            vec![(15.0, 12.0), (3.0, 12.0)],
+            vec![(17.0, 18.0), (3.0, 18.0)],
+        ],
+        Glyph::Commit => vec![
+            vec![(12.0, 3.0), (12.0, 9.0)],
+            circle(12.0, 12.0, 3.0),
+            vec![(12.0, 15.0), (12.0, 21.0)],
         ],
         Glyph::Map { folded } => {
             let mut lines = vec![

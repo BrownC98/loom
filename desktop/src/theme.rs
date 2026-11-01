@@ -246,6 +246,16 @@ fn luminance(l: f64, c: f64, h: f64) -> f64 {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
+pub fn mix(top: Rgba, share: f32, under: Rgba) -> Rgba {
+    let blend = |a: f32, b: f32| a * share + b * (1.0 - share);
+    Rgba {
+        r: blend(top.r, under.r),
+        g: blend(top.g, under.g),
+        b: blend(top.b, under.b),
+        a: 1.0,
+    }
+}
+
 pub fn luminance_of(color: Rgba) -> f64 {
     0.2126 * linear(f64::from(color.r))
         + 0.7152 * linear(f64::from(color.g))

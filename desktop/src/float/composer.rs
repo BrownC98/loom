@@ -17,7 +17,7 @@ use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
 use crate::store::Store;
 use crate::strings::Str;
-use crate::views::dock::entry::mix;
+use crate::theme::mix;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};

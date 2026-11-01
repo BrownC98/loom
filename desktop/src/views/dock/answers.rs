@@ -16,6 +16,7 @@ use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
+use crate::theme::mix;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
 use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
@@ -768,7 +769,7 @@ fn wait_body(
                 .border(px(2.0 * z))
                 .border_dashed()
                 .border_color(entry::tone_of(wait.tone, &c))
-                .bg(entry::mix(entry::tone_of(wait.tone, &c), 0.1, c.surface))
+                .bg(mix(entry::tone_of(wait.tone, &c), 0.1, c.surface))
                 .text_color(c.ink)
                 .text_size(px(ui::TEXT * z))
                 .font_weight(FontWeight::SEMIBOLD)

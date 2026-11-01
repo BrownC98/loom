@@ -708,7 +708,7 @@ pub fn new_worktree(
         key,
         view.into(),
         Anchor::Below(button),
-        (worktree::NEW_WIDTH, 260.0),
+        (worktree::NEW_WIDTH, 330.0),
         vec![closed],
         cx,
     );

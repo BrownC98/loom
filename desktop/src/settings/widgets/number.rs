@@ -5,8 +5,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
+use super::btn::button;
 use super::text::{Text, TextEvent};
-use crate::views::dock::ui::button;
 
 const FIELD_W: f32 = 56.0;
 const BOX_W: f32 = 120.0;

@@ -8,10 +8,11 @@ use gpui::{
 
 use crate::link;
 use crate::problem::Failure;
+use crate::settings::notify;
 use crate::settings::widgets::{Text, TextEvent, field_reset, switch};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::Str;
-use crate::views::dock::ui::{GAP, SMALL, colors, say, say_with};
+use crate::views::dock::ui::{SMALL, colors, say, say_with};
 
 const PC: &str = "";
 
@@ -78,7 +79,7 @@ fn field(
     if let Some(found) = state.fields.get(key) {
         return found.clone();
     }
-    let text = cx.new(|cx| Text::new("", false, window, cx).keep_draft());
+    let text = cx.new(|cx| Text::mono("", window, cx).keep_draft());
     let writer = ctx.writer.clone();
     let dialog = ctx.dialog.clone();
     let places = places.clone();
@@ -131,14 +132,8 @@ fn dir_section(
     dir.text
         .update(cx, |text, cx| text.show(&dir.saved, window, cx));
     let c = colors(cx);
-    let mut section = Section::new(Some(&dir.label), ctx);
-    let row = div()
-        .flex()
-        .items_center()
-        .gap(px(GAP))
-        .child(div().flex_1().child(dir.text.clone()))
-        .children(dir.reset);
-    section = section.child(row);
+    let mut section = Section::new(Some(&dir.label), ctx).beside(dir.reset);
+    section = section.child(dir.text.clone());
     if let Some(value) = errors.get(dir.owner) {
         let message = say_with(cx, Str::ProblemRepoNotAbsolute, &[("value", value)]);
         section.child(div().text_size(px(SMALL)).text_color(c.err).child(message))
@@ -230,11 +225,26 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
         .child(switch(
             "os-notify",
             on,
-            move |value, _, cx| writer.edit(cx, |settings| settings.os_notify = value),
+            label,
+            move |value, _, cx| {
+                if value && !notify::SUPPORTED {
+                    return;
+                }
+                writer.edit(cx, |settings| settings.os_notify = value)
+            },
             cx,
-        ))
-        .child(label)
-        .children(field_reset("reset-os-notify", &["osNotify"], ctx, cx));
-    out.push(notify.child(row));
+        ));
+    notify = notify.beside(field_reset("reset-os-notify", &["osNotify"], ctx, cx));
+    notify = notify.child(row);
+    if !notify::SUPPORTED {
+        let blocked = notify.text(say(cx, Str::OsNotifyAppBlocked), cx);
+        notify = notify.child(
+            div()
+                .text_size(px(SMALL))
+                .text_color(c.ink_3)
+                .child(blocked),
+        );
+    }
+    out.push(notify);
     out
 }

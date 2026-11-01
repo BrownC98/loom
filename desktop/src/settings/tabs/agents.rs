@@ -5,20 +5,22 @@ use gpui::{
 };
 
 use crate::fonts;
-use crate::settings::widgets::field_reset;
+use crate::settings::widgets::{field_reset, tabbable};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
 use crate::views::dock::ui::{SMALL, TEXT, colors, open_url, say, say_with};
+use crate::views::icons::{Lucide, agent_mark, icon};
 
 mod limits;
 pub(super) mod parts;
 mod roles;
 mod skills;
 
-use parts::{Remote, Shared, badge, hint, place_label, row, rows, small};
+use parts::{Remote, Shared, badge, ghost_small, hint, place_label, row, rows};
 
 const AGENTS: &str = "/api/agents";
 const COLUMNS: u16 = 3;
+const MARK: f32 = 14.0;
 
 #[derive(Default)]
 pub struct State {
@@ -128,16 +130,10 @@ fn installed(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Se
     let mut section = Section::new(Some(&head), ctx);
     let reload = state.agents.reloader(AGENTS, ctx, cx);
     let rescan_label = section.text(say(cx, Str::SettingsRescan), cx);
-    let bar = div()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .children(field_reset("agents-bypass-reset", &["bypassOff"], ctx, cx))
-        .child(
-            small("agents-rescan", cx)
-                .child(rescan_label)
-                .on_click(move |_, _, cx| reload.run(cx)),
-        );
+    let rescan = ghost_small("agents-rescan", cx)
+        .child(icon(Lucide::RotateCw, 14.0, colors(cx).ink_2))
+        .child(rescan_label)
+        .on_click(move |_, _, cx| reload.run(cx));
     let found: Vec<&AgentView> = agents.iter().filter(|agent| is_installed(agent)).collect();
     let body: gpui::AnyElement = if state.agents.value().is_none() {
         let text = state
@@ -158,7 +154,11 @@ fn installed(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Se
         rows(items, cx).into_any_element()
     };
     let bypass_hint = section.text(say(cx, Str::SettingsBypassHint), cx);
-    section.child(bar).child(body).child(hint(bypass_hint, cx))
+    section
+        .beside(field_reset("agents-bypass-reset", &["bypassOff"], ctx, cx))
+        .beside(Some(rescan))
+        .child(body)
+        .child(hint(bypass_hint, cx))
 }
 
 fn agent_row(
@@ -172,32 +172,56 @@ fn agent_row(
     let c = colors(cx);
     let messaging = say(cx, Str::SettingsMessaging);
     let name = section.text(&agent.label, cx);
-    let mut head = div().flex().items_center().gap(px(6.0)).child(
-        div()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_size(px(TEXT))
-            .child(name),
-    );
+    let mut head = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .child(agent_mark(Some(&agent.id.0), &agent.label, MARK, c.ink_2))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(px(TEXT))
+                .child(name),
+        );
     let mut main = div().flex().flex_col().gap(px(2.0)).flex_1().min_w_0();
-    let mono = |text: gpui::StyledText, tone: gpui::Rgba| {
+    let mono = |place: Option<(gpui::StyledText, gpui::Rgba)>,
+                text: gpui::StyledText,
+                tone: gpui::Rgba| {
         div()
-            .font_family(fonts::TERMINAL_FAMILY)
+            .flex()
+            .min_w_0()
+            .overflow_hidden()
             .text_size(px(SMALL))
             .text_color(tone)
-            .child(text)
+            .children(place.map(|(place, place_tone)| {
+                div()
+                    .flex_none()
+                    .mr(px(6.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(place_tone)
+                    .child(place)
+            }))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(fonts::TERMINAL_FAMILY)
+                    .child(text),
+            )
     };
     let mut lines = Vec::new();
     if multi {
         for at in at_places(agent) {
             let place = place_label(&at.place, cx);
             let meta = match &at.path {
-                Some(path) => format!("{place} {path} \u{00B7} {messaging}"),
-                None => format!("{place} {}", say(cx, Str::NewNodeNotInstalled)),
+                Some(path) => format!("{path} \u{00B7} {messaging}"),
+                None => say(cx, Str::NewNodeNotInstalled).to_owned(),
             };
-            lines.push(mono(section.text(&meta, cx), c.ink_3));
+            let (place_text, meta_text) = (section.text(&place, cx), section.text(&meta, cx));
+            lines.push(mono(Some((place_text, c.ink_2)), meta_text, c.ink_3));
             if let Some(found) = version_text(agent, at, cx) {
-                let warn = format!("{place} {found}");
-                lines.push(mono(section.text(&warn, cx), c.warn));
+                let (place_text, warn) = (section.text(&place, cx), section.text(&found, cx));
+                lines.push(mono(Some((place_text, c.warn)), warn, c.warn));
             }
         }
     } else if let Some(at) = at_places(agent).next() {
@@ -206,14 +230,13 @@ fn agent_row(
         }
         let path = at.path.clone().unwrap_or_default();
         let meta = format!("{path} \u{00B7} {messaging}");
-        lines.push(mono(section.text(&meta, cx), c.ink_3));
+        lines.push(mono(None, section.text(&meta, cx), c.ink_3));
     }
     main = main.child(head).children(lines);
 
     let docs_text = section.text(say(cx, Str::SettingsDocs), cx);
     let homepage = agent.homepage.clone();
-    let docs = div()
-        .id(("agent-docs", index))
+    let docs = tabbable(div().id(("agent-docs", index)), cx)
         .text_size(px(SMALL))
         .text_color(c.accent)
         .underline()
@@ -237,6 +260,7 @@ fn agent_row(
             .child(crate::settings::widgets::switch(
                 ("agent-bypass", index),
                 on,
+                label,
                 move |next, _, cx| {
                     let id = id.clone();
                     writer.edit(cx, move |settings| {
@@ -248,7 +272,6 @@ fn agent_row(
                 },
                 cx,
             ))
-            .child(label)
             .into_any_element()
     } else {
         let text = section.text(say(cx, Str::SettingsBypassUnsupported), cx);
@@ -281,8 +304,7 @@ fn missing(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Sect
         .collect();
     let open = state.more.read(|open| *open) || !ctx.query.is_empty();
     let more = state.more.bind(ctx);
-    let toggle = div()
-        .id("agents-not-installed")
+    let toggle = tabbable(div().id("agents-not-installed"), cx)
         .flex()
         .items_center()
         .gap(px(6.0))
@@ -303,10 +325,13 @@ fn missing(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Sect
                 .children(names.into_iter().zip(&absent).enumerate().map(
                     |(index, (name, agent))| {
                         let homepage = agent.homepage.clone();
-                        div()
-                            .id(("agent-missing", index))
+                        tabbable(div().id(("agent-missing", index)), cx)
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
                             .text_color(c.accent)
                             .cursor_pointer()
+                            .child(agent_mark(Some(&agent.id.0), &agent.label, MARK, c.ink_2))
                             .child(name)
                             .on_click(move |_, _, _| {
                                 let _ = open_url(&homepage);

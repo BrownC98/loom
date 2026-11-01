@@ -3,7 +3,7 @@ use gpui::{
     Window, div,
 };
 
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 
 pub enum TextEvent {
     Commit(String),
@@ -21,7 +21,21 @@ impl EventEmitter<TextEvent> for Text {}
 
 impl Text {
     pub fn new(hint: &str, secret: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let field = field::boxed(hint, secret, false, cx);
+        Self::build(hint, secret, Form::Plain, window, cx)
+    }
+
+    pub fn mono(hint: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::build(hint, false, Form::Mono, window, cx)
+    }
+
+    fn build(
+        hint: &str,
+        secret: bool,
+        form: Form,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let field = field::form(hint, secret, false, form, cx);
         let focus = field.read(cx).handle();
         let subs =
             vec![

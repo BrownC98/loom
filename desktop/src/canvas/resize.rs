@@ -164,6 +164,10 @@ impl Resizer {
         });
     }
 
+    pub fn busy(&self) -> bool {
+        self.active.is_some()
+    }
+
     pub fn drag(&mut self, to: Point<Pixels>, zoom: f32) -> bool {
         let Some(active) = &self.active else {
             return false;

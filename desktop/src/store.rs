@@ -7,11 +7,13 @@ use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NewNode, NodeState};
 use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
-use api::settings::SettingsView;
+use api::settings::{ArrangeDirection, SettingsView};
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
+use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
+use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
@@ -28,6 +30,8 @@ pub struct Store {
     selected: Option<u32>,
     wanted: Option<u32>,
     zoom_percent: u32,
+    notice: Option<(u64, Notice)>,
+    notices: u64,
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
 }
@@ -35,6 +39,7 @@ pub struct Store {
 pub struct ZoomTo(pub f32);
 
 impl EventEmitter<GraphEvent> for Store {}
+impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
@@ -90,6 +95,8 @@ impl Store {
             selected: None,
             wanted: None,
             zoom_percent: 100,
+            notice: None,
+            notices: 0,
             found: None,
             picked: None,
         }
@@ -113,6 +120,10 @@ impl Store {
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub fn loaded(&self) -> u64 {
+        self.loaded
     }
 
     pub fn settings(&self) -> &SettingsView {
@@ -156,6 +167,27 @@ impl Store {
         cx.emit(ZoomTo(percent / 100.0));
     }
 
+    pub fn notice(&self) -> Option<&Notice> {
+        self.notice.as_ref().map(|(_, notice)| notice)
+    }
+
+    pub fn tell(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notices += 1;
+        let id = self.notices;
+        self.notice = Some((id, Notice { text }));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(notice::shown_for()).await;
+            let _ = this.update(cx, |store, cx| {
+                if store.notice.as_ref().is_some_and(|(shown, _)| *shown == id) {
+                    store.notice = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
         let Some(base) = self.base.clone() else {
             return;
@@ -164,9 +196,13 @@ impl Store {
             let saved = cx
                 .background_spawn(async move { link::put_settings(&base, &patch) })
                 .await;
-            if saved.is_ok() {
-                let _ = this.update(cx, |store, cx| store.reload(cx));
-            }
+            let _ = this.update(cx, |store, cx| match saved {
+                Ok(()) => store.reload(cx),
+                Err(error) => {
+                    let text = error.text(*cx.global::<strings::Lang>());
+                    store.tell(text, cx)
+                }
+            });
         })
         .detach();
     }
@@ -261,6 +297,20 @@ impl Store {
 }
 
 impl Store {
+    pub fn arrange(&mut self, direction: ArrangeDirection, cx: &mut Context<Self>) {
+        self.save_settings(serde_json::json!({ "arrangeDirection": direction }), cx);
+        cx.emit(Arrange { direction });
+    }
+
+    pub fn keep_arranged(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.save_settings(serde_json::json!({ "alwaysArrange": on }), cx);
+        if on {
+            cx.emit(Arrange {
+                direction: self.settings.arrange_direction,
+            });
+        }
+    }
+
     fn call<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,

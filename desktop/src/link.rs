@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, Layout, Placed};
+use api::canvas::{Arranged, CardSize, Layout, Placed};
 use api::graph::errors::Problem;
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
@@ -186,6 +186,14 @@ pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), Failure> {
     .map(|_| ())
 }
 
+pub fn put_arranged(base: &str, arranged: &Arranged) -> Result<(), Failure> {
+    put(base, "/api/spots/arranged", arranged)
+}
+
+pub fn clear_spots(base: &str, repo: u32) -> Result<(), Failure> {
+    delete(base, &format!("/api/repos/{repo}/spots"))
+}
+
 pub fn post<T: serde::de::DeserializeOwned>(
     base: &str,
     path: &str,
@@ -270,6 +278,10 @@ pub struct Snapshot {
 }
 
 static LOADS: AtomicU64 = AtomicU64::new(0);
+
+pub fn issued() -> u64 {
+    LOADS.load(Ordering::Relaxed)
+}
 
 pub struct Loaded {
     pub order: u64,

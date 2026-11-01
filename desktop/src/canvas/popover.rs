@@ -11,6 +11,7 @@ use api::profile::AgentView;
 use api::repos::PlaceView;
 use api::start::{ModelChoice, Start};
 
+use super::arrange;
 use super::view::CanvasView;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -615,6 +616,26 @@ pub fn heads(canvas: &CanvasView, cx: &Context<CanvasView>) -> Vec<Div> {
             let right = at.x - px(HEAD_INSET * zoom);
             let top = at.y + px(HEAD_TOP * zoom);
             let anchor = point(area.x + right, area.y + top + px(height + GAP));
+            let path = frame.key.clone();
+            let new_node = div()
+                .h(px(height))
+                .flex()
+                .items_center()
+                .px(px(8.0 * zoom))
+                .rounded(px(6.0 * zoom))
+                .border(px(zoom.max(0.5)))
+                .border_color(colors.line_strong)
+                .text_size(px((HEAD_TEXT * zoom).max(1.0)))
+                .text_color(colors.ink_2)
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                        open(this, place.clone(), label.clone(), anchor, true, window, cx);
+                        cx.stop_propagation();
+                    }),
+                )
+                .child(format!("+ {}", Str::GraphNewNode.text(lang)));
             Some(
                 div()
                     .absolute()
@@ -623,21 +644,16 @@ pub fn heads(canvas: &CanvasView, cx: &Context<CanvasView>) -> Vec<Div> {
                     .h(px(height))
                     .flex()
                     .items_center()
-                    .px(px(8.0 * zoom))
-                    .rounded(px(6.0 * zoom))
-                    .border(px(zoom.max(0.5)))
-                    .border_color(colors.line_strong)
-                    .text_size(px((HEAD_TEXT * zoom).max(1.0)))
-                    .text_color(colors.ink_2)
-                    .cursor_pointer()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                            open(this, place.clone(), label.clone(), anchor, true, window, cx);
+                    .gap(px(4.0 * zoom))
+                    .child(arrange::button(
+                        zoom,
+                        colors,
+                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                            this.arrange_group(&path, cx);
                             cx.stop_propagation();
                         }),
-                    )
-                    .child(format!("+ {}", Str::GraphNewNode.text(lang))),
+                    ))
+                    .child(new_node),
             )
         })
         .collect()

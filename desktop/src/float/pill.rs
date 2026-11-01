@@ -1,34 +1,32 @@
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use api::graph::waits::{Prompt, ScreenWait, WaitTone};
+use api::graph::waits::{ScreenWait, WaitTone};
 use api::ids::WaitId;
 use api::settings::{FloatPlace, FloatSize, QuestionPill};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, BoxShadow, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render,
-    ScrollEvent, Size, StatefulInteractiveElement, Styled, Subscription, Window, canvas, div,
-    point, px,
+    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent, Size,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
 };
 
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
-use crate::views::dock::questions::{Group, groups_of, kind_label, shown_prompts};
+use crate::views::dock::answers::{self, Answers};
+use crate::views::dock::questions::{Group, groups_of, kind_label};
 use crate::views::dock::ui::{self, GAP};
-use crate::views::dock::{Draft, Slot};
+use crate::views::tooltip::tip;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
 const WIDTH: f32 = 520.0;
 const HEAD: f32 = 34.0;
-const POP_GAP: f32 = 6.0;
 const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
 
 pub struct Pill {
-    pub(super) store: Entity<Store>,
+    store: Entity<Store>,
     pane: Rc<Cell<Size<Pixels>>>,
     boxed: Rc<Cell<Size<Pixels>>>,
     open: bool,
@@ -39,10 +37,7 @@ pub struct Pill {
     seen_place: Option<FloatPlace>,
     shut: Option<WaitId>,
     seen_shut: Option<WaitId>,
-    pub(super) fields: HashMap<(u32, Slot), Draft>,
-    pub(super) shown: HashMap<u32, Prompt>,
-    pub(super) notes: HashMap<u32, String>,
-    pub(super) busy: HashSet<u32>,
+    answers: Entity<Answers>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -63,14 +58,13 @@ pub fn pill(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Pill> 
             seen_place,
             shut: None,
             seen_shut,
-            fields: HashMap::new(),
-            shown: HashMap::new(),
-            notes: HashMap::new(),
-            busy: HashSet::new(),
+            answers: cx.new(|cx| Answers::new(store.clone(), cx)),
             subscriptions: Vec::new(),
         };
         pill.subscriptions
             .push(cx.observe(&store, |pill: &mut Pill, _, cx| pill.sync(cx)));
+        pill.subscriptions
+            .push(cx.observe(&pill.answers, |_, _, cx| cx.notify()));
         pill.sync(cx);
         pill
     })
@@ -103,7 +97,6 @@ impl Pill {
             self.seen_shut = shut;
             self.shut = None;
         }
-        self.sync_answers(cx);
         cx.notify();
     }
 
@@ -180,6 +173,10 @@ impl Pill {
         cx.notify();
     }
 
+    fn jump(&mut self, node: api::ids::NodeId, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| store.select(node.0, cx));
+    }
+
     fn toggle(&mut self, cx: &mut Context<Self>) {
         if self.dragged {
             return;
@@ -189,46 +186,11 @@ impl Pill {
     }
 }
 
-fn follow(pill: Entity<Pill>) -> impl IntoElement {
-    canvas(
-        |_, _, _| (),
-        move |_, _, window, _| {
-            let moves = pill.clone();
-            window.on_mouse_event(move |e: &MouseMoveEvent, _, _, cx| {
-                moves.update(cx, |pill, cx| pill.slide(e, cx));
-            });
-            let ups = pill.clone();
-            window.on_mouse_event(move |e: &MouseUpEvent, _, _, cx| {
-                if e.button == MouseButton::Left {
-                    ups.update(cx, |pill, cx| pill.release(cx));
-                }
-            });
-        },
-    )
-    .absolute()
-    .size(px(1.0))
-}
-
-fn stop(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
-    cx.stop_propagation();
-}
-
 impl Render for Pill {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.shown = shown_prompts(self.store.read(cx).snapshot());
         let id = cx.entity_id();
         let (pane_cell, box_cell) = (self.pane.clone(), self.boxed.clone());
-        let measure = canvas(
-            move |bounds, _, cx| {
-                if pane_cell.get() != bounds.size {
-                    pane_cell.set(bounds.size);
-                    cx.notify(id);
-                }
-            },
-            |_, _, _, _| (),
-        )
-        .absolute()
-        .size_full();
+        let measure = place::measure(pane_cell, id);
         let root = div().absolute().top_0().left_0().size_full().child(measure);
         let groups = self.groups(cx);
         let look = self.look(cx);
@@ -264,19 +226,7 @@ impl Render for Pill {
             .occlude()
             .when(line, |d| d.max_w(px(width)))
             .when(!line, |d| d.w(px(width)))
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        if box_cell.get() != bounds.size {
-                            box_cell.set(bounds.size);
-                            cx.notify(id);
-                        }
-                    },
-                    |_, _, _, _| (),
-                )
-                .absolute()
-                .size_full(),
-            )
+            .child(place::measure(box_cell, id))
             .child(face);
         let mut group = div().absolute().left(at.x).top(at.y);
         if !measured {
@@ -286,7 +236,10 @@ impl Render for Pill {
         if self.open {
             group = group.child(self.pop(&groups, count, at, boxed, pane, width, z, cx));
         }
-        let follow = self.grab.is_some().then(|| follow(cx.entity()));
+        let follow = self
+            .grab
+            .is_some()
+            .then(|| place::follow(cx.entity(), Pill::slide, Pill::release));
         root.children(follow).child(group)
     }
 }
@@ -330,7 +283,7 @@ impl Pill {
                 .justify_center()
                 .child(format!("{mark}{n}"))
         };
-        let tool = |id: &'static str, glyph: &'static str| {
+        let tool = |id: &'static str, glyph: &'static str, label: String| {
             div()
                 .id(id)
                 .flex_none()
@@ -342,7 +295,8 @@ impl Pill {
                 .text_color(c.ink_3)
                 .cursor_pointer()
                 .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-                .on_mouse_down(MouseButton::Left, stop)
+                .on_mouse_down(MouseButton::Left, place::stop)
+                .tooltip(tip(label))
                 .child(glyph)
         };
         let head_text = if line && !first.summary.is_empty() {
@@ -372,6 +326,11 @@ impl Pill {
             .cursor_pointer()
             .when(self.open, |d| d.bg(c.surface_hover))
             .hover(move |s| s.bg(c.surface_hover))
+            .tooltip(tip(ui::say_with(
+                cx,
+                Str::InboxListLabel,
+                &[("count", &waits.len().to_string())],
+            )))
             .on_click(cx.listener(|pill, _, _, cx| pill.toggle(cx)))
             .child(label);
         let head = div()
@@ -390,8 +349,12 @@ impl Pill {
                 cx.listener(move |pill, e: &MouseDownEvent, _, cx| pill.grab(e, at, cx)),
             )
             .child(
-                tool("pill-close", "\u{00d7}")
-                    .on_click(cx.listener(move |pill, _, _, cx| pill.close(newest, cx))),
+                tool(
+                    "pill-close",
+                    "\u{00d7}",
+                    ui::say(cx, Str::InboxClosePill).to_owned(),
+                )
+                .on_click(cx.listener(move |pill, _, _, cx| pill.close(newest, cx))),
             )
             .child(
                 div()
@@ -418,15 +381,25 @@ impl Pill {
             )
             .child(go)
             .children(self.reset_shown(cx).then(|| {
-                tool("pill-reset", "\u{21ba}")
-                    .on_click(cx.listener(|pill, _, _, cx| pill.reset(cx)))
+                tool(
+                    "pill-reset",
+                    "\u{21ba}",
+                    ui::say(cx, Str::InboxResetPlace).to_owned(),
+                )
+                .on_click(cx.listener(|pill, _, _, cx| pill.reset(cx)))
             }));
         let body = (!line).then(|| {
             div()
                 .px(px(12.0 * z))
                 .pt(px(10.0 * z))
                 .pb(px(12.0 * z))
-                .child(self.entry(oldest_node(groups), first, z, cx))
+                .child(answers::entry(
+                    &self.answers,
+                    oldest_node(groups),
+                    first,
+                    z,
+                    cx,
+                ))
         });
         div()
             .flex()
@@ -437,7 +410,7 @@ impl Pill {
             .bg(c.panel)
             .text_color(c.ink)
             .shadow(shadow(c.shadow))
-            .on_mouse_down(MouseButton::Left, stop)
+            .on_mouse_down(MouseButton::Left, place::stop)
             .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
             .child(head)
             .children(body)
@@ -462,7 +435,8 @@ impl Pill {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let c = ui::colors(cx);
-        let (above, room) = pop_space(f32::from(at.y), boxed, pane, z);
+        let cover = self.store.read(cx).composer_box();
+        let (above, room) = place::pop_space(f32::from(at.y), boxed, pane, cover, z);
         let left = place::popup_left(
             f32::from(at.x),
             f32::from(boxed.width),
@@ -495,7 +469,7 @@ impl Pill {
             .text_size(px(13.0 * z))
             .shadow(shadow(c.shadow))
             .occlude()
-            .on_mouse_down(MouseButton::Left, stop)
+            .on_mouse_down(MouseButton::Left, place::stop)
             .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -505,7 +479,7 @@ impl Pill {
                     .child(title),
             )
             .child(list);
-        let gap = px((POP_GAP) * z);
+        let gap = px(place::POP_GAP * z);
         if above {
             pop.bottom(boxed.height + gap)
         } else {
@@ -531,20 +505,17 @@ impl Pill {
                     .items_center()
                     .on_click(cx.listener(move |pill, _, _, cx| pill.jump(node, cx))),
             )
-            .children(group.waits.iter().map(|w| self.entry(node, w, z, cx)))
+            .children(
+                group
+                    .waits
+                    .iter()
+                    .map(|w| answers::entry(&self.answers, node, w, z, cx)),
+            )
     }
 }
 
 fn oldest_node(groups: &[Group]) -> api::ids::NodeId {
     groups[0].node
-}
-
-fn pop_space(top: f32, boxed: Size<Pixels>, pane: Size<Pixels>, z: f32) -> (bool, f32) {
-    let above = top - MARGIN;
-    let below = f32::from(pane.height) - (top + f32::from(boxed.height)) - MARGIN;
-    let use_above = above > below;
-    let room = (if use_above { above } else { below } - POP_GAP * z).max(0.0);
-    (use_above, room)
 }
 
 fn shadow(color: gpui::Rgba) -> Vec<BoxShadow> {

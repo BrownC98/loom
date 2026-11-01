@@ -22,6 +22,7 @@ pub fn overlay(
     terminal: Entity<TerminalView>,
     focus: &FocusHandle,
     collapse: Rc<dyn Fn(&mut App)>,
+    room: f32,
     cx: &App,
 ) -> Div {
     let colors = cx.global::<Theme>().colors;
@@ -81,6 +82,7 @@ pub fn overlay(
         .left_0()
         .size_full()
         .p(px(PAD))
+        .pb(px(PAD + room))
         .bg(colors.bg)
         .track_focus(focus)
         .on_key_down(move |e: &KeyDownEvent, _: &mut Window, cx| {

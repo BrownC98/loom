@@ -1,12 +1,12 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement, IntoElement,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels,
-    Point, Render, SharedString, Styled, StyledText, TextLayout, UTF16Selection, UnderlineStyle,
-    Window, div, fill, point, px, size,
+    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Element,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
+    IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Pixels, Point, Render, SharedString, Styled, StyledText, TextLayout,
+    UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
 };
 
 use crate::strings::{Lang, Str};
@@ -30,6 +30,8 @@ enum Hint {
     Text(SharedString),
 }
 
+type Files = Box<dyn Fn(Vec<ClipboardEntry>, &mut Window, &mut App)>;
+
 pub struct Field {
     focus: FocusHandle,
     text: String,
@@ -37,6 +39,8 @@ pub struct Field {
     secret: bool,
     multiline: bool,
     boxed: bool,
+    scale: f32,
+    files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
     marked: Option<Range<usize>>,
@@ -70,11 +74,20 @@ impl Field {
             secret,
             multiline,
             boxed,
+            scale: 1.0,
+            files: None,
             selected: 0..0,
             reversed: false,
             marked: None,
             layout: None,
             selecting: false,
+        }
+    }
+
+    pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.scale != scale {
+            self.scale = scale;
+            cx.notify();
         }
     }
 
@@ -95,12 +108,34 @@ impl Field {
     }
 
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.replace_all(text, 0..text.len(), cx);
+    }
+
+    pub fn set_text_at_end(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.replace_all(text, text.len()..text.len(), cx);
+    }
+
+    fn replace_all(&mut self, text: &str, selected: Range<usize>, cx: &mut Context<Self>) {
         self.text = text.to_owned();
-        self.selected = 0..self.text.len();
+        self.selected = selected;
         self.reversed = false;
         self.marked = None;
         cx.emit(FieldEvent::Changed);
         cx.notify();
+    }
+
+    pub fn on_files(
+        &mut self,
+        handler: impl Fn(Vec<ClipboardEntry>, &mut Window, &mut App) + 'static,
+    ) {
+        self.files = Some(Box::new(handler));
+    }
+
+    pub fn insert_token(&mut self, token: &str, window: &Window, cx: &mut Context<Self>) {
+        let at = self.selected.start.min(self.text.len());
+        let lead = at > 0 && !self.text[..at].ends_with(char::is_whitespace);
+        let typed = format!("{}{token} ", if lead { " " } else { "" });
+        self.put(at..at, &typed, window, cx);
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -284,8 +319,18 @@ impl Field {
                 true
             }
             (true, "v") => {
-                if let Some(pasted) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                    self.put(self.selected.clone(), &pasted, window, cx);
+                if let Some(item) = cx.read_from_clipboard() {
+                    let files: Vec<ClipboardEntry> = item
+                        .entries()
+                        .iter()
+                        .filter(|entry| !matches!(entry, ClipboardEntry::String(_)))
+                        .cloned()
+                        .collect();
+                    if let (false, Some(take)) = (files.is_empty(), &self.files) {
+                        take(files, window, cx);
+                    } else if let Some(pasted) = item.text() {
+                        self.put(self.selected.clone(), &pasted, window, cx);
+                    }
                 }
                 true
             }
@@ -685,17 +730,18 @@ impl Render for Field {
             text: StyledText::new(shown).with_highlights(highlights),
         };
         if self.boxed {
+            let z = self.scale;
             base.w_full()
-                .min_h(px(LINE + 10.0))
-                .px(px(8.0))
-                .py(px(4.0))
-                .rounded(px(ROUND))
+                .min_h(px((LINE + 10.0) * z))
+                .px(px(8.0 * z))
+                .py(px(4.0 * z))
+                .rounded(px(ROUND * z))
                 .border_1()
                 .border_color(if focused { focused_edge } else { edge })
                 .bg(surface)
                 .text_color(ink)
-                .text_size(px(FONT_SIZE))
-                .line_height(px(LINE))
+                .text_size(px(FONT_SIZE * z))
+                .line_height(px(LINE * z))
                 .child(text)
         } else {
             base.flex_1()

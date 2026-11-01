@@ -2,6 +2,7 @@ use api::graph::docs::{DocGroup, DocRow};
 use gpui::{Context, Div, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div, px};
 
 use super::Dock;
+use super::body::Target;
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::strings::Str;
 
@@ -34,18 +35,6 @@ impl Dock {
                     }
                     Err(error) => dock.docs.error = Some(error),
                 }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    pub(super) fn open_doc(&mut self, id: String, cx: &mut Context<Self>) {
-        let task = self.store.update(cx, |store, cx| store.doc_url(&id, cx));
-        cx.spawn(async move |this, cx| {
-            let result = task.await.and_then(|url| ui::open_url(&url));
-            let _ = this.update(cx, |dock, cx| {
-                dock.fault = result.err();
                 cx.notify();
             });
         })
@@ -147,7 +136,9 @@ impl Dock {
             let id = doc.id.clone();
             let title = if openable {
                 ui::link(("doc", index), doc.title.clone(), cx)
-                    .on_click(cx.listener(move |dock, _, _, cx| dock.open_doc(id.clone(), cx)))
+                    .on_click(
+                        cx.listener(move |dock, _, _, cx| dock.follow(Target::Doc(id.clone()), cx)),
+                    )
                     .into_any_element()
             } else {
                 div()

@@ -30,6 +30,13 @@ const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_IDLE_ALPHA: f32 = 0.3;
 const CURSOR_THIN: f32 = 2.0;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InputState {
+    Open,
+    Offline,
+    Gone,
+}
+
 #[derive(Clone, Copy)]
 struct Metrics {
     cell_width: Pixels,
@@ -85,6 +92,7 @@ pub struct TerminalView {
     cell: Option<Metrics>,
     sent: (u16, u16),
     ended: Option<String>,
+    gone: bool,
     marked: Option<String>,
     cursor: Option<vt::Cursor>,
     frame: Option<Rc<Frame>>,
@@ -123,7 +131,9 @@ fn metrics(window: &Window, face: &Face, scale: f32) -> Metrics {
 }
 
 pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
-    open_with(link::attach, base, node, window, cx)
+    let view = open_with(link::attach, base, node, window, cx);
+    crate::float::inputs::offer(node, &view, cx);
+    view
 }
 
 pub fn open_login(
@@ -190,6 +200,7 @@ impl TerminalView {
             cell: None,
             sent: (0, 0),
             ended,
+            gone: false,
             marked: None,
             cursor: None,
             frame: None,
@@ -283,6 +294,7 @@ impl TerminalView {
                 self.settled = false;
                 self.sent = (0, 0);
                 self.ended = None;
+                self.gone = false;
             }
             Event::Backlog(bytes) => {
                 self.vt.feed(&bytes);
@@ -296,7 +308,10 @@ impl TerminalView {
                 let replies = self.vt.take_replies();
                 self.reply(replies);
             }
-            Event::Gone => self.ended = Some("the terminal is gone".to_owned()),
+            Event::Gone => {
+                self.gone = true;
+                self.ended = Some("the terminal is gone".to_owned());
+            }
             Event::Closed(reason) => {
                 self.ended = Some(if reason.is_empty() {
                     "connection closed".to_owned()
@@ -347,6 +362,23 @@ impl TerminalView {
         self.vt.scroll_to_bottom();
         self.dirty = true;
         self.send(bytes);
+    }
+
+    pub fn input_state(&self) -> InputState {
+        if self.gone {
+            InputState::Gone
+        } else if self.ended.is_some() || self.pty.is_none() {
+            InputState::Offline
+        } else {
+            InputState::Open
+        }
+    }
+
+    pub fn deliver(&mut self, text: &str, cx: &mut Context<Self>) {
+        let mut bytes = self.vt.encode_paste(text);
+        bytes.push(b'\r');
+        self.type_in(bytes);
+        self.changed(cx);
     }
 
     fn copy(&mut self, cx: &mut Context<Self>) {

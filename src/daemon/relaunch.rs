@@ -889,7 +889,7 @@ pub(super) fn chosen_agent(
         return Err(profile::no_link(agent).into());
     }
     let choice = match role {
-        Some(role) => roles.choice_for(role, &agent, choice),
+        Some(role) => crate::roles::choice_for(roles, role, &agent, choice),
         None => choice,
     };
     profile::check_choice(&agent, &choice)?;

@@ -11,7 +11,7 @@ use crate::accounts::{AccountId, Site};
 use crate::profile::adapter::Meter;
 use crate::usage::{
     self, Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent,
-    run_failed,
+    run_failed, usage_failed, usage_now,
 };
 
 const DEFAULT_RETRY_AFTER_SECS: i64 = 300;
@@ -51,10 +51,10 @@ fn status(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
         Ok(out) => match serde_json::from_slice(&out.stdout) {
             Ok(status) => status,
             Err(_) => {
-                return Usage::failed(UsageProblem::CliFormat("claude auth status".into()));
+                return usage_failed(UsageProblem::CliFormat("claude auth status".into()));
             }
         },
-        Err(e) => return Usage::failed(run_failed("claude", &e)),
+        Err(e) => return usage_failed(run_failed("claude", &e)),
     };
     let service = keychain_service(
         status
@@ -93,7 +93,7 @@ fn status(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
     } else {
         failed(UsageProblem::CliFormat("claude auth status".into()))
     };
-    Usage::new(status.email, status.subscription_type, limits)
+    usage_now(status.email, status.subscription_type, limits)
 }
 
 fn keychain_service(config_dir: Option<&str>) -> String {

@@ -65,7 +65,6 @@ pub struct Dock {
     subscriptions: Vec<Subscription>,
 }
 
-#[allow(dead_code)]
 pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<Dock> {
     cx.new(|cx| {
         let placeholder = ui::say(cx, Str::DocsFilterPlaceholder);

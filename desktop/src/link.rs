@@ -39,16 +39,6 @@ pub enum LinkState {
     Lost,
 }
 
-impl LinkState {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Connected => "connected",
-            Self::Reconnecting => "reconnecting",
-            Self::Lost => "lost",
-        }
-    }
-}
-
 enum Out {
     Input(Vec<u8>),
     Resize(u16, u16),

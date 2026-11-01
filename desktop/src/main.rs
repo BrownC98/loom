@@ -30,7 +30,17 @@ fn main() {
         cx.open_window(platform::window_options(), |window, cx| {
             let store = cx.new(|cx| store::Store::new(started, window, cx));
             let canvas = cx.new(|cx| canvas::view::CanvasView::new(store.clone(), window, cx));
-            cx.new(|cx| views::shell::Shell::new(store, canvas.into(), None, None, cx))
+            let sidebar = views::sidebar::sidebar(store.clone(), window, cx);
+            let dock = views::dock::dock(store.clone(), window, cx);
+            cx.new(|cx| {
+                views::shell::Shell::new(
+                    store,
+                    canvas.into(),
+                    Some(sidebar.into()),
+                    Some(dock.into()),
+                    cx,
+                )
+            })
         })
         .expect("could not open the window");
         cx.activate(true);

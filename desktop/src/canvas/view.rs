@@ -408,22 +408,6 @@ impl Render for CanvasView {
             .children(repos)
             .children(groups)
             .children(cards)
-            .child(
-                div()
-                    .absolute()
-                    .left(px(12.0))
-                    .bottom(px(8.0))
-                    .text_size(px(12.0))
-                    .text_color(rgb(0x8b9099))
-                    .child(format!(
-                        "{}  {}  {}%  ({:.0}, {:.0})",
-                        store.status(),
-                        store.base().map_or("", |_| store.link().label()),
-                        (camera.zoom * 100.0).round(),
-                        camera.x,
-                        camera.y
-                    )),
-            )
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

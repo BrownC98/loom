@@ -39,16 +39,20 @@ pub struct Store {
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
     drafts: HashMap<(u32, Slot), String>,
+    busy: HashSet<u32>,
 }
 
 pub struct ZoomTo(pub f32);
 
 pub struct DraftChanged(pub u32, pub Slot);
 
+pub struct BusyChanged;
+
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
+impl EventEmitter<BusyChanged> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -108,6 +112,7 @@ impl Store {
             found: None,
             picked: None,
             drafts: HashMap::new(),
+            busy: HashSet::new(),
         }
     }
 
@@ -159,8 +164,28 @@ impl Store {
         cx.emit(DraftChanged(wait, slot));
     }
 
-    pub fn keep_drafts(&mut self, live: &HashSet<u32>) {
+    pub fn keep_waits(&mut self, live: &HashSet<u32>, cx: &mut Context<Self>) {
         self.drafts.retain(|(wait, _), _| live.contains(wait));
+        let before = self.busy.len();
+        self.busy.retain(|wait| live.contains(wait));
+        if self.busy.len() != before {
+            cx.emit(BusyChanged);
+        }
+    }
+
+    pub fn is_busy(&self, wait: u32) -> bool {
+        self.busy.contains(&wait)
+    }
+
+    pub fn set_busy(&mut self, wait: u32, busy: bool, cx: &mut Context<Self>) {
+        let changed = if busy {
+            self.busy.insert(wait)
+        } else {
+            self.busy.remove(&wait)
+        };
+        if changed {
+            cx.emit(BusyChanged);
+        }
     }
 
     pub fn zoom_percent(&self) -> u32 {

@@ -12,7 +12,7 @@ use super::body::{self, Target};
 use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::link::Snapshot;
-use crate::store::{DraftChanged, Store};
+use crate::store::{BusyChanged, DraftChanged, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
 
@@ -38,7 +38,6 @@ pub(crate) struct Answers {
     fields: HashMap<(u32, Slot), Draft>,
     shown: HashMap<u32, Prompt>,
     notes: HashMap<u32, String>,
-    busy: HashSet<u32>,
     images: HashMap<(u32, usize), Arc<Image>>,
     loading: HashSet<(u32, usize)>,
     _subs: Vec<Subscription>,
@@ -76,7 +75,6 @@ impl Answers {
             fields: HashMap::new(),
             shown: HashMap::new(),
             notes: HashMap::new(),
-            busy: HashSet::new(),
             images: HashMap::new(),
             loading: HashSet::new(),
             _subs: Vec::new(),
@@ -97,6 +95,9 @@ impl Answers {
                 }
             }),
         );
+        answers
+            ._subs
+            .push(cx.subscribe(&store, |_, _, _: &BusyChanged, cx| cx.notify()));
         answers.sync(cx);
         answers
     }
@@ -112,10 +113,10 @@ impl Answers {
         self.shown = shown_prompts(self.store.read(cx).snapshot());
         self.fields.retain(|(id, _), _| live.contains(id));
         self.notes.retain(|id, _| live.contains(id));
-        self.busy.retain(|id| live.contains(id));
         self.images.retain(|(id, _), _| live.contains(id));
         self.loading.retain(|(id, _)| live.contains(id));
-        self.store.update(cx, |store, _| store.keep_drafts(&live));
+        self.store
+            .update(cx, |store, cx| store.keep_waits(&live, cx));
         for wait in &waits {
             self.ensure_fields(wait, cx);
             self.load_images(wait, cx);
@@ -259,13 +260,16 @@ impl Answers {
         task: Task<Result<(), String>>,
         cx: &mut Context<Self>,
     ) {
-        self.busy.insert(wait);
+        self.store
+            .update(cx, |store, cx| store.set_busy(wait, true, cx));
         self.notes.remove(&wait);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |answers, cx| {
-                answers.busy.remove(&wait);
+                answers
+                    .store
+                    .update(cx, |store, cx| store.set_busy(wait, false, cx));
                 match result {
                     Ok(()) => {
                         if let Some(field) = clear {
@@ -283,7 +287,7 @@ impl Answers {
     }
 
     fn submit(&mut self, wait: u32, slot: Slot, cx: &mut Context<Self>) {
-        if self.busy.contains(&wait) {
+        if self.store.read(cx).is_busy(wait) {
             return;
         }
         let Some(field) = self
@@ -322,7 +326,7 @@ impl Answers {
     }
 
     fn pick(&mut self, wait: u32, option: usize, cx: &mut Context<Self>) {
-        if self.busy.contains(&wait) {
+        if self.store.read(cx).is_busy(wait) {
             return;
         }
         let Some(prompt) = self.shown.get(&wait).cloned() else {
@@ -336,7 +340,7 @@ impl Answers {
     }
 
     fn reply(&mut self, wait: u32, text: String, cx: &mut Context<Self>) {
-        if self.busy.contains(&wait) {
+        if self.store.read(cx).is_busy(wait) {
             return;
         }
         let id = WaitId(wait);
@@ -377,7 +381,7 @@ pub(crate) fn entry(
     let c = ui::colors(cx);
     let id = wait.wait.id.0;
     let done = matches!(wait.tone, WaitTone::Done);
-    let busy = answers.read(cx).busy.contains(&id);
+    let busy = answers.read(cx).store.read(cx).is_busy(id);
     let published = ui::say_with(
         cx,
         Str::InboxPublished,
@@ -561,7 +565,7 @@ fn prompt_body(
     cx: &mut App,
 ) -> AnyElement {
     let c = ui::colors(cx);
-    let busy = answers.read(cx).busy.contains(&id);
+    let busy = answers.read(cx).store.read(cx).is_busy(id);
     let mut body = div()
         .flex()
         .flex_col()

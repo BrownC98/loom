@@ -46,6 +46,7 @@ pub struct Frame {
 pub struct Card {
     pub node: NodeId,
     pub rect: Rect,
+    pub spot: Point,
 }
 
 #[derive(Default)]
@@ -168,6 +169,7 @@ impl Level<'_> {
             let p = g.local[&id.to_string()];
             out.cards.push(Card {
                 node: id,
+                spot: p,
                 rect: Rect {
                     at: Point {
                         x: origin.x + p.x - g.lead.x,

@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, Layout};
+use api::canvas::{CardSize, Layout, Placed};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
+use api::ids::NodeId;
 use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
@@ -127,10 +128,34 @@ fn agent() -> ureq::Agent {
 }
 
 pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
+    put(base, "/api/settings", patch)
+}
+
+fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), String> {
+    let text = serde_json::to_string(body).map_err(|e| e.to_string())?;
     agent()
-        .put(format!("{base}/api/settings"))
+        .put(format!("{base}{path}"))
         .header("content-type", "application/json")
-        .send(patch.to_string())
+        .send(text)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+pub fn put_sizes(base: &str, sizes: &[CardSize]) -> Result<(), String> {
+    put(base, "/api/sizes", &sizes)
+}
+
+pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), String> {
+    put(base, "/api/spots", &placed)
+}
+
+pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), String> {
+    let text = serde_json::to_string(nodes).map_err(|e| e.to_string())?;
+    agent()
+        .delete(format!("{base}/api/sizes"))
+        .force_send_body()
+        .header("content-type", "application/json")
+        .send(text)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

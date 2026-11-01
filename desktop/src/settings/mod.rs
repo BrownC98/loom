@@ -4,7 +4,7 @@ pub mod notify;
 mod patch;
 mod search;
 mod tabs;
-pub(crate) mod widgets;
+mod widgets;
 
 use api::settings::SettingsView;
 use gpui::{AnyElement, App, Entity, Global, IntoElement, StyledText, WeakEntity};

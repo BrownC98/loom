@@ -12,10 +12,10 @@ use gpui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::float::inputs::Inputs;
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
 use crate::theme::{Terminal, Theme};
+use crate::views::inputs::Inputs;
 use crate::vt::view::Picked;
 use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
 
@@ -141,7 +141,7 @@ pub fn open(
     cx: &mut App,
 ) -> Entity<TerminalView> {
     let view = open_with(link::attach, base, node, window, cx);
-    crate::float::inputs::offer(inputs, node, &view, cx);
+    crate::views::inputs::offer(inputs, node, &view, cx);
     view
 }
 

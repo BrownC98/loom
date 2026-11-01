@@ -5,17 +5,17 @@ use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::NodeId;
 use gpui::{
     App, Context, Div, Entity, FontWeight, InteractiveElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use super::answers::{self, Answers};
 use super::body::{self, Target};
 use super::entry;
 use super::ui::{self, GAP};
-use super::{Dock, Inbox};
+use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
-use crate::settings::widgets::{Label, segmented_wide};
 use crate::strings::Str;
+use crate::views::widgets::{Label, segmented_wide};
 
 pub fn kind_label(kind: WaitKind) -> Str {
     match kind {
@@ -115,6 +115,15 @@ impl Dock {
             }
         }
         self.drop_pick(cx);
+        let selected = self.store.read(cx).selected();
+        if selected != self.seen_selected {
+            self.seen_selected = selected;
+            if self.docked(cx).is_some() {
+                self.choose_tab(Tab::Terminal, cx);
+                self.store
+                    .update(cx, |store, cx| store.set_pane_open("dock", true, cx));
+            }
+        }
         cx.notify();
     }
 
@@ -145,7 +154,7 @@ impl Dock {
             ),
             (
                 Inbox::History,
-                Label::counted(ui::say(cx, Str::InboxHistory).into(), 0),
+                Label::from(SharedString::from(ui::say(cx, Str::InboxHistory))),
             ),
         ];
         let owner = cx.entity();

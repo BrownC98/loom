@@ -205,13 +205,6 @@ const en = {
     noDevices: 'No connected devices.',
     deviceMeta: 'Connected {{paired}} · used {{seen}}',
     disconnect: 'Disconnect',
-    agoNow: 'now',
-    agoMinute: '{{n}} min ago',
-    agoHour: '{{n}} hr ago',
-    agoDay: '{{n}} d ago',
-    agoWeek: '{{n}} wk ago',
-    agoMonth: '{{n}} mo ago',
-    agoYear: '{{n}} yr ago',
   },
   newNode: {
     profile: 'Profile',
@@ -617,7 +610,6 @@ const en = {
     reading: 'Loading…',
     empty: 'No commits yet.',
     list: 'Commits',
-    ago: { lastDay: 'yesterday', lastWeek: 'last week', lastMonth: 'last month', lastYear: 'last year', now: 'now', minute: '{{n}} min ago', hour: '{{n}} h ago', day: '{{n}} d ago', week: '{{n}} w ago', month: '{{n}} mo ago', year: '{{n}} y ago' },
   },
   docs: {
     title: 'Docs',

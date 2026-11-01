@@ -62,6 +62,7 @@ pub struct ZoomTo(pub f32);
 pub struct NodeMenu {
     pub node: u32,
     pub at: gpui::Point<Pixels>,
+    pub button: Option<Bounds<Pixels>>,
 }
 
 #[derive(Clone)]
@@ -259,8 +260,14 @@ impl Store {
         self.show_nodes(vec![node], cx);
     }
 
-    pub fn open_node_menu(&mut self, node: u32, at: gpui::Point<Pixels>, cx: &mut Context<Self>) {
-        cx.emit(NodeMenu { node, at });
+    pub fn open_node_menu(
+        &mut self,
+        node: u32,
+        at: gpui::Point<Pixels>,
+        button: Option<Bounds<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(NodeMenu { node, at, button });
     }
 
     pub fn go(&mut self, node: u32, cx: &mut Context<Self>) {

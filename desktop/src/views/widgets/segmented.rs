@@ -7,8 +7,8 @@ use gpui::{
 };
 
 use super::btn::tabbable;
-use crate::views::dock::ui::{TEXT, colors, count as count_pill};
 use crate::views::icons::{Lucide, icon};
+use crate::views::ui::{TEXT, colors, count as count_pill};
 
 pub struct Label {
     text: SharedString,

@@ -1,12 +1,15 @@
 use api::settings::DefaultCardView;
-use gpui::{Context, Div, FontWeight, ParentElement, StatefulInteractiveElement, Styled, div, px};
+use gpui::{
+    Context, Div, FontWeight, ParentElement, SharedString, StatefulInteractiveElement, Styled, div,
+    px,
+};
 
 use super::ui;
 use super::{Dock, ui::SMALL};
-use crate::settings::widgets::{Label, segmented_wide};
 use crate::strings::Str;
 use crate::views::icons::Lucide;
 use crate::views::rail;
+use crate::views::widgets::{Label, segmented_wide};
 
 const VIEWS: [(DefaultCardView, Str); 3] = [
     (DefaultCardView::Simple, Str::CardViewSimple),
@@ -32,7 +35,7 @@ impl Dock {
         });
         let items = VIEWS
             .iter()
-            .map(|&(value, label)| (value, Label::counted(ui::say(cx, label).into(), 0)))
+            .map(|&(value, label)| (value, Label::from(SharedString::from(ui::say(cx, label)))))
             .collect();
         let switch = segmented_wide(
             "card-view",

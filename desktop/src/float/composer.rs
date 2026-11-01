@@ -23,6 +23,7 @@ use crate::store::Store;
 use crate::strings::Str;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
 
@@ -879,7 +880,10 @@ pub trait ComposerWire {
     fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
-    fn attach(&self, el: Stateful<Div>) -> Stateful<Div> {
+    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
@@ -896,7 +900,7 @@ pub fn face<W: ComposerWire>(
 ) -> Div {
     let c = ui::colors(cx);
     let z = view.z;
-    let tool = |id: &'static str, glyph: &'static str, size: f32| {
+    let tool = |id: &'static str, size: f32| {
         div()
             .id(id)
             .flex_none()
@@ -906,7 +910,6 @@ pub fn face<W: ComposerWire>(
             .items_center()
             .justify_center()
             .text_color(c.ink_2)
-            .child(glyph)
     };
     let chevron = div()
         .id("composer-chevron")
@@ -925,7 +928,7 @@ pub fn face<W: ComposerWire>(
         .gap(px(4.0 * z))
         .min_w_0()
         .overflow_hidden()
-        .child(">_")
+        .child(icon(Glyph::SquareTerminal, 14.0 * z, c.ink_3))
         .child(
             wire.name(
                 div()
@@ -956,7 +959,9 @@ pub fn face<W: ComposerWire>(
                     .text_right()
                     .child(ui::say(cx, Str::ComposerKeys)),
             )
-            .children((!view.home).then(|| wire.reset(tool("composer-reset", "\u{21ba}", 22.0)))),
+            .children(
+                (!view.home).then(|| wire.reset(tool("composer-reset", 22.0).child("\u{21ba}"))),
+            ),
     );
     let filing = view.filing.clone().map(|text| {
         div()
@@ -973,7 +978,16 @@ pub fn face<W: ComposerWire>(
         .items_end()
         .gap(px(4.0 * z))
         .child(div().flex_1().min_w_0().child(field))
-        .child(wire.attach(tool("composer-attach", "+", BUTTON).text_size(px(18.0 * z))))
+        .child(wire.image(tool("composer-image", BUTTON).child(icon(
+            Glyph::Image,
+            16.0 * z,
+            c.ink_2,
+        ))))
+        .child(wire.file(tool("composer-file", BUTTON).child(icon(
+            Glyph::Paperclip,
+            16.0 * z,
+            c.ink_2,
+        ))))
         .child(
             wire.send(
                 div()
@@ -987,7 +1001,7 @@ pub fn face<W: ComposerWire>(
                     .bg(c.accent)
                     .text_color(c.accent_ink)
                     .when(!view.sendable, |d| d.opacity(DISABLED_ALPHA))
-                    .child("\u{2191}"),
+                    .child(icon(Glyph::ArrowUp, 16.0 * z, c.accent_ink)),
             ),
         );
     wire.shell(
@@ -1033,6 +1047,16 @@ impl Live<'_, '_> {
             .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
             .on_mouse_down(MouseButton::Left, place::stop)
             .tooltip(tip(ui::say(self.cx, label).to_owned()))
+    }
+}
+
+impl Live<'_, '_> {
+    fn pick(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
+        let node = self.node;
+        self.tool(el, label).on_click(
+            self.cx
+                .listener(move |composer, _, window, cx| composer.pick_files(node, window, cx)),
+        )
     }
 }
 
@@ -1095,12 +1119,12 @@ impl ComposerWire for Live<'_, '_> {
             .on_click(self.cx.listener(|composer, _, _, cx| composer.reset(cx)))
     }
 
-    fn attach(&self, el: Stateful<Div>) -> Stateful<Div> {
-        let node = self.node;
-        self.tool(el, Str::ComposerAttachFile).on_click(
-            self.cx
-                .listener(move |composer, _, window, cx| composer.pick_files(node, window, cx)),
-        )
+    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.pick(el, Str::ComposerAttachImage)
+    }
+
+    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.pick(el, Str::ComposerAttachFile)
     }
 
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {

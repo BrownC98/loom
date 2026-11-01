@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use super::layout::{Point as Graph, Rect, Size};
-use super::scene::{Card, MIN_CARD, STANDARD, Scene};
+use super::scene::{Card, MIN_CARD, Scene, standard_size};
 use crate::link::Snapshot;
 
 const LINE: f32 = 6.0;
@@ -237,12 +237,12 @@ impl Resizer {
         })
     }
 
-    pub fn reset(&mut self, nodes: &[u32]) {
-        for &node in nodes {
+    pub fn reset(&mut self, nodes: &[(u32, Size)]) {
+        for &(node, size) in nodes {
             self.drafts.insert(
                 node,
                 Draft {
-                    size: STANDARD,
+                    size,
                     shift: Graph { x: 0.0, y: 0.0 },
                     spot: None,
                 },
@@ -275,17 +275,20 @@ impl Resizer {
             if active == Some(node) {
                 return true;
             }
-            if !snapshot.nodes.iter().any(|n| n.id.0 == node) {
+            let Some(view) = snapshot.nodes.iter().find(|n| n.id.0 == node) else {
                 return false;
-            }
+            };
             let saved = snapshot
                 .sizes
                 .iter()
                 .find(|s| s.node.0 == node)
-                .map_or(STANDARD, |s| Size {
-                    width: s.width,
-                    height: s.height,
-                });
+                .map_or_else(
+                    || standard_size(view),
+                    |s| Size {
+                        width: s.width,
+                        height: s.height,
+                    },
+                );
             let sized =
                 near(saved.width, draft.size.width) && near(saved.height, draft.size.height);
             let placed = draft.spot.is_none_or(|want| {

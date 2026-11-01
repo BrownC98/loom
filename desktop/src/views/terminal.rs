@@ -683,11 +683,22 @@ impl Render for TerminalView {
     }
 }
 
-fn styled(face: &Face, cell: &vt::Cell, len: usize, plain: bool) -> TextRun {
-    let (bold, italic, underline, strike) = if plain {
-        (false, false, false, false)
-    } else {
-        (cell.bold, cell.italic, cell.underline, cell.strike)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Detail {
+    Full,
+    Colour,
+}
+
+impl Detail {
+    fn of(cheap: bool) -> Detail {
+        if cheap { Detail::Colour } else { Detail::Full }
+    }
+}
+
+fn styled(face: &Face, cell: &vt::Cell, len: usize, detail: Detail) -> TextRun {
+    let (bold, italic, underline, strike) = match detail {
+        Detail::Full => (cell.bold, cell.italic, cell.underline, cell.strike),
+        Detail::Colour => (false, false, false, false),
     };
     let mut run_font = face.font.clone();
     if bold {
@@ -714,26 +725,26 @@ fn styled(face: &Face, cell: &vt::Cell, len: usize, plain: bool) -> TextRun {
     }
 }
 
-fn same_style(a: &vt::Cell, b: &vt::Cell, cheap: bool) -> bool {
-    if cheap {
+fn same_style(a: &vt::Cell, b: &vt::Cell, detail: Detail) -> bool {
+    if detail == Detail::Colour {
         return b.ch == ' ' || a.fg == b.fg;
     }
     (a.fg, a.bold, a.italic, a.underline, a.strike)
         == (b.fg, b.bold, b.italic, b.underline, b.strike)
 }
 
-fn row_runs(face: &Face, cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
+fn row_runs(face: &Face, cells: &[vt::Cell], detail: Detail) -> Vec<TextRun> {
     let mut runs: Vec<TextRun> = Vec::new();
     let mut first = 0;
     for (i, c) in cells.iter().enumerate() {
-        if i > first && !same_style(&cells[first], c, cheap) {
+        if i > first && !same_style(&cells[first], c, detail) {
             let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
-            runs.push(styled(face, &cells[first], len, cheap));
+            runs.push(styled(face, &cells[first], len, detail));
             first = i;
         }
     }
     let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
-    runs.push(styled(face, &cells[first], len, cheap));
+    runs.push(styled(face, &cells[first], len, detail));
     runs
 }
 
@@ -821,7 +832,7 @@ fn paint(
             }
         };
         let text: String = cells.iter().map(|c| c.ch).collect();
-        let runs = row_runs(face, cells, cheap);
+        let runs = row_runs(face, cells, Detail::of(cheap));
         let line = window.text_system().shape_line(
             text.into(),
             em,
@@ -900,7 +911,7 @@ fn paint_marked(
             underline: true,
             strike: false,
         };
-        let run = styled(&style.face, &mark, c.len_utf8(), false);
+        let run = styled(&style.face, &mark, c.len_utf8(), Detail::Full);
         let line = window.text_system().shape_line(
             c.to_string().into(),
             em,

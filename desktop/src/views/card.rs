@@ -578,6 +578,17 @@ pub fn state_text(state: &NodeState, lang: Lang) -> String {
     }
 }
 
+pub fn foot_height(node: &NodeView) -> f32 {
+    match node.state {
+        NodeState::Running | NodeState::Done => 0.0,
+        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => FOOT,
+    }
+}
+
+pub fn body_height(card_height: f32, node: &NodeView) -> f32 {
+    card_height - HEAD - foot_height(node) - 2.0
+}
+
 pub fn foot_text(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String> {
     match node.state {
         NodeState::Exited { code: None } => {
@@ -1043,7 +1054,6 @@ pub fn card(
     let foot = (!simple)
         .then(|| foot(face, selected, zoom, colors))
         .flatten();
-    let foot_h = if foot.is_some() { FOOT * zoom } else { 0.0 };
     let waiting = !node.waits.is_empty();
     let lit = mark == Mark::Lit;
     let (border, rings) = if selected {
@@ -1090,7 +1100,9 @@ pub fn card(
                 .top(head_h)
                 .left_0()
                 .w_full()
-                .h(bounds.size.height - head_h - px(foot_h) - px(2.0 * zoom.max(0.5)))
+                .h(px(
+                    body_height(f32::from(bounds.size.height) / zoom, node) * zoom
+                ))
                 .child(body)
         }))
         .children(foot.map(|row| row.absolute().bottom_0().left_0()))

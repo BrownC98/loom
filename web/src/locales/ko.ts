@@ -491,6 +491,10 @@ const ko: typeof en = {
     appBlocked: '이 앱 판은 시스템 알림을 쓸 수 없습니다. 앱을 업데이트한 뒤 다시 켜십시오.',
   },
   statusBar: {
+    linkConnected: '데몬에 연결됨',
+    linkReconnecting: '데몬에 다시 연결하는 중…',
+    linkLost: '데몬 연결이 끊어짐',
+    nodeCounts: '노드 {{total}}개 · 실행 중 {{running}}개',
     label: '상태 줄',
     loading: '불러오는 중…',
     summaryLoading: '불러오는 중',

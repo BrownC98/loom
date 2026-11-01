@@ -50,11 +50,13 @@ pub struct Frame {
 pub struct Card {
     pub node: NodeId,
     pub rect: Rect,
+    pub inset: Inset,
     pub spot: Point,
 }
 
 #[derive(Default)]
 pub struct Scene {
+    pub direction: Direction,
     pub repos: Vec<Frame>,
     pub groups: Vec<Frame>,
     pub cards: Vec<Card>,
@@ -286,6 +288,7 @@ impl Level<'_> {
                     },
                     size: (self.size_of)(id),
                 },
+                inset: self.inset(&self.groups[g.group].path),
             });
         }
         for k in &g.kids {
@@ -428,7 +431,10 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
     let parent_of = |id: NodeId| by_id.get(&id).and_then(|v| v.parent.map(|p| p.0));
     let framed = snap.repos.len() > 1;
     let mut built: Vec<Built> = Vec::new();
-    let mut scene = Scene::default();
+    let mut scene = Scene {
+        direction,
+        ..Scene::default()
+    };
     for repo in &snap.repos {
         let repo_views: Vec<&NodeView> = views
             .iter()

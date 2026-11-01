@@ -1,8 +1,11 @@
 pub mod arrange;
 pub mod camera;
+pub mod connect;
 pub mod drag;
+pub mod edges;
 pub mod frames;
 pub mod grid;
+pub mod hop_anim;
 pub mod hops;
 pub mod keys;
 pub mod layout;

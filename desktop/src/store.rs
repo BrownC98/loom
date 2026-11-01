@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
 use api::graph::events::EventLog;
@@ -29,6 +31,8 @@ pub struct Store {
     zoom_percent: u32,
     notice: Option<(u64, Notice)>,
     notices: u64,
+    found: Option<HashSet<String>>,
+    picked: Option<HashSet<String>>,
 }
 
 pub struct ZoomTo(pub f32);
@@ -92,6 +96,8 @@ impl Store {
             zoom_percent: 100,
             notice: None,
             notices: 0,
+            found: None,
+            picked: None,
         }
     }
 
@@ -134,6 +140,24 @@ impl Store {
     pub fn set_zoom_percent(&mut self, percent: u32, cx: &mut Context<Self>) {
         if self.zoom_percent != percent {
             self.zoom_percent = percent;
+            cx.notify();
+        }
+    }
+
+    pub fn lit(&self) -> Option<&HashSet<String>> {
+        self.found.as_ref().or(self.picked.as_ref())
+    }
+
+    pub fn set_found(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.found != keys {
+            self.found = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.picked != keys {
+            self.picked = keys;
             cx.notify();
         }
     }
@@ -359,6 +383,18 @@ impl Store {
             let path = format!("/api/waits/{}/type", wait.0);
             link::post(base, &path, serde_json::to_string(&body).ok())
         })
+    }
+
+    pub fn adopt(
+        &self,
+        child: u32,
+        parent: u32,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), link::Rejected>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(link::Rejected::Link(self.status.clone())));
+        };
+        cx.background_spawn(async move { link::adopt(&base, child, parent) })
     }
 
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {

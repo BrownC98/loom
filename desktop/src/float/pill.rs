@@ -16,9 +16,9 @@ use gpui::{
 use super::place::{self, Grab, MARGIN};
 use crate::store::Store;
 use crate::strings::Str;
-use crate::views::dock::{Draft, Slot};
 use crate::views::dock::questions::{Group, groups_of, kind_label, shown_prompts};
 use crate::views::dock::ui::{self, GAP};
+use crate::views::dock::{Draft, Slot};
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
 const WIDTH: f32 = 520.0;

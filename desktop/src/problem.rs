@@ -24,8 +24,14 @@ fn text(body: &str, lang: Lang) -> Option<String> {
     let problem: Value = serde_json::from_str(body).ok()?;
     let value = problem.get("value");
     let (keys, vars): (Vec<String>, Vars) = match problem.get("code")?.as_str()? {
-        "refused" => (vec![format!("problem.refused.{}", code(value?)?)], vars(value?)),
-        "repo" => (vec![format!("problem.repo.{}", code(value?)?)], vars(value?)),
+        "refused" => (
+            vec![format!("problem.refused.{}", code(value?)?)],
+            vars(value?),
+        ),
+        "repo" => (
+            vec![format!("problem.repo.{}", code(value?)?)],
+            vars(value?),
+        ),
         "launch" => {
             let launch = value?;
             if code(launch)? == "wsl" {

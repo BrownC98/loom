@@ -10,9 +10,9 @@ use gpui::{
 
 use super::pill::Pill;
 use crate::strings::Str;
-use crate::views::dock::{Draft, Slot};
 use crate::views::dock::questions::{drop_absent_slots, key_label, kind_label};
 use crate::views::dock::ui::{self, GAP, PAD, SMALL};
+use crate::views::dock::{Draft, Slot};
 use crate::views::field::{self, Field, FieldEvent};
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";

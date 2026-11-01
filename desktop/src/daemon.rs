@@ -3,15 +3,11 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::platform::hide_console;
+
 const READY_PREFIX: &str = "loom: ";
 const LOOM: &str = "loom";
 const START_LIMIT: Duration = Duration::from_secs(30);
-
-#[cfg(windows)]
-use crate::windows::hide_console;
-
-#[cfg(not(windows))]
-fn hide_console(_: &mut Command) {}
 
 fn sibling() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe()
@@ -52,7 +48,9 @@ pub fn start() -> Result<String, String> {
             ));
         }
     };
-    child.wait().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     line.trim()
         .strip_prefix(READY_PREFIX)
         .map(str::to_owned)

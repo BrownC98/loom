@@ -5,7 +5,7 @@ use gpui::{
 
 use super::view::CanvasView;
 use crate::theme::Colors;
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 
 const MIN_ZOOM: f32 = 0.3;
 const BUTTON: f32 = 22.0;
@@ -27,7 +27,7 @@ pub fn button(
         .rounded(px(4.0 * zoom))
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, down)
-        .child(icon(Glyph::Arrange, (ICON * zoom).max(1.0), colors.ink_2))
+        .child(icon(Lucide::Workflow, (ICON * zoom).max(1.0), colors.ink_2))
 }
 
 pub fn repo_heads(canvas: &CanvasView, cx: &Context<CanvasView>) -> Vec<Div> {

@@ -19,7 +19,7 @@ use crate::link;
 use crate::problem::Failure;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 use crate::views::tooltip::tip;
 
 const PAGE: usize = 100;
@@ -309,7 +309,7 @@ fn ref_pill(
             .id(("folder", key))
             .flex()
             .tooltip(tip(label))
-            .child(icon(Glyph::Folder, FOLDER, c.ink))
+            .child(icon(Lucide::Folder, FOLDER, c.ink))
     }))
     .child(name)
 }

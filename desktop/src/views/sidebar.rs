@@ -1,4 +1,3 @@
-pub mod icons;
 mod tree;
 
 use std::collections::HashSet;
@@ -12,7 +11,7 @@ use gpui::{
 use super::field::{self, Field, FieldEvent};
 use super::rail;
 use super::shell::OpenSettings;
-use icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
@@ -374,9 +373,9 @@ fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
 fn chevron(open: bool, c: &Colors) -> impl IntoElement {
     icon(
         if open {
-            Glyph::ChevronOpen
+            Lucide::ChevronDown
         } else {
-            Glyph::ChevronClosed
+            Lucide::ChevronRight
         },
         ICON,
         c.ink_3,
@@ -482,7 +481,7 @@ impl Sidebar {
                     cx.stop_propagation();
                     cx.notify();
                 }))
-                .child(icon(Glyph::Bookmark { filled: on }, ICON, c.ink_2))
+                .child(icon_styled(Lucide::Bookmark, ICON, c.ink_2, 2.0, on))
         };
         let lang_unread = |n: u32| {
             div()
@@ -497,7 +496,7 @@ impl Sidebar {
                 .font_weight(FontWeight::SEMIBOLD)
                 .flex()
                 .items_center()
-                .child(icon(Glyph::Mail, 13.0, c.accent_ink))
+                .child(icon(Lucide::Mail, 13.0, c.accent_ink))
                 .child(n.to_string())
         };
         match &row.body {
@@ -524,7 +523,7 @@ impl Sidebar {
                 )
                 .into_any_element(),
             Body::Group { label, tag } => shell
-                .child(icon(Glyph::Branch, ICON, c.ink_3))
+                .child(icon(Lucide::GitBranch, ICON, c.ink_3))
                 .child(
                     div()
                         .min_w_0()
@@ -570,7 +569,10 @@ impl Sidebar {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(name.clone()),
                     )
-                    .children(from.as_ref().map(|_| icon(Glyph::Reply, 12.0, c.ink_3)))
+                    .children(
+                        from.as_ref()
+                            .map(|_| icon(Lucide::CornerLeftUp, 12.0, c.ink_3)),
+                    )
                     .child(div().flex_1())
                     .children((*unread > 0).then(|| {
                         div()
@@ -656,10 +658,7 @@ impl Sidebar {
         let finding = !self.field.read(cx).text().trim().is_empty();
         let open = rail::button(
             "side-open",
-            Glyph::Panel {
-                right: false,
-                open: true,
-            },
+            Lucide::PanelLeftOpen,
             rail::titled(Str::AppSideExpand.text(lang), "["),
             rail::BUTTON,
             &c,
@@ -667,7 +666,7 @@ impl Sidebar {
         .on_click(cx.listener(|this, _, _, cx| this.set_open(true, cx)));
         let find = rail::button(
             "side-find",
-            Glyph::Search,
+            Lucide::Search,
             rail::titled(Str::FindOpen.text(lang), "F"),
             rail::BUTTON,
             &c,
@@ -676,7 +675,7 @@ impl Sidebar {
         .on_click(cx.listener(|this, _, _, cx| this.reveal_find(cx)));
         let settings = rail::button(
             "side-settings-rail",
-            Glyph::Gear,
+            Lucide::Settings,
             Str::SettingsTitle.text(lang).to_owned(),
             rail::BUTTON,
             &c,
@@ -856,7 +855,7 @@ impl Sidebar {
                 this.closed.clear();
                 cx.notify();
             }))
-            .child(icon(Glyph::ExpandAll, ICON, c.ink_2));
+            .child(icon(Lucide::ChevronsUpDown, ICON, c.ink_2));
 
         div()
             .size_full()
@@ -889,7 +888,7 @@ impl Sidebar {
                             .border_1()
                             .border_color(find_edge)
                             .rounded(px(6.0))
-                            .child(icon(Glyph::Search, ICON, c.ink_3))
+                            .child(icon(Lucide::Search, ICON, c.ink_3))
                             .child(self.field.clone())
                             .children(count.map(|(text, color)| {
                                 div()
@@ -914,16 +913,13 @@ impl Sidebar {
                                     .on_click(move |_, _, cx| {
                                         clear.update(cx, |field, cx| field.clear(cx));
                                     })
-                                    .child(icon(Glyph::Clear, ICON, c.ink_2))
+                                    .child(icon(Lucide::X, ICON, c.ink_2))
                             })),
                     )
                     .child(
                         rail::button(
                             "side-collapse",
-                            Glyph::Panel {
-                                right: false,
-                                open: false,
-                            },
+                            Lucide::PanelLeftClose,
                             rail::titled(Str::AppSideCollapse.text(lang), "["),
                             rail::SMALL_BUTTON,
                             c,
@@ -978,7 +974,7 @@ impl Sidebar {
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx)
                             })
-                            .child(icon(Glyph::Gear, ICON, c.ink_2))
+                            .child(icon(Lucide::Settings, ICON, c.ink_2))
                             .child(Str::SettingsTitle.text(lang)),
                     ),
             )

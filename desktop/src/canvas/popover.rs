@@ -17,7 +17,7 @@ use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
 use crate::views::field::{self, Field, FieldEvent};
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 
 const WIDTH: f32 = 288.0;
 const HEIGHT: f32 = 320.0;
@@ -453,7 +453,7 @@ impl Render for NewNodeView {
                     cx.stop_propagation();
                 }),
             )
-            .child(icon(Glyph::Clear, 14.0, colors.ink_2));
+            .child(icon(Lucide::X, 14.0, colors.ink_2));
         div()
             .w(px(WIDTH))
             .flex()

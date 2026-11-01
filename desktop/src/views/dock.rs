@@ -8,8 +8,8 @@ use gpui::{
 
 use self::answers::Answers;
 use super::field::{self, Field};
+use super::icons::{Lucide, icon};
 use super::rail;
-use super::sidebar::icons::{Glyph, icon};
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::pictures::Shelf;
@@ -47,12 +47,12 @@ impl Tab {
         }
     }
 
-    fn glyph(self) -> Glyph {
+    fn glyph(self) -> Lucide {
         match self {
-            Tab::Questions => Glyph::Bell,
-            Tab::Docs => Glyph::Document,
-            Tab::Events => Glyph::Lines,
-            Tab::Commits => Glyph::Commit,
+            Tab::Questions => Lucide::Bell,
+            Tab::Docs => Lucide::FileText,
+            Tab::Events => Lucide::AlignLeft,
+            Tab::Commits => Lucide::GitCommitVertical,
         }
     }
 
@@ -245,10 +245,7 @@ impl Render for Dock {
         let store = self.store.clone();
         let collapse = rail::button(
             "dock-collapse",
-            Glyph::Panel {
-                right: true,
-                open: false,
-            },
+            Lucide::PanelRightClose,
             rail::titled(ui::say(cx, Str::DockCollapse), "]"),
             rail::SMALL_BUTTON,
             &c,

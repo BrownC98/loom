@@ -2,6 +2,7 @@ pub mod card;
 pub mod dock;
 pub mod expanded;
 pub mod field;
+pub mod icons;
 pub mod notice;
 pub mod pictures;
 pub mod rail;

@@ -3,7 +3,7 @@ use gpui::{
     Styled, div, px,
 };
 
-use super::sidebar::icons::{Glyph, icon};
+use super::icons::{Lucide, icon};
 use super::tooltip::tip;
 use crate::theme::Colors;
 
@@ -36,7 +36,7 @@ pub fn column(c: &Colors) -> Div {
 
 pub fn button(
     id: impl Into<ElementId>,
-    glyph: Glyph,
+    glyph: Lucide,
     label: String,
     size: f32,
     c: &Colors,

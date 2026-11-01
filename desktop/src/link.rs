@@ -129,12 +129,24 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-fn get(base: &str, path: &str) -> Result<String, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
         .timeout_global(Some(HTTP_LIMIT))
         .build()
-        .into();
-    agent
+        .into()
+}
+
+pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
+    agent()
+        .put(format!("{base}/api/settings"))
+        .header("content-type", "application/json")
+        .send(patch.to_string())
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn get(base: &str, path: &str) -> Result<String, String> {
+    agent()
         .get(format!("{base}{path}"))
         .call()
         .map_err(|e| e.to_string())?

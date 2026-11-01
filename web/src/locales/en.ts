@@ -489,6 +489,10 @@ const en = {
     appBlocked: 'This version of the app cannot show system notifications. Update the app, then turn this on again.',
   },
   statusBar: {
+    linkConnected: 'Connected to the daemon',
+    linkReconnecting: 'Reconnecting to the daemon…',
+    linkLost: 'Daemon connection lost',
+    nodeCounts: '{{total}} nodes · {{running}} running',
     label: 'Status bar',
     loading: 'Loading…',
     summaryLoading: 'loading',

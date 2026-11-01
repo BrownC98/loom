@@ -19,7 +19,7 @@ mod history;
 mod lanes;
 mod questions;
 mod strokes;
-mod ui;
+pub mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {

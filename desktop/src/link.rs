@@ -193,6 +193,14 @@ pub fn post_within<T: serde::de::DeserializeOwned>(
     serde_json::from_str(&response).map_err(|e| format!("POST {path}: {e}"))
 }
 
+pub fn shutdown(base: &str) -> Result<(), String> {
+    agent()
+        .post(format!("{base}/api/shutdown"))
+        .send_empty()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 pub fn delete(base: &str, path: &str) -> Result<(), String> {
     agent()
         .delete(format!("{base}{path}"))

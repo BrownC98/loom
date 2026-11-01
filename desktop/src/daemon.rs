@@ -1,4 +1,4 @@
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -8,6 +8,7 @@ use crate::platform::hide_console;
 const READY_PREFIX: &str = "loom: ";
 const LOOM: &str = "loom";
 const START_LIMIT: Duration = Duration::from_secs(30);
+const VERSION_LIMIT: Duration = Duration::from_secs(5);
 const REAP_POLL: Duration = Duration::from_millis(200);
 
 fn sibling() -> Option<std::path::PathBuf> {
@@ -17,11 +18,39 @@ fn sibling() -> Option<std::path::PathBuf> {
     exe.is_file().then_some(exe)
 }
 
-pub fn start() -> Result<String, String> {
-    let mut command = match sibling() {
+fn command() -> Command {
+    match sibling() {
         Some(exe) => Command::new(exe),
         None => Command::new(LOOM),
-    };
+    }
+}
+
+pub fn version() -> Option<String> {
+    let mut command = command();
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_console(&mut command);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (sent, received) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stdout.read_to_string(&mut text);
+        let _ = sent.send(text);
+    });
+    let text = received.recv_timeout(VERSION_LIMIT).ok();
+    let _ = child.kill();
+    let _ = child.wait();
+    let text = text?;
+    let version = text.trim().strip_prefix("loom ")?;
+    (!version.is_empty() && !version.contains(char::is_whitespace)).then(|| version.to_owned())
+}
+
+pub fn start() -> Result<String, String> {
+    let mut command = command();
     command
         .arg("start")
         .stdin(Stdio::null())

@@ -12,7 +12,7 @@ use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::cardlink;
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::scrollbar::Bar;
 
 pub const NEW_WIDTH: f32 = 380.0;
@@ -177,7 +177,7 @@ impl NewWorktreeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let branch = field::boxed("", false, false, cx);
+        let branch = field::form("", false, false, Form::Mono, cx);
         let handle = branch.read(cx).handle();
         window.focus(&handle, cx);
         let sub = cx.subscribe(&branch, |this, _, event: &FieldEvent, cx| match event {

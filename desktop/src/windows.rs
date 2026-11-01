@@ -2,20 +2,21 @@ use std::os::windows::process::CommandExt;
 use std::process::Command;
 
 use gpui::{
-    AnyElement, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful,
-    Styled, TitlebarOptions, Window, WindowControlArea, WindowOptions, div, px, rgb,
+    AnyElement, App, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful,
+    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, WindowOptions,
+    div, px, rgb, svg,
 };
 
+use crate::frame;
+use crate::strings::{Lang, Str};
 use crate::theme::Colors;
+use crate::views::icons::Lucide;
+use crate::views::tooltip::tip;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CAPTION_WIDTH: f32 = 46.0;
-const CAPTION_GLYPH: f32 = 10.0;
-const CAPTION_FONT: &str = "Segoe MDL2 Assets";
-const MINIMIZE: &str = "\u{e921}";
-const MAXIMIZE: &str = "\u{e922}";
-const RESTORE: &str = "\u{e923}";
-const CLOSE: &str = "\u{e8bb}";
+const CAPTION_ICON: f32 = 14.0;
+const CAPTION_STROKE: f32 = 1.5;
 const CLOSE_HOVER: u32 = 0xc42b1c;
 const CLOSE_INK: u32 = 0xffffff;
 
@@ -23,14 +24,14 @@ pub fn hide_console(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-pub fn window_options() -> WindowOptions {
+pub fn window_options(cx: &App) -> WindowOptions {
     WindowOptions {
         titlebar: Some(TitlebarOptions {
-            title: Some("loom".into()),
+            title: Some(frame::name()),
             appears_transparent: true,
             traffic_light_position: None,
         }),
-        ..Default::default()
+        ..frame::options(cx)
     }
 }
 
@@ -43,7 +44,8 @@ pub fn drag_area(area: Div) -> Div {
 }
 
 fn caption(
-    glyph: &'static str,
+    glyph: Lucide,
+    label: &str,
     area: WindowControlArea,
     colors: &Colors,
     close: bool,
@@ -59,34 +61,56 @@ fn caption(
         Hsla::from(colors.ink)
     };
     div()
-        .id(glyph)
+        .id(glyph.path())
         .occlude()
         .w(px(CAPTION_WIDTH))
         .h_full()
         .flex()
         .items_center()
         .justify_center()
-        .font_family(CAPTION_FONT)
-        .text_size(px(CAPTION_GLYPH))
         .text_color(colors.ink_3)
         .window_control_area(area)
         .hover(move |style| style.bg(hover).text_color(hover_ink))
-        .child(glyph)
+        .tooltip(tip(label.to_owned()))
+        .child(
+            svg()
+                .path(format!("{}?stroke={CAPTION_STROKE}", glyph.path()))
+                .size(px(CAPTION_ICON))
+                .flex_none(),
+        )
 }
 
-pub fn captions(window: &Window, colors: &Colors) -> Option<AnyElement> {
-    let maximize = if window.is_maximized() {
-        RESTORE
+pub fn captions(window: &Window, colors: &Colors, lang: Lang) -> Option<AnyElement> {
+    let (maximize, label) = if window.is_maximized() {
+        (Lucide::Copy, Str::TitlebarRestore)
     } else {
-        MAXIMIZE
+        (Lucide::Square, Str::TitlebarMaximize)
     };
     Some(
         div()
             .h_full()
             .flex()
-            .child(caption(MINIMIZE, WindowControlArea::Min, colors, false))
-            .child(caption(maximize, WindowControlArea::Max, colors, false))
-            .child(caption(CLOSE, WindowControlArea::Close, colors, true))
+            .child(caption(
+                Lucide::Minus,
+                Str::TitlebarMinimize.text(lang),
+                WindowControlArea::Min,
+                colors,
+                false,
+            ))
+            .child(caption(
+                maximize,
+                label.text(lang),
+                WindowControlArea::Max,
+                colors,
+                false,
+            ))
+            .child(caption(
+                Lucide::X,
+                Str::CommonClose.text(lang),
+                WindowControlArea::Close,
+                colors,
+                true,
+            ))
             .into_any_element(),
     )
 }

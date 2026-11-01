@@ -16,7 +16,7 @@ use crate::fonts;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
 use crate::views::worktree::{
@@ -100,7 +100,8 @@ impl NewNodeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let field = field::new(Str::NewNodeSearch, cx);
+        let lang = *cx.global::<Lang>();
+        let field = field::form(Str::NewNodeSearch.text(lang), false, false, Form::Plain, cx);
         cx.subscribe(&field, |this, _, event: &FieldEvent, cx| match event {
             FieldEvent::Changed => cx.notify(),
             FieldEvent::Step(step) => this.step(*step, cx),
@@ -517,18 +518,7 @@ impl Render for NewNodeView {
                             .text_color(colors.ink_2)
                             .child(Str::NewNodeProfile.text(lang)),
                     )
-                    .child(
-                        div()
-                            .h(px(35.0))
-                            .px(px(9.0))
-                            .flex()
-                            .items_center()
-                            .rounded(px(6.0))
-                            .border_1()
-                            .border_color(colors.line_strong)
-                            .bg(colors.bg)
-                            .child(self.field.clone()),
-                    ),
+                    .child(self.field.clone()),
             )
             .child(
                 self.scroll

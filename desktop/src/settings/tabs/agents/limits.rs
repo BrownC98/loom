@@ -84,11 +84,7 @@ pub fn section(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App) 
     );
     let note = section.text(say(cx, Str::SettingsTreeLimitsHint), cx);
     section
-        .child(
-            div()
-                .flex()
-                .children(field_reset("agents-limits-reset", &["treeLimits"], ctx, cx)),
-        )
+        .beside(field_reset("agents-limits-reset", &["treeLimits"], ctx, cx))
         .child(
             div()
                 .flex()

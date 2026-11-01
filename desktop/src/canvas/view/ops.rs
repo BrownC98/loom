@@ -7,7 +7,6 @@ use gpui::{
 };
 
 use super::{CanvasView, popover};
-use crate::store::Level;
 use crate::strings::Str;
 use crate::views::card::{self, Actions, FrameActions, Keyed, Press};
 use crate::views::cardlink;
@@ -57,8 +56,7 @@ impl CanvasView {
 
     fn report(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         if let Err(text) = result {
-            self.store
-                .update(cx, |store, cx| store.tell(text, Level::Error, cx));
+            self.store.update(cx, |store, cx| store.tell(text, cx));
         }
     }
 

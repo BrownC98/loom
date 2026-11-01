@@ -55,6 +55,7 @@ pub enum Mark {
     Plain,
     Lit,
     Dim,
+    Chosen,
 }
 
 pub fn mark(lit: Option<&HashSet<String>>, key: &str) -> Mark {
@@ -109,7 +110,7 @@ fn frame_box(bounds: Bounds<Pixels>, zoom: f32, repo: bool, mark: Mark, colors: 
     } else {
         (GROUP_LINE, GROUP_ROUND, colors.group_line)
     };
-    let lit = mark == Mark::Lit;
+    let lit = matches!(mark, Mark::Lit | Mark::Chosen);
     placed(bounds)
         .flex()
         .flex_col()
@@ -118,10 +119,9 @@ fn frame_box(bounds: Bounds<Pixels>, zoom: f32, repo: bool, mark: Mark, colors: 
         .border(px((line * zoom).max(0.5)))
         .border_color(if lit { colors.accent } else { line_color })
         .bg(wash(colors.ink, FRAME_WASH))
-        .shadow(if lit {
-            vec![ring(colors.accent_wash, HALO * zoom)]
-        } else {
-            Vec::new()
+        .shadow(match mark {
+            Mark::Lit => vec![ring(colors.accent_wash, HALO * zoom)],
+            _ => Vec::new(),
         })
         .when(mark == Mark::Dim, |d| d.opacity(DIM))
         .text_color(colors.ink)
@@ -236,6 +236,7 @@ pub fn repo_frame(
     lang: Lang,
     bounds: Bounds<Pixels>,
     zoom: f32,
+    mark: Mark,
     colors: &Colors,
 ) -> Div {
     let key = info.key;
@@ -307,7 +308,7 @@ pub fn repo_frame(
         .child(div().flex_1())
         .child(arrange)
         .child(new_worktree);
-    frame_box(bounds, zoom, true, Mark::Plain, colors).child(head)
+    frame_box(bounds, zoom, true, mark, colors).child(head)
 }
 
 pub fn group_frame(

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
@@ -17,9 +16,8 @@ use gpui::{
 
 use crate::canvas::drag::Arrange;
 use crate::canvas::repos::{chosen_repo, groups_of};
-use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
+use crate::link::{self, Graph, Loaded, Snapshot};
 use crate::problem::Failure;
-use crate::strings::Str;
 use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
@@ -28,18 +26,16 @@ pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 pub struct Store {
     base: Option<String>,
     status: String,
-    link: LinkState,
     snapshot: Option<Snapshot>,
     revision: u64,
     loaded: u64,
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    chosen: Option<String>,
     wanted: Option<u32>,
     zoom_percent: u32,
-    notice: Option<(u64, Notice)>,
-    notices: u64,
-    dropped: bool,
+    notice: Option<Notice>,
     found: Option<HashSet<String>>,
     current: Option<String>,
     picked: Option<HashSet<String>>,
@@ -49,20 +45,9 @@ pub struct Store {
     busy: HashSet<u32>,
 }
 
-const NOTICE_FOR: Duration = Duration::from_secs(6);
-
-#[derive(Clone, Copy)]
-pub enum Level {
-    Info,
-    Ok,
-    Warn,
-    Error,
-}
-
 #[derive(Clone)]
 pub struct Notice {
     pub text: String,
-    pub level: Level,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,12 +98,11 @@ impl Store {
     ) -> Self {
         let settings = SettingsView::default();
         apply_settings(&settings, cx);
-        let (base, status) = match started {
+        let (base, status, failure) = match started {
             Ok(base) => {
                 let (graph, inbox) = async_channel::unbounded();
-                let status = link::watch(&base, graph)
-                    .err()
-                    .unwrap_or_else(|| base.clone());
+                let failure = link::watch(&base, graph).err();
+                let status = failure.clone().unwrap_or_else(|| base.clone());
                 cx.spawn_in(window, async move |this, cx| {
                     while let Ok(event) = inbox.recv().await {
                         if this
@@ -130,25 +114,24 @@ impl Store {
                     }
                 })
                 .detach();
-                (Some(base), status)
+                (Some(base), status, failure)
             }
-            Err(error) => (None, error),
+            Err(error) => (None, error.clone(), Some(error)),
         };
+        let notice = failure.map(|text| Notice { text });
         Self {
             base,
             status,
-            link: LinkState::Reconnecting,
             snapshot: None,
             revision: 0,
             loaded: 0,
             settings,
             settings_key: String::new(),
             selected: None,
+            chosen: None,
             wanted: None,
             zoom_percent: 100,
-            notice: None,
-            notices: 0,
-            dropped: false,
+            notice,
             found: None,
             current: None,
             picked: None,
@@ -161,14 +144,6 @@ impl Store {
 
     pub fn base(&self) -> Option<&str> {
         self.base.as_deref()
-    }
-
-    pub fn status(&self) -> &str {
-        &self.status
-    }
-
-    pub fn link(&self) -> LinkState {
-        self.link
     }
 
     pub fn snapshot(&self) -> Option<&Snapshot> {
@@ -337,7 +312,7 @@ impl Store {
         cx.emit(Show(Target::All));
     }
 
-    fn chosen(&self) -> Option<RepoId> {
+    fn current_repo(&self) -> Option<RepoId> {
         let snapshot = self.snapshot.as_ref()?;
         chosen_repo(&snapshot.repos, self.settings.repo).map(|r| r.id)
     }
@@ -345,12 +320,12 @@ impl Store {
     pub fn shown_repos(&self) -> Vec<RepoId> {
         match (self.settings.graph_scope, &self.snapshot) {
             (GraphScope::All, Some(snapshot)) => snapshot.repos.iter().map(|r| r.id).collect(),
-            _ => self.chosen().into_iter().collect(),
+            _ => self.current_repo().into_iter().collect(),
         }
     }
 
     pub fn choose_repo(&mut self, repo: RepoId, cx: &mut Context<Self>) {
-        if self.chosen() == Some(repo) {
+        if self.current_repo() == Some(repo) {
             return;
         }
         self.settings.repo = Some(repo);
@@ -384,24 +359,18 @@ impl Store {
     }
 
     pub fn notice(&self) -> Option<&Notice> {
-        self.notice.as_ref().map(|(_, notice)| notice)
+        self.notice.as_ref()
     }
 
-    pub fn tell(&mut self, text: String, level: Level, cx: &mut Context<Self>) {
-        self.notices += 1;
-        let id = self.notices;
-        self.notice = Some((id, Notice { text, level }));
+    pub fn tell(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notice = Some(Notice { text });
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(NOTICE_FOR).await;
-            let _ = this.update(cx, |store, cx| {
-                if store.notice.as_ref().is_some_and(|(shown, _)| *shown == id) {
-                    store.notice = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+    }
+
+    pub fn clear_notice(&mut self, cx: &mut Context<Self>) {
+        if self.base.is_some() && self.notice.take().is_some() {
+            cx.notify();
+        }
     }
 
     pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
@@ -416,7 +385,7 @@ impl Store {
                 Ok(()) => store.reload(cx),
                 Err(error) => {
                     let text = error.text(*cx.global::<strings::Lang>());
-                    store.tell(text, Level::Error, cx);
+                    store.tell(text, cx);
                     store.reload(cx)
                 }
             });
@@ -437,14 +406,24 @@ impl Store {
         if let Some(repo) = self.repo_of(node) {
             self.choose_repo(repo, cx);
         }
-        if self.selected != Some(node) {
+        if (self.selected != Some(node)) | self.chosen.take().is_some() {
             self.selected = Some(node);
             cx.notify();
         }
     }
 
+    pub fn chosen(&self) -> Option<&str> {
+        self.chosen.as_deref()
+    }
+
+    pub fn choose_box(&mut self, key: String, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.chosen = Some(key);
+        cx.notify();
+    }
+
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if self.selected.take().is_some() {
+        if self.selected.take().is_some() | self.chosen.take().is_some() {
             cx.notify();
         }
     }
@@ -464,40 +443,21 @@ impl Store {
         match event {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
             Graph::Feed(event) => cx.emit(*event),
-            Graph::Link(state) => self.linked(state, cx),
+            Graph::Link => {}
             Graph::Failed { order, error } => {
                 if !self.newer(order) {
                     return;
                 }
                 let text = error.text(*cx.global::<strings::Lang>());
-                self.status = if text.is_empty() {
+                let text = if text.is_empty() {
                     "connection closed".to_owned()
                 } else {
                     text
-                }
+                };
+                self.notice = Some(Notice { text });
             }
         }
         cx.notify();
-    }
-
-    fn linked(&mut self, state: LinkState, cx: &mut Context<Self>) {
-        let before = std::mem::replace(&mut self.link, state);
-        let (text, level) = match (before, state) {
-            (LinkState::Connected, LinkState::Reconnecting) => {
-                self.dropped = true;
-                (Str::StatusBarLinkReconnecting, Level::Info)
-            }
-            (before, LinkState::Lost) if before != LinkState::Lost => {
-                self.dropped = true;
-                (Str::StatusBarLinkLost, Level::Warn)
-            }
-            (_, LinkState::Connected) if std::mem::take(&mut self.dropped) => {
-                (Str::StatusBarLinkConnected, Level::Ok)
-            }
-            _ => return,
-        };
-        let text = text.text(*cx.global::<strings::Lang>()).to_owned();
-        self.tell(text, level, cx);
     }
 
     fn newer(&mut self, order: u64) -> bool {

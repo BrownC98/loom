@@ -1,5 +1,6 @@
 mod dialog;
 mod nav;
+pub mod notify;
 mod patch;
 mod search;
 mod tabs;
@@ -26,6 +27,8 @@ pub struct Ctx<'a> {
 
 pub struct Section {
     head: Option<String>,
+    beside: Vec<AnyElement>,
+    card: bool,
     haystack: String,
     body: Vec<AnyElement>,
     query: String,
@@ -35,6 +38,8 @@ impl Section {
     pub fn new(head: Option<&str>, ctx: &Ctx) -> Self {
         Self {
             head: head.map(str::to_owned),
+            beside: Vec::new(),
+            card: false,
             haystack: head.unwrap_or_default().to_owned(),
             body: Vec::new(),
             query: ctx.query.to_owned(),
@@ -45,6 +50,17 @@ impl Section {
         self.haystack.push('\n');
         self.haystack.push_str(text);
         search::mark(text, &self.query, &cx.global::<Theme>().colors)
+    }
+
+    pub fn beside(mut self, element: Option<impl IntoElement>) -> Self {
+        self.beside
+            .extend(element.map(IntoElement::into_any_element));
+        self
+    }
+
+    pub fn carded(mut self) -> Self {
+        self.card = true;
+        self
     }
 
     pub fn child(mut self, element: impl IntoElement) -> Self {

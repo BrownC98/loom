@@ -2,8 +2,7 @@ use api::settings::SettingsView;
 use gpui::{
     App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    ScrollHandle, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
-    transparent_black,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px, transparent_black,
 };
 use serde_json::Value;
 
@@ -19,6 +18,7 @@ use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, button, colors, say, say_with};
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::scrollbar::Bar;
 
 const WIDTH: f32 = 880.0;
 const HEIGHT: f32 = 600.0;
@@ -51,7 +51,7 @@ pub struct Dialog {
     inflight: usize,
     error: Option<String>,
     states: tabs::State,
-    scroll: ScrollHandle,
+    scroll: Bar,
     _subs: Vec<Subscription>,
 }
 
@@ -80,7 +80,7 @@ impl Dialog {
                 window,
                 |this, _, event: &FieldEvent, _, cx| match event {
                     FieldEvent::Changed => {
-                        this.scroll.set_offset(point(px(0.0), px(0.0)));
+                        this.scroll.handle().set_offset(point(px(0.0), px(0.0)));
                         cx.notify();
                     }
                     FieldEvent::Escape => this.escape_search(cx),
@@ -107,7 +107,7 @@ impl Dialog {
             inflight: 0,
             error: None,
             states: tabs::State::default(),
-            scroll: ScrollHandle::new(),
+            scroll: Bar::new().round(12.0),
             _subs: subs,
         };
         if let Some(base) = base {
@@ -154,7 +154,7 @@ impl Dialog {
     pub(super) fn choose(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.search.update(cx, |field, cx| field.clear(cx));
         self.tab = tab;
-        self.scroll.set_offset(point(px(0.0), px(0.0)));
+        self.scroll.handle().set_offset(point(px(0.0), px(0.0)));
         cx.notify();
     }
 
@@ -441,7 +441,7 @@ impl Render for Dialog {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.scroll)
+            .track_scroll(&self.scroll.handle())
             .px(px(22.0))
             .pb(px(18.0))
             .flex()
@@ -459,14 +459,12 @@ impl Render for Dialog {
                     .text_color(c.ink_3)
                     .child(say(cx, Str::SettingsSearchNone))
             }));
-        let pane = div()
+        let pane = self
+            .scroll
+            .wrap(div().flex().flex_col().child(head).child(body), false)
             .flex_1()
             .min_w_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            .child(head)
-            .child(body);
+            .h_full();
 
         let view = window.viewport_size();
         let width = WIDTH.min(f32::from(view.width) - MARGIN);

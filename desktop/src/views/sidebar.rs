@@ -4,12 +4,13 @@ use std::collections::HashSet;
 
 use gpui::{
     App, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, Rgba, ScrollHandle,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, Rgba,
     StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 
 use super::field::{self, Field, FieldEvent};
 use super::rail;
+use super::scrollbar::Bar;
 use super::shell::OpenSettings;
 use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;
@@ -36,8 +37,8 @@ pub struct Sidebar {
     store: Entity<Store>,
     field: Entity<Field>,
     focus: FocusHandle,
-    marks_scroll: ScrollHandle,
-    tree_scroll: ScrollHandle,
+    marks_scroll: Bar,
+    tree_scroll: Bar,
     closed: HashSet<Key>,
     marks_open: bool,
     cursor: Option<Key>,
@@ -73,8 +74,8 @@ impl Sidebar {
             store,
             field,
             focus: cx.focus_handle().tab_stop(true),
-            marks_scroll: ScrollHandle::new(),
-            tree_scroll: ScrollHandle::new(),
+            marks_scroll: Bar::new(),
+            tree_scroll: Bar::new(),
             closed: HashSet::new(),
             marks_open: true,
             cursor: None,
@@ -733,10 +734,10 @@ impl Sidebar {
                     .iter()
                     .position(|r| Some(&r.key) == self.cursor.as_ref());
                 if let Some(i) = in_marks {
-                    self.marks_scroll.scroll_to_item(i);
+                    self.marks_scroll.handle().scroll_to_item(i);
                 }
                 if let Some(i) = in_tree {
-                    self.tree_scroll.scroll_to_item(i);
+                    self.tree_scroll.handle().scroll_to_item(i);
                 }
             }
             for (i, row) in built.marks.iter().enumerate() {
@@ -797,10 +798,8 @@ impl Sidebar {
 
         let mark_rows = div()
             .id("marks")
-            .flex_none()
-            .max_h(relative(0.4))
             .overflow_y_scroll()
-            .track_scroll(&self.marks_scroll)
+            .track_scroll(&self.marks_scroll.handle())
             .px(px(8.0))
             .flex()
             .flex_col()
@@ -811,13 +810,16 @@ impl Sidebar {
                     .child(el)
                     .children(refusal.map(|text| refusal_line(text, c)))
             }));
+        let mark_rows = self
+            .marks_scroll
+            .wrap(mark_rows, true)
+            .flex_none()
+            .max_h(relative(0.4));
 
         let tree_rows = div()
             .id("tree")
-            .flex_1()
-            .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.tree_scroll)
+            .track_scroll(&self.tree_scroll.handle())
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event, window, cx| this.key(event, window, cx)))
             .px(px(8.0))
@@ -838,6 +840,7 @@ impl Sidebar {
                     .text_color(c.ink_3)
                     .child(Str::FindNoMatch.text(lang))
             }));
+        let tree_rows = self.tree_scroll.wrap(tree_rows, true).flex_1().min_h_0();
 
         let expand = div()
             .id("expand-all")

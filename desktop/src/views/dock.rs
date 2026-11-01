@@ -1,16 +1,16 @@
-use std::collections::{HashMap, HashSet};
-
 use api::graph::docs::{DocGroup, DocRow};
-use api::graph::waits::{ClosedWait, Prompt};
+use api::graph::waits::ClosedWait;
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
+use self::answers::Answers;
 use super::field::{self, Field};
 use crate::store::Store;
 use crate::strings::Str;
 
+pub(crate) mod answers;
 mod arrange;
 mod body;
 mod commits;
@@ -36,25 +36,12 @@ enum Inbox {
     History,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Slot {
-    Answer,
-    Option(usize),
-    Field,
-}
-
 #[derive(Default)]
 struct History {
     rows: Vec<ClosedWait>,
     more: bool,
     loaded: bool,
     error: Option<String>,
-}
-
-pub(crate) struct Draft {
-    pub(crate) field: Entity<Field>,
-    pub(crate) secret: bool,
-    pub(crate) _sub: Subscription,
 }
 
 struct Docs {
@@ -70,10 +57,7 @@ pub struct Dock {
     store: Entity<Store>,
     tab: Tab,
     inbox: Inbox,
-    fields: HashMap<(u32, Slot), Draft>,
-    shown: HashMap<u32, Prompt>,
-    notes: HashMap<u32, String>,
-    busy: HashSet<u32>,
+    answers: Entity<Answers>,
     open_key: String,
     arrange_menu: bool,
     history: History,
@@ -92,10 +76,7 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             store: store.clone(),
             tab: Tab::Questions,
             inbox: Inbox::New,
-            fields: HashMap::new(),
-            shown: HashMap::new(),
-            notes: HashMap::new(),
-            busy: HashSet::new(),
+            answers: cx.new(|cx| Answers::new(store.clone(), cx)),
             open_key: String::new(),
             arrange_menu: false,
             history: History::default(),
@@ -116,6 +97,8 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.sync(cx)));
         dock.subscriptions
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.commits_follow(cx)));
+        dock.subscriptions
+            .push(cx.observe(&dock.answers, |_, _, cx| cx.notify()));
         dock.subscriptions
             .push(cx.observe(&query, |_, _, cx| cx.notify()));
         dock.subscriptions
@@ -158,7 +141,6 @@ impl Dock {
 impl Render for Dock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ui::colors(cx);
-        self.remember(cx);
         let waiting = self.waiting(cx);
         let current = self.tab;
         let tab = |id: &'static str,

@@ -23,6 +23,7 @@ const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
+const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
@@ -136,18 +137,19 @@ fn agent() -> ureq::Agent {
     agent_within(HTTP_LIMIT)
 }
 
+fn escape(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                char::from(b).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 pub fn query(pairs: &[(&str, Option<&str>)]) -> String {
-    let escape = |value: &str| -> String {
-        value
-            .bytes()
-            .map(|b| match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    char::from(b).to_string()
-                }
-                _ => format!("%{b:02X}"),
-            })
-            .collect()
-    };
     let joined: Vec<String> = pairs
         .iter()
         .filter_map(|(key, value)| Some(format!("{key}={}", escape((*value)?))))
@@ -245,18 +247,32 @@ pub fn post_within<T: serde::de::DeserializeOwned>(
 }
 
 pub fn distro(base: &str, name: &str) -> Result<DistroView, Failure> {
-    let path = name
-        .bytes()
-        .fold(String::from("/api/distros/"), |mut path, byte| {
-            match byte {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                    path.push(char::from(byte));
-                }
-                _ => path.push_str(&format!("%{byte:02X}")),
-            }
-            path
-        });
-    read(base, &path)
+    read(base, &format!("/api/distros/{}", escape(name)))
+}
+
+pub fn save_paste(
+    base: &str,
+    node: NodeId,
+    name: &str,
+    mime: &str,
+    bytes: &[u8],
+) -> Result<String, Failure> {
+    let node = node.0.to_string();
+    let url = format!(
+        "{base}/api/pastes/{}{}",
+        escape(name),
+        query(&[("node", Some(&node))])
+    );
+    let response = answer(
+        agent_within(SLOW_LIMIT)
+            .post(url)
+            .header("content-type", mime)
+            .send(bytes),
+    )?
+    .body_mut()
+    .read_to_string()
+    .map_err(|e| Failure::Other(e.to_string()))?;
+    serde_json::from_str(&response).map_err(|e| Failure::Other(format!("paste: {e}")))
 }
 
 pub fn shutdown(base: &str) -> Result<(), Failure> {
@@ -291,6 +307,25 @@ fn get(base: &str, path: &str) -> Result<String, Failure> {
         .body_mut()
         .read_to_string()
         .map_err(|e| Failure::Other(e.to_string()))
+}
+
+pub fn image(base: &str, path: &str) -> Result<(String, Vec<u8>), Failure> {
+    let mut response = answer(agent().get(format!("{base}{path}")).call())?;
+    let mime = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(IMAGE_LIMIT)
+        .read_to_vec()
+        .map_err(|e| Failure::Other(e.to_string()))?;
+    Ok((mime, bytes))
 }
 
 pub struct Snapshot {

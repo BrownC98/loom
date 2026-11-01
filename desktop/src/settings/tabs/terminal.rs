@@ -1,9 +1,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, ParentElement, Rgba,
-    ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
+    AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
+    ParentElement, Rgba, ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div,
+    point, px,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
@@ -12,7 +14,7 @@ use crate::settings::widgets::{
 };
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
-use crate::theme::{Scheme, Terminal, chosen_terminal_name, terminal_themes};
+use crate::theme::{Scheme, Terminal, Theme, chosen_terminal_name, terminal_themes};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
 
 const SIZE_RANGE: std::ops::RangeInclusive<i64> = 10..=24;
@@ -23,6 +25,8 @@ const PREVIEW_H: f32 = 216.0;
 const ROW_H: f32 = 28.0;
 const ROWS_ABOVE: usize = 4;
 const CHIP: f32 = 14.0;
+const SWATCH_W: f32 = 26.0;
+const SWATCH_H: f32 = 18.0;
 
 #[derive(Default)]
 struct Picker {
@@ -67,6 +71,26 @@ fn chips(colors: &[Rgba]) -> Div {
             .iter()
             .map(|color| div().size(px(CHIP)).bg(*color).mr(px(2.0))),
     )
+}
+
+fn swatch(theme: &Terminal, border: Rgba) -> AnyElement {
+    div()
+        .flex_none()
+        .w(px(SWATCH_W))
+        .h(px(SWATCH_H))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(border)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .font_family(TERMINAL_FAMILY)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(px(11.0))
+        .child("Aa")
+        .into_any_element()
 }
 
 fn sample(theme: &Terminal) -> Div {
@@ -143,6 +167,7 @@ fn picker_block(
     cx: &App,
 ) -> Div {
     let c = colors(cx);
+    let face = Theme::face(cx);
     let themes = terminal_themes();
     let hovered = picker.hover.get().filter(|_| !disabled);
     let shown = hovered.unwrap_or(chosen).min(themes.len() - 1);
@@ -154,7 +179,7 @@ fn picker_block(
         id,
         themes
             .iter()
-            .map(|(name, _)| SharedString::from(*name))
+            .map(|(name, theme)| (SharedString::from(*name), Some(swatch(theme, c.line))))
             .collect(),
         Some(chosen),
         LIST_W,
@@ -198,7 +223,11 @@ fn picker_block(
                 .border_color(c.line_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .font_family(TERMINAL_FAMILY)
+                .font_family(face.font.family.clone())
+                .when_some(face.font.fallbacks.clone(), |mut d, fallbacks| {
+                    d.text_style().font_fallbacks = Some(fallbacks);
+                    d
+                })
                 .text_size(px(12.0))
                 .line_height(px(18.0))
                 .child(sample(theme)),

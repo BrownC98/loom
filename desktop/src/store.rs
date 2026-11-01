@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
@@ -8,15 +9,20 @@ use api::graph::{GraphEvent, NewNode, NodeState};
 use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
-use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
+use gpui::{
+    App, AppContext, Bounds, Context, EventEmitter, Image, ImageFormat, Pixels, Task, Window,
+    WindowAppearance,
+};
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::strings::Str;
+use crate::views::dock::answers::Slot;
 use crate::views::notice::{self, Level, Notice};
 use crate::{strings, theme};
 
+const ROOM_GAP: f32 = 14.0;
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 pub struct Store {
@@ -35,14 +41,27 @@ pub struct Store {
     notices: u64,
     dropped: bool,
     found: Option<HashSet<String>>,
+    current: Option<String>,
     picked: Option<HashSet<String>>,
+    composer: Option<(Bounds<Pixels>, bool)>,
+    zoomed: bool,
+    drafts: HashMap<(u32, Slot), String>,
+    busy: HashSet<u32>,
 }
 
 pub struct ZoomTo(pub f32);
 
+pub struct ShowNode(pub u32);
+pub struct DraftChanged(pub u32, pub Slot);
+
+pub struct BusyChanged;
+
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
+impl EventEmitter<ShowNode> for Store {}
+impl EventEmitter<DraftChanged> for Store {}
+impl EventEmitter<BusyChanged> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -101,7 +120,12 @@ impl Store {
             notices: 0,
             dropped: false,
             found: None,
+            current: None,
             picked: None,
+            composer: None,
+            zoomed: false,
+            drafts: HashMap::new(),
+            busy: HashSet::new(),
         }
     }
 
@@ -137,6 +161,46 @@ impl Store {
         self.selected
     }
 
+    pub fn draft(&self, wait: u32, slot: Slot) -> &str {
+        self.drafts.get(&(wait, slot)).map_or("", String::as_str)
+    }
+
+    pub fn set_draft(&mut self, wait: u32, slot: Slot, text: &str, cx: &mut Context<Self>) {
+        if self.draft(wait, slot) == text {
+            return;
+        }
+        if text.is_empty() {
+            self.drafts.remove(&(wait, slot));
+        } else {
+            self.drafts.insert((wait, slot), text.to_owned());
+        }
+        cx.emit(DraftChanged(wait, slot));
+    }
+
+    pub fn keep_waits(&mut self, live: &HashSet<u32>, cx: &mut Context<Self>) {
+        self.drafts.retain(|(wait, _), _| live.contains(wait));
+        let before = self.busy.len();
+        self.busy.retain(|wait| live.contains(wait));
+        if self.busy.len() != before {
+            cx.emit(BusyChanged);
+        }
+    }
+
+    pub fn is_busy(&self, wait: u32) -> bool {
+        self.busy.contains(&wait)
+    }
+
+    pub fn set_busy(&mut self, wait: u32, busy: bool, cx: &mut Context<Self>) {
+        let changed = if busy {
+            self.busy.insert(wait)
+        } else {
+            self.busy.remove(&wait)
+        };
+        if changed {
+            cx.emit(BusyChanged);
+        }
+    }
+
     pub fn zoom_percent(&self) -> u32 {
         self.zoom_percent
     }
@@ -152,9 +216,19 @@ impl Store {
         self.found.as_ref().or(self.picked.as_ref())
     }
 
-    pub fn set_found(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
-        if self.found != keys {
+    pub fn current(&self) -> Option<&str> {
+        self.found.as_ref().and(self.current.as_deref())
+    }
+
+    pub fn set_found(
+        &mut self,
+        keys: Option<HashSet<String>>,
+        current: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.found != keys || self.current != current {
             self.found = keys;
+            self.current = current;
             cx.notify();
         }
     }
@@ -162,6 +236,21 @@ impl Store {
     pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
         if self.picked != keys {
             self.picked = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn show_node(&mut self, node: u32, cx: &mut Context<Self>) {
+        cx.emit(ShowNode(node));
+    }
+
+    pub fn zoomed(&self) -> bool {
+        self.zoomed
+    }
+
+    pub fn set_zoomed(&mut self, zoomed: bool, cx: &mut Context<Self>) {
+        if self.zoomed != zoomed {
+            self.zoomed = zoomed;
             cx.notify();
         }
     }
@@ -289,6 +378,9 @@ impl Store {
         let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
         if key != self.settings_key {
             apply_settings(&loaded.settings, cx);
+            if loaded.settings.closed_panes.dock {
+                self.picked = None;
+            }
             self.settings = loaded.settings;
             self.settings_key = key;
         }
@@ -425,6 +517,21 @@ impl Store {
         self.call(cx, move |base| link::adopt(base, child, parent))
     }
 
+    pub fn wait_image(
+        &self,
+        wait: WaitId,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Arc<Image>, String>> {
+        self.call(cx, move |base| {
+            let (mime, bytes) =
+                link::image(base, &format!("/api/waits/{}/images/{index}", wait.0))?;
+            let format = ImageFormat::from_mime_type(&mime)
+                .ok_or_else(|| Failure::Other(format!("image type {mime}")))?;
+            Ok(Arc::new(Image::from_bytes(format, bytes)))
+        })
+    }
+
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.call(cx, move |base| {
             link::delete(base, &format!("/api/waits/{}", wait.0))
@@ -495,5 +602,41 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         self.call(cx, move |base| link::clear_sizes(base, &nodes))
+    }
+}
+
+impl Store {
+    pub fn composer_box(&self) -> Option<Bounds<Pixels>> {
+        self.composer.map(|(bounds, _)| bounds)
+    }
+
+    pub fn composer_room(&self) -> f32 {
+        self.composer
+            .filter(|(_, home)| *home)
+            .map_or(0.0, |(bounds, _)| f32::from(bounds.size.height) + ROOM_GAP)
+    }
+
+    pub fn set_composer(
+        &mut self,
+        composer: Option<(Bounds<Pixels>, bool)>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer != composer {
+            self.composer = composer;
+            cx.notify();
+        }
+    }
+
+    pub fn save_paste(
+        &self,
+        node: NodeId,
+        name: String,
+        mime: &'static str,
+        bytes: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<String, String>> {
+        self.call(cx, move |base| {
+            link::save_paste(base, node, &name, mime, &bytes)
+        })
     }
 }

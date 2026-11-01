@@ -12,70 +12,60 @@ pub mod view;
 
 pub type Rgb8 = [u8; 3];
 
-const ANSI: [Rgb8; 16] = [
-    [0x2e, 0x34, 0x36],
-    [0xcc, 0x00, 0x00],
-    [0x4e, 0x9a, 0x06],
-    [0xc4, 0xa0, 0x00],
-    [0x34, 0x65, 0xa4],
-    [0x75, 0x50, 0x7b],
-    [0x06, 0x98, 0x9a],
-    [0xd3, 0xd7, 0xcf],
-    [0x55, 0x57, 0x53],
-    [0xef, 0x29, 0x29],
-    [0x8a, 0xe2, 0x34],
-    [0xfc, 0xe9, 0x4f],
-    [0x72, 0x9f, 0xcf],
-    [0xad, 0x7f, 0xa8],
-    [0x34, 0xe2, 0xe2],
-    [0xee, 0xee, 0xec],
-];
-pub const FOREGROUND: Rgb8 = [0xd4, 0xd4, 0xd4];
-pub const BACKGROUND: Rgb8 = [0x0a, 0x0a, 0x0a];
-pub const CURSOR: Rgb8 = [0xfa, 0xfa, 0xfa];
+#[derive(Clone, Copy, PartialEq)]
+pub struct Palette {
+    pub ansi: [Rgb8; 16],
+    pub foreground: Rgb8,
+    pub background: Rgb8,
+    pub cursor: Rgb8,
+}
+
 const FOREGROUND_INDEX: usize = 256;
 const BACKGROUND_INDEX: usize = 257;
+const CURSOR_INDEX: usize = 258;
 const CUBE_START: usize = 16;
 const GRAY_START: usize = 232;
 const DIM_START: usize = 259;
 
-fn palette(index: usize) -> Rgb8 {
-    match index {
-        0..16 => ANSI[index],
-        CUBE_START..GRAY_START => {
-            let n = index - CUBE_START;
-            let level = |v: usize| if v == 0 { 0 } else { (v * 40 + 55) as u8 };
-            [level(n / 36), level(n / 6 % 6), level(n % 6)]
+impl Palette {
+    fn color(&self, index: usize) -> Rgb8 {
+        match index {
+            0..16 => self.ansi[index],
+            CUBE_START..GRAY_START => {
+                let n = index - CUBE_START;
+                let level = |v: usize| if v == 0 { 0 } else { (v * 40 + 55) as u8 };
+                [level(n / 36), level(n / 6 % 6), level(n % 6)]
+            }
+            GRAY_START..256 => {
+                let v = ((index - GRAY_START) * 10 + 8) as u8;
+                [v, v, v]
+            }
+            FOREGROUND_INDEX => self.foreground,
+            BACKGROUND_INDEX => self.background,
+            DIM_START..267 => self.ansi[index - DIM_START].map(|v| (u16::from(v) * 2 / 3) as u8),
+            CURSOR_INDEX => self.cursor,
+            _ => self.foreground,
         }
-        GRAY_START..256 => {
-            let v = ((index - GRAY_START) * 10 + 8) as u8;
-            [v, v, v]
+    }
+
+    fn resolve(&self, color: Color, bold: bool) -> Rgb8 {
+        match color {
+            Color::Spec(Rgb { r, g, b }) => [r, g, b],
+            Color::Indexed(i) => self.color(usize::from(i)),
+            Color::Named(name) => {
+                let index = name as usize;
+                self.color(if bold && index < 8 { index + 8 } else { index })
+            }
         }
-        FOREGROUND_INDEX => FOREGROUND,
-        BACKGROUND_INDEX => BACKGROUND,
-        DIM_START..267 => ANSI[index - DIM_START].map(|v| (u16::from(v) * 2 / 3) as u8),
-        258 => CURSOR,
-        _ => FOREGROUND,
     }
 }
 
-fn resolve(color: Color, bold: bool) -> Rgb8 {
-    match color {
-        Color::Spec(Rgb { r, g, b }) => [r, g, b],
-        Color::Indexed(i) => palette(usize::from(i)),
-        Color::Named(name) => {
-            let index = name as usize;
-            palette(if bold && index < 8 { index + 8 } else { index })
-        }
-    }
-}
-
-#[derive(Default)]
 struct Pending {
     replies: Vec<u8>,
+    palette: Palette,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Listener(Arc<Mutex<Pending>>);
 
 impl EventListener for Listener {
@@ -84,7 +74,7 @@ impl EventListener for Listener {
         match event {
             Event::PtyWrite(text) => pending.replies.extend(text.into_bytes()),
             Event::ColorRequest(index, format) => {
-                let [r, g, b] = palette(index);
+                let [r, g, b] = pending.palette.color(index);
                 pending.replies.extend(format(Rgb { r, g, b }).into_bytes());
             }
             _ => {}
@@ -145,8 +135,11 @@ pub struct Vt {
 }
 
 impl Vt {
-    pub fn new(cols: u16, rows: u16) -> Self {
-        let listener = Listener::default();
+    pub fn new(cols: u16, rows: u16, palette: Palette) -> Self {
+        let listener = Listener(Arc::new(Mutex::new(Pending {
+            replies: Vec::new(),
+            palette,
+        })));
         Self {
             term: Term::new(
                 Config {
@@ -159,6 +152,22 @@ impl Vt {
             parser: Processor::default(),
             listener,
         }
+    }
+
+    pub fn set_palette(&mut self, palette: Palette) {
+        self.listener
+            .0
+            .lock()
+            .expect("terminal events lock")
+            .palette = palette;
+    }
+
+    fn palette(&self) -> Palette {
+        self.listener
+            .0
+            .lock()
+            .expect("terminal events lock")
+            .palette
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
@@ -183,12 +192,16 @@ impl Vt {
     pub fn snapshot(&self) -> Screen {
         let (cols, rows) = (self.term.columns(), self.term.screen_lines());
         let grid = self.term.grid();
+        let palette = self.palette();
         let mut cells = Vec::with_capacity(cols * rows);
         for row in 0..rows {
             for col in 0..cols {
                 let cell = &grid[Line(row as i32 - grid.display_offset() as i32)][Column(col)];
                 let bold = cell.flags.contains(Flags::BOLD);
-                let (mut fg, mut bg) = (resolve(cell.fg, bold), resolve(cell.bg, false));
+                let (mut fg, mut bg) = (
+                    palette.resolve(cell.fg, bold),
+                    palette.resolve(cell.bg, false),
+                );
                 if cell.flags.contains(Flags::INVERSE) {
                     std::mem::swap(&mut fg, &mut bg);
                 }

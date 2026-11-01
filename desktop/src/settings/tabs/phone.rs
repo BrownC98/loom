@@ -13,10 +13,11 @@ use gpui::{
 
 use crate::link;
 use crate::problem::Failure;
+use crate::settings::widgets::button;
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
-use crate::views::dock::ui::{SMALL, TEXT, button, colors, open_url, say, say_with};
+use crate::views::dock::ui::{SMALL, TEXT, colors, open_url, say, say_with};
 
 const QR: f32 = 148.0;
 const QR_PAD: f32 = 4.0;

@@ -1,10 +1,16 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
+use gpui::prelude::FluentBuilder;
 use gpui::{
     Anchor, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    anchored, deferred, div, point, px,
+    MouseButton, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
+    Styled, Window, anchored, deferred, div, point, px,
 };
 
+use crate::float::place::measure;
 use crate::views::dock::ui::{TEXT, colors};
+use crate::views::icons::{Lucide, icon};
 
 const HEIGHT: f32 = 30.0;
 const WIDTH: f32 = 180.0;
@@ -16,6 +22,8 @@ pub enum SelectEvent {
 
 pub struct Select {
     id: &'static str,
+    full: bool,
+    size: Rc<Cell<Size<Pixels>>>,
     items: Vec<SharedString>,
     current: usize,
     open: bool,
@@ -28,11 +36,18 @@ impl Select {
     pub fn new(id: &'static str, cx: &mut Context<Self>) -> Self {
         Self {
             id,
+            full: false,
+            size: Rc::default(),
             items: Vec::new(),
             current: 0,
             open: false,
             focus: cx.focus_handle().tab_stop(true),
         }
+    }
+
+    pub fn full(mut self) -> Self {
+        self.full = true;
+        self
     }
 
     pub fn show(&mut self, items: Vec<SharedString>, current: usize, cx: &mut Context<Self>) {
@@ -72,7 +87,12 @@ impl Render for Select {
             .id(self.id)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key))
-            .w(px(WIDTH))
+            .when_else(
+                self.full,
+                |button| button.w_full(),
+                |button| button.w(px(WIDTH)),
+            )
+            .relative()
             .h(px(HEIGHT))
             .px(px(9.0))
             .flex()
@@ -85,18 +105,29 @@ impl Render for Select {
             } else {
                 c.line_strong
             })
-            .bg(c.surface)
+            .bg(c.bg)
             .text_size(px(TEXT))
             .text_color(c.ink)
             .cursor_pointer()
             .child(label)
-            .child(div().text_color(c.ink_3).child("\u{25BE}"))
+            .child(icon(Lucide::ChevronDown, 14.0, c.ink_3))
+            .when(self.full, |button| {
+                button.child(measure(self.size.clone(), cx.entity_id()))
+            })
             .on_click(cx.listener(|this, _, window, cx| {
                 this.open = !this.open;
                 window.focus(&this.focus, cx);
                 cx.notify();
             }));
-        let host = div().relative().child(button);
+        let host = div()
+            .relative()
+            .when(self.full, Styled::w_full)
+            .child(button);
+        let list_w = if self.full {
+            self.size.get().width
+        } else {
+            px(WIDTH)
+        };
         if !self.open {
             return host;
         }
@@ -143,7 +174,7 @@ impl Render for Select {
                 .snap_to_window()
                 .child(
                     div()
-                        .w(px(WIDTH))
+                        .w(list_w)
                         .occlude()
                         .rounded(px(6.0))
                         .border_1()

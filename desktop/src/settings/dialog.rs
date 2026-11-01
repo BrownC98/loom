@@ -1,23 +1,25 @@
 use api::settings::SettingsView;
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
+    AnyElement, App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px, transparent_black,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
 };
 use serde_json::Value;
 
 use super::nav::{self, Tab};
 use super::patch::{self, Writer};
 use super::tabs;
-use super::widgets::confirm;
+use super::widgets::{confirm, ghost};
 use super::{Ctx, Section, search};
 use crate::link;
 use crate::problem::Failure;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::dock::ui::{SMALL, button, colors, say, say_with};
+use crate::views::dock::ui::{SMALL, colors, say, say_with};
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
 
 const WIDTH: f32 = 880.0;
@@ -52,6 +54,7 @@ pub struct Dialog {
     error: Option<String>,
     states: tabs::State,
     scroll: Bar,
+    lang: Lang,
     _subs: Vec<Subscription>,
 }
 
@@ -108,6 +111,7 @@ impl Dialog {
             error: None,
             states: tabs::State::default(),
             scroll: Bar::new().round(12.0),
+            lang: *cx.global::<Lang>(),
             _subs: subs,
         };
         if let Some(base) = base {
@@ -328,7 +332,13 @@ impl Dialog {
     }
 }
 
-fn heading(label: String, tag: Option<&'static str>, query: &str, c: &Colors) -> impl IntoElement {
+fn heading(
+    label: String,
+    tag: Option<&'static str>,
+    beside: Vec<AnyElement>,
+    query: &str,
+    c: &Colors,
+) -> impl IntoElement {
     div()
         .flex()
         .items_center()
@@ -347,16 +357,17 @@ fn heading(label: String, tag: Option<&'static str>, query: &str, c: &Colors) ->
                 .child(tag)
         }))
         .child(search::mark(&label, query, c))
-}
-
-pub(super) fn ghost(id: &'static str, cx: &App) -> gpui::Stateful<gpui::Div> {
-    let c = colors(cx);
-    button(id, cx).border_color(transparent_black()).bg(c.panel)
+        .children(beside)
 }
 
 impl Render for Dialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = colors(cx);
+        let lang = *cx.global::<Lang>();
+        if lang != self.lang {
+            self.lang = lang;
+            self.scroll.reset();
+        }
         let query = self.query(cx);
         let searching = !query.is_empty();
         let writer = Writer::new(cx.weak_entity());
@@ -386,20 +397,33 @@ impl Render for Dialog {
         };
         let empty = searching && shown.is_empty();
         let lang_tag = |tab: Tab| say(cx, tab.label());
-        let sections: Vec<_> =
-            shown
-                .into_iter()
-                .map(|(tab, section)| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.0))
-                        .children(section.head.map(|head| {
-                            heading(head, searching.then(|| lang_tag(tab)), &query, &c)
-                        }))
-                        .children(section.body)
-                })
-                .collect();
+        let sections: Vec<_> = shown
+            .into_iter()
+            .map(|(tab, section)| {
+                let carded = section.card;
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(if carded { 6.0 } else { 8.0 }))
+                    .when(carded, |card| {
+                        card.p(px(12.0))
+                            .rounded(px(8.0))
+                            .border_1()
+                            .border_color(c.line)
+                            .bg(c.surface)
+                    })
+                    .children(section.head.map(|head| {
+                        heading(
+                            head,
+                            searching.then(|| lang_tag(tab)),
+                            section.beside,
+                            &query,
+                            &c,
+                        )
+                    }))
+                    .children(section.body)
+            })
+            .collect();
 
         let title = if searching {
             say_with(cx, Str::SettingsSearchResults, &[("query", &query)])
@@ -424,7 +448,8 @@ impl Render for Dialog {
             )
             .children(can_reset.then(|| {
                 let tab = self.tab;
-                button("settings-reset-tab", cx)
+                ghost("settings-reset-tab", cx)
+                    .child(icon(Lucide::RotateCcw, 14.0, c.ink_2))
                     .child(say(cx, Str::SettingsResetTab))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.ask(Ask::ResetTab(tab), window, cx)
@@ -432,6 +457,8 @@ impl Render for Dialog {
             }))
             .child(
                 ghost("settings-close", cx)
+                    .min_h(px(30.0))
+                    .px(px(8.0))
                     .child("\u{00D7}")
                     .text_size(px(20.0))
                     .on_click(cx.listener(|this, _, _, cx| this.close(cx))),

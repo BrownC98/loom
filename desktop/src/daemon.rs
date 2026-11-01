@@ -17,11 +17,28 @@ fn sibling() -> Option<std::path::PathBuf> {
     exe.is_file().then_some(exe)
 }
 
-pub fn start() -> Result<String, String> {
-    let mut command = match sibling() {
+fn command() -> Command {
+    match sibling() {
         Some(exe) => Command::new(exe),
         None => Command::new(LOOM),
-    };
+    }
+}
+
+pub fn version() -> Option<String> {
+    let mut command = command();
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    hide_console(&mut command);
+    let output = command.output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let version = text.trim().strip_prefix("loom ")?;
+    (!version.is_empty() && !version.contains(char::is_whitespace)).then(|| version.to_owned())
+}
+
+pub fn start() -> Result<String, String> {
+    let mut command = command();
     command
         .arg("start")
         .stdin(Stdio::null())

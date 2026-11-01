@@ -3,6 +3,7 @@ use gpui::{
     Styled, Window, div, px,
 };
 
+use super::btn::tabbable;
 use crate::views::dock::ui::colors;
 
 const TRACK_W: f32 = 30.0;
@@ -18,8 +19,7 @@ pub fn switch(
 ) -> Stateful<Div> {
     let c = colors(cx);
     let left = if on { TRACK_W - KNOB - GAP } else { GAP };
-    div()
-        .id(id)
+    tabbable(div().id(id), cx)
         .relative()
         .flex_none()
         .self_start()

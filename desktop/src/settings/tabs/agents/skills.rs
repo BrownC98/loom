@@ -101,11 +101,7 @@ pub fn section(ctx: &Ctx, cx: &App) -> Section {
         .collect();
     let note = section.text(say(cx, Str::SettingsSkillsHint), cx);
     section
-        .child(
-            div()
-                .flex()
-                .children(field_reset("agents-skills-reset", &["alwaysOn"], ctx, cx)),
-        )
+        .beside(field_reset("agents-skills-reset", &["alwaysOn"], ctx, cx))
         .child(rows(items, cx))
         .child(hint(note, cx))
 }

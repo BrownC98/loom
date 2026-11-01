@@ -44,10 +44,7 @@ fn with_reset(
     ctx: &Ctx,
     cx: &App,
 ) -> Section {
-    match field_reset(id, path, ctx, cx) {
-        Some(reset) => section.child(reset),
-        None => section,
-    }
+    section.beside(field_reset(id, path, ctx, cx))
 }
 
 fn labels<T: Copy>(section: &mut Section, items: &[(T, Str)], cx: &App) -> Vec<(T, SharedString)> {

@@ -20,6 +20,7 @@ const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
+pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
 
@@ -120,11 +121,15 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-fn agent() -> ureq::Agent {
+fn agent_within(limit: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(HTTP_LIMIT))
+        .timeout_global(Some(limit))
         .build()
         .into()
+}
+
+fn agent() -> ureq::Agent {
+    agent_within(HTTP_LIMIT)
 }
 
 pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
@@ -165,7 +170,16 @@ pub fn post<T: serde::de::DeserializeOwned>(
     path: &str,
     body: Option<String>,
 ) -> Result<T, String> {
-    let request = agent().post(format!("{base}{path}"));
+    post_within(base, path, body, HTTP_LIMIT)
+}
+
+pub fn post_within<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Option<String>,
+    limit: Duration,
+) -> Result<T, String> {
+    let request = agent_within(limit).post(format!("{base}{path}"));
     let response = match body {
         Some(body) => request
             .header("content-type", "application/json")

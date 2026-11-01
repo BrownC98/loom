@@ -13,9 +13,10 @@ use crate::process_tree::{self, Listen};
 use crate::profile::adapter::{LaunchAt, Port, Record, Started};
 use crate::profile::process::Served;
 use crate::protocol::{
-    AdapterRecord, Delivery, EndedTurn, IdleReply, IdleRequest, Kind, Model, ModelChoice, Report,
-    TakeRequest,
+    AdapterRecord, Delivery, EndedTurn, IdleReply, IdleRequest, Model, Report, TakeRequest,
 };
+use api::graph::messages::Kind;
+use api::start::ModelChoice;
 
 const HTTP_WAIT: Duration = Duration::from_secs(20);
 const CANCEL_WAIT: Duration = Duration::from_secs(20);

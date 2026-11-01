@@ -1,12 +1,13 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::{Distro, Host};
-use crate::graph::{Active, Entry};
+use crate::graph::Active;
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER, Session};
 use crate::tunnel::ENDPOINT_ENV;
+use api::graph::events::Entry;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
 
@@ -85,13 +86,13 @@ impl App {
     async fn remote(
         &self,
         at: &SshPath,
-    ) -> Result<crate::ssh::Remote, crate::protocol::InsideError> {
+    ) -> Result<crate::ssh::Remote, api::graph::errors::InsideError> {
         let distros = self.distros.clone();
         let host = Host::Ssh(at.host.clone());
         tokio::task::spawn_blocking(move || distros.remote(&host).map_err(|e| e.to_string()))
             .await
             .unwrap_or_else(|e| Err(e.to_string()))
-            .map_err(|cause| crate::protocol::InsideError::Start {
+            .map_err(|cause| api::graph::errors::InsideError::Start {
                 distro: at.host.clone(),
                 cause,
             })
@@ -100,7 +101,7 @@ impl App {
     pub(super) async fn ssh_host(
         &self,
         at: &SshPath,
-    ) -> Result<(Distro, crate::ssh::Remote), crate::protocol::InsideError> {
+    ) -> Result<(Distro, crate::ssh::Remote), api::graph::errors::InsideError> {
         let distro = self.host(Host::Ssh(at.host.clone()))?;
         Ok((distro, self.remote(at).await?))
     }
@@ -598,7 +599,7 @@ impl App {
             ),
             None => (plugin_here.clone(), self.plugin.skills(launch.skills)),
         };
-        let default_choice = crate::protocol::ModelChoice::default();
+        let default_choice = api::start::ModelChoice::default();
         let at = LaunchAt {
             choice: match start {
                 Start::Agent { choice, .. } => choice,
@@ -703,10 +704,10 @@ impl App {
         });
     }
 
-    pub(super) fn host(&self, host: Host) -> Result<Distro, crate::protocol::InsideError> {
+    pub(super) fn host(&self, host: Host) -> Result<Distro, api::graph::errors::InsideError> {
         match &host {
             Host::Distro(name) if self.linux_loom.is_none() => {
-                return Err(crate::protocol::InsideError::Start {
+                return Err(api::graph::errors::InsideError::Start {
                     distro: name.clone(),
                     cause: LINUX_LOOM_MISSING.into(),
                 });

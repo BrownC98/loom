@@ -3,7 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
-use crate::graph::{AgentEvent, Entry, Graph, IdleEnd, IdleId, NodeId, Who};
+use crate::graph::{Graph, IdleId};
+use api::graph::events::{AgentEvent, Entry, IdleEnd, Who};
+use api::ids::NodeId;
 
 pub struct IdleWaits {
     graph: Arc<Graph>,

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Delivery, Kind, MessageId, Model, Prompt, WaitKind};
+use super::{Delivery, MessageId, Model};
+use api::graph::messages::Kind;
+use api::graph::waits::{Prompt, WaitKind};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Session(pub String);

@@ -3,7 +3,7 @@ use std::time::Duration;
 use futures_util::{Stream, StreamExt};
 use tokio::time::Instant;
 
-pub use api::graph::pty::Pace;
+use api::graph::pty::Pace;
 
 const BEAT: Duration = Duration::from_secs(15);
 const FRONT_BEAT: Duration = Duration::from_secs(5);

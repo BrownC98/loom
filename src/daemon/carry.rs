@@ -6,13 +6,14 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
-use super::{App, Problem, internal};
+use super::{App, internal};
 use crate::db;
 use crate::distro::Host;
-use crate::graph::{Entry, Who};
 use crate::profile::process::Served;
 use crate::settings::Settings;
 use crate::wsl::{self, WslPath};
+use api::graph::errors::Problem;
+use api::graph::events::{Entry, Who};
 
 const NOTICE: &str = "loom moved this node from the WSL daemon to the Windows daemon and started your process again with the same conversation. Background commands that you started stopped. If a task was in progress, continue it.";
 

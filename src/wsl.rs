@@ -5,8 +5,8 @@ use portable_pty::CommandBuilder;
 
 use crate::distro::{self, Distro};
 use crate::process_tree::Identity;
-use crate::protocol::InsideError;
 use crate::tunnel::ENDPOINT_ENV;
+use api::graph::errors::InsideError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WslPath {

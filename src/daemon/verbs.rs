@@ -1,5 +1,6 @@
 use super::*;
-use crate::protocol::{AgentId, ModelChoice};
+use api::ids::AgentId;
+use api::start::ModelChoice;
 
 pub(super) async fn agent_spawn(
     State(app): State<Arc<App>>,

@@ -1,7 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::{Graph, NodeId};
+use super::Graph;
 use crate::process_tree::Identity;
+use api::ids::NodeId;
 
 pub(super) fn drop_host(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
     db.execute("DELETE FROM node_hosts WHERE node = ?1", [node.0])

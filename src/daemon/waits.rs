@@ -1,12 +1,12 @@
 use axum::http::HeaderValue;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
-pub use api::graph::waits::{AnswerWait, ChooseOption, TypeText};
+use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, TypeText};
 
 use super::runtime::bearer;
 use super::*;
-use crate::graph::{ClosedPage, DocQuestion};
 use crate::protocol::ChoiceRequest;
+use api::graph::docs::DocQuestion;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -150,7 +150,9 @@ async fn answer_dialog(
     Ok(())
 }
 
-async fn list_docs(State(app): State<Arc<App>>) -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
+async fn list_docs(
+    State(app): State<Arc<App>>,
+) -> Result<Json<Vec<api::graph::docs::DocRow>>, Problem> {
     let docs = tokio::task::spawn_blocking(move || user_doc::docs(&app.doc_titles))
         .await
         .map_err(internal)?;

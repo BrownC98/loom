@@ -1,9 +1,10 @@
 use rusqlite::{Connection, OptionalExtension};
 
-pub use api::settings::{FloatPlace, SettingsView};
+use api::settings::{FloatPlace, SettingsView};
 
 use crate::db::Database;
-use crate::roles::{self, ChoiceCheck, RoleProblem, Roles, SetRole};
+use crate::roles::{self, ChoiceCheck, RoleProblem, SetRole};
+use api::settings::roles::Roles;
 
 fn place_problem(place: FloatPlace, field: &str) -> Option<String> {
     let ok = |v: f32| (0.0..=1.0).contains(&v);

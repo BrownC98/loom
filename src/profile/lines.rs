@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Handed, HookEvent, LineEvent, Served, Shown, Signals, Take, Unserved};
-use crate::protocol::{
-    ChoiceRequest, Delivery, Kind, MessageId, Model, Prompt, PromptKey, PromptOption, Report,
-    Session, WaitKind,
-};
+use crate::protocol::{ChoiceRequest, Delivery, MessageId, Model, Report, Session};
+use api::graph::messages::Kind;
+use api::graph::waits::{Prompt, PromptKey, PromptOption, WaitKind};
 
 const UNNUMBERED: u32 = 2;
 const PROTOCOL: u32 = 4;

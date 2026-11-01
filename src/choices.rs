@@ -1,4 +1,4 @@
-pub use api::graph::waits::Choice;
+use api::graph::waits::Choice;
 
 pub fn choices(question: &str) -> Vec<Choice> {
     parse(question).map(|(c, _)| c).unwrap_or_default()

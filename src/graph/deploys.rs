@@ -1,9 +1,9 @@
 use rusqlite::params;
 
 use super::gate::{exists, root_of};
-use super::{Graph, NodeId, mailbox};
-use crate::protocol::{Kind, MessageKind};
-use crate::worktree::RepoId;
+use super::{Graph, mailbox};
+use api::graph::messages::{Kind, MessageKind};
+use api::ids::{NodeId, RepoId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deploy {

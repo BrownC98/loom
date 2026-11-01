@@ -89,9 +89,9 @@ pub struct SpawnRequest {
     pub brief: String,
     pub worktree: Option<String>,
     #[serde(default)]
-    pub agent: Option<crate::protocol::AgentId>,
+    pub agent: Option<api::ids::AgentId>,
     #[serde(default)]
-    pub choice: crate::protocol::ModelChoice,
+    pub choice: api::start::ModelChoice,
 }
 
 #[derive(Serialize, Deserialize)]

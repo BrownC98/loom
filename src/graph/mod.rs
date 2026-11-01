@@ -21,27 +21,24 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 
-pub use api::graph::{CardView, GraphEvent, NodeState, NodeView, Place, RelaunchOffer, Toward};
-pub use api::ids::NodeId;
+use api::graph::{GraphEvent, NodeState, NodeView, Place, RelaunchOffer, Toward};
+use api::ids::{AgentId, NodeId, RepoId};
 
-pub use agent_state::{AgentChange, AgentEvent, AgentState};
-pub use closed::ClosedPage;
+pub use agent_state::AgentChange;
 pub use deploys::Deploy;
-pub use events::{
-    AgentSwitch, BatchMember, BatchResult, Entry, EventLog, IdleEnd, SwitchCause, TurnCheck, Via,
-    Who,
-};
 pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round};
 pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, ParentWork, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
 pub use turns::TurnMark;
-pub use waits::{DocQuestion, HUMAN, HumanWait, WaitSource};
+pub use waits::{HUMAN, WaitSource};
 
 use crate::db::Database;
-use crate::protocol::{AgentId, Kind, MessageKind, Refusal};
-use crate::worktree::RepoId;
+use api::graph::errors::Refusal;
+use api::graph::events::{Entry, EventLog, Via, Who};
+use api::graph::messages::{Kind, MessageKind};
+use api::graph::waits::HumanWait;
 
 pub(crate) const EVENT_QUEUE: usize = 256;
 
@@ -220,7 +217,7 @@ impl Graph {
         via: Option<&Via>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
-        let entry = events::Entry::Refused {
+        let entry = api::graph::events::Entry::Refused {
             how,
             what,
             from: events::who(&db, from)?,
@@ -434,7 +431,7 @@ fn note_state(db: &Connection, id: NodeId, from: NodeState) -> rusqlite::Result<
     if to == from {
         return Ok(());
     }
-    let entry = events::Entry::State {
+    let entry = api::graph::events::Entry::State {
         node: events::who(db, id)?,
         from,
         to,

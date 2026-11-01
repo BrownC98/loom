@@ -2788,6 +2788,7 @@ dependencies = [
  "api",
  "async-channel",
  "chrono",
+ "embed-resource",
  "gpui",
  "gpui_platform",
  "open",

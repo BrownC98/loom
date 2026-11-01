@@ -954,25 +954,37 @@ fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElem
     out
 }
 
-pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
+fn head_row(face: &Face, zoom: f32, colors: &Colors, dock: bool) -> Div {
     let model = model_text(face.node);
-    div()
+    let (mark, name) = (mark_of(face, zoom, colors), name_slot(face, zoom, colors));
+    let (first, second) = if dock { (mark, name) } else { (name, mark) };
+    let frame = div()
         .flex()
         .flex_none()
         .items_center()
         .gap(px(8.0 * zoom))
         .w_full()
-        .h(px(HEAD * zoom))
-        .pl(px(10.0 * zoom))
-        .pr(px(6.0 * zoom))
         .bg(colors.surface)
         .border_b(px(zoom.max(0.5)))
         .border_color(colors.line)
         .text_size(text_px(NAME, zoom))
-        .text_color(colors.ink)
-        .child(name_slot(face, zoom, colors))
-        .child(mark_of(face, zoom, colors))
-        .when(!model.is_empty(), |d| {
+        .text_color(colors.ink);
+    let frame = if dock {
+        frame
+            .pt(px(12.0 * zoom))
+            .pb(px(12.0 * zoom))
+            .pl(px(16.0 * zoom))
+            .pr(px(10.0 * zoom))
+    } else {
+        frame
+            .h(px(HEAD * zoom))
+            .pl(px(10.0 * zoom))
+            .pr(px(6.0 * zoom))
+    };
+    frame
+        .child(first)
+        .child(second)
+        .when(!model.is_empty() && !(dock && face.rename.is_some()), |d| {
             d.child(
                 div()
                     .min_w_0()
@@ -987,44 +999,15 @@ pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
         })
         .child(div().flex_1())
         .children(badges(face, zoom, colors))
-        .children(actions(face, true, zoom, colors))
+        .children(actions(face, !dock, zoom, colors))
+}
+
+pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
+    head_row(face, zoom, colors, false)
 }
 
 pub fn dock_head(face: &Face, colors: &Colors) -> Div {
-    let model = model_text(face.node);
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(8.0))
-        .w_full()
-        .pt(px(12.0))
-        .pb(px(12.0))
-        .pl(px(16.0))
-        .pr(px(10.0))
-        .bg(colors.surface)
-        .border_b(px(1.0))
-        .border_color(colors.line)
-        .text_size(text_px(NAME, 1.0))
-        .text_color(colors.ink)
-        .child(mark_of(face, 1.0, colors))
-        .child(name_slot(face, 1.0, colors))
-        .when(!model.is_empty() && face.rename.is_none(), |d| {
-            d.child(
-                div()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(text_px(SMALL, 1.0))
-                    .font_family(fonts::TERMINAL_FAMILY)
-                    .text_color(colors.ink_3)
-                    .child(model),
-            )
-        })
-        .child(div().flex_1())
-        .children(badges(face, 1.0, colors))
-        .children(actions(face, false, 1.0, colors))
+    head_row(face, 1.0, colors, true)
 }
 
 fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {

@@ -150,6 +150,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
         .enumerate()
         .fold(row, |row, (index, (value, label))| {
             let chosen = value == current;
+            let ink = if chosen { c.ink } else { c.ink_2 };
             let Label { text, glyph, count } = label.into();
             let change = change.clone();
             let hover = hover.clone();
@@ -163,7 +164,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
             .cursor_pointer()
             .border_color(c.line_strong)
             .when(index != last, |item| item.border_r_1())
-            .text_color(if chosen { c.ink } else { c.ink_2 })
+            .text_color(ink)
             .font_weight(if chosen {
                 FontWeight::SEMIBOLD
             } else {
@@ -186,7 +187,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
                     .whitespace_nowrap()
                     .line_height(px(19.5))
             })
-            .children(glyph.map(|glyph| icon(glyph, TEXT, c.ink)))
+            .children(glyph.map(|glyph| icon(glyph, TEXT, ink)))
             .child(text)
             .children((count > 0).then(|| count_pill(count, &c)))
             .when_some(hover, |item, hover| {

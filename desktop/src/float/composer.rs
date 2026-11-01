@@ -8,11 +8,11 @@ use api::ids::NodeId;
 use api::settings::{FloatPlace, FloatSize};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, Bounds, BoxShadow, ClipboardEntry, Context, Div, Entity, ExternalPaths, Image,
-    ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ObjectFit, ParentElement, PathPromptOptions, Pixels, Point, Render, ScrollEvent, Size,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, canvas, div, img, point,
-    px,
+    AnyElement, App, AppContext, Bounds, BoxShadow, ClipboardEntry, Context, Div, Entity,
+    ExternalPaths, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ObjectFit, ParentElement, PathPromptOptions, Pixels, Point,
+    Render, ScrollEvent, Size, Stateful, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, Window, canvas, div, img, point, px,
 };
 
 use super::inputs::{Inputs, inputs};
@@ -23,6 +23,7 @@ use crate::store::Store;
 use crate::strings::Str;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
 
@@ -754,193 +755,50 @@ impl Composer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let c = ui::colors(cx);
         let draft = &self.drafts[&node];
         draft.field.update(cx, |field, cx| field.set_scale(z, cx));
         let focused = draft.field.read(cx).focused(window);
         let ready =
             !draft.field.read(cx).is_blank() || !draft.images.is_empty() || draft.filing > 0;
         let sendable = ready && !draft.sending;
-        let tool = |id: &'static str, glyph: &'static str, size: f32| {
-            div()
-                .id(id)
-                .flex_none()
-                .size(px(size * z))
-                .rounded(px(6.0 * z))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(c.ink_2)
-                .cursor_pointer()
-                .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-                .on_mouse_down(MouseButton::Left, place::stop)
-                .child(glyph)
-        };
-        let target = div()
-            .flex()
-            .items_center()
-            .gap(px(4.0 * z))
-            .min_w_0()
-            .overflow_hidden()
-            .child(">_")
-            .child(
-                div()
-                    .id("composer-name")
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(c.ink)
-                    .cursor_pointer()
-                    .hover(|s| s.underline())
-                    .tooltip(tip(ui::say(cx, Str::ComposerShowNode).to_owned()))
-                    .on_mouse_down(MouseButton::Left, place::stop)
-                    .on_click(cx.listener(move |composer, _, _, cx| {
-                        composer
-                            .store
-                            .update(cx, |store, cx| store.show_node(node, cx));
-                    }))
-                    .child(name.to_owned()),
-            )
-            .child(self.chevron(node, z, cx))
-            .child(ui::say(cx, Str::ComposerTo));
-        let head = div()
-            .flex()
-            .items_center()
-            .gap(px(6.0 * z))
-            .min_w_0()
-            .text_size(px(12.0 * z))
-            .text_color(c.ink_3)
-            .cursor_grab()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |composer, e: &MouseDownEvent, _, cx| composer.grab(e, at, cx)),
-            )
-            .child(target)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_right()
-                    .child(ui::say(cx, Str::ComposerKeys)),
-            )
-            .children((!home).then(|| {
-                tool("composer-reset", "\u{21ba}", 22.0)
-                    .tooltip(tip(ui::say(cx, Str::ComposerResetPlace).to_owned()))
-                    .on_click(cx.listener(|composer, _, _, cx| composer.reset(cx)))
-            }));
         let chips: Vec<_> = draft
             .images
             .iter()
             .map(|image| self.chip(node, image, z, cx))
             .collect();
-        let images =
-            (!chips.is_empty()).then(|| div().flex().flex_wrap().gap(px(6.0 * z)).children(chips));
-        let filing = (draft.filing > 0).then(|| {
+        let images = (!chips.is_empty()).then(|| {
             div()
-                .text_size(px(12.0 * z))
-                .text_color(c.ink_3)
-                .child(ui::say_with(
+                .flex()
+                .flex_wrap()
+                .gap(px(6.0 * z))
+                .children(chips)
+                .into_any_element()
+        });
+        let view = ComposerView {
+            name,
+            home,
+            z,
+            focused,
+            sendable,
+            listing: self.listing.is_some(),
+            filing: (draft.filing > 0).then(|| {
+                ui::say_with(
                     cx,
                     Str::ComposerFiling,
                     &[("count", &draft.filing.to_string())],
-                ))
-        });
-        let note = draft
-            .note
-            .clone()
-            .map(|text| div().text_size(px(12.0 * z)).text_color(c.err).child(text));
-        let line = div()
-            .flex()
-            .items_end()
-            .gap(px(4.0 * z))
-            .child(div().flex_1().min_w_0().child(draft.field.clone()))
-            .child(
-                tool("composer-attach", "+", BUTTON)
-                    .text_size(px(18.0 * z))
-                    .tooltip(tip(ui::say(cx, Str::ComposerAttachFile).to_owned()))
-                    .on_click(cx.listener(move |composer, _, window, cx| {
-                        composer.pick_files(node, window, cx)
-                    })),
-            )
-            .child(
-                div()
-                    .id("composer-send")
-                    .flex_none()
-                    .size(px(BUTTON * z))
-                    .rounded(px(8.0 * z))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(c.accent)
-                    .text_color(c.accent_ink)
-                    .when(sendable, |d| {
-                        d.cursor_pointer()
-                            .on_click(cx.listener(move |composer, _, window, cx| {
-                                composer.send(node, window, cx)
-                            }))
-                    })
-                    .when(!sendable, |d| d.opacity(DISABLED_ALPHA))
-                    .tooltip(tip(ui::say(cx, Str::ComposerSend).to_owned()))
-                    .on_mouse_down(MouseButton::Left, place::stop)
-                    .child("\u{2191}"),
-            );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(6.0 * z))
-            .pt(px(8.0 * z))
-            .pr(px(8.0 * z))
-            .pb(px(8.0 * z))
-            .pl(px(10.0 * z))
-            .rounded(px(14.0 * z))
-            .border_1()
-            .border_color(if focused { c.accent } else { c.line_strong })
-            .bg(c.panel)
-            .text_color(c.ink)
-            .text_size(px(13.0 * z))
-            .shadow(shadow(c.shadow))
-            .on_mouse_down(MouseButton::Left, place::stop)
-            .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
-            .on_drop(
-                cx.listener(move |composer, paths: &ExternalPaths, window, cx| {
-                    composer.take_paths(node, paths.paths().to_vec(), window, cx)
-                }),
-            )
-            .child(head)
-            .children(images)
-            .children(filing)
-            .children(note)
-            .child(line)
-    }
-
-    fn chevron(&self, node: u32, z: f32, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = ui::colors(cx);
-        let open = self.listing.is_some();
-        let anchor = self.chevron.clone();
-        div()
-            .id("composer-chevron")
-            .flex_none()
-            .size(px(18.0 * z))
-            .rounded(px(4.0 * z))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(c.ink_2)
-            .cursor_pointer()
-            .when(open, |d| d.bg(c.surface_hover).text_color(c.ink))
-            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-            .tooltip(tip(ui::say(cx, Str::ComposerPickNode).to_owned()))
-            .on_mouse_down(MouseButton::Left, place::stop)
-            .on_click(
-                cx.listener(move |composer, _, window, cx| composer.toggle_list(node, window, cx)),
-            )
-            .child(
-                canvas(move |bounds, _, _| anchor.set(bounds), |_, _, _, _| ())
-                    .absolute()
-                    .size_full(),
-            )
-            .child(if open { "\u{25b4}" } else { "\u{25be}" })
+                )
+            }),
+            note: draft.note.clone(),
+        };
+        let field = draft.field.clone().into_any_element();
+        let live = Live {
+            cx,
+            node,
+            at,
+            anchor: self.chevron.clone(),
+            sendable,
+        };
+        face(&view, images, field, &live, cx)
     }
 
     fn chip(&self, node: u32, image: &Attached, z: f32, cx: &mut Context<Self>) -> Div {
@@ -992,5 +850,295 @@ impl Composer {
                     .on_click(cx.listener(move |composer, _, _, cx| composer.remove(node, id, cx)))
                     .child("\u{00d7}")
             }))
+    }
+}
+
+pub struct ComposerView<'a> {
+    pub name: &'a str,
+    pub home: bool,
+    pub z: f32,
+    pub focused: bool,
+    pub sendable: bool,
+    pub listing: bool,
+    pub filing: Option<String>,
+    pub note: Option<String>,
+}
+
+pub trait ComposerWire {
+    fn shell(&self, el: Div) -> Div {
+        el
+    }
+    fn head(&self, el: Div) -> Div {
+        el
+    }
+    fn name(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn chevron(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+}
+
+pub fn face<W: ComposerWire>(
+    view: &ComposerView,
+    images: Option<AnyElement>,
+    field: AnyElement,
+    wire: &W,
+    cx: &App,
+) -> Div {
+    let c = ui::colors(cx);
+    let z = view.z;
+    let tool = |id: &'static str, size: f32| {
+        div()
+            .id(id)
+            .flex_none()
+            .size(px(size * z))
+            .rounded(px(6.0 * z))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(c.ink_2)
+    };
+    let chevron = div()
+        .id("composer-chevron")
+        .flex_none()
+        .size(px(18.0 * z))
+        .rounded(px(4.0 * z))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(c.ink_2)
+        .when(view.listing, |d| d.bg(c.surface_hover).text_color(c.ink))
+        .child(if view.listing { "\u{25b4}" } else { "\u{25be}" });
+    let target = div()
+        .flex()
+        .items_center()
+        .gap(px(4.0 * z))
+        .min_w_0()
+        .overflow_hidden()
+        .child(icon(Glyph::SquareTerminal, 14.0 * z, c.ink_3))
+        .child(
+            wire.name(
+                div()
+                    .id("composer-name")
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(c.ink)
+                    .child(view.name.to_owned()),
+            ),
+        )
+        .child(wire.chevron(chevron))
+        .child(ui::say(cx, Str::ComposerTo));
+    let head = wire.head(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.0 * z))
+            .min_w_0()
+            .text_size(px(12.0 * z))
+            .text_color(c.ink_3)
+            .child(target)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_right()
+                    .child(ui::say(cx, Str::ComposerKeys)),
+            )
+            .children(
+                (!view.home).then(|| wire.reset(tool("composer-reset", 22.0).child("\u{21ba}"))),
+            ),
+    );
+    let filing = view.filing.clone().map(|text| {
+        div()
+            .text_size(px(12.0 * z))
+            .text_color(c.ink_3)
+            .child(text)
+    });
+    let note = view
+        .note
+        .clone()
+        .map(|text| div().text_size(px(12.0 * z)).text_color(c.err).child(text));
+    let line = div()
+        .flex()
+        .items_end()
+        .gap(px(4.0 * z))
+        .child(div().flex_1().min_w_0().child(field))
+        .child(wire.image(tool("composer-image", BUTTON).child(icon(
+            Glyph::Image,
+            16.0 * z,
+            c.ink_2,
+        ))))
+        .child(wire.file(tool("composer-file", BUTTON).child(icon(
+            Glyph::Paperclip,
+            16.0 * z,
+            c.ink_2,
+        ))))
+        .child(
+            wire.send(
+                div()
+                    .id("composer-send")
+                    .flex_none()
+                    .size(px(BUTTON * z))
+                    .rounded(px(8.0 * z))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(c.accent)
+                    .text_color(c.accent_ink)
+                    .when(!view.sendable, |d| d.opacity(DISABLED_ALPHA))
+                    .child(icon(Glyph::ArrowUp, 16.0 * z, c.accent_ink)),
+            ),
+        );
+    wire.shell(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0 * z))
+            .pt(px(8.0 * z))
+            .pr(px(8.0 * z))
+            .pb(px(8.0 * z))
+            .pl(px(10.0 * z))
+            .rounded(px(14.0 * z))
+            .border_1()
+            .border_color(if view.focused {
+                c.accent
+            } else {
+                c.line_strong
+            })
+            .bg(c.panel)
+            .text_color(c.ink)
+            .text_size(px(13.0 * z))
+            .shadow(shadow(c.shadow))
+            .child(head)
+            .children(images)
+            .children(filing)
+            .children(note)
+            .child(line),
+    )
+}
+
+struct Live<'a, 'b> {
+    cx: &'a Context<'b, Composer>,
+    node: u32,
+    at: Point<Pixels>,
+    anchor: Rc<Cell<Bounds<Pixels>>>,
+    sendable: bool,
+}
+
+impl Live<'_, '_> {
+    fn tool(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
+        let c = ui::colors(self.cx);
+        el.cursor_pointer()
+            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .tooltip(tip(ui::say(self.cx, label).to_owned()))
+    }
+}
+
+impl Live<'_, '_> {
+    fn pick(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
+        let node = self.node;
+        self.tool(el, label).on_click(
+            self.cx
+                .listener(move |composer, _, window, cx| composer.pick_files(node, window, cx)),
+        )
+    }
+}
+
+impl ComposerWire for Live<'_, '_> {
+    fn shell(&self, el: Div) -> Div {
+        let node = self.node;
+        el.on_mouse_down(MouseButton::Left, place::stop)
+            .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
+            .on_drop(
+                self.cx
+                    .listener(move |composer, paths: &ExternalPaths, window, cx| {
+                        composer.take_paths(node, paths.paths().to_vec(), window, cx)
+                    }),
+            )
+    }
+
+    fn head(&self, el: Div) -> Div {
+        let at = self.at;
+        el.cursor_grab().on_mouse_down(
+            MouseButton::Left,
+            self.cx
+                .listener(move |composer, e: &MouseDownEvent, _, cx| composer.grab(e, at, cx)),
+        )
+    }
+
+    fn name(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let node = self.node;
+        el.cursor_pointer()
+            .hover(|s| s.underline())
+            .tooltip(tip(ui::say(self.cx, Str::ComposerShowNode).to_owned()))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .on_click(self.cx.listener(move |composer, _, _, cx| {
+                composer
+                    .store
+                    .update(cx, |store, cx| store.show_node(node, cx));
+            }))
+    }
+
+    fn chevron(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let (node, anchor) = (self.node, self.anchor.clone());
+        let c = ui::colors(self.cx);
+        el.cursor_pointer()
+            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
+            .tooltip(tip(ui::say(self.cx, Str::ComposerPickNode).to_owned()))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .on_click(
+                self.cx.listener(move |composer, _, window, cx| {
+                    composer.toggle_list(node, window, cx)
+                }),
+            )
+            .child(
+                canvas(move |bounds, _, _| anchor.set(bounds), |_, _, _, _| ())
+                    .absolute()
+                    .size_full(),
+            )
+    }
+
+    fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.tool(el, Str::ComposerResetPlace)
+            .on_click(self.cx.listener(|composer, _, _, cx| composer.reset(cx)))
+    }
+
+    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.pick(el, Str::ComposerAttachImage)
+    }
+
+    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.pick(el, Str::ComposerAttachFile)
+    }
+
+    fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let node = self.node;
+        let el = el
+            .tooltip(tip(ui::say(self.cx, Str::ComposerSend).to_owned()))
+            .on_mouse_down(MouseButton::Left, place::stop);
+        if self.sendable {
+            el.cursor_pointer().on_click(
+                self.cx
+                    .listener(move |composer, _, window, cx| composer.send(node, window, cx)),
+            )
+        } else {
+            el
+        }
     }
 }

@@ -1,14 +1,14 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::graph::waits::{ScreenWait, WaitTone};
+use api::graph::waits::{ScreenWait, WaitKind, WaitTone};
 use api::ids::WaitId;
 use api::settings::{FloatPlace, FloatSize, QuestionPill};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, BoxShadow, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent, Size,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
+    AnyElement, App, AppContext, BoxShadow, Context, Div, Entity, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent,
+    Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
 };
 
 use super::place::{self, Grab, MARGIN};
@@ -20,7 +20,7 @@ use crate::views::dock::ui::{self, GAP};
 use crate::views::tooltip::tip;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
-const WIDTH: f32 = 520.0;
+pub const WIDTH: f32 = 520.0;
 const HEAD: f32 = 34.0;
 const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
@@ -257,137 +257,24 @@ impl Pill {
         newest: WaitId,
         cx: &mut Context<Self>,
     ) -> Div {
-        let c = ui::colors(cx);
-        let tone = match first.tone {
-            WaitTone::Ask => c.warn,
-            WaitTone::Done => c.ok,
-        };
         let waits: Vec<&ScreenWait> = groups.iter().flat_map(|g| &g.waits).collect();
         let asks = waits
             .iter()
             .filter(|w| matches!(w.tone, WaitTone::Ask))
             .count();
-        let dones = waits.len() - asks;
-        let badge = |mark: &'static str, n: usize, color: gpui::Rgba| {
-            div()
-                .flex_none()
-                .min_w(px(18.0 * z))
-                .h(px(18.0 * z))
-                .px(px(5.0 * z))
-                .rounded(px(9.0 * z))
-                .bg(color)
-                .text_color(c.warn_ink)
-                .text_size(px(11.0 * z))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(format!("{mark}{n}"))
+        let view = PillView {
+            name,
+            summary: &first.summary,
+            kind: first.wait.kind,
+            tone: first.tone,
+            id: first.wait.id.to_string(),
+            asks,
+            dones: waits.len() - asks,
+            line,
+            open: self.open,
+            reset: self.reset_shown(cx),
+            z,
         };
-        let tool = |id: &'static str, glyph: &'static str, label: String| {
-            div()
-                .id(id)
-                .flex_none()
-                .size(px(24.0 * z))
-                .rounded(px(5.0 * z))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(c.ink_3)
-                .cursor_pointer()
-                .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-                .on_mouse_down(MouseButton::Left, place::stop)
-                .tooltip(tip(label))
-                .child(glyph)
-        };
-        let head_text = if line && !first.summary.is_empty() {
-            format!("{name}: {}", first.summary)
-        } else {
-            name.to_owned()
-        };
-        let label = if line {
-            div().truncate().child(head_text)
-        } else {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.0 * z))
-                .child(div().font_weight(gpui::FontWeight::BOLD).child(head_text))
-                .child(if self.open { "\u{25b4}" } else { "\u{25be}" })
-        };
-        let go = div()
-            .id("pill-go")
-            .flex_1()
-            .min_w_0()
-            .px(px(4.0 * z))
-            .py(px(2.0 * z))
-            .rounded(px(5.0 * z))
-            .text_size(px(12.0 * z))
-            .text_color(c.ink)
-            .cursor_pointer()
-            .when(self.open, |d| d.bg(c.surface_hover))
-            .hover(move |s| s.bg(c.surface_hover))
-            .tooltip(tip(ui::say_with(
-                cx,
-                Str::InboxListLabel,
-                &[("count", &waits.len().to_string())],
-            )))
-            .on_click(cx.listener(|pill, _, _, cx| pill.toggle(cx)))
-            .child(label);
-        let head = div()
-            .id("pill-head")
-            .flex()
-            .items_center()
-            .gap(px(8.0 * z))
-            .min_w_0()
-            .h(px(HEAD * z))
-            .px(px(6.0 * z))
-            .text_size(px(13.0 * z))
-            .cursor_grab()
-            .when(!line, |d| d.border_b_1().border_color(c.line))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |pill, e: &MouseDownEvent, _, cx| pill.grab(e, at, cx)),
-            )
-            .child(
-                tool(
-                    "pill-close",
-                    "\u{00d7}",
-                    ui::say(cx, Str::InboxClosePill).to_owned(),
-                )
-                .on_click(cx.listener(move |pill, _, _, cx| pill.close(newest, cx))),
-            )
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .flex_none()
-                    .child(ui::say(cx, kind_label(first.wait.kind))),
-            )
-            .children((asks > 0).then(|| badge("?", asks, c.warn)))
-            .children((dones > 0).then(|| badge("\u{2713}", dones, c.ok)))
-            .children(
-                (first.wait.kind == api::graph::waits::WaitKind::Question).then(|| {
-                    div()
-                        .flex_none()
-                        .px(px(6.0 * z))
-                        .h(px(18.0 * z))
-                        .rounded(px(4.0 * z))
-                        .border_1()
-                        .border_color(tone)
-                        .text_size(px(11.0 * z))
-                        .flex()
-                        .items_center()
-                        .child(first.wait.id.to_string())
-                }),
-            )
-            .child(go)
-            .children(self.reset_shown(cx).then(|| {
-                tool(
-                    "pill-reset",
-                    "\u{21ba}",
-                    ui::say(cx, Str::InboxResetPlace).to_owned(),
-                )
-                .on_click(cx.listener(|pill, _, _, cx| pill.reset(cx)))
-            }));
         let body = (!line).then(|| {
             div()
                 .px(px(12.0 * z))
@@ -400,20 +287,15 @@ impl Pill {
                     z,
                     cx,
                 ))
+                .into_any_element()
         });
-        div()
-            .flex()
-            .flex_col()
-            .rounded(px(if line { 17.0 } else { 14.0 } * z))
-            .border_1()
-            .border_color(tone)
-            .bg(c.panel)
-            .text_color(c.ink)
-            .shadow(shadow(c.shadow))
-            .on_mouse_down(MouseButton::Left, place::stop)
-            .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
-            .child(head)
-            .children(body)
+        let live = Live {
+            cx,
+            at,
+            newest,
+            count: waits.len(),
+        };
+        face(&view, body, &live, cx)
     }
 
     fn reset_shown(&self, cx: &Context<Self>) -> bool {
@@ -511,6 +393,211 @@ impl Pill {
                     .iter()
                     .map(|w| answers::entry(&self.answers, node, w, z, cx)),
             )
+    }
+}
+
+pub struct PillView<'a> {
+    pub name: &'a str,
+    pub summary: &'a str,
+    pub kind: WaitKind,
+    pub tone: WaitTone,
+    pub id: String,
+    pub asks: usize,
+    pub dones: usize,
+    pub line: bool,
+    pub open: bool,
+    pub reset: bool,
+    pub z: f32,
+}
+
+pub trait PillWire {
+    fn shell(&self, el: Div) -> Div {
+        el
+    }
+    fn head(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn close(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn go(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+}
+
+pub fn face<W: PillWire>(view: &PillView, body: Option<AnyElement>, wire: &W, cx: &App) -> Div {
+    let c = ui::colors(cx);
+    let z = view.z;
+    let line = view.line;
+    let tone = match view.tone {
+        WaitTone::Ask => c.warn,
+        WaitTone::Done => c.ok,
+    };
+    let badge = |mark: &'static str, n: usize, color: gpui::Rgba| {
+        div()
+            .flex_none()
+            .min_w(px(18.0 * z))
+            .h(px(18.0 * z))
+            .px(px(5.0 * z))
+            .rounded(px(9.0 * z))
+            .bg(color)
+            .text_color(c.warn_ink)
+            .text_size(px(11.0 * z))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(format!("{mark}{n}"))
+    };
+    let tool = |id: &'static str, glyph: &'static str| {
+        div()
+            .id(id)
+            .flex_none()
+            .size(px(24.0 * z))
+            .rounded(px(5.0 * z))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(c.ink_3)
+            .child(glyph)
+    };
+    let head_text = if line && !view.summary.is_empty() {
+        format!("{}: {}", view.name, view.summary)
+    } else {
+        view.name.to_owned()
+    };
+    let label = if line {
+        div().truncate().child(head_text)
+    } else {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.0 * z))
+            .child(div().font_weight(gpui::FontWeight::BOLD).child(head_text))
+            .child(if view.open { "\u{25b4}" } else { "\u{25be}" })
+    };
+    let go = div()
+        .id("pill-go")
+        .flex_1()
+        .min_w_0()
+        .px(px(4.0 * z))
+        .py(px(2.0 * z))
+        .rounded(px(5.0 * z))
+        .text_size(px(12.0 * z))
+        .text_color(c.ink)
+        .when(view.open, |d| d.bg(c.surface_hover))
+        .child(label);
+    let head = div()
+        .id("pill-head")
+        .flex()
+        .items_center()
+        .gap(px(8.0 * z))
+        .min_w_0()
+        .h(px(HEAD * z))
+        .px(px(6.0 * z))
+        .text_size(px(13.0 * z))
+        .when(!line, |d| d.border_b_1().border_color(c.line))
+        .child(wire.close(tool("pill-close", "\u{00d7}")))
+        .child(
+            div()
+                .font_weight(gpui::FontWeight::BOLD)
+                .flex_none()
+                .child(ui::say(cx, kind_label(view.kind))),
+        )
+        .children((view.asks > 0).then(|| badge("?", view.asks, c.warn)))
+        .children((view.dones > 0).then(|| badge("\u{2713}", view.dones, c.ok)))
+        .children((view.kind == WaitKind::Question).then(|| {
+            div()
+                .flex_none()
+                .px(px(6.0 * z))
+                .h(px(18.0 * z))
+                .rounded(px(4.0 * z))
+                .border_1()
+                .border_color(tone)
+                .text_size(px(11.0 * z))
+                .flex()
+                .items_center()
+                .child(view.id.clone())
+        }))
+        .child(wire.go(go))
+        .children(
+            view.reset
+                .then(|| wire.reset(tool("pill-reset", "\u{21ba}"))),
+        );
+    wire.shell(
+        div()
+            .flex()
+            .flex_col()
+            .rounded(px(if line { 17.0 } else { 14.0 } * z))
+            .border_1()
+            .border_color(tone)
+            .bg(c.panel)
+            .text_color(c.ink)
+            .shadow(shadow(c.shadow))
+            .child(wire.head(head))
+            .children(body),
+    )
+}
+
+struct Live<'a, 'b> {
+    cx: &'a Context<'b, Pill>,
+    at: Point<Pixels>,
+    newest: WaitId,
+    count: usize,
+}
+
+impl PillWire for Live<'_, '_> {
+    fn shell(&self, el: Div) -> Div {
+        el.on_mouse_down(MouseButton::Left, place::stop)
+            .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
+    }
+
+    fn head(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let at = self.at;
+        el.cursor_grab().on_mouse_down(
+            MouseButton::Left,
+            self.cx
+                .listener(move |pill, e: &MouseDownEvent, _, cx| pill.grab(e, at, cx)),
+        )
+    }
+
+    fn close(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let newest = self.newest;
+        self.tool(el, ui::say(self.cx, Str::InboxClosePill).to_owned())
+            .on_click(
+                self.cx
+                    .listener(move |pill, _, _, cx| pill.close(newest, cx)),
+            )
+    }
+
+    fn go(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let c = ui::colors(self.cx);
+        let label = ui::say_with(
+            self.cx,
+            Str::InboxListLabel,
+            &[("count", &self.count.to_string())],
+        );
+        el.cursor_pointer()
+            .hover(move |s| s.bg(c.surface_hover))
+            .tooltip(tip(label))
+            .on_click(self.cx.listener(|pill, _, _, cx| pill.toggle(cx)))
+    }
+
+    fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.tool(el, ui::say(self.cx, Str::InboxResetPlace).to_owned())
+            .on_click(self.cx.listener(|pill, _, _, cx| pill.reset(cx)))
+    }
+}
+
+impl Live<'_, '_> {
+    fn tool(&self, el: Stateful<Div>, label: String) -> Stateful<Div> {
+        let c = ui::colors(self.cx);
+        el.cursor_pointer()
+            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .tooltip(tip(label))
     }
 }
 

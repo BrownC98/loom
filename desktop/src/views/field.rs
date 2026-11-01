@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Element,
+    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Div, Element,
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
     IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -10,7 +10,7 @@ use gpui::{
 };
 
 use crate::strings::{Lang, Str};
-use crate::theme::Theme;
+use crate::theme::{Colors, Theme};
 
 const MASK: char = '\u{2022}';
 const FONT_SIZE: f32 = 13.0;
@@ -666,17 +666,28 @@ impl Element for FieldText {
     }
 }
 
+pub fn skin(base: Div, z: f32, focused: bool, colors: &Colors) -> Div {
+    base.w_full()
+        .min_h(px((LINE + 10.0) * z))
+        .px(px(8.0 * z))
+        .py(px(4.0 * z))
+        .rounded(px(ROUND * z))
+        .border_1()
+        .border_color(if focused {
+            colors.accent
+        } else {
+            colors.line_strong
+        })
+        .bg(colors.surface)
+        .text_color(colors.ink)
+        .text_size(px(FONT_SIZE * z))
+        .line_height(px(LINE * z))
+}
+
 impl Render for Field {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = &cx.global::<Theme>().colors;
-        let (ink, muted, edge, focused_edge, surface, selection) = (
-            colors.ink,
-            colors.ink_3,
-            colors.line_strong,
-            colors.accent,
-            colors.surface,
-            colors.accent_wash,
-        );
+        let (ink, muted, selection) = (colors.ink, colors.ink_3, colors.accent_wash);
         let focused = self.focus.is_focused(window);
         let empty = self.text.is_empty();
         let shown = if empty {
@@ -731,18 +742,7 @@ impl Render for Field {
         };
         if self.boxed {
             let z = self.scale;
-            base.w_full()
-                .min_h(px((LINE + 10.0) * z))
-                .px(px(8.0 * z))
-                .py(px(4.0 * z))
-                .rounded(px(ROUND * z))
-                .border_1()
-                .border_color(if focused { focused_edge } else { edge })
-                .bg(surface)
-                .text_color(ink)
-                .text_size(px(FONT_SIZE * z))
-                .line_height(px(LINE * z))
-                .child(text)
+            skin(base, z, focused, colors).child(text)
         } else {
             base.flex_1()
                 .min_w_0()

@@ -108,13 +108,13 @@ impl UsageCache {
         }
         if let Some((until, retry_at)) = slot.blocked {
             if Instant::now() < until {
-                return slot.good_or(Usage::failed(UsageProblem::RateLimited { retry_at }));
+                return slot.good_or(usage::usage_failed(UsageProblem::RateLimited { retry_at }));
             }
             slot.blocked = None;
         }
         let usage = tokio::task::spawn_blocking(probe)
             .await
-            .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string())));
+            .unwrap_or_else(|e| usage::usage_failed(UsageProblem::Unavailable(e.to_string())));
         slot.failed = None;
         match &usage.limits {
             Limits::Ready { .. } => {

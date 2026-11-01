@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
+
+pub use api::settings::update::{UpdateStep, UpdateView};
 
 use crate::launch;
 
@@ -15,28 +16,6 @@ const CONNECT_FOR: Duration = Duration::from_secs(10);
 const RESPONSE_FOR: Duration = Duration::from_secs(30);
 const APP_NAME: &str = "loom-app";
 const APP_UPDATE_FLAG: &str = "--update";
-
-/// 화면이 보는 업데이트 상태. 받는 동안의 퍼센트를 포함해 바뀔 때마다 `ViewChanged`를 보낸다.
-#[derive(Clone, Debug, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct UpdateView {
-    /// 이 데몬이 확인하고 바꿀 수 있다. 개발 빌드와 받을 파일이 없는 OS는 거짓이다.
-    pub checks: bool,
-    /// 이 데몬보다 새 판. 없으면 최신이다(또는 아직 확인하지 않았다).
-    pub latest: Option<String>,
-    pub step: Option<UpdateStep>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum UpdateStep {
-    Available,
-    Downloading { percent: u8 },
-    Restarting,
-    Failed { message: String },
-}
 
 #[derive(Debug, PartialEq)]
 enum Install {

@@ -14,18 +14,21 @@ const SHOWN_AS: [(&str, &str); 1] = [("Omp", "OMP")];
 
 const DATA: [(&str, &str); 4] = [
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-opus-5-5", "medium")),"#,
     ),
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-sonnet-5-5", "medium")),"#,
     ),
     (
-        "src/roles.rs",
+        "api/src/settings/roles.rs",
         r#"Some(("claude", "claude-opus-5-5", "high")),"#,
     ),
-    ("src/roles.rs", r#"Some(("codex", "gpt-6.1-sol", "high")),"#),
+    (
+        "api/src/settings/roles.rs",
+        r#"Some(("codex", "gpt-6.1-sol", "high")),"#,
+    ),
 ];
 
 struct Agent {

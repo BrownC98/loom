@@ -183,7 +183,7 @@ impl App {
             if self.graph.reviewer_seated(gate, branch, role)? {
                 continue;
             }
-            roles.assign(role, "").map_err(role_refusal)?;
+            crate::roles::assign(&roles, role, "").map_err(role_refusal)?;
             unseated.push(role);
         }
         Ok(unseated)

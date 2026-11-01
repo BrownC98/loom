@@ -166,7 +166,7 @@ fn role_start(
     choice: ModelChoice,
 ) -> Result<Start, Problem> {
     let roles = settings.get().map_err(internal)?.roles;
-    let assigned = roles.assign(role, brief).map_err(role_refusal)?;
+    let assigned = crate::roles::assign(&roles, role, brief).map_err(role_refusal)?;
     let chosen = match (agent, choice.is_empty()) {
         (None, true) => NewAgent {
             agent: assigned.agent,

@@ -8,7 +8,8 @@ use super::Cursor;
 use crate::accounts::{AccountId, Site};
 use crate::profile::adapter::Meter;
 use crate::usage::{
-    Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent,
+    Limits, ModelWindow, PROBE_TIMEOUT, Usage, UsageProblem, Window, failed, percent, usage_failed,
+    usage_now,
 };
 
 const ORIGIN: &str = "https://cursor.com";
@@ -35,7 +36,7 @@ impl Meter for Cursor {
     fn read(&self, site: &Site, _: Option<&AccountId>) -> Usage {
         let email = match status(site)() {
             Ok(status) => status.user_info.and_then(|u| u.email),
-            Err(problem) => return Usage::failed(problem),
+            Err(problem) => return usage_failed(problem),
         };
         let token = site
             .home_file(AUTH_FILE)
@@ -47,7 +48,7 @@ impl Meter for Cursor {
             None if email.is_some() => failed(UsageProblem::NoToken(AGENT.into())),
             None => Limits::NeedsLogin,
         };
-        Usage::new(email, None, limits)
+        usage_now(email, None, limits)
     }
 }
 

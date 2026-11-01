@@ -20,6 +20,9 @@ pub enum Glyph {
     Map { folded: bool },
     Gear,
     Arrange,
+    Monitor,
+    Sun,
+    Moon,
 }
 
 fn circle(x: f32, y: f32, r: f32) -> Poly {
@@ -29,6 +32,22 @@ fn circle(x: f32, y: f32, r: f32) -> Poly {
             (x + r * angle.cos(), y + r * angle.sin())
         })
         .collect()
+}
+
+fn arc(x: f32, y: f32, r: f32, from: f32, to: f32) -> Poly {
+    (0..=ARC_STEPS)
+        .map(|i| {
+            let angle = (from + (to - from) * i as f32 / ARC_STEPS as f32).to_radians();
+            (x + r * angle.cos(), y + r * angle.sin())
+        })
+        .collect()
+}
+
+fn moon() -> Poly {
+    let mut outline = arc(12.0, 12.0, 9.0, 3.1, 266.9);
+    outline.extend(arc(17.005, 6.994, 6.0, 212.0, 58.0));
+    outline.push(outline[0]);
+    outline
 }
 
 fn gear() -> Poly {
@@ -118,6 +137,29 @@ fn strokes(glyph: &Glyph) -> Vec<Poly> {
                 (13.0, 13.0),
             ],
         ],
+        Glyph::Monitor => vec![
+            vec![
+                (2.0, 3.0),
+                (22.0, 3.0),
+                (22.0, 17.0),
+                (2.0, 17.0),
+                (2.0, 3.0),
+            ],
+            vec![(8.0, 21.0), (16.0, 21.0)],
+            vec![(12.0, 17.0), (12.0, 21.0)],
+        ],
+        Glyph::Sun => vec![
+            circle(12.0, 12.0, 4.0),
+            vec![(12.0, 2.0), (12.0, 4.0)],
+            vec![(12.0, 20.0), (12.0, 22.0)],
+            vec![(4.93, 4.93), (6.34, 6.34)],
+            vec![(17.66, 17.66), (19.07, 19.07)],
+            vec![(2.0, 12.0), (4.0, 12.0)],
+            vec![(20.0, 12.0), (22.0, 12.0)],
+            vec![(6.34, 17.66), (4.93, 19.07)],
+            vec![(19.07, 4.93), (17.66, 6.34)],
+        ],
+        Glyph::Moon => vec![moon()],
         Glyph::Map { folded } => {
             let mut lines = vec![
                 vec![

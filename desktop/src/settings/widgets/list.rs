@@ -10,28 +10,6 @@ use crate::views::dock::ui::{TEXT, colors};
 
 const ROW: f32 = 28.0;
 
-pub fn list_box(
-    id: &'static str,
-    items: Vec<SharedString>,
-    selected: Option<usize>,
-    width: f32,
-    height: f32,
-    change: impl Fn(usize, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> Stateful<Div> {
-    list_box_on(
-        id,
-        items,
-        selected,
-        width,
-        height,
-        change,
-        None::<fn(Option<usize>, &mut Window, &mut App)>,
-        None,
-        cx,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn list_box_on(
     id: &'static str,

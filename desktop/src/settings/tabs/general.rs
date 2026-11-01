@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use api::repos::Locations;
 use gpui::{
-    App, AppContext, Div, ElementId, Entity, ParentElement, Stateful, StatefulInteractiveElement,
-    Styled, Subscription, WeakEntity, Window, div, px,
+    App, AppContext, Div, ElementId, Entity, ParentElement, Stateful, Styled, Subscription,
+    WeakEntity, Window, div, px,
 };
 
 use crate::link;
@@ -11,7 +11,7 @@ use crate::problem::Failure;
 use crate::settings::widgets::{Text, TextEvent, field_reset, switch};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::Str;
-use crate::views::dock::ui::{GAP, SMALL, button, colors, say, say_with};
+use crate::views::dock::ui::{GAP, SMALL, colors, say, say_with};
 
 const PC: &str = "";
 
@@ -78,7 +78,7 @@ fn field(
     if let Some(found) = state.fields.get(key) {
         return found.clone();
     }
-    let text = cx.new(|cx| Text::new("", false, window, cx));
+    let text = cx.new(|cx| Text::new("", false, window, cx).keep_draft());
     let writer = ctx.writer.clone();
     let dialog = ctx.dialog.clone();
     let places = places.clone();
@@ -110,26 +110,6 @@ fn field(
         }));
     state.fields.insert(key.to_owned(), text.clone());
     text
-}
-
-fn distro_reset(index: usize, distro: &str, ctx: &Ctx, cx: &App) -> Option<Stateful<Div>> {
-    let defaults = ctx.defaults?;
-    if ctx.view.wsl_workspace_dirs.get(distro) == defaults.wsl_workspace_dirs.get(distro) {
-        return None;
-    }
-    let writer = ctx.writer.clone();
-    let distro = distro.to_owned();
-    Some(
-        button(
-            ElementId::NamedInteger("reset-wsl-dir".into(), index as u64),
-            cx,
-        )
-        .self_start()
-        .min_h(px(26.0))
-        .text_size(px(SMALL))
-        .child(div().child(say(cx, Str::SettingsFieldReset)))
-        .on_click(move |_, _, cx| writer.reset(cx, &["wslWorkspaceDirs", &distro])),
-    )
 }
 
 struct Dir<'a> {
@@ -226,7 +206,12 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
             saved,
             note,
             text,
-            reset: distro_reset(index, distro, ctx, cx),
+            reset: field_reset(
+                ElementId::NamedInteger("reset-wsl-dir".into(), index as u64),
+                &["wslWorkspaceDirs", distro],
+                ctx,
+                cx,
+            ),
         };
         out.push(dir_section(dir, &errors, ctx, window, cx));
     }

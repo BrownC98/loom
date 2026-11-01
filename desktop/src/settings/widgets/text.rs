@@ -12,6 +12,8 @@ pub enum TextEvent {
 pub struct Text {
     field: Entity<Field>,
     committed: String,
+    shown: String,
+    keep: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -38,12 +40,24 @@ impl Text {
         Self {
             field,
             committed: String::new(),
+            shown: String::new(),
+            keep: false,
             _subs: subs,
         }
     }
 
+    pub fn keep_draft(mut self) -> Self {
+        self.keep = true;
+        self
+    }
+
     pub fn show(&mut self, value: &str, window: &Window, cx: &mut Context<Self>) {
-        if self.committed == value {
+        if self.keep {
+            if self.shown == value {
+                return;
+            }
+            self.shown = value.to_owned();
+        } else if self.committed == value {
             return;
         }
         self.committed = value.to_owned();
@@ -66,6 +80,9 @@ impl Text {
     }
 
     fn revert(&mut self, cx: &mut Context<Self>) {
+        if self.keep {
+            self.committed = self.shown.clone();
+        }
         let committed = self.committed.clone();
         self.field
             .update(cx, |field, cx| field.set_text(&committed, cx));

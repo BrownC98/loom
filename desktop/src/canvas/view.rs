@@ -35,7 +35,7 @@ use crate::strings::Lang;
 use crate::theme::Theme;
 use crate::views::card;
 use crate::views::expanded;
-use crate::views::notice;
+use crate::views::notice::{self, Level};
 use crate::views::terminal::{self, TerminalView};
 
 const WHEEL_LINE: f32 = 25.0;
@@ -257,7 +257,7 @@ impl CanvasView {
             store.update(cx, |store, cx| {
                 if let Err(error) = saved {
                     let text = error.text(*cx.global::<Lang>());
-                    store.tell(text, cx);
+                    store.tell(text, Level::Error, cx);
                 }
                 store.reload(cx)
             });
@@ -414,7 +414,8 @@ impl CanvasView {
             if let Err(error) = task.await {
                 let _ = this.update(cx, |this, cx| {
                     this.resizer.fail(&[node.0]);
-                    this.store.update(cx, |store, cx| store.tell(error, cx));
+                    this.store
+                        .update(cx, |store, cx| store.tell(error, Level::Error, cx));
                     this.rebuild(cx);
                     cx.notify();
                 });
@@ -571,11 +572,10 @@ impl CanvasView {
             .store
             .update(cx, |store, cx| store.adopt(child, parent, cx));
         cx.spawn(async move |this, cx| {
-            if let Err(rejected) = task.await {
+            if let Err(text) = task.await {
                 let _ = this.update(cx, |this, cx| {
-                    let lang = *cx.global::<Lang>();
-                    this.connect.refuse(connect::refusal_text(&rejected, lang));
-                    cx.notify();
+                    this.store
+                        .update(cx, |store, cx| store.tell(text, Level::Error, cx));
                 });
             }
         })
@@ -584,7 +584,6 @@ impl CanvasView {
 
     fn on_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         popover::dismiss(self, cx);
-        self.connect.clear();
         window.focus(&self.focus, cx);
         if let Some(key) = self.frame_head_at(event.position) {
             self.grab(&key, event.position, cx);
@@ -769,7 +768,6 @@ impl Render for CanvasView {
                 move |at, cx| released.update(cx, |this, cx| this.connect_end(at, cx)),
             )
         });
-        let refusal = self.connect.refusal(&colors);
         let notice = store
             .notice()
             .map(|n| notice::element(n, cx.global::<crate::theme::Theme>()));
@@ -902,7 +900,6 @@ impl Render for CanvasView {
             .children(handles)
             .children(line)
             .children(tracker)
-            .children(refusal)
             .children(tip)
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 if !hovered && (this.connect.leave() | this.tip.take().is_some()) {

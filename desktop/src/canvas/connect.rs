@@ -1,35 +1,26 @@
 use std::rc::Rc;
 
-use api::graph::errors::Problem;
 use gpui::{
     App, CursorStyle, DispatchPhase, Div, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Point, Styled, canvas, div, px,
+    Pixels, Point, Styled, canvas, div, px,
 };
 
 use super::camera::Camera;
 use super::edges;
 use super::layout::{self, EdgeEnd, Side, tree_sides};
 use super::scene::Scene;
-use crate::link::Rejected;
-use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::dock::events::refusal;
 
 const PORT: f32 = 10.0;
 const PORT_BORDER: f32 = 2.0;
 const PORT_MIN: f32 = 8.0;
 const LINE_WIDTH: f64 = 2.0;
-const REFUSAL_TOP: f32 = 60.0;
-const REFUSAL_SIDE: f32 = 16.0;
-const REFUSAL_WIDTH: f32 = 480.0;
-const REFUSAL_FONT: f32 = 13.0;
 
 #[derive(Default)]
 pub struct Connect {
     hovered: Option<u32>,
     from: Option<u32>,
     at: Point<Pixels>,
-    refusal: Option<String>,
 }
 
 fn port_side(scene: &Scene) -> Side {
@@ -102,7 +93,6 @@ impl Connect {
     }
 
     pub fn start(&mut self, node: u32, at: Point<Pixels>) {
-        self.refusal = None;
         self.from = Some(node);
         self.at = at;
     }
@@ -121,31 +111,6 @@ impl Connect {
         card_at(scene, camera.to_graph(local))
             .filter(|&target| target != from)
             .map(|target| (target, from))
-    }
-
-    pub fn refuse(&mut self, text: String) {
-        self.refusal = Some(text);
-    }
-
-    pub fn clear(&mut self) {
-        self.refusal = None;
-    }
-
-    pub fn refusal(&self, colors: &Colors) -> Option<Div> {
-        self.refusal.as_ref().map(|text| {
-            div()
-                .absolute()
-                .top(px(REFUSAL_TOP))
-                .right(px(REFUSAL_SIDE))
-                .max_w(px(REFUSAL_WIDTH))
-                .px(px(10.0))
-                .py(px(6.0))
-                .rounded(px(6.0))
-                .bg(colors.surface)
-                .text_color(colors.err)
-                .text_size(px(REFUSAL_FONT))
-                .child(text.clone())
-        })
     }
 
     pub fn line(
@@ -230,20 +195,4 @@ pub fn tracker(
     )
     .absolute()
     .size(px(0.0))
-}
-
-pub fn refusal_text(rejected: &Rejected, lang: Lang) -> String {
-    match rejected {
-        Rejected::Link(error) => error.clone(),
-        Rejected::Status(status) => {
-            Str::ProblemStatus.with(lang, &[("status", &status.to_string())])
-        }
-        Rejected::Problem(Problem::Refused(refusal)) => refusal::nameless(refusal, lang),
-        Rejected::Problem(Problem::Launch(error)) => error.to_string(),
-        Rejected::Problem(Problem::Repo(error)) => error.to_string(),
-        Rejected::Problem(Problem::NoLogin) => Str::ProblemNoLogin.text(lang).to_owned(),
-        Rejected::Problem(Problem::Internal(value)) => {
-            Str::ProblemInternal.with(lang, &[("value", value)])
-        }
-    }
 }

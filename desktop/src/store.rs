@@ -13,7 +13,8 @@ use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearanc
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::problem::Failure;
-use crate::views::notice::{self, Notice};
+use crate::strings::Str;
+use crate::views::notice::{self, Level, Notice};
 use crate::{strings, theme};
 
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
@@ -32,6 +33,7 @@ pub struct Store {
     zoom_percent: u32,
     notice: Option<(u64, Notice)>,
     notices: u64,
+    dropped: bool,
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
 }
@@ -97,6 +99,7 @@ impl Store {
             zoom_percent: 100,
             notice: None,
             notices: 0,
+            dropped: false,
             found: None,
             picked: None,
         }
@@ -171,10 +174,10 @@ impl Store {
         self.notice.as_ref().map(|(_, notice)| notice)
     }
 
-    pub fn tell(&mut self, text: String, cx: &mut Context<Self>) {
+    pub fn tell(&mut self, text: String, level: Level, cx: &mut Context<Self>) {
         self.notices += 1;
         let id = self.notices;
-        self.notice = Some((id, Notice { text }));
+        self.notice = Some((id, Notice { text, level }));
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(notice::shown_for()).await;
@@ -200,7 +203,7 @@ impl Store {
                 Ok(()) => store.reload(cx),
                 Err(error) => {
                     let text = error.text(*cx.global::<strings::Lang>());
-                    store.tell(text, cx)
+                    store.tell(text, Level::Error, cx)
                 }
             });
         })
@@ -234,7 +237,7 @@ impl Store {
         match event {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
             Graph::Feed(event) => cx.emit(*event),
-            Graph::Link(state) => self.link = state,
+            Graph::Link(state) => self.linked(state, cx),
             Graph::Failed { order, error } => {
                 if !self.newer(order) {
                     return;
@@ -248,6 +251,26 @@ impl Store {
             }
         }
         cx.notify();
+    }
+
+    fn linked(&mut self, state: LinkState, cx: &mut Context<Self>) {
+        let before = std::mem::replace(&mut self.link, state);
+        let (text, level) = match (before, state) {
+            (LinkState::Connected, LinkState::Reconnecting) => {
+                self.dropped = true;
+                (Str::StatusBarLinkReconnecting, Level::Info)
+            }
+            (before, LinkState::Lost) if before != LinkState::Lost => {
+                self.dropped = true;
+                (Str::StatusBarLinkLost, Level::Warn)
+            }
+            (_, LinkState::Connected) if std::mem::take(&mut self.dropped) => {
+                (Str::StatusBarLinkConnected, Level::Ok)
+            }
+            _ => return,
+        };
+        let text = text.text(*cx.global::<strings::Lang>()).to_owned();
+        self.tell(text, level, cx);
     }
 
     fn newer(&mut self, order: u64) -> bool {
@@ -398,11 +421,8 @@ impl Store {
         child: u32,
         parent: u32,
         cx: &mut Context<Self>,
-    ) -> Task<Result<(), link::Rejected>> {
-        let Some(base) = self.base.clone() else {
-            return Task::ready(Err(link::Rejected::Link(self.status.clone())));
-        };
-        cx.background_spawn(async move { link::adopt(&base, child, parent) })
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| link::adopt(base, child, parent))
     }
 
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {

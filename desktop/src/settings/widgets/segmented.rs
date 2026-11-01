@@ -7,10 +7,31 @@ use gpui::{
 };
 
 use crate::views::dock::ui::{TEXT, colors};
+use crate::views::sidebar::icons::{Glyph, icon};
 
-pub fn segmented<T: Copy + PartialEq + 'static>(
+pub struct Label {
+    text: SharedString,
+    glyph: Option<Glyph>,
+}
+
+impl Label {
+    pub fn with_icon(text: SharedString, glyph: Glyph) -> Self {
+        Self {
+            text,
+            glyph: Some(glyph),
+        }
+    }
+}
+
+impl From<SharedString> for Label {
+    fn from(text: SharedString) -> Self {
+        Self { text, glyph: None }
+    }
+}
+
+pub fn segmented<T: Copy + PartialEq + 'static, L: Into<Label>>(
     id: &'static str,
-    items: Vec<(T, SharedString)>,
+    items: Vec<(T, L)>,
     current: T,
     change: impl Fn(T, &mut Window, &mut App) + 'static,
     cx: &App,
@@ -25,9 +46,9 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
     )
 }
 
-pub fn segmented_on<T: Copy + PartialEq + 'static>(
+pub fn segmented_on<T: Copy + PartialEq + 'static, L: Into<Label>>(
     id: &'static str,
-    items: Vec<(T, SharedString)>,
+    items: Vec<(T, L)>,
     current: T,
     change: impl Fn(T, &mut Window, &mut App) + 'static,
     hover: Option<impl Fn(Option<T>, &mut Window, &mut App) + 'static>,
@@ -58,6 +79,7 @@ pub fn segmented_on<T: Copy + PartialEq + 'static>(
         .enumerate()
         .fold(row, |row, (index, (value, label))| {
             let chosen = value == current;
+            let Label { text, glyph } = label.into();
             let change = change.clone();
             let hover = hover.clone();
             let item = div()
@@ -75,7 +97,11 @@ pub fn segmented_on<T: Copy + PartialEq + 'static>(
                     FontWeight::MEDIUM
                 })
                 .bg(if chosen { c.accent_wash } else { c.surface })
-                .child(label)
+                .when(glyph.is_some(), |item| {
+                    item.flex().items_center().gap(px(6.0))
+                })
+                .children(glyph.map(|glyph| icon(glyph, TEXT, c.ink)))
+                .child(text)
                 .when_some(hover, |item, hover| {
                     item.on_hover(move |inside, window, cx| {
                         if *inside {

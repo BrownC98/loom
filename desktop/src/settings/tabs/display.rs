@@ -6,11 +6,15 @@ use gpui::{
 };
 use serde_json::Value;
 
-use crate::settings::widgets::{Select, SelectEvent, Text, TextEvent, field_reset, segmented};
+use crate::settings::widgets::{
+    Label, Select, SelectEvent, Text, TextEvent, field_reset, segmented,
+};
 use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
 use crate::theme::{self, Colors, Scheme, Theme, luminance_of, ratio};
-use crate::views::dock::ui::{GAP, SMALL, TEXT, button, colors, say};
+use crate::views::dock::ui::{GAP, SMALL, TEXT, button, colors, say, say_with};
+use crate::views::sidebar::icons::Glyph;
+use crate::views::tooltip::tip;
 
 const PRESETS: [&str; 8] = [
     "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899",
@@ -262,15 +266,18 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
 fn theme_section(ctx: &Ctx, cx: &mut App) -> Section {
     let c = colors(cx);
     let mut section = Section::new(Some(say(cx, Str::ThemeHeading)), ctx);
-    let items: Vec<(ThemeSetting, SharedString)> = [
-        (ThemeSetting::System, Str::CommonSystem),
-        (ThemeSetting::Light, Str::ThemeLight),
-        (ThemeSetting::Dark, Str::ThemeDark),
+    let items: Vec<(ThemeSetting, Label)> = [
+        (ThemeSetting::System, Str::CommonSystem, Glyph::Monitor),
+        (ThemeSetting::Light, Str::ThemeLight, Glyph::Sun),
+        (ThemeSetting::Dark, Str::ThemeDark, Glyph::Moon),
     ]
     .into_iter()
-    .map(|(value, label)| {
+    .map(|(value, label, glyph)| {
         let _ = section.text(say(cx, label), cx);
-        (value, SharedString::from(say(cx, label)))
+        (
+            value,
+            Label::with_icon(SharedString::from(say(cx, label)), glyph),
+        )
     })
     .collect();
     let writer = ctx.writer.clone();
@@ -609,7 +616,13 @@ fn popover(
                             )
                         });
                         let (pop, dialog) = (pop.clone(), ctx.dialog.clone());
+                        let hint = if target == Target::Only(scheme) {
+                            say(cx, Str::ColorsBothThemes).to_owned()
+                        } else {
+                            say_with(cx, Str::ColorsOnlyTheme, &[("theme", say(cx, label))])
+                        };
                         button(("color-scheme", at), cx)
+                            .tooltip(tip(hint))
                             .flex_1()
                             .gap(px(6.0))
                             .border_color(if pressed { c.accent } else { c.line_strong })

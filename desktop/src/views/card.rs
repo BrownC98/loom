@@ -22,6 +22,7 @@ use crate::theme::Colors;
 use crate::views::anchor::Anchors;
 use crate::views::field::Field;
 use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
+use crate::views::prose::prose;
 use crate::views::tooltip;
 
 pub const HEAD: f32 = 35.0;
@@ -1078,7 +1079,7 @@ fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
                 .overflow_hidden()
                 .line_clamp(2)
                 .tooltip(tooltip::tip(reply.clone()))
-                .child(reply)
+                .child(prose(reply))
         }))
 }
 

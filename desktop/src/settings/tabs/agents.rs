@@ -185,8 +185,8 @@ fn agent_row(
                 .child(name),
         );
     let mut main = div().flex().flex_col().gap(px(2.0)).flex_1().min_w_0();
-    let mono = |place: Option<(gpui::StyledText, gpui::Rgba)>,
-                text: gpui::StyledText,
+    let mono = |place: Option<(crate::views::prose::Prose, gpui::Rgba)>,
+                text: crate::views::prose::Prose,
                 tone: gpui::Rgba| {
         div()
             .flex()

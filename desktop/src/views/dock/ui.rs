@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::views::field::Field;
+use crate::views::prose::prose;
 use crate::views::scrollbar::Bar;
 
 pub fn note(text: String, error: bool, cx: &App) -> Div {
@@ -18,9 +19,11 @@ pub fn note(text: String, error: bool, cx: &App) -> Div {
         base.text_size(px(SMALL))
             .text_color(c.err)
             .font_family(crate::fonts::TERMINAL_FAMILY)
-            .child(text)
+            .child(prose(text))
     } else {
-        base.text_size(px(TEXT)).text_color(c.ink_3).child(text)
+        base.text_size(px(TEXT))
+            .text_color(c.ink_3)
+            .child(prose(text))
     }
 }
 
@@ -34,7 +37,7 @@ pub fn hint(text: &str, cx: &App) -> Div {
         .border_color(c.line)
         .text_size(px(SMALL))
         .text_color(c.ink_3)
-        .child(text.to_owned())
+        .child(prose(text.to_owned()))
 }
 
 pub fn filters(cx: &App) -> Div {

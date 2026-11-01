@@ -9,6 +9,7 @@ pub mod inputs;
 pub mod menu;
 pub mod notice;
 pub mod pictures;
+pub mod prose;
 pub mod rail;
 pub mod scrollbar;
 pub mod shell;

@@ -5,9 +5,8 @@ use std::sync::Arc;
 use api::graph::text::TextPart;
 use api::graph::waits::WaitDoc;
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, HighlightStyle, InteractiveElement,
-    InteractiveText, IntoElement, ParentElement, Rgba, StatefulInteractiveElement, Styled,
-    StyledText, Task, UnderlineStyle, div, px,
+    AnyElement, App, Context, ElementId, Entity, HighlightStyle, InteractiveElement, IntoElement,
+    ParentElement, Rgba, StatefulInteractiveElement, Styled, Task, UnderlineStyle, div, px,
 };
 
 use super::Dock;
@@ -15,6 +14,7 @@ use super::ui;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::icons::{Lucide, icon};
+use crate::views::prose::prose;
 use crate::views::tooltip::tip;
 
 #[derive(Clone)]
@@ -123,13 +123,11 @@ pub fn render(
     let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
     let text = (!shown.is_empty()).then(|| {
         let follow = follow.clone();
-        InteractiveText::new(
+        prose(shown).with_highlights(marks).on_click(
             ElementId::NamedChild(Arc::new(id), "text".into()),
-            StyledText::new(shown).with_highlights(marks),
+            ranges,
+            move |index, _, cx| follow(targets[index].clone(), cx),
         )
-        .on_click(ranges, move |index, _, cx| {
-            follow(targets[index].clone(), cx)
-        })
     });
     match (text, tail) {
         (Some(text), None) => text.into_any_element(),

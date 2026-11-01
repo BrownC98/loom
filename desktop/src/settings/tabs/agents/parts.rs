@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use gpui::{
     Anchor, AnyElement, App, AppContext, Div, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ParentElement, Stateful, Styled, StyledText,
-    WeakEntity, Window, anchored, deferred, div, point, px,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement, Stateful, Styled, WeakEntity, Window,
+    anchored, deferred, div, point, px,
 };
 use serde::de::DeserializeOwned;
 
@@ -16,6 +16,7 @@ use crate::settings::{Ctx, Dialog};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
+use crate::views::prose::Prose;
 use api::repos::PlaceView;
 
 const OVERLAY_PRIORITY: usize = 3;
@@ -238,14 +239,14 @@ pub fn row() -> Div {
         .text_size(px(TEXT))
 }
 
-pub fn hint(text: StyledText, cx: &App) -> Div {
+pub fn hint(text: Prose, cx: &App) -> Div {
     div()
         .text_size(px(SMALL))
         .text_color(colors(cx).ink_3)
         .child(text)
 }
 
-pub fn badge(text: StyledText, warn: bool, c: &Colors) -> Div {
+pub fn badge(text: Prose, warn: bool, c: &Colors) -> Div {
     let tone = if warn { c.warn } else { c.accent };
     div()
         .px(px(7.0))
@@ -266,7 +267,7 @@ pub fn ghost_small(id: impl Into<gpui::ElementId>, cx: &App) -> Stateful<Div> {
     ghost(id, cx).min_h(px(26.0)).px(px(8.0))
 }
 
-pub fn labelled(label: StyledText, field: impl IntoElement, cx: &App) -> Div {
+pub fn labelled(label: Prose, field: impl IntoElement, cx: &App) -> Div {
     div()
         .flex()
         .flex_col()

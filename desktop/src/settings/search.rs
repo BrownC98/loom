@@ -1,6 +1,7 @@
-use gpui::{HighlightStyle, Hsla, StyledText};
+use gpui::{HighlightStyle, Hsla};
 
 use crate::theme::Colors;
+use crate::views::prose::{Prose, prose};
 
 const MARK_ALPHA: f32 = 0.35;
 
@@ -8,8 +9,8 @@ pub fn found(haystack: &str, query: &str) -> bool {
     haystack.to_lowercase().contains(&query.to_lowercase())
 }
 
-pub fn mark(text: &str, query: &str, colors: &Colors) -> StyledText {
-    let styled = StyledText::new(text.to_owned());
+pub fn mark(text: &str, query: &str, colors: &Colors) -> Prose {
+    let styled = prose(text.to_owned());
     if query.is_empty() {
         return styled;
     }

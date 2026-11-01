@@ -15,8 +15,8 @@ mod body;
 mod docs;
 mod events;
 mod history;
-mod questions;
-mod ui;
+pub(crate) mod questions;
+pub(crate) mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -32,7 +32,7 @@ enum Inbox {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Slot {
+pub(crate) enum Slot {
     Answer,
     Option(usize),
     Field,

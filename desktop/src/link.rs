@@ -9,6 +9,7 @@ use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
 use api::canvas::{CardSize, Layout, Placed};
+use api::graph::errors::Problem;
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
 use api::ids::NodeId;
@@ -217,6 +218,30 @@ pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
         agent().delete(url).call().map(|_| ())
     }
     .map_err(|e| e.to_string())
+}
+
+pub enum Rejected {
+    Problem(Problem),
+    Status(u16),
+    Link(String),
+}
+
+pub fn adopt(base: &str, child: u32, parent: u32) -> Result<(), Rejected> {
+    let mut response = agent()
+        .put(format!("{base}/api/nodes/{child}/parent/{parent}"))
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send_empty()
+        .map_err(|e| Rejected::Link(e.to_string()))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    Err(serde_json::from_str(&body)
+        .map(Rejected::Problem)
+        .unwrap_or(Rejected::Status(status.as_u16())))
 }
 
 fn get(base: &str, path: &str) -> Result<String, String> {

@@ -412,15 +412,27 @@ impl Render for Dialog {
                             .border_color(c.line)
                             .bg(c.surface)
                     })
-                    .children(section.head.map(|head| {
-                        heading(
-                            head,
-                            searching.then(|| lang_tag(tab)),
-                            section.beside,
-                            &query,
-                            &c,
-                        )
-                    }))
+                    .children(match section.head {
+                        Some(head) => Some(
+                            heading(
+                                head,
+                                searching.then(|| lang_tag(tab)),
+                                section.beside,
+                                &query,
+                                &c,
+                            )
+                            .into_any_element(),
+                        ),
+                        None if !section.beside.is_empty() => Some(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.0))
+                                .children(section.beside)
+                                .into_any_element(),
+                        ),
+                        None => None,
+                    })
                     .children(section.body)
             })
             .collect();

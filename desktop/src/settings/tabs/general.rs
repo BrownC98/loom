@@ -8,6 +8,7 @@ use gpui::{
 
 use crate::link;
 use crate::problem::Failure;
+use crate::settings::notify;
 use crate::settings::widgets::{Text, TextEvent, field_reset, switch};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::Str;
@@ -225,10 +226,25 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
             "os-notify",
             on,
             label,
-            move |value, _, cx| writer.edit(cx, |settings| settings.os_notify = value),
+            move |value, _, cx| {
+                if value && !notify::SUPPORTED {
+                    return;
+                }
+                writer.edit(cx, |settings| settings.os_notify = value)
+            },
             cx,
         ));
     notify = notify.beside(field_reset("reset-os-notify", &["osNotify"], ctx, cx));
-    out.push(notify.child(row));
+    notify = notify.child(row);
+    if !notify::SUPPORTED {
+        let blocked = notify.text(say(cx, Str::OsNotifyAppBlocked), cx);
+        notify = notify.child(
+            div()
+                .text_size(px(SMALL))
+                .text_color(c.ink_3)
+                .child(blocked),
+        );
+    }
+    out.push(notify);
     out
 }

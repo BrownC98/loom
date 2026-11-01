@@ -10,7 +10,7 @@ use crate::daemon;
 use crate::fonts;
 use crate::link;
 use crate::link::VERSION;
-use crate::settings::widgets::button;
+use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
@@ -159,7 +159,7 @@ fn action(
     if enabled {
         item
     } else {
-        item.opacity(0.5).cursor_default()
+        inert(item).opacity(0.5).cursor_default()
     }
 }
 

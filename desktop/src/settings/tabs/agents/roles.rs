@@ -10,7 +10,7 @@ use gpui::{
 
 use super::parts::{Bound, Shared, ask, hint, keep_focus, labelled, row, rows, small};
 use crate::fonts;
-use crate::settings::widgets::{Select, SelectEvent, field_reset};
+use crate::settings::widgets::{Select, SelectEvent, field_reset, inert};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
@@ -228,8 +228,8 @@ pub fn section(
         let mut edit = small(("role-edit", index), cx).child(edit_label);
         let mut delete = small(("role-delete", index), cx).child(delete_label);
         if busy {
-            edit = edit.opacity(DIM);
-            delete = delete.opacity(DIM);
+            edit = inert(edit).opacity(DIM);
+            delete = inert(delete).opacity(DIM);
         } else {
             let (to_edit, to_delete) = (local.clone(), local.clone());
             edit = edit.on_click(move |_, _, cx| {
@@ -288,7 +288,7 @@ pub fn section(
         .child(icon(Lucide::Plus, 14.0, colors(cx).ink))
         .child(add_label);
     if busy {
-        add = add.opacity(DIM);
+        add = inert(add).opacity(DIM);
     } else {
         let to_add = local.clone();
         add = add.on_click(move |_, _, cx| {
@@ -449,7 +449,7 @@ fn form_element(
         .text_color(c.accent_ink)
         .child(save_label);
     if taken || needs_model {
-        save = save.opacity(DIM);
+        save = inert(save).opacity(DIM);
     } else {
         let (to_save, writer, target) = (local.clone(), ctx.writer.clone(), form.target);
         let role = Role {

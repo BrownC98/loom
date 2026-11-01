@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -48,6 +49,31 @@ pub struct Pictures {
     node: NodeId,
     list: Vec<Attached>,
     next: u32,
+    reading: usize,
+}
+
+#[derive(Default)]
+pub struct Shelf {
+    waits: HashMap<u32, Entity<Pictures>>,
+}
+
+impl Shelf {
+    pub fn pictures(
+        &mut self,
+        store: &Entity<Store>,
+        node: NodeId,
+        wait: u32,
+        cx: &mut Context<Self>,
+    ) -> Entity<Pictures> {
+        self.waits
+            .entry(wait)
+            .or_insert_with(|| cx.new(|_| Pictures::new(store.clone(), node)))
+            .clone()
+    }
+
+    pub fn keep(&mut self, live: &HashSet<u32>) {
+        self.waits.retain(|wait, _| live.contains(wait));
+    }
 }
 
 impl EventEmitter<PicturesEvent> for Pictures {}
@@ -98,6 +124,7 @@ impl Pictures {
             node,
             list: Vec::new(),
             next: 0,
+            reading: 0,
         }
     }
 
@@ -106,9 +133,11 @@ impl Pictures {
     }
 
     pub fn busy(&self) -> bool {
-        self.list
-            .iter()
-            .any(|image| matches!(image.state, Upload::Busy))
+        self.reading > 0
+            || self
+                .list
+                .iter()
+                .any(|image| matches!(image.state, Upload::Busy))
     }
 
     pub fn saved(&self) -> Vec<(u32, String)> {
@@ -144,14 +173,23 @@ impl Pictures {
     pub fn take_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
             let read = cx.background_spawn(async move { read_file(&path) });
+            self.reading += 1;
             cx.spawn(async move |this, cx| {
                 let read = read.await;
                 let _ = this.update(cx, |pictures, cx| match read {
                     Ok((name, bytes)) => match image_format(&name) {
-                        Some(format) => pictures.attach(name, format, bytes, cx),
-                        None => cx.emit(PicturesEvent::Other(name, bytes)),
+                        Some(format) => {
+                            pictures.attach(name, format, bytes, cx);
+                            pictures.reading -= 1;
+                        }
+                        None => {
+                            pictures.reading -= 1;
+                            cx.emit(PicturesEvent::Other(name, bytes));
+                            cx.emit(PicturesEvent::Settled);
+                        }
                     },
                     Err(error) => {
+                        pictures.reading -= 1;
                         let text = match error {
                             Unreadable::Folder(name) => {
                                 ui::say_with(cx, Str::TerminalFolder, &[("name", &name)])
@@ -160,6 +198,7 @@ impl Pictures {
                             Unreadable::Io(text) => text,
                         };
                         cx.emit(PicturesEvent::Refused(text));
+                        cx.emit(PicturesEvent::Settled);
                     }
                 });
             })

@@ -17,6 +17,7 @@ use crate::strings::Str;
 use crate::views::dock::answers::{self, Answers};
 use crate::views::dock::questions::{Group, groups_of, kind_label};
 use crate::views::dock::ui::{self, GAP};
+use crate::views::pictures::Shelf;
 use crate::views::tooltip::tip;
 
 const HOME: FloatPlace = FloatPlace { x: 0.5, y: 0.0 };
@@ -41,7 +42,12 @@ pub struct Pill {
     subscriptions: Vec<Subscription>,
 }
 
-pub fn pill(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Pill> {
+pub fn pill(
+    store: Entity<Store>,
+    shelf: Entity<Shelf>,
+    _: &mut Window,
+    cx: &mut App,
+) -> Entity<Pill> {
     cx.new(|cx| {
         let settings = store.read(cx).settings();
         let seen_place = settings.pill_place;
@@ -58,7 +64,7 @@ pub fn pill(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Pill> 
             seen_place,
             shut: None,
             seen_shut,
-            answers: cx.new(|cx| Answers::new(store.clone(), cx)),
+            answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
             subscriptions: Vec::new(),
         };
         pill.subscriptions

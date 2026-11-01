@@ -12,7 +12,7 @@ use gpui::{
     Subscription, Window, canvas, div, point, px,
 };
 
-use super::inputs::{Inputs, inputs};
+use super::inputs::Inputs;
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
@@ -60,9 +60,13 @@ pub struct Composer {
     subscriptions: Vec<Subscription>,
 }
 
-pub fn composer(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Entity<Composer> {
+pub fn composer(
+    store: Entity<Store>,
+    registry: Entity<Inputs>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Composer> {
     cx.new(|cx| {
-        let registry = inputs(cx);
         let seen_place = store.read(cx).settings().composer_place;
         let mut composer = Composer {
             store: store.clone(),

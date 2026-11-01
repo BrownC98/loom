@@ -29,6 +29,7 @@ use super::minimap;
 use super::popover;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
+use crate::float::inputs::Inputs;
 use crate::link;
 use crate::store::{Level, ShowNode, Store, ZoomTo};
 use crate::strings::Lang;
@@ -61,6 +62,7 @@ struct Carry {
 
 pub struct CanvasView {
     pub(super) store: Entity<Store>,
+    inputs: Entity<Inputs>,
     focus: FocusHandle,
     moves: Moves,
     carry: Option<Carry>,
@@ -99,7 +101,12 @@ fn bounds_of(rect: Rect) -> Bounds<f32> {
 }
 
 impl CanvasView {
-    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Entity<Store>,
+        inputs: Entity<Inputs>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mode = std::env::var("LOOM_DESKTOP_FRAMES").ok();
         cx.observe(&store, |this, _, cx| {
             this.sync(cx);
@@ -133,6 +140,7 @@ impl CanvasView {
         .detach();
         Self {
             store,
+            inputs,
             focus: cx.focus_handle(),
             moves: Moves::default(),
             carry: None,
@@ -471,7 +479,7 @@ impl CanvasView {
         let now = Instant::now();
         for id in near.iter().copied() {
             let entry = self.live.entry(id).or_insert_with(|| Live {
-                view: terminal::open(&base, id, window, cx),
+                view: terminal::open(&self.inputs, &base, id, window, cx),
                 hidden: None,
             });
             entry.hidden = None;

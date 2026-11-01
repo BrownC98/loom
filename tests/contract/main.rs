@@ -284,7 +284,7 @@ fn add_routes(surface: &mut Surface) {
 #[derive(Default)]
 struct Input {
     all_default: bool,
-    defaults: BTreeSet<String>,
+    defaults: BTreeSet<(String, String)>,
 }
 
 fn attributes(node: Node, source: &str) -> String {
@@ -310,7 +310,7 @@ fn has_serde_default(attributes: &str) -> bool {
 
 fn field_key(name: &str) -> String {
     name.chars()
-        .filter(|c| *c != '_')
+        .filter(|c| *c != '_' && *c != '-')
         .flat_map(char::to_lowercase)
         .collect()
 }
@@ -340,13 +340,31 @@ fn input_types() -> BTreeMap<String, Input> {
                 all_default: has_serde_default(&container),
                 defaults: BTreeSet::new(),
             };
+            let mut bodies = Vec::new();
             if let Some(body) = node.child_by_field_name("body") {
+                if node.kind() == "struct_item" {
+                    bodies.push((String::new(), body));
+                }
+                for variant in named(body)
+                    .into_iter()
+                    .filter(|v| v.kind() == "enum_variant")
+                {
+                    if let (Some(variant_name), Some(fields)) = (
+                        variant.child_by_field_name("name"),
+                        variant.child_by_field_name("body"),
+                    ) {
+                        bodies.push((field_key(text(variant_name, &source)), fields));
+                    }
+                }
+            }
+            for (variant, body) in bodies {
                 for field in named(body) {
                     if field.kind() == "field_declaration"
                         && has_serde_default(&attributes(field, &source))
                         && let Some(field_name) = field.child_by_field_name("name")
                     {
-                        input.defaults.insert(field_key(text(field_name, &source)));
+                        let field = field_key(text(field_name, &source));
+                        input.defaults.insert((variant.clone(), field));
                     }
                 }
             }
@@ -395,9 +413,23 @@ fn breaks(released: &Surface, current: &Surface, inputs: &BTreeMap<String, Input
         let Some(input) = type_name(key).and_then(|name| inputs.get(name)) else {
             continue;
         };
-        let top_field = type_name(key).is_some_and(|name| parent == format!("type {name}"));
-        let omissible =
-            top_field && (input.all_default || input.defaults.contains(&field_key(field)));
+        let Some(name) = type_name(key) else {
+            continue;
+        };
+        let owner = parent
+            .strip_prefix(&format!("type {name}"))
+            .unwrap_or(parent);
+        let variant = match owner.strip_prefix('|') {
+            Some(tag) if !tag.contains(['.', '|', ',']) => {
+                Some(field_key(tag.rsplit('=').next().unwrap_or(tag)))
+            }
+            Some(_) => None,
+            None => owner.is_empty().then(String::new),
+        };
+        let omissible = variant.is_some_and(|variant| {
+            (variant.is_empty() && input.all_default)
+                || input.defaults.contains(&(variant, field_key(field)))
+        });
         if released.contains_key(parent) && !omissible {
             problems.push(format!("new required input field: {key}"));
         }

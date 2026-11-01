@@ -1,6 +1,10 @@
+use api::graph::docs::DocRow;
+use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NodeState};
+use api::ids::WaitId;
 use api::settings::SettingsView;
-use gpui::{App, AppContext, Context, EventEmitter, Window, WindowAppearance};
+use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
+use serde::de::DeserializeOwned;
 
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::{strings, theme};
@@ -167,5 +171,156 @@ impl Store {
                 .or(running)
                 .or(snapshot.nodes.first().map(|n| n.id.0));
         }
+    }
+}
+
+const CALL_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[derive(Clone, Copy)]
+enum Verb {
+    Get,
+    Post,
+    Delete,
+}
+
+fn call<T: DeserializeOwned>(
+    base: &str,
+    verb: Verb,
+    path: &str,
+    body: Option<String>,
+) -> Result<T, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(CALL_LIMIT))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let url = format!("{base}{path}");
+    let response = match (verb, body) {
+        (Verb::Get, _) => agent.get(&url).call(),
+        (Verb::Delete, _) => agent.delete(&url).call(),
+        (Verb::Post, Some(body)) => agent
+            .post(&url)
+            .header("content-type", "application/json")
+            .send(body),
+        (Verb::Post, None) => agent.post(&url).send_empty(),
+    }
+    .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let text = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let code = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v.get("code")?.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        return Err(format!("HTTP {} {code}", status.as_u16()));
+    }
+    serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+impl Store {
+    fn request<T: DeserializeOwned + Send + 'static>(
+        &self,
+        verb: Verb,
+        path: String,
+        body: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<T, String>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(self.status.clone()));
+        };
+        cx.background_spawn(async move { call(&base, verb, &path, body) })
+    }
+
+    pub fn answer_wait(
+        &self,
+        wait: WaitId,
+        text: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = AnswerWait {
+            text,
+            images: Vec::new(),
+        };
+        self.request(
+            Verb::Post,
+            format!("/api/waits/{}/answer", wait.0),
+            serde_json::to_string(&body).ok(),
+            cx,
+        )
+    }
+
+    pub fn choose_option(
+        &self,
+        wait: WaitId,
+        prompt: Prompt,
+        option: usize,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = ChooseOption { prompt, option };
+        self.request(
+            Verb::Post,
+            format!("/api/waits/{}/choose", wait.0),
+            serde_json::to_string(&body).ok(),
+            cx,
+        )
+    }
+
+    pub fn type_text(
+        &self,
+        wait: WaitId,
+        prompt: Prompt,
+        text: String,
+        option: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = TypeText {
+            prompt,
+            text,
+            option,
+        };
+        self.request(
+            Verb::Post,
+            format!("/api/waits/{}/type", wait.0),
+            serde_json::to_string(&body).ok(),
+            cx,
+        )
+    }
+
+    pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        self.request(Verb::Delete, format!("/api/waits/{}", wait.0), None, cx)
+    }
+
+    pub fn closed_waits(
+        &self,
+        before: Option<u32>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ClosedPage, String>> {
+        let path = match before {
+            Some(seq) => format!("/api/waits/closed?before={seq}"),
+            None => "/api/waits/closed".to_owned(),
+        };
+        self.request(Verb::Get, path, None, cx)
+    }
+
+    pub fn list_docs(&self, cx: &mut Context<Self>) -> Task<Result<Vec<DocRow>, String>> {
+        self.request(Verb::Get, "/api/docs".to_owned(), None, cx)
+    }
+
+    pub fn doc_url(&self, id: &str, cx: &mut Context<Self>) -> Task<Result<String, String>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(self.status.clone()));
+        };
+        let path = format!("/api/docs/{id}/pass");
+        cx.background_spawn(async move {
+            let found: String = call(&base, Verb::Post, &path, None)?;
+            Ok(if found.starts_with('/') {
+                format!("{base}{found}")
+            } else {
+                found
+            })
+        })
     }
 }

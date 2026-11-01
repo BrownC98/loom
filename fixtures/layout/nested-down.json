@@ -1,0 +1,178 @@
+{
+  "kind": "arrangeNested",
+  "input": {
+    "direction": "down",
+    "inset": {
+      "top": 60,
+      "side": 20
+    },
+    "groups": [
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": 0,
+        "card": 3,
+        "members": [
+          5,
+          6
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          7
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      }
+    ],
+    "parents": {
+      "1": null,
+      "2": 1,
+      "3": 1,
+      "4": 2,
+      "5": 3,
+      "6": 5,
+      "7": null
+    },
+    "sizes": {
+      "1": {
+        "width": 260,
+        "height": 140
+      },
+      "2": {
+        "width": 260,
+        "height": 180
+      },
+      "3": {
+        "width": 300,
+        "height": 140
+      },
+      "4": {
+        "width": 260,
+        "height": 140
+      },
+      "5": {
+        "width": 260,
+        "height": 160
+      },
+      "6": {
+        "width": 320,
+        "height": 140
+      },
+      "7": {
+        "width": 260,
+        "height": 140
+      }
+    },
+    "rank": {
+      "card:2": 10,
+      "card:3": 20,
+      "group:1": 5,
+      "group:0": 0,
+      "group:3": 400
+    }
+  },
+  "output": {
+    "cards": {
+      "1": {
+        "x": 201,
+        "y": 60
+      },
+      "2": {
+        "x": 20,
+        "y": 312
+      },
+      "3": {
+        "x": 342,
+        "y": 312
+      },
+      "4": {
+        "x": 20,
+        "y": 604
+      },
+      "5": {
+        "x": 362,
+        "y": 604
+      },
+      "6": {
+        "x": 332,
+        "y": 876
+      },
+      "7": {
+        "x": 744,
+        "y": 60
+      }
+    },
+    "boxes": [
+      {
+        "at": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 692,
+          "height": 1056
+        }
+      },
+      {
+        "at": {
+          "x": 312,
+          "y": 544
+        },
+        "size": {
+          "width": 360,
+          "height": 492
+        }
+      },
+      {
+        "at": {
+          "x": 1056,
+          "y": 0
+        },
+        "size": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "at": {
+          "x": 724,
+          "y": 0
+        },
+        "size": {
+          "width": 300,
+          "height": 220
+        }
+      }
+    ]
+  }
+}

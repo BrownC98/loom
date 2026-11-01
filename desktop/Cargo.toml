@@ -9,3 +9,7 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "08cbb88a
 
 [lints.rust]
 warnings = "deny"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,7 +1,8 @@
+use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NodeState};
-use api::ids::WaitId;
+use api::ids::{NodeId, WaitId};
 use api::settings::SettingsView;
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
@@ -295,5 +296,30 @@ impl Store {
                 found
             })
         })
+    }
+}
+
+impl Store {
+    pub fn save_size(
+        &self,
+        size: CardSize,
+        spot: Option<Placed>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| {
+            link::put_sizes(base, &[size])?;
+            match spot {
+                Some(spot) => link::put_spots(base, &[spot]),
+                None => Ok(()),
+            }
+        })
+    }
+
+    pub fn clear_sizes(
+        &self,
+        nodes: Vec<NodeId>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| link::clear_sizes(base, &nodes))
     }
 }

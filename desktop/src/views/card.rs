@@ -20,7 +20,7 @@ fn text(size: f32, zoom: f32) -> Pixels {
     px((size * zoom).round().max(MIN_TEXT))
 }
 
-fn state(state: &NodeState) -> &'static str {
+pub fn state(state: &NodeState) -> &'static str {
     match state {
         NodeState::Running => "running",
         NodeState::Done => "done",

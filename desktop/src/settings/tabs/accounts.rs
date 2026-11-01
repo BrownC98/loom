@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::time::Duration;
 
 use api::ids::AccountId;
 use api::profile::Provider;
@@ -19,15 +18,13 @@ use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 use crate::views::terminal::TerminalView;
 use crate::views::usage::{
-    self, PROVIDERS, Switching, account_name, active_index, provider_label, slug,
+    self, ACCOUNTS, PROVIDERS, REFRESH, Switching, account_name, active_index, provider_label, slug,
 };
 use parts::{Bound, Reload, Remote, Shared, badge, hint, row, rows, small};
 
 mod login;
 mod switch;
 
-const ACCOUNTS: &str = "/api/accounts";
-const REFRESH: Duration = Duration::from_secs(5 * 60);
 const SYSTEM_DIR: [(Provider, &str); 2] = [
     (Provider::Claude, "~/.claude"),
     (Provider::Codex, "~/.codex"),
@@ -100,6 +97,7 @@ impl Actor {
                         .change(cx, |local| local.error = Some(error.text(lang)));
                 }
                 actor.reload.run(cx);
+                usage::accounts_changed(cx);
             });
         })
         .detach();

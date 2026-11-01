@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use api::ids::AccountId;
 use api::profile::Provider;
@@ -6,8 +6,8 @@ use api::settings::accounts::{AccountView, PlaceUsage};
 use api::settings::usage::{Limits, UsageProblem, Window as Span};
 use chrono::{Datelike, Local, TimeZone};
 use gpui::{
-    App, Div, FontWeight, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window, div,
-    px, relative,
+    App, Div, FontWeight, Global, ParentElement, Stateful, StatefulInteractiveElement, Styled,
+    Window, div, px, relative,
 };
 
 use crate::link;
@@ -33,6 +33,8 @@ const WEEKDAYS: [(&str, &str); 7] = [
 const MONTHS_EN: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+pub const ACCOUNTS: &str = "/api/accounts";
+pub const REFRESH: Duration = Duration::from_secs(5 * 60);
 pub const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 
 pub struct Line {
@@ -296,6 +298,15 @@ pub fn active_index(own: &[&AccountView], chosen: Option<&AccountId>) -> Option<
     own.iter()
         .position(|a| a.id.is_some() && a.id.as_ref() == chosen)
         .or_else(|| own.iter().position(|a| a.id.is_none()))
+}
+
+pub struct AccountsChanged(u64);
+
+impl Global for AccountsChanged {}
+
+pub fn accounts_changed(cx: &mut App) {
+    let next = cx.try_global::<AccountsChanged>().map_or(1, |g| g.0 + 1);
+    cx.set_global(AccountsChanged(next));
 }
 
 #[derive(Clone)]

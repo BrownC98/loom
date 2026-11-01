@@ -34,20 +34,24 @@ pub fn open_url(url: &str) -> Result<(), String> {
 }
 
 pub fn button(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
+    button_at(id, 1.0, cx)
+}
+
+pub fn button_at(id: impl Into<ElementId>, zoom: f32, cx: &App) -> Stateful<Div> {
     let c = colors(cx);
     div()
         .id(id)
         .flex()
         .items_center()
-        .gap(px(GAP))
-        .min_h(px(26.0))
-        .px(px(10.0))
-        .py(px(3.0))
-        .rounded(px(6.0))
+        .gap(px(GAP * zoom))
+        .min_h(px(26.0 * zoom))
+        .px(px(10.0 * zoom))
+        .py(px(3.0 * zoom))
+        .rounded(px(6.0 * zoom))
         .border_1()
         .border_color(c.line_strong)
         .bg(c.surface)
-        .text_size(px(SMALL))
+        .text_size(px(SMALL * zoom))
         .text_color(c.ink)
         .cursor_pointer()
         .hover(move |style| style.bg(c.surface_hover))

@@ -39,6 +39,7 @@ pub struct Shell {
     main: AnyView,
     left: Option<AnyView>,
     right: Option<AnyView>,
+    layers: Vec<AnyView>,
     seen: PaneWidths,
     kept: PaneWidths,
     drag: Option<Drag>,
@@ -53,6 +54,7 @@ impl Shell {
         main: AnyView,
         left: Option<AnyView>,
         right: Option<AnyView>,
+        layers: Vec<AnyView>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&store, |this, store, cx| {
@@ -71,6 +73,7 @@ impl Shell {
             main,
             left,
             right,
+            layers,
             seen,
             kept: PaneWidths::default(),
             drag: None,
@@ -274,7 +277,15 @@ impl Render for Shell {
                     .min_h_0()
                     .flex()
                     .child(left)
-                    .child(div().flex_1().min_w_0().h_full().child(self.main.clone()))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(self.main.clone())
+                            .children(self.layers.clone()),
+                    )
                     .child(right)
                     .children(side_grip)
                     .children(dock_grip),

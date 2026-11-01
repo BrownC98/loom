@@ -170,7 +170,7 @@ impl Sidebar {
                 .await;
             if let Err(error) = sent {
                 let _ = this.update(cx, |this, cx| {
-                    this.refusal = Some((key, error));
+                    this.refusal = Some((key, error.text(*cx.global::<Lang>())));
                     cx.notify();
                 });
             }

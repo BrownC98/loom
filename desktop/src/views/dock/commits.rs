@@ -16,7 +16,8 @@ use super::{Dock, Tab};
 use crate::canvas::repos::chosen_repo;
 use crate::fonts;
 use crate::link;
-use crate::strings::Str;
+use crate::problem::Failure;
+use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::tooltip::tip;
@@ -65,7 +66,7 @@ fn lane_color(c: &Colors, index: i32) -> Rgba {
     }
 }
 
-fn reload(base: &str, repo: RepoId, rows: usize) -> Result<Fetched, String> {
+fn reload(base: &str, repo: RepoId, rows: usize) -> Result<Fetched, Failure> {
     let limit = PAGE.max(rows);
     link::commits(base, repo, 0, limit).map(|graph| Fetched::Reload(graph, limit))
 }
@@ -118,7 +119,7 @@ impl Dock {
     fn commits_request(
         &mut self,
         cx: &mut Context<Self>,
-        work: impl FnOnce(&str, RepoId) -> Result<Fetched, String> + Send + 'static,
+        work: impl FnOnce(&str, RepoId) -> Result<Fetched, Failure> + Send + 'static,
     ) {
         let (Some(repo), Some(base)) = (
             self.commits.repo,
@@ -135,7 +136,8 @@ impl Dock {
             let result = cx.background_spawn(async move { work(&base, repo) }).await;
             let _ = this.update(cx, |dock, cx| {
                 if dock.commits.epoch == epoch {
-                    dock.commits_apply(result);
+                    let lang = *cx.global::<Lang>();
+                    dock.commits_apply(result.map_err(|failure| failure.text(lang)));
                     cx.notify();
                 }
             });

@@ -7,5 +7,6 @@ pub mod hop_anim;
 pub mod hops;
 pub mod layout;
 pub mod repos;
+pub mod resize;
 pub mod scene;
 pub mod view;

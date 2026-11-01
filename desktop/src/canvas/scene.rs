@@ -48,6 +48,8 @@ pub struct Frame {
     pub label: String,
     pub rect: Rect,
     pub place: Option<Place>,
+    pub kind: Option<GroupKind>,
+    pub empty: bool,
 }
 
 pub struct Card {
@@ -71,6 +73,7 @@ pub struct Scene {
     pub autos: HashMap<u32, BTreeMap<String, Point>>,
     pub repo_autos: BTreeMap<String, Point>,
     pub chips: HashMap<String, String>,
+    pub chip_rows: HashMap<String, Vec<(String, String)>>,
 }
 
 struct Laid {
@@ -279,6 +282,8 @@ impl Level<'_> {
                 repo: self.repo,
                 worktree: self.groups[g.group].path.clone(),
             }),
+            kind: Some(self.groups[g.group].kind),
+            empty: g.members.is_empty(),
         });
         for &id in &g.members {
             let p = g.local[&id.to_string()];
@@ -462,6 +467,13 @@ pub fn build(
             scene
                 .chips
                 .extend(chips.iter().map(|c| (c.path.clone(), host.path.clone())));
+            scene.chip_rows.insert(
+                host.path.clone(),
+                chips
+                    .iter()
+                    .map(|c| (c.path.clone(), c.label.clone()))
+                    .collect(),
+            );
         }
         let parents = group_parents(&groups, &repo_views);
         let cards = attach_cards(&groups, &repo_views, &parents);
@@ -696,6 +708,8 @@ pub fn build(
                 label: b.repo.name.clone(),
                 rect: Rect { at, size: b.size },
                 place: None,
+                kind: None,
+                empty: false,
             });
             Point {
                 x: at.x - b.lead.x,
@@ -714,6 +728,13 @@ pub fn build(
                 },
                 &mut scene,
             );
+        }
+    }
+    for placed in &mut scene.cards {
+        if simple.contains(&placed.node)
+            && let Some(view) = by_id.get(&placed.node)
+        {
+            placed.rect.size.height = card::simple_height(view);
         }
     }
     scene

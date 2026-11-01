@@ -16,7 +16,8 @@ use api::ids::NodeId;
 use api::repos::PlaceView;
 use api::settings::ArrangeDirection;
 
-use super::arrange;
+mod ops;
+
 use super::camera::{Camera, Glide};
 use super::connect::{self, Connect};
 use super::drag::{Arrange, Job, Moves, Scope};
@@ -28,6 +29,7 @@ use super::keys;
 use super::layout::{self, Rect};
 use super::minimap;
 use super::popover;
+use super::repos::GroupKind;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::float::inputs::Inputs;
@@ -35,6 +37,7 @@ use crate::link;
 use crate::store::{Level, Show, Store, Target, ZoomTo};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
+use crate::views::anchor::Anchors;
 use crate::views::card;
 use crate::views::expanded;
 use crate::views::notice;
@@ -49,7 +52,7 @@ const TERMINAL_STEP: f32 = 1.03;
 const HIDDEN_KEEP: Duration = Duration::from_secs(3);
 const GRAB_SLOP: f32 = 3.0;
 const REPO_HEAD: f32 = 46.0;
-const GROUP_HEAD: f32 = 44.0;
+const GROUP_HEAD: f32 = 43.0;
 const PENDING_FOR: Duration = Duration::from_secs(2);
 const TITLE_INSET: f32 = 16.0;
 const TITLE_SIZE: f32 = 18.0;
@@ -80,6 +83,9 @@ pub struct CanvasView {
     live: HashMap<u32, Live>,
     focused: Option<u32>,
     expanded: Option<u32>,
+    menu: Option<ops::Opened>,
+    anchors: Anchors,
+    renaming: Option<ops::Renaming>,
     overlay: FocusHandle,
     pending: Option<(Target, Instant)>,
     pub(super) camera: Camera,
@@ -156,6 +162,9 @@ impl CanvasView {
             live: HashMap::new(),
             focused: None,
             expanded: None,
+            menu: None,
+            anchors: Anchors::default(),
+            renaming: None,
             overlay: cx.focus_handle(),
             pending: None,
             camera: Camera::HOME,
@@ -369,8 +378,22 @@ impl CanvasView {
         }
     }
 
-    fn on_key(&mut self, event: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
+    fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let canvas_focused = self.focus.is_focused(window);
+        if self.menu.is_some() && event.keystroke.key == "escape" {
+            self.close_menu(cx);
+            cx.stop_propagation();
+            return;
+        }
+        if canvas_focused
+            && event.keystroke.key == "f2"
+            && !event.keystroke.modifiers.modified()
+            && let Some(id) = self.store.read(cx).selected()
+        {
+            self.begin_rename(id, window, cx);
+            cx.stop_propagation();
+            return;
+        }
         if canvas_focused && event.keystroke.key == "escape" && self.store.read(cx).has_picked() {
             self.store
                 .update(cx, |store, cx| store.set_picked(None, cx));
@@ -571,6 +594,7 @@ impl CanvasView {
         });
         self.focused = focused;
         if let Some(id) = zoomed.or(selected)
+            && self.renaming.is_none()
             && self.focused != Some(id)
             && let Some(live) = self.live.get(&id)
         {
@@ -718,6 +742,7 @@ impl CanvasView {
 
     fn on_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         popover::dismiss(self, cx);
+        self.close_menu(cx);
         window.focus(&self.focus, cx);
         self.glide = None;
         if let Some(key) = self.frame_head_at(event.position) {
@@ -815,6 +840,7 @@ impl Render for CanvasView {
             }
         }
         let zoomed = self.zoomed(cx);
+        self.focus_rename(window, cx);
         self.store
             .update(cx, |store, cx| store.set_zoomed(zoomed.is_some(), cx));
         self.mount(zoomed, window, cx);
@@ -829,8 +855,7 @@ impl Render for CanvasView {
             cx.defer(move |cx| store.update(cx, |store, cx| store.set_zoom_percent(percent, cx)));
         }
         let map = minimap::view(self, cx);
-        let heads = popover::heads(self, cx);
-        let repo_heads = arrange::repo_heads(self, cx);
+        let frame_acts = self.frame_actions(cx);
         let pop = popover::element(self);
         let area = self.area.clone();
         let frame_end = self.probe.clone();
@@ -917,29 +942,57 @@ impl Render for CanvasView {
         let notice = store
             .notice()
             .map(|n| notice::element(n, cx.global::<crate::theme::Theme>()));
-        let repos = self.scene.repos.iter().map(|f| {
-            card::frame(
-                &f.label,
-                camera.screen_box(bounds_of(f.rect)),
-                camera.zoom,
-                true,
-                card::Mark::Plain,
-                &colors,
-            )
-        });
         let lit = store.lit();
         let current = store.current();
+        let repos = self.scene.repos.iter().filter_map(|f| {
+            let id: u32 = f.key.strip_prefix("repo:")?.parse().ok()?;
+            let repo = snapshot?.repos.iter().find(|r| r.id.0 == id)?;
+            Some(card::repo_frame(
+                &card::RepoFrame {
+                    key: &f.key,
+                    name: &repo.name,
+                    place: card::place_label(&repo.place, lang),
+                    path: &repo.path,
+                    shown_path: &repo.shown_path,
+                    has_commits: repo.has_commits,
+                },
+                &frame_acts,
+                lang,
+                camera.screen_box(bounds_of(f.rect)),
+                camera.zoom,
+                &colors,
+            ))
+        });
         let groups = self.scene.groups.iter().map(|f| {
             let members = snapshot.into_iter().flat_map(|s| &s.nodes).filter(|n| {
                 f.place
                     .as_ref()
                     .is_some_and(|p| p.repo == n.place.repo && p.worktree == n.place.worktree)
             });
-            let frame = card::frame(
-                &f.label,
+            let chips = self
+                .scene
+                .chip_rows
+                .get(&f.key)
+                .into_iter()
+                .flatten()
+                .map(|(path, label)| card::ChipView {
+                    path: path.clone(),
+                    label: label.clone(),
+                    mark: card::mark(lit, path),
+                })
+                .collect();
+            let frame = card::group_frame(
+                &card::GroupFrame {
+                    path: &f.key,
+                    label: &f.label,
+                    kind: f.kind.unwrap_or(GroupKind::Linked),
+                    empty: f.empty,
+                    chips,
+                },
+                &frame_acts,
+                lang,
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
-                false,
                 card::group_mark(lit, &f.key, members.map(|n| n.id.0.to_string())),
                 &colors,
             );
@@ -956,6 +1009,32 @@ impl Render for CanvasView {
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
             let screen = camera.screen_box(bounds_of(placed.rect));
+            let parent = node.parent.and_then(|p| {
+                snapshot?
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == p)
+                    .map(|n| n.name.as_str())
+            });
+            let actions = self.actions(id, false, cx);
+            let face = card::Face {
+                lang,
+                node,
+                parent,
+                rename: self
+                    .renaming
+                    .as_ref()
+                    .filter(|r| r.node == id)
+                    .map(|r| (&r.field, r.error.as_deref())),
+                actions: &actions,
+                collapse: false,
+                width: placed.rect.size.width as f32,
+            };
+            let foot = if card::foot_text(node, parent, lang).is_some() {
+                card::FOOT
+            } else {
+                0.0
+            };
             let body = self
                 .live
                 .get(&id)
@@ -964,7 +1043,9 @@ impl Render for CanvasView {
                     let scale = snapped(camera.zoom);
                     div()
                         .w(px((placed.rect.size.width as f32) * scale))
-                        .h(px((placed.rect.size.height as f32 - card::HEAD) * scale))
+                        .h(px(
+                            (placed.rect.size.height as f32 - card::HEAD - foot) * scale
+                        ))
                         .child(live.view.clone())
                         .into_any_element()
                 });
@@ -983,7 +1064,7 @@ impl Render for CanvasView {
             });
             Some(
                 card::card(
-                    node,
+                    &face,
                     card::Look {
                         simple: !standard,
                         selected: selected == Some(id),
@@ -1039,8 +1120,30 @@ impl Render for CanvasView {
             let this = cx.entity();
             let collapse =
                 Rc::new(move |cx: &mut App| this.update(cx, |this, cx| this.collapse(cx)));
-            Some(expanded::overlay(
+            let parent = node.parent.and_then(|p| {
+                snapshot?
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == p)
+                    .map(|n| n.name.as_str())
+            });
+            let actions = self.actions(id, true, cx);
+            let face = card::Face {
+                lang,
                 node,
+                parent,
+                rename: self
+                    .renaming
+                    .as_ref()
+                    .filter(|r| r.node == id)
+                    .map(|r| (&r.field, r.error.as_deref())),
+                actions: &actions,
+                collapse: true,
+                width: f32::from(self.area.get().size.width) - 32.0,
+            };
+            Some(expanded::overlay(
+                &face,
+                selected == Some(id),
                 live.view.clone(),
                 &self.overlay,
                 collapse,
@@ -1048,6 +1151,7 @@ impl Render for CanvasView {
                 cx,
             ))
         });
+        let menu = self.menu_element(cx);
         div()
             .id("canvas")
             .size_full()
@@ -1096,13 +1200,12 @@ impl Render for CanvasView {
                     cx.notify();
                 }
             }))
-            .children(heads)
-            .children(repo_heads)
             .children(title)
             .children(map)
             .children(pop)
             .children(notice)
             .children(overlay)
+            .children(menu)
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

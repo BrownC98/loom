@@ -1,6 +1,9 @@
+use api::graph::docs::DocRow;
+use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NodeState};
+use api::ids::WaitId;
 use api::settings::SettingsView;
-use gpui::{App, AppContext, Context, EventEmitter, Window, WindowAppearance};
+use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
 use crate::{strings, theme};
@@ -194,5 +197,103 @@ impl Store {
                 .or(running)
                 .or(snapshot.nodes.first().map(|n| n.id.0));
         }
+    }
+}
+
+impl Store {
+    fn call<T: Send + 'static>(
+        &self,
+        cx: &mut Context<Self>,
+        work: impl FnOnce(&str) -> Result<T, String> + Send + 'static,
+    ) -> Task<Result<T, String>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(self.status.clone()));
+        };
+        cx.background_spawn(async move { work(&base) })
+    }
+
+    pub fn answer_wait(
+        &self,
+        wait: WaitId,
+        text: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = AnswerWait {
+            text,
+            images: Vec::new(),
+        };
+        self.call(cx, move |base| {
+            let path = format!("/api/waits/{}/answer", wait.0);
+            link::post(base, &path, serde_json::to_string(&body).ok())
+        })
+    }
+
+    pub fn choose_option(
+        &self,
+        wait: WaitId,
+        prompt: Prompt,
+        option: usize,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = ChooseOption { prompt, option };
+        self.call(cx, move |base| {
+            let path = format!("/api/waits/{}/choose", wait.0);
+            link::post(base, &path, serde_json::to_string(&body).ok())
+        })
+    }
+
+    pub fn type_text(
+        &self,
+        wait: WaitId,
+        prompt: Prompt,
+        text: String,
+        option: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let body = TypeText {
+            prompt,
+            text,
+            option,
+        };
+        self.call(cx, move |base| {
+            let path = format!("/api/waits/{}/type", wait.0);
+            link::post(base, &path, serde_json::to_string(&body).ok())
+        })
+    }
+
+    pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        self.call(cx, move |base| {
+            link::delete(base, &format!("/api/waits/{}", wait.0))
+        })
+    }
+
+    pub fn closed_waits(
+        &self,
+        before: Option<u32>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ClosedPage, String>> {
+        self.call(cx, move |base| {
+            let path = match before {
+                Some(seq) => format!("/api/waits/closed?before={seq}"),
+                None => "/api/waits/closed".to_owned(),
+            };
+            link::read(base, &path)
+        })
+    }
+
+    pub fn list_docs(&self, cx: &mut Context<Self>) -> Task<Result<Vec<DocRow>, String>> {
+        self.call(cx, |base| link::read(base, "/api/docs"))
+    }
+
+    pub fn doc_url(&self, id: &str, cx: &mut Context<Self>) -> Task<Result<String, String>> {
+        let path = format!("/api/docs/{id}/pass");
+        self.call(cx, move |base| {
+            let found: String = link::post(base, &path, None)?;
+            Ok(if found.starts_with('/') {
+                format!("{base}{found}")
+            } else {
+                found
+            })
+        })
     }
 }

@@ -145,6 +145,33 @@ pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
+pub fn post<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Option<String>,
+) -> Result<T, String> {
+    let request = agent().post(format!("{base}{path}"));
+    let response = match body {
+        Some(body) => request
+            .header("content-type", "application/json")
+            .send(body),
+        None => request.send_empty(),
+    }
+    .map_err(|e| e.to_string())?
+    .body_mut()
+    .read_to_string()
+    .map_err(|e| e.to_string())?;
+    serde_json::from_str(&response).map_err(|e| format!("POST {path}: {e}"))
+}
+
+pub fn delete(base: &str, path: &str) -> Result<(), String> {
+    agent()
+        .delete(format!("{base}{path}"))
+        .call()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
     let url = format!("{base}/api/nodes/{node}/bookmark");
     if on {
@@ -180,7 +207,7 @@ pub struct Loaded {
     pub settings: SettingsView,
 }
 
-fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
+pub fn read<T: serde::de::DeserializeOwned>(base: &str, path: &str) -> Result<T, String> {
     serde_json::from_str(&get(base, path)?).map_err(|e| format!("GET {path}: {e}"))
 }
 

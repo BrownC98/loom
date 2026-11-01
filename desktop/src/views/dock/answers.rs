@@ -15,8 +15,8 @@ use super::ui::{self, GAP, PAD, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::icons::{Lucide, icon};
 use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
-use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
 
@@ -754,7 +754,7 @@ fn send_row(
             .justify_center()
             .px(px(0.0))
             .tooltip(tip(ui::say(cx, Str::InboxAttachImage).to_owned()))
-            .child(icon(Glyph::Image, 14.0 * z, c.ink_2))
+            .child(icon(Lucide::Image, 14.0 * z, c.ink_2))
             .on_click(move |_, _, cx| pictures.update(cx, |pictures, cx| pictures.pick_files(cx)))
     });
     div()

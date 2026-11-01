@@ -7,7 +7,7 @@ use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::Theme;
 use crate::views::field::{self, Field, FieldEvent};
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 
 const BUTTON: f32 = 18.0;
 const ICON: f32 = 14.0;
@@ -109,7 +109,15 @@ impl Render for Zoom {
                     cx.stop_propagation();
                 }),
             )
-            .child(icon(Glyph::Map { folded }, ICON, colors.ink_2));
+            .child(icon(
+                if folded {
+                    Lucide::MapPlus
+                } else {
+                    Lucide::MapMinus
+                },
+                ICON,
+                colors.ink_2,
+            ));
         let level = if self.editing {
             div()
                 .w(px(WIDTH))

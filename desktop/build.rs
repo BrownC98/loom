@@ -6,6 +6,9 @@ use std::{env, fs};
 const WEB: &str = "../web/src";
 const ICON: &str = "../app/icons/icon.ico";
 const PRETENDARD: &str = "../web/node_modules/pretendard/dist/web/static/woff2";
+const LUCIDE: &str = "../web/node_modules/lucide-react/dist/esm";
+const LOBEHUB: &str = "../web/node_modules/@lobehub/icons-static-svg/icons";
+const LOGO_SIZE: &str = "64";
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -28,6 +31,29 @@ fn main() {
     );
     println!("cargo:rerun-if-changed={}", pretendard.display());
     println!("cargo:rustc-env=PRETENDARD_DIR={}", pretendard.display());
+
+    let mut sources = Vec::new();
+    web_sources(&web, &mut sources);
+    let sources: Vec<(PathBuf, String)> = sources
+        .into_iter()
+        .map(|path| {
+            let text =
+                fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            (path, text)
+        })
+        .collect();
+    let lucide_users: Vec<&(PathBuf, String)> = sources
+        .iter()
+        .filter(|(_, text)| text.contains("from 'lucide-react'"))
+        .collect();
+    for (path, _) in &lucide_users {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    let lucide_texts: Vec<&str> = lucide_users.iter().map(|(_, text)| text.as_str()).collect();
+    write(
+        "icons.rs",
+        icons(&manifest, &lucide_texts, &read("AgentMark.tsx")),
+    );
 
     write("tokens.rs", tokens(&read("styles.css")));
     write("terminals.rs", terminals(&read("terminalThemes.ts")));
@@ -604,5 +630,255 @@ fn strings(ko_source: &str, en_source: &str) -> String {
     code.push_str("    pub fn find(key: &str) -> Option<Str> {\n        KEYS.iter().position(|k| *k == key).map(|at| ALL[at])\n    }\n\n");
     code.push_str("    pub fn text(self, lang: Lang) -> &'static str {\n        TEXTS[self as usize][lang as usize]\n    }\n\n");
     code.push_str("    pub fn with(self, lang: Lang, args: &[(&str, &str)]) -> String {\n        fill(self.text(lang), args)\n    }\n}\n");
+    code
+}
+
+fn web_sources(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.expect("directory entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            web_sources(&path, out);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext == "ts" || ext == "tsx")
+        {
+            out.push(path);
+        }
+    }
+}
+
+fn lucide_names(sources: &[&str]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for text in sources {
+        let mut rest = *text;
+        while let Some(at) = rest.find("from 'lucide-react'") {
+            let head = &rest[..at];
+            let import = head.rfind("import").expect("lucide import has no `import`");
+            let list = &head[import..];
+            let open = list.find('{').expect("lucide import has no `{`");
+            let close = list.rfind('}').expect("lucide import has no `}`");
+            for item in list[open + 1..close].split(',') {
+                let item = item.trim();
+                if item.is_empty() || item.starts_with("type ") {
+                    continue;
+                }
+                let name = item.split_whitespace().next().expect("icon name");
+                names.insert(name.to_owned());
+            }
+            rest = &rest[at + 1..];
+        }
+    }
+    names
+}
+
+fn js_to_json(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut json = String::new();
+    let mut at = 0;
+    while at < chars.len() {
+        let ch = chars[at];
+        if ch == '"' {
+            json.push(ch);
+            at += 1;
+            while chars[at] != '"' {
+                if chars[at] == '\\' {
+                    json.push(chars[at]);
+                    at += 1;
+                }
+                json.push(chars[at]);
+                at += 1;
+            }
+            json.push('"');
+            at += 1;
+        } else if ch.is_alphabetic() || ch == '_' {
+            let start = at;
+            while chars[at].is_alphanumeric() || chars[at] == '_' {
+                at += 1;
+            }
+            let word: String = chars[start..at].iter().collect();
+            json.push_str(&format!("\"{word}\""));
+        } else {
+            json.push(ch);
+            at += 1;
+        }
+    }
+    json
+}
+
+fn lucide_svg(module: &str, name: &str) -> String {
+    let marker = "node: [";
+    let start = module
+        .find(marker)
+        .unwrap_or_else(|| panic!("{name}: no icon node"))
+        + marker.len()
+        - 1;
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut end = start;
+    for (i, ch) in module[start..].char_indices() {
+        match ch {
+            '"' => in_string = !in_string,
+            '[' if !in_string => depth += 1,
+            ']' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    end = start + i + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let nodes: Vec<(String, BTreeMap<String, String>)> =
+        serde_json::from_str(&js_to_json(&module[start..end]))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+    let mut svg = String::from(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">",
+    );
+    for (tag, attrs) in nodes {
+        write!(svg, "<{tag}").unwrap();
+        for (key, value) in attrs.iter().filter(|(key, _)| *key != "key") {
+            write!(svg, " {key}=\"{value}\"").unwrap();
+        }
+        svg.push_str("/>");
+    }
+    svg.push_str("</svg>");
+    svg
+}
+
+fn icons(manifest: &std::path::Path, lucide_sources: &[&str], agent_mark: &str) -> String {
+    let lucide = manifest.join(LUCIDE);
+    let index_path = lucide.join("lucide-react.mjs");
+    println!("cargo:rerun-if-changed={}", index_path.display());
+    let index = fs::read_to_string(&index_path)
+        .unwrap_or_else(|e| panic!("{}: {e} (run `npm ci` in web/)", index_path.display()));
+    let mut code = String::from(
+        "#[allow(dead_code)]\n#[derive(Clone, Copy, PartialEq, Eq, Debug)]\npub enum Lucide {\n",
+    );
+    let mut paths = String::new();
+    let mut assets = String::new();
+    let mut files = BTreeSet::new();
+    let names = lucide_names(lucide_sources);
+    for name in &names {
+        let line = index
+            .lines()
+            .find(|line| {
+                line.contains(&format!("default as {name},"))
+                    || line.contains(&format!("default as {name} }}"))
+            })
+            .unwrap_or_else(|| panic!("lucide-react has no icon {name}"));
+        let file = line
+            .split("from './icons/")
+            .nth(1)
+            .and_then(|rest| rest.split('\'').next())
+            .unwrap_or_else(|| panic!("no icon file for {name}: {line}"));
+        let stem = file.trim_end_matches(".mjs");
+        writeln!(code, "    {name},").unwrap();
+        writeln!(paths, "            Lucide::{name} => \"icons/{stem}.svg\",").unwrap();
+        if files.insert(file.to_owned()) {
+            let path = lucide.join("icons").join(file);
+            println!("cargo:rerun-if-changed={}", path.display());
+            let module =
+                fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            writeln!(
+                assets,
+                "    (\"icons/{stem}.svg\", {:?}.as_bytes()),",
+                lucide_svg(&module, name)
+            )
+            .unwrap();
+        }
+    }
+    code.push_str("}\n\n#[allow(dead_code)]\nimpl Lucide {\n    pub fn path(self) -> &'static str {\n        match self {\n");
+    code.push_str(&paths);
+    code.push_str("        }\n    }\n}\n\n");
+
+    let mut imports = BTreeMap::new();
+    for line in agent_mark.lines() {
+        let Some(rest) = line.strip_prefix("import ") else {
+            continue;
+        };
+        let Some((ident, from)) = rest.split_once(" from '") else {
+            continue;
+        };
+        let Some(spec) = from.strip_suffix("?url';") else {
+            continue;
+        };
+        let file = if let Some(name) = spec.strip_prefix("@lobehub/icons-static-svg/icons/") {
+            manifest.join(LOBEHUB).join(name)
+        } else if let Some(name) = spec.strip_prefix("./agent-logos/") {
+            manifest.join(WEB).join("agent-logos").join(name)
+        } else {
+            continue;
+        };
+        imports.insert(ident.to_owned(), file);
+    }
+    let mut logos = String::new();
+    let mut logo_files = BTreeSet::new();
+    for line in agent_mark.lines() {
+        let line = line.trim();
+        let Some((key, rest)) = line.split_once(": {") else {
+            continue;
+        };
+        let Some((kind, ident)) = rest
+            .trim_end_matches(',')
+            .trim_end_matches('}')
+            .trim()
+            .split_once(": ")
+        else {
+            continue;
+        };
+        let Some(file) = imports.get(ident.trim()) else {
+            continue;
+        };
+        let variant = match kind {
+            "color" => "Color",
+            "mono" => "Mono",
+            _ => continue,
+        };
+        let key = key.trim_matches('\'');
+        let base = file
+            .file_name()
+            .expect("logo file")
+            .to_string_lossy()
+            .into_owned();
+        let asset = format!("logos/{base}");
+        writeln!(
+            logos,
+            "        {key:?} => Some(Logo::{variant}({asset:?})),"
+        )
+        .unwrap();
+        if logo_files.insert(base) {
+            println!("cargo:rerun-if-changed={}", file.display());
+            if file.extension().is_some_and(|ext| ext == "svg") {
+                let text =
+                    fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+                let text = text
+                    .replace("width=\"1em\"", &format!("width=\"{LOGO_SIZE}\""))
+                    .replace("height=\"1em\"", &format!("height=\"{LOGO_SIZE}\""));
+                writeln!(assets, "    ({asset:?}, {text:?}.as_bytes()),").unwrap();
+            } else {
+                writeln!(
+                    assets,
+                    "    ({asset:?}, include_bytes!({:?})),",
+                    file.display().to_string()
+                )
+                .unwrap();
+            }
+        }
+    }
+    assert!(!logos.is_empty(), "AgentMark.tsx has no logos");
+    code.push_str("#[allow(dead_code)]\n#[derive(Clone, Copy)]\npub enum Logo {\n    Color(&'static str),\n    Mono(&'static str),\n}\n\n");
+    code.push_str(
+        "#[allow(dead_code)]\npub fn logo(agent: &str) -> Option<Logo> {\n    match agent {\n",
+    );
+    code.push_str(&logos);
+    code.push_str("        _ => None,\n    }\n}\n\n");
+    code.push_str("static ASSETS: &[(&str, &[u8])] = &[\n");
+    code.push_str(&assets);
+    code.push_str("];\n");
     code
 }

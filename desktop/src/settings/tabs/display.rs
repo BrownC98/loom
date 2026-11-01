@@ -13,7 +13,7 @@ use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
 use crate::theme::{self, Colors, Scheme, Theme, luminance_of, ratio};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, button, colors, say, say_with};
-use crate::views::sidebar::icons::Glyph;
+use crate::views::icons::Lucide;
 use crate::views::tooltip::tip;
 
 const PRESETS: [&str; 8] = [
@@ -267,9 +267,9 @@ fn theme_section(ctx: &Ctx, cx: &mut App) -> Section {
     let c = colors(cx);
     let mut section = Section::new(Some(say(cx, Str::ThemeHeading)), ctx);
     let items: Vec<(ThemeSetting, Label)> = [
-        (ThemeSetting::System, Str::CommonSystem, Glyph::Monitor),
-        (ThemeSetting::Light, Str::ThemeLight, Glyph::Sun),
-        (ThemeSetting::Dark, Str::ThemeDark, Glyph::Moon),
+        (ThemeSetting::System, Str::CommonSystem, Lucide::Monitor),
+        (ThemeSetting::Light, Str::ThemeLight, Lucide::Sun),
+        (ThemeSetting::Dark, Str::ThemeDark, Lucide::Moon),
     ]
     .into_iter()
     .map(|(value, label, glyph)| {

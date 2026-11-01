@@ -439,7 +439,7 @@ impl Store {
         if let Some(repo) = self.repo_of(node) {
             self.choose_repo(repo, cx);
         }
-        if self.selected != Some(node) || self.chosen.take().is_some() {
+        if (self.selected != Some(node)) | self.chosen.take().is_some() {
             self.selected = Some(node);
             cx.notify();
         }

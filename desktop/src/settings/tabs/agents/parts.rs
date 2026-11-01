@@ -75,6 +75,10 @@ impl<T> Bound<T> {
     pub fn read<R>(&self, read: impl FnOnce(&T) -> R) -> R {
         self.shared.read(read)
     }
+
+    pub fn alive(&self) -> bool {
+        self.dialog.upgrade().is_some()
+    }
 }
 
 struct Slot<T> {

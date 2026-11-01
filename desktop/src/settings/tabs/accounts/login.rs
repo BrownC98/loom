@@ -11,11 +11,14 @@ use gpui::{
 use super::parts::{modal, small};
 use super::{Actor, Login, State, slug};
 use crate::link;
+use crate::problem::Failure;
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say};
 use crate::views::terminal;
 
 const POLL: Duration = Duration::from_secs(1);
+const LOST: u16 = 404;
+const TRIES: u32 = 5;
 const WIDTH: f32 = 640.0;
 const TERMINAL_H: f32 = 320.0;
 
@@ -80,11 +83,13 @@ pub fn open(
 fn watch(actor: &Actor, id: u32, cx: &mut App) {
     let actor = actor.clone();
     cx.spawn(async move |cx| {
+        let mut errors = 0;
         loop {
             cx.background_executor().timer(POLL).await;
-            let open = actor
-                .local
-                .read(|local| local.login.as_ref().is_some_and(|login| login.id == id));
+            let open = actor.local.alive()
+                && actor
+                    .local
+                    .read(|local| local.login.as_ref().is_some_and(|login| login.id == id));
             if !open {
                 break;
             }
@@ -94,22 +99,31 @@ fn watch(actor: &Actor, id: u32, cx: &mut App) {
                     link::read::<LoginState>(&base, &format!("/api/logins/{id}"))
                 })
                 .await;
-            match state {
+            let failed = match state {
                 Ok(LoginState::Succeeded) => {
                     cx.update(|cx| close(&actor, id, cx));
                     break;
                 }
-                Ok(LoginState::Failed) => {
-                    cx.update(|cx| {
-                        actor.local.change(cx, |local| {
-                            if let Some(login) = local.login.as_mut().filter(|l| l.id == id) {
-                                login.failed = true;
-                            }
-                        })
-                    });
-                    break;
+                Ok(LoginState::Failed) => true,
+                Err(Failure::Refused { status: LOST, .. }) => true,
+                Err(_) => {
+                    errors += 1;
+                    errors >= TRIES
                 }
-                _ => {}
+                Ok(LoginState::Running) => {
+                    errors = 0;
+                    false
+                }
+            };
+            if failed {
+                cx.update(|cx| {
+                    actor.local.change(cx, |local| {
+                        if let Some(login) = local.login.as_mut().filter(|l| l.id == id) {
+                            login.failed = true;
+                        }
+                    })
+                });
+                break;
             }
         }
     })

@@ -207,6 +207,13 @@ const ko: typeof en = {
     noDevices: '연결된 기기가 없습니다.',
     deviceMeta: '{{paired}} 연결 · {{seen}} 씀',
     disconnect: '연결 끊기',
+    agoNow: '지금',
+    agoMinute: '{{n}}분 전',
+    agoHour: '{{n}}시간 전',
+    agoDay: '{{n}}일 전',
+    agoWeek: '{{n}}주 전',
+    agoMonth: '{{n}}개월 전',
+    agoYear: '{{n}}년 전',
   },
   newNode: {
     profile: '프로필',

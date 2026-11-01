@@ -17,7 +17,7 @@ use crate::fonts;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
-use crate::views::field::{self, Field, FieldEvent};
+use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
 use crate::views::worktree::{Kind, actions, button, error, hint, labelled, shell, title};
 
@@ -190,10 +190,16 @@ impl AddRepo {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let dir_field = field::boxed("", false, false, cx);
-        let url_field = field::boxed("https://github.com/team/app.git", false, false, cx);
-        let name_field = field::boxed("my-app", false, false, cx);
-        let host_field = field::boxed("", false, false, cx);
+        let dir_field = field::form("", false, false, Form::Mono, cx);
+        let url_field = field::form(
+            "https://github.com/team/app.git",
+            false,
+            false,
+            Form::Mono,
+            cx,
+        );
+        let name_field = field::form("my-app", false, false, Form::Plain, cx);
+        let host_field = field::form("", false, false, Form::Mono, cx);
         cx.subscribe(
             &dir_field,
             |this, field, event: &FieldEvent, cx| match event {
@@ -335,7 +341,7 @@ impl AddRepo {
     fn set_dir(&mut self, path: &str, cx: &mut Context<Self>) {
         self.dir = path.to_owned();
         self.dir_field
-            .update(cx, |field, cx| field.set_text(path, cx));
+            .update(cx, |field, cx| field.set_text_at_end(path, cx));
     }
 
     fn go(&mut self, path: String, distro: Option<String>, cx: &mut Context<Self>) {
@@ -566,7 +572,6 @@ impl AddRepo {
             labelled(
                 label.text(lang),
                 div()
-                    .font_family(fonts::TERMINAL_FAMILY)
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
@@ -687,13 +692,7 @@ impl AddRepo {
             let row = div()
                 .flex()
                 .gap(px(6.0))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .font_family(fonts::TERMINAL_FAMILY)
-                        .child(self.host_field.clone()),
-                )
+                .child(div().flex_1().min_w_0().child(self.host_field.clone()))
                 .child(button(
                     "ssh-connect",
                     if connecting {
@@ -963,9 +962,7 @@ impl Render for AddRepo {
             Tab::Clone => {
                 panel = panel.child(labelled(
                     Str::RepoUrl.text(lang),
-                    div()
-                        .font_family(fonts::TERMINAL_FAMILY)
-                        .child(self.url_field.clone()),
+                    self.url_field.clone(),
                     &c,
                 ));
             }

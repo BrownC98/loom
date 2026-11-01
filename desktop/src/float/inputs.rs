@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gpui::{App, AppContext, Context, Entity, Global, WeakEntity, Window};
+use gpui::{App, Context, Entity, WeakEntity, Window};
 
 use crate::views::terminal::{InputState, TerminalView};
 
@@ -9,20 +9,7 @@ pub struct Inputs {
     views: HashMap<u32, WeakEntity<TerminalView>>,
 }
 
-struct Handle(Entity<Inputs>);
-
-impl Global for Handle {}
-
-pub fn inputs(cx: &mut App) -> Entity<Inputs> {
-    if !cx.has_global::<Handle>() {
-        let created = cx.new(|_| Inputs::default());
-        cx.set_global(Handle(created));
-    }
-    cx.global::<Handle>().0.clone()
-}
-
-pub fn offer(node: u32, view: &Entity<TerminalView>, cx: &mut App) {
-    let registry = inputs(cx);
+pub fn offer(registry: &Entity<Inputs>, node: u32, view: &Entity<TerminalView>, cx: &mut App) {
     let weak = view.downgrade();
     registry.update(cx, |inputs, cx| {
         inputs.views.insert(node, weak);

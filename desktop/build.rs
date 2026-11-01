@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 const WEB: &str = "../web/src";
+const PRETENDARD: &str = "../web/node_modules/pretendard/dist/web/static/woff2";
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -17,6 +18,15 @@ fn main() {
     let write = |name: &str, text: String| {
         fs::write(out.join(name), text).unwrap_or_else(|e| panic!("{name}: {e}"));
     };
+
+    let pretendard = manifest.join(PRETENDARD);
+    assert!(
+        pretendard.is_dir(),
+        "{} is missing: run `bash scripts/worktree/setup.sh` or `npm ci` in web/ first",
+        pretendard.display()
+    );
+    println!("cargo:rerun-if-changed={}", pretendard.display());
+    println!("cargo:rustc-env=PRETENDARD_DIR={}", pretendard.display());
 
     write("tokens.rs", tokens(&read("styles.css")));
     write("terminals.rs", terminals(&read("terminalThemes.ts")));

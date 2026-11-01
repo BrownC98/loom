@@ -4,8 +4,7 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
-    ParentElement, Rgba, ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div,
-    point, px,
+    ParentElement, Rgba, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
@@ -16,6 +15,7 @@ use crate::settings::{Ctx, Section};
 use crate::strings::Str;
 use crate::theme::{Scheme, Terminal, Theme, chosen_terminal_name, terminal_themes};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
+use crate::views::scrollbar::Bar;
 
 const SIZE_RANGE: std::ops::RangeInclusive<i64> = 10..=24;
 const DEFAULT_SIZE: i64 = 12;
@@ -28,10 +28,18 @@ const CHIP: f32 = 14.0;
 const SWATCH_W: f32 = 26.0;
 const SWATCH_H: f32 = 18.0;
 
-#[derive(Default)]
 struct Picker {
     hover: Rc<Cell<Option<usize>>>,
-    scroll: ScrollHandle,
+    scroll: Bar,
+}
+
+impl Default for Picker {
+    fn default() -> Picker {
+        Picker {
+            hover: Rc::default(),
+            scroll: Bar::new().round(5.0),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -197,7 +205,7 @@ fn picker_block(
                 }
             },
         ),
-        Some(&picker.scroll),
+        &picker.scroll,
         cx,
     );
     let block = div()
@@ -238,7 +246,10 @@ fn picker_block(
 
 fn scroll_to_chosen(picker: &Picker, chosen: usize) {
     let rows = chosen.saturating_sub(ROWS_ABOVE) as f32;
-    picker.scroll.set_offset(point(px(0.0), px(-rows * ROW_H)));
+    picker
+        .scroll
+        .handle()
+        .set_offset(point(px(0.0), px(-rows * ROW_H)));
 }
 
 fn hint(section: &mut Section, text: Str, cx: &App) -> Div {

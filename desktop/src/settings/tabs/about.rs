@@ -3,7 +3,7 @@ use std::time::Duration;
 use api::settings::update::{UpdateStep, UpdateView};
 use gpui::{
     App, AppContext, Div, Entity, FontWeight, InteractiveElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, StyledText, WeakEntity, Window, div, px,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
 };
 
 use crate::daemon;
@@ -14,6 +14,7 @@ use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
+use crate::views::prose::Prose;
 
 const CHECK_LIMIT: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_secs(1);
@@ -129,13 +130,7 @@ fn request(
     .detach();
 }
 
-fn action(
-    id: &'static str,
-    label: StyledText,
-    enabled: bool,
-    accent: bool,
-    cx: &App,
-) -> Stateful<Div> {
+fn action(id: &'static str, label: Prose, enabled: bool, accent: bool, cx: &App) -> Stateful<Div> {
     let c = colors(cx);
     let item = if accent {
         div()
@@ -195,7 +190,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
 
     let c = colors(cx);
     let mut section = Section::new(Some(say(cx, Str::AboutVersion)), ctx);
-    let mut rows: Vec<(StyledText, String)> = Vec::new();
+    let mut rows: Vec<(Prose, String)> = Vec::new();
     let daemon = model.read(cx).daemon.clone();
     if let Some(daemon) = &daemon {
         rows.push((
@@ -244,7 +239,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
         )
     };
     let working = busy(&view);
-    let call = |id: &'static str, label: StyledText, enabled: bool, accent: bool, call: Call| {
+    let call = |id: &'static str, label: Prose, enabled: bool, accent: bool, call: Call| {
         let item = action(id, label, enabled, accent, cx);
         match (&base, enabled) {
             (Some(base), true) => {

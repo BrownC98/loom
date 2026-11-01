@@ -38,6 +38,7 @@ use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::anchor::Anchors;
 use crate::views::cardlink;
+use crate::views::dotted;
 use crate::views::tooltip::tip;
 use crate::views::worktree::{Closed, DeleteWorktreeView, Doomed, NewWorktreeView};
 
@@ -994,9 +995,18 @@ impl Sidebar {
                     None => {
                         let mut el =
                             ellipsed(div().id(SharedString::from(format!("{id}-name"))).min_w_0())
+                                .group(format!("{id}-name"))
+                                .relative()
+                                .cursor_text()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .tooltip(tip(detail))
-                                .child(named(label, row.span, c));
+                                .child(named(label, row.span, c))
+                                .child(dotted::underline(
+                                    format!("{id}-name"),
+                                    c.ink_3,
+                                    1.0,
+                                    dotted::NAME_LIFT,
+                                ));
                         if branch.is_some() {
                             el = el.flex_none().max_w(relative(0.6));
                             let key = row.key.clone();
@@ -1043,6 +1053,9 @@ impl Sidebar {
                         let key = row.key.clone();
                         let base =
                             ellipsed(div().id(SharedString::from(format!("{id}-name"))).min_w_0())
+                                .group(format!("{id}-name"))
+                                .relative()
+                                .cursor_text()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .tooltip(tip(Str::RenameTitle.text(lang).to_owned()))
                                 .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
@@ -1051,7 +1064,13 @@ impl Sidebar {
                                         cx.stop_propagation();
                                     }
                                 }))
-                                .child(named(name, row.span, c));
+                                .child(named(name, row.span, c))
+                                .child(dotted::underline(
+                                    format!("{id}-name"),
+                                    c.ink_3,
+                                    1.0,
+                                    dotted::NAME_LIFT,
+                                ));
                         if crowded {
                             base.flex_none().max_w(relative(0.6)).into_any_element()
                         } else {

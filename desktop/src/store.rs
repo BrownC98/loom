@@ -450,8 +450,8 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<(EventLog, Vec<AgentView>), String>> {
         self.call(cx, |base| {
-            let log = link::read(base, "/api/events/log")?;
             let agents = link::read(base, "/api/agents").unwrap_or_default();
+            let log = link::read(base, "/api/events/log")?;
             Ok((log, agents))
         })
     }

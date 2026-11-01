@@ -9,16 +9,21 @@ use gpui::{
     Styled, Window, canvas, div, point, px, rgb, size,
 };
 
-use api::graph::CardView;
 use api::graph::pty::Pace;
+use api::graph::{CardView, GraphEvent};
 
 use super::camera::Camera;
+use super::connect::{self, Connect};
+use super::edges;
 use super::frames::Probe;
 use super::grid;
+use super::hop_anim::Traffic;
 use super::layout::{Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
 use crate::link;
 use crate::store::Store;
+use crate::strings::Lang;
+use crate::theme::Theme;
 use crate::views::card;
 use crate::views::terminal::{self, TerminalView};
 
@@ -55,6 +60,8 @@ pub struct CanvasView {
     probe: Option<Probe>,
     auto: bool,
     started: Instant,
+    connect: Connect,
+    traffic: Traffic,
 }
 
 fn snapped(zoom: f32) -> f32 {
@@ -73,6 +80,11 @@ impl CanvasView {
         let mode = std::env::var("LOOM_DESKTOP_FRAMES").ok();
         cx.observe(&store, |this, _, cx| {
             this.sync(cx);
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&store, |this, _, event: &GraphEvent, cx| {
+            this.traffic.event(event, Instant::now());
             cx.notify();
         })
         .detach();
@@ -99,6 +111,8 @@ impl CanvasView {
             probe: mode.is_some().then(Probe::default),
             auto: mode.as_deref() == Some("auto"),
             started: Instant::now(),
+            connect: Connect::default(),
+            traffic: Traffic::default(),
         }
     }
 
@@ -237,11 +251,44 @@ impl CanvasView {
         cx.notify();
     }
 
+    fn connect_move(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        self.connect.drag(at);
+        cx.notify();
+    }
+
+    fn connect_end(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let local = self.local(at);
+        cx.notify();
+        let Some((child, parent)) = self.connect.finish(&self.scene, self.camera, local) else {
+            return;
+        };
+        let task = self
+            .store
+            .update(cx, |store, cx| store.adopt(child, parent, cx));
+        cx.spawn(async move |this, cx| {
+            if let Err(rejected) = task.await {
+                let _ = this.update(cx, |this, cx| {
+                    let lang = *cx.global::<Lang>();
+                    this.connect.refuse(connect::refusal_text(&rejected, lang));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     fn on_down(&mut self, event: &MouseDownEvent) {
+        self.connect.clear();
         self.drag = Some(event.position);
     }
 
     fn on_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if self
+            .connect
+            .hover(&self.scene, self.camera, self.local(event.position))
+        {
+            cx.notify();
+        }
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = None;
             self.resizing = None;
@@ -287,6 +334,10 @@ impl Render for CanvasView {
             window.request_animation_frame();
         }
         self.mount(window, cx);
+        self.traffic.prune(Instant::now());
+        if !self.traffic.is_empty() {
+            window.request_animation_frame();
+        }
         let camera = self.camera;
         let percent = (camera.zoom * 100.0).round() as u32;
         if self.store.read(cx).zoom_percent() != percent {
@@ -303,9 +354,58 @@ impl Render for CanvasView {
             point(px(0.0), px(0.0)),
             point(self.area.get().size.width, self.area.get().size.height),
         );
+        let theme = cx.global::<Theme>();
+        let (colors, scheme) = (theme.colors, theme.scheme);
+        let lang = *cx.global::<Lang>();
         let store = self.store.read(cx);
         let selected = store.selected();
         let snapshot = store.snapshot();
+        let drawing = snapshot.map(|snapshot| {
+            edges::build(&edges::Params {
+                scene: &self.scene,
+                nodes: &snapshot.nodes,
+                style: store.settings().edge_style,
+                selected,
+                traffic: &self.traffic,
+                colors: &colors,
+                scheme,
+                lang,
+                flow: self.started.elapsed(),
+                text_width: &|text| edges::text_width(window, text),
+            })
+        });
+        let (under, over, labels) = drawing
+            .map(|d| (d.under, d.over, d.labels))
+            .unwrap_or_default();
+        let handles = self
+            .scene
+            .cards
+            .iter()
+            .filter(|c| self.connect.shows(c.node, selected))
+            .filter_map(|c| {
+                let id = c.node;
+                connect::port(&self.scene, id, camera, &colors).map(|port| {
+                    port.on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.connect.start(id, e.position);
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                })
+            });
+        let line = self
+            .connect
+            .line(&self.scene, camera, &colors, self.area.get().origin);
+        let tracker = self.connect.active().then(|| {
+            let (moved, released) = (cx.entity(), cx.entity());
+            connect::tracker(
+                move |at, cx| moved.update(cx, |this, cx| this.connect_move(at, cx)),
+                move |at, cx| released.update(cx, |this, cx| this.connect_end(at, cx)),
+            )
+        });
+        let refusal = self.connect.refusal(&colors);
         let repos = self.scene.repos.iter().map(|f| {
             card::frame(
                 &f.label,
@@ -407,7 +507,13 @@ impl Render for CanvasView {
             )
             .children(repos)
             .children(groups)
+            .child(edges::under(under, camera))
             .children(cards)
+            .child(edges::over(over, labels, camera))
+            .children(handles)
+            .children(line)
+            .children(tracker)
+            .children(refusal)
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

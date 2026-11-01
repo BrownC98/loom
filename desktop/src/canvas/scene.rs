@@ -12,7 +12,7 @@ use api::repos::RepoView;
 
 use crate::link::Snapshot;
 
-const DIRECTION: Direction = Direction::Down;
+pub const DIRECTION: Direction = Direction::Down;
 const CARD_X: f64 = 20.0;
 const CARD_TOP: f64 = 60.0;
 const CHIP_ROW: f64 = 43.0;
@@ -46,6 +46,7 @@ pub struct Frame {
 pub struct Card {
     pub node: NodeId,
     pub rect: Rect,
+    pub inset: Inset,
 }
 
 #[derive(Default)]
@@ -175,6 +176,7 @@ impl Level<'_> {
                     },
                     size: (self.size_of)(id),
                 },
+                inset: self.inset(&self.groups[g.group].path),
             });
         }
         for k in &g.kids {

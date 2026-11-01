@@ -261,6 +261,18 @@ impl Store {
         })
     }
 
+    pub fn adopt(
+        &self,
+        child: u32,
+        parent: u32,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), link::Rejected>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(link::Rejected::Link(self.status.clone())));
+        };
+        cx.background_spawn(async move { link::adopt(&base, child, parent) })
+    }
+
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.call(cx, move |base| {
             link::delete(base, &format!("/api/waits/{}", wait.0))

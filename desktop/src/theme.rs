@@ -294,7 +294,7 @@ fn gamut_mapped(color: Oklch) -> [f64; 3] {
     best
 }
 
-fn to_rgba(color: Oklch) -> Rgba {
+pub fn to_rgba(color: Oklch) -> Rgba {
     let [r, g, b] = clip(gamut_mapped(color)).map(gamma);
     Rgba {
         r: r as f32,

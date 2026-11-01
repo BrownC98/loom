@@ -147,14 +147,12 @@ impl Sidebar {
     fn activate(&mut self, key: Key, cx: &mut Context<Self>) {
         self.refusal = None;
         self.cursor = Some(key.clone());
-        match key {
-            Key::Node(id) | Key::Mark(id) => {
-                self.store.update(cx, |store, cx| store.go(id, cx));
-            }
-            Key::Repo(_) | Key::Group(..) => {
-                self.store.update(cx, |store, cx| store.clear_selection(cx));
-                self.show(&key, cx);
-            }
+        if let Some(box_key) = box_key(&key) {
+            self.store
+                .update(cx, |store, cx| store.choose_box(box_key, cx));
+            self.show(&key, cx);
+        } else if let Some(id) = key.node() {
+            self.store.update(cx, |store, cx| store.go(id, cx));
         }
         cx.notify();
     }
@@ -269,6 +267,14 @@ impl Sidebar {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+}
+
+fn box_key(key: &Key) -> Option<String> {
+    match key {
+        Key::Repo(repo) => Some(format!("repo:{repo}")),
+        Key::Group(_, path) => Some(path.clone()),
+        Key::Node(_) | Key::Mark(_) => None,
     }
 }
 

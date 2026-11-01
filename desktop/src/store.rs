@@ -1,7 +1,10 @@
+use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
+use api::graph::events::EventLog;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
-use api::graph::{GraphEvent, NodeState};
-use api::ids::WaitId;
+use api::graph::{GraphEvent, NewNode, NodeState};
+use api::ids::{NodeId, WaitId};
+use api::profile::AgentView;
 use api::settings::SettingsView;
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
@@ -21,10 +24,14 @@ pub struct Store {
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    wanted: Option<u32>,
     zoom_percent: u32,
 }
 
+pub struct ZoomTo(pub f32);
+
 impl EventEmitter<GraphEvent> for Store {}
+impl EventEmitter<ZoomTo> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -77,6 +84,7 @@ impl Store {
             settings,
             settings_key: String::new(),
             selected: None,
+            wanted: None,
             zoom_percent: 100,
         }
     }
@@ -101,7 +109,6 @@ impl Store {
         self.revision
     }
 
-    #[allow(dead_code)]
     pub fn settings(&self) -> &SettingsView {
         &self.settings
     }
@@ -121,6 +128,30 @@ impl Store {
         }
     }
 
+    pub fn zoom_to(&mut self, percent: f32, cx: &mut Context<Self>) {
+        cx.emit(ZoomTo(percent / 100.0));
+    }
+
+    pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
+        let Some(base) = self.base.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_spawn(async move { link::put_settings(&base, &patch) })
+                .await;
+            if saved.is_ok() {
+                let _ = this.update(cx, |store, cx| store.reload(cx));
+            }
+        })
+        .detach();
+    }
+
+    pub fn select_when_loaded(&mut self, node: u32, cx: &mut Context<Self>) {
+        self.wanted = Some(node);
+        self.reload(cx);
+    }
+
     pub fn select(&mut self, node: u32, cx: &mut Context<Self>) {
         if self.selected != Some(node) {
             self.selected = Some(node);
@@ -128,7 +159,6 @@ impl Store {
         }
     }
 
-    #[allow(dead_code)]
     pub fn reload(&self, cx: &mut Context<Self>) {
         let Some(base) = self.base.clone() else {
             return;
@@ -185,6 +215,10 @@ impl Store {
             return;
         };
         let present = |id: u32| snapshot.nodes.iter().any(|n| n.id.0 == id);
+        if let Some(id) = self.wanted.filter(|&id| present(id)) {
+            self.selected = Some(id);
+            self.wanted = None;
+        }
         if self.selected.is_none_or(|id| !present(id)) {
             let wanted = std::env::var(NODE_ENV)
                 .ok()
@@ -214,6 +248,25 @@ impl Store {
         cx.spawn(async move |_, cx| {
             let done = cx.background_spawn(async move { work(&base) }).await;
             done.map_err(|failure| failure.text(cx.update(|app| *app.global::<strings::Lang>())))
+        })
+    }
+
+    pub fn agents(&self, cx: &mut Context<Self>) -> Task<Result<Vec<AgentView>, String>> {
+        self.call(cx, |base| link::read(base, "/api/agents"))
+    }
+
+    pub fn create_node(
+        &self,
+        body: NewNode,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<NodeId, String>> {
+        self.call(cx, move |base| {
+            link::post_within(
+                base,
+                "/api/nodes",
+                serde_json::to_string(&body).ok(),
+                link::SLOW_LIMIT,
+            )
         })
     }
 
@@ -286,6 +339,17 @@ impl Store {
         })
     }
 
+    pub fn event_console(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(EventLog, Vec<AgentView>), String>> {
+        self.call(cx, |base| {
+            let log = link::read(base, "/api/events/log")?;
+            let agents = link::read(base, "/api/agents").unwrap_or_default();
+            Ok((log, agents))
+        })
+    }
+
     pub fn list_docs(&self, cx: &mut Context<Self>) -> Task<Result<Vec<DocRow>, String>> {
         self.call(cx, |base| link::read(base, "/api/docs"))
     }
@@ -300,5 +364,30 @@ impl Store {
                 found
             })
         })
+    }
+}
+
+impl Store {
+    pub fn save_size(
+        &self,
+        size: CardSize,
+        spot: Option<Placed>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| {
+            link::put_sizes(base, &[size])?;
+            match spot {
+                Some(spot) => link::put_spots(base, &[spot]),
+                None => Ok(()),
+            }
+        })
+    }
+
+    pub fn clear_sizes(
+        &self,
+        nodes: Vec<NodeId>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| link::clear_sizes(base, &nodes))
     }
 }

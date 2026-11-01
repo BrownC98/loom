@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use polling::{Event as Ready, Events, Poller};
 use tungstenite::{Message, WebSocket};
 
-use api::canvas::{CardSize, Layout};
+use api::canvas::{CardSize, Layout, Placed};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
+use api::ids::NodeId;
 use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
@@ -21,6 +22,7 @@ const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
+pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
 
@@ -121,12 +123,16 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-fn agent() -> ureq::Agent {
+fn agent_within(limit: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(HTTP_LIMIT))
+        .timeout_global(Some(limit))
         .http_status_as_error(false)
         .build()
         .into()
+}
+
+fn agent() -> ureq::Agent {
+    agent_within(HTTP_LIMIT)
 }
 
 fn answer(
@@ -145,11 +151,36 @@ fn answer(
 }
 
 pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), Failure> {
+    put(base, "/api/settings", patch)
+}
+
+fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), Failure> {
+    let text = serde_json::to_string(body).map_err(|e| Failure::Other(e.to_string()))?;
     answer(
         agent()
-            .put(format!("{base}/api/settings"))
+            .put(format!("{base}{path}"))
             .header("content-type", "application/json")
-            .send(patch.to_string()),
+            .send(text),
+    )
+    .map(|_| ())
+}
+
+pub fn put_sizes(base: &str, sizes: &[CardSize]) -> Result<(), Failure> {
+    put(base, "/api/sizes", &sizes)
+}
+
+pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), Failure> {
+    put(base, "/api/spots", &placed)
+}
+
+pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), Failure> {
+    let text = serde_json::to_string(nodes).map_err(|e| Failure::Other(e.to_string()))?;
+    answer(
+        agent()
+            .delete(format!("{base}/api/sizes"))
+            .force_send_body()
+            .header("content-type", "application/json")
+            .send(text),
     )
     .map(|_| ())
 }
@@ -159,7 +190,16 @@ pub fn post<T: serde::de::DeserializeOwned>(
     path: &str,
     body: Option<String>,
 ) -> Result<T, Failure> {
-    let request = agent().post(format!("{base}{path}"));
+    post_within(base, path, body, HTTP_LIMIT)
+}
+
+pub fn post_within<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Option<String>,
+    limit: Duration,
+) -> Result<T, Failure> {
+    let request = agent_within(limit).post(format!("{base}{path}"));
     let response = answer(match body {
         Some(body) => request
             .header("content-type", "application/json")
@@ -170,6 +210,10 @@ pub fn post<T: serde::de::DeserializeOwned>(
     .read_to_string()
     .map_err(|e| Failure::Other(e.to_string()))?;
     serde_json::from_str(&response).map_err(|e| Failure::Other(format!("POST {path}: {e}")))
+}
+
+pub fn shutdown(base: &str) -> Result<(), Failure> {
+    answer(agent().post(format!("{base}/api/shutdown")).send_empty()).map(|_| ())
 }
 
 pub fn delete(base: &str, path: &str) -> Result<(), Failure> {

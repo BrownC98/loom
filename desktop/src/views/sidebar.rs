@@ -1,4 +1,4 @@
-mod icons;
+pub mod icons;
 mod tree;
 
 use std::collections::HashSet;

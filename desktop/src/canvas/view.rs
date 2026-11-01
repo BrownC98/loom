@@ -1032,7 +1032,7 @@ impl Render for CanvasView {
                 rename: self
                     .renaming
                     .as_ref()
-                    .filter(|r| r.node == id)
+                    .filter(|r| r.node == id && zoomed != Some(id))
                     .map(|r| (&r.field, r.error.as_deref())),
                 actions: &actions,
                 collapse: false,

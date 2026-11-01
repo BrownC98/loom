@@ -7,7 +7,7 @@ use gpui::{
     App, AvailableSpace, Bounds, CursorStyle, DispatchPhase, Element, ElementId, FontId,
     GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
     LayoutId, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size,
-    TextRun, TextStyle, WhiteSpace, Window, WrappedLine,
+    TextOverflow, TextRun, TextStyle, TruncateFrom, WhiteSpace, Window, WrappedLine,
 };
 
 type Marks = Vec<(Range<usize>, HighlightStyle)>;
@@ -308,6 +308,39 @@ fn wrap(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn truncate(
+    text: SharedString,
+    runs: Vec<TextRun>,
+    width: Pixels,
+    overflow: TextOverflow,
+    style: &TextStyle,
+    font_size: Pixels,
+    line_height: Pixels,
+    window: &mut Window,
+    cx: &mut App,
+) -> (SharedString, Vec<TextRun>) {
+    let fits = window
+        .text_system()
+        .shape_text(text.clone(), font_size, &runs, None, None)
+        .is_ok_and(|lines| {
+            lines
+                .iter()
+                .all(|line| line.size(line_height).width <= width)
+        });
+    if fits {
+        return (text, runs);
+    }
+    let (affix, from) = match overflow {
+        TextOverflow::Truncate(s) => (s, TruncateFrom::End),
+        TextOverflow::TruncateStart(s) => (s, TruncateFrom::Start),
+        TextOverflow::TruncateMiddle(s) => (s, TruncateFrom::Middle),
+    };
+    let mut wrapper = cx.text_system().line_wrapper(style.font(), font_size);
+    let (cut, cut_runs) = wrapper.truncate_line(text, width, &affix, &runs, from);
+    (cut, cut_runs.into_owned())
+}
+
 impl IntoElement for Prose {
     type Element = Self;
 
@@ -347,7 +380,7 @@ impl Element for Prose {
         let korean = text.chars().any(hangul);
         let laid = self.laid.clone();
         let layout =
-            window.request_measured_layout(Default::default(), move |known, space, window, _| {
+            window.request_measured_layout(Default::default(), move |known, space, window, cx| {
                 let wrap_width = if style.white_space == WhiteSpace::Normal {
                     known.width.or(match space.width {
                         AvailableSpace::Definite(x) => Some(x),
@@ -356,7 +389,18 @@ impl Element for Prose {
                 } else {
                     None
                 };
-                if let Some(laid) = laid.borrow().as_ref()
+                let cut = match (&style.text_overflow, style.line_clamp) {
+                    (Some(overflow), None) => known
+                        .width
+                        .or(match space.width {
+                            AvailableSpace::Definite(x) => Some(x),
+                            _ => None,
+                        })
+                        .map(|width| (width, overflow.clone())),
+                    _ => None,
+                };
+                if cut.is_none()
+                    && let Some(laid) = laid.borrow().as_ref()
                     && (wrap_width.is_none() || wrap_width == laid.wrap_width)
                 {
                     return laid.size;
@@ -370,6 +414,20 @@ impl Element for Prose {
                 let (shown, used) = match wrapped {
                     Some(wrapped) => (SharedString::from(wrapped.text), wrapped.runs),
                     None => (text.clone(), runs.clone()),
+                };
+                let (shown, used) = match cut {
+                    Some((width, overflow)) => truncate(
+                        shown,
+                        used,
+                        width,
+                        overflow,
+                        &style,
+                        font_size,
+                        line_height,
+                        window,
+                        cx,
+                    ),
+                    None => (shown, used),
                 };
                 let Ok(lines) = window.text_system().shape_text(
                     shown,

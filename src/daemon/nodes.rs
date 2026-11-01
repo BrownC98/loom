@@ -189,7 +189,7 @@ fn live_typed(app: &Arc<App>, id: NodeId, bytes: &[u8]) -> Typed {
         return Typed::Write;
     }
     if has_text(bytes) {
-        app.sleeps.keep(id, bytes);
+        app.sleeps.keep(id, bytes, app.host.serial(id));
     }
     if asleep {
         app.sleeps.knocked(id);
@@ -283,7 +283,7 @@ fn coming_pty(
                     heard = pulse.listen(&mut socket) => match heard {
                         Heard::Frame(Some(Ok(Message::Binary(bytes)))) if !gone => {
                             if has_text(&bytes) {
-                                app.sleeps.keep(id, &bytes);
+                                app.sleeps.keep(id, &bytes, None);
                             }
                             app.sleeps.knocked(id);
                             app.give_kept_keys(id);

@@ -21,13 +21,19 @@ const DONE_GRACE: Duration = Duration::from_secs(600);
 const KEPT_KEYS_LIMIT: usize = 4096;
 const SUBMIT: u8 = b'\r';
 
+#[derive(Default)]
+struct KeptKeys {
+    bytes: Vec<u8>,
+    old_pty: Option<u64>,
+}
+
 type Recovery = (Active, Plan, Guard, fn(&Arc<App>, NodeId));
 
 #[derive(Default)]
 pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
     knocked: Mutex<HashSet<NodeId>>,
-    kept: Mutex<HashMap<NodeId, Vec<u8>>>,
+    kept: Mutex<HashMap<NodeId, KeptKeys>>,
     changed: Notify,
 }
 
@@ -41,16 +47,29 @@ impl Sleeps {
         self.changed();
     }
 
-    pub fn keep(&self, node: NodeId, bytes: &[u8]) {
-        add_kept(self.kept.lock().unwrap().entry(node).or_default(), bytes);
+    pub fn keep(&self, node: NodeId, bytes: &[u8], old_pty: Option<u64>) {
+        let mut kept = self.kept.lock().unwrap();
+        let keys = kept.entry(node).or_insert_with(|| KeptKeys {
+            bytes: Vec::new(),
+            old_pty,
+        });
+        let room = KEPT_KEYS_LIMIT.saturating_sub(keys.bytes.len());
+        keys.bytes
+            .extend(bytes.iter().filter(|b| **b != SUBMIT).take(room));
     }
 
     pub fn holds(&self, node: NodeId) -> bool {
         self.kept.lock().unwrap().contains_key(&node)
     }
 
-    fn take_kept(&self, node: NodeId) -> Vec<u8> {
-        self.kept.lock().unwrap().remove(&node).unwrap_or_default()
+    fn take_kept(&self, node: NodeId, pty: Option<u64>) -> Vec<u8> {
+        let mut kept = self.kept.lock().unwrap();
+        if pty.is_none() || kept.get(&node).is_none_or(|keys| keys.old_pty == pty) {
+            return Vec::new();
+        }
+        kept.remove(&node)
+            .map(|keys| keys.bytes)
+            .unwrap_or_default()
     }
 
     pub fn changed(&self) {
@@ -80,11 +99,6 @@ impl Sleeps {
             .filter(|due| *due > now)
             .min()
     }
-}
-
-fn add_kept(keys: &mut Vec<u8>, bytes: &[u8]) {
-    let room = KEPT_KEYS_LIMIT.saturating_sub(keys.len());
-    keys.extend(bytes.iter().filter(|b| **b != SUBMIT).take(room));
 }
 
 fn now() -> Instant {
@@ -231,8 +245,8 @@ impl App {
         let _ = self.host.strokes_if(id, Duration::ZERO, |keys| {
             let ready = state != Some(AgentState::Listening)
                 || profile::input_seen(profile, &keys.screen()).is_none_or(|seen| seen.empty);
-            if keys.open() && ready {
-                given = self.sleeps.take_kept(id);
+            if ready {
+                given = self.sleeps.take_kept(id, keys.serial());
             }
             Ok::<_, Infallible>(Vec::from_iter((!given.is_empty()).then(|| given.clone())))
         });

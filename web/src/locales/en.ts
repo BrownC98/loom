@@ -353,6 +353,8 @@ const en = {
     remaining: '{{left}} left',
     soon: 'soon',
     fetched: 'Updated {{ago}}',
+    ago: { now: 'just now', minute: '{{n}} min ago', hour: '{{n}} h ago', day: '{{n}} d ago' },
+    unit: { minute: '{{n}}m', hour: '{{n}}h', day: '{{n}}d' },
   },
   switch: {
     provider: { claude: 'Claude', codex: 'Codex' },

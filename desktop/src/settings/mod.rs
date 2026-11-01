@@ -6,10 +6,11 @@ mod tabs;
 mod widgets;
 
 use api::settings::SettingsView;
-use gpui::{AnyElement, App, Entity, IntoElement, StyledText, WeakEntity};
+use gpui::{AnyElement, App, Entity, Global, IntoElement, StyledText, WeakEntity};
 
 pub use dialog::{Dialog, DialogEvent};
-pub use patch::Writer;
+pub use patch::{Writer, settings_patch};
+pub use tabs::{keep_focus, modal};
 
 use crate::store::Store;
 use crate::theme::Theme;
@@ -50,4 +51,17 @@ impl Section {
         self.body.push(element.into_any_element());
         self
     }
+}
+
+struct Wanted(nav::Tab);
+
+impl Global for Wanted {}
+
+pub fn want_accounts(cx: &mut App) {
+    cx.set_global(Wanted(nav::Tab::Accounts));
+}
+
+fn take_wanted(cx: &mut App) -> Option<nav::Tab> {
+    cx.has_global::<Wanted>()
+        .then(|| cx.remove_global::<Wanted>().0)
 }

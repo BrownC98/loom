@@ -7,14 +7,11 @@ use gpui::{
 };
 
 use crate::link;
+use crate::link::VERSION;
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{GAP, SMALL, button, colors, say, say_with};
 
-const VERSION: &str = match option_env!("LOOM_VERSION") {
-    Some(version) => version,
-    None => "dev",
-};
 const CHECK_LIMIT: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_secs(1);
 const METER: f32 = 200.0;

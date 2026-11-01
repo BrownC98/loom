@@ -1,13 +1,14 @@
 use std::io::BufRead;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::platform::hide_console;
 
 const READY_PREFIX: &str = "loom: ";
 const LOOM: &str = "loom";
 const START_LIMIT: Duration = Duration::from_secs(30);
+const REAP_POLL: Duration = Duration::from_millis(200);
 
 fn sibling() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe()
@@ -31,6 +32,7 @@ pub fn start() -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("could not run `loom start`: {e}"))?;
     let stdout = child.stdout.take().ok_or("`loom start` has no stdout")?;
+    let deadline = Instant::now() + START_LIMIT;
     let (sent, received) = mpsc::channel();
     std::thread::spawn(move || {
         let mut line = String::new();
@@ -49,6 +51,13 @@ pub fn start() -> Result<String, String> {
         }
     };
     std::thread::spawn(move || {
+        while Instant::now() < deadline {
+            if !matches!(child.try_wait(), Ok(None)) {
+                return;
+            }
+            std::thread::sleep(REAP_POLL);
+        }
+        let _ = child.kill();
         let _ = child.wait();
     });
     line.trim()

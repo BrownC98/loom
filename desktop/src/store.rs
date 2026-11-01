@@ -13,6 +13,7 @@ pub struct Store {
     link: LinkState,
     snapshot: Option<Snapshot>,
     revision: u64,
+    loaded: u64,
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
@@ -68,6 +69,7 @@ impl Store {
             link: LinkState::Reconnecting,
             snapshot: None,
             revision: 0,
+            loaded: 0,
             settings,
             settings_key: String::new(),
             selected: None,
@@ -154,6 +156,11 @@ impl Store {
     }
 
     fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
+        if loaded.order <= self.loaded {
+            return;
+        }
+        self.loaded = loaded.order;
+        self.status = self.base.clone().unwrap_or_default();
         let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
         if key != self.settings_key {
             apply_settings(&loaded.settings, cx);

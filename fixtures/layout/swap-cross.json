@@ -1,0 +1,71 @@
+{
+  "kind": "swap",
+  "input": {
+    "state": {
+      "slot": {
+        "at": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      },
+      "sides": {
+        "b": {
+          "x": 1,
+          "y": 0
+        }
+      },
+      "at": {}
+    },
+    "others": [
+      {
+        "key": "b",
+        "at": {
+          "x": 220,
+          "y": 0
+        },
+        "size": {
+          "width": 200,
+          "height": 100
+        }
+      }
+    ],
+    "dragged": {
+      "at": {
+        "x": 200,
+        "y": 0
+      },
+      "size": {
+        "width": 200,
+        "height": 100
+      }
+    }
+  },
+  "output": {
+    "slot": {
+      "at": {
+        "x": 220,
+        "y": 0
+      },
+      "size": {
+        "width": 200,
+        "height": 100
+      }
+    },
+    "sides": {
+      "b": {
+        "x": -1,
+        "y": 0
+      }
+    },
+    "at": {
+      "b": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  }
+}

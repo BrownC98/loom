@@ -1,0 +1,223 @@
+{
+  "kind": "arrangeNested",
+  "input": {
+    "direction": "right",
+    "inset": {
+      "top": 60,
+      "side": 20
+    },
+    "groups": [
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          1,
+          2,
+          3,
+          8
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": 0,
+        "card": 2,
+        "members": [
+          4,
+          5
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": 1,
+        "card": 4,
+        "members": [
+          6,
+          9
+        ],
+        "empty": {
+          "width": 240,
+          "height": 90
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          7
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [],
+        "empty": {
+          "width": 220,
+          "height": 60
+        }
+      }
+    ],
+    "parents": {
+      "1": null,
+      "2": 1,
+      "3": 1,
+      "4": 2,
+      "5": 4,
+      "6": 4,
+      "7": null,
+      "8": 3,
+      "9": 6
+    },
+    "sizes": {
+      "1": {
+        "width": 260,
+        "height": 140
+      },
+      "2": {
+        "width": 300,
+        "height": 120
+      },
+      "3": {
+        "width": 240,
+        "height": 180
+      },
+      "4": {
+        "width": 280,
+        "height": 160
+      },
+      "5": {
+        "width": 260,
+        "height": 140
+      },
+      "6": {
+        "width": 320,
+        "height": 130
+      },
+      "7": {
+        "width": 260,
+        "height": 100
+      },
+      "8": {
+        "width": 250,
+        "height": 150
+      },
+      "9": {
+        "width": 270,
+        "height": 110
+      }
+    },
+    "rank": {
+      "card:2": 1,
+      "card:3": 2,
+      "card:5": 3,
+      "card:6": 0,
+      "card:9": 0,
+      "group:0": 0,
+      "group:3": 5,
+      "group:4": 2,
+      "group:1": 4,
+      "group:2": 0
+    }
+  },
+  "output": {
+    "cards": {
+      "1": {
+        "x": 20,
+        "y": 405
+      },
+      "2": {
+        "x": 352,
+        "y": 231
+      },
+      "3": {
+        "x": 352,
+        "y": 539
+      },
+      "4": {
+        "x": 724,
+        "y": 231
+      },
+      "5": {
+        "x": 1076,
+        "y": 362
+      },
+      "6": {
+        "x": 1076,
+        "y": 180
+      },
+      "7": {
+        "x": 20,
+        "y": 923
+      },
+      "8": {
+        "x": 724,
+        "y": 554
+      },
+      "9": {
+        "x": 1468,
+        "y": 190
+      }
+    },
+    "boxes": [
+      {
+        "at": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 1798,
+          "height": 739
+        }
+      },
+      {
+        "at": {
+          "x": 704,
+          "y": 60
+        },
+        "size": {
+          "width": 1074,
+          "height": 462
+        }
+      },
+      {
+        "at": {
+          "x": 1056,
+          "y": 120
+        },
+        "size": {
+          "width": 702,
+          "height": 210
+        }
+      },
+      {
+        "at": {
+          "x": 0,
+          "y": 863
+        },
+        "size": {
+          "width": 300,
+          "height": 180
+        }
+      },
+      {
+        "at": {
+          "x": 0,
+          "y": 771
+        },
+        "size": {
+          "width": 220,
+          "height": 60
+        }
+      }
+    ]
+  }
+}

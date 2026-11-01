@@ -1,0 +1,212 @@
+{
+  "kind": "arrangeNested",
+  "input": {
+    "direction": "down",
+    "inset": {
+      "top": 48,
+      "side": 16
+    },
+    "groups": [
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          1,
+          2,
+          3,
+          8
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": 0,
+        "card": 2,
+        "members": [
+          4,
+          5
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": 1,
+        "card": 4,
+        "members": [
+          6,
+          9
+        ],
+        "empty": {
+          "width": 240,
+          "height": 90
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [
+          7
+        ],
+        "empty": {
+          "width": 200,
+          "height": 80
+        }
+      },
+      {
+        "parent": null,
+        "card": null,
+        "members": [],
+        "empty": {
+          "width": 220,
+          "height": 60
+        }
+      }
+    ],
+    "parents": {
+      "1": null,
+      "2": 1,
+      "3": 1,
+      "4": 2,
+      "5": 4,
+      "6": 4,
+      "7": null,
+      "8": 3,
+      "9": 6
+    },
+    "sizes": {
+      "1": {
+        "width": 260,
+        "height": 140
+      },
+      "2": {
+        "width": 300,
+        "height": 120
+      },
+      "3": {
+        "width": 240,
+        "height": 180
+      },
+      "4": {
+        "width": 280,
+        "height": 160
+      },
+      "5": {
+        "width": 260,
+        "height": 140
+      },
+      "6": {
+        "width": 320,
+        "height": 130
+      },
+      "7": {
+        "width": 260,
+        "height": 100
+      },
+      "8": {
+        "width": 250,
+        "height": 150
+      },
+      "9": {
+        "width": 270,
+        "height": 110
+      }
+    },
+    "rank": {}
+  },
+  "output": {
+    "cards": {
+      "1": {
+        "x": 456.5,
+        "y": 48
+      },
+      "2": {
+        "x": 204,
+        "y": 284
+      },
+      "3": {
+        "x": 729,
+        "y": 284
+      },
+      "4": {
+        "x": 214,
+        "y": 560
+      },
+      "5": {
+        "x": 32,
+        "y": 816
+      },
+      "6": {
+        "x": 340,
+        "y": 816
+      },
+      "7": {
+        "x": 1038,
+        "y": 48
+      },
+      "8": {
+        "x": 724,
+        "y": 560
+      },
+      "9": {
+        "x": 365,
+        "y": 1052
+      }
+    },
+    "boxes": [
+      {
+        "at": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 990,
+          "height": 1210
+        }
+      },
+      {
+        "at": {
+          "x": 16,
+          "y": 512
+        },
+        "size": {
+          "width": 676,
+          "height": 682
+        }
+      },
+      {
+        "at": {
+          "x": 324,
+          "y": 768
+        },
+        "size": {
+          "width": 352,
+          "height": 410
+        }
+      },
+      {
+        "at": {
+          "x": 1022,
+          "y": 0
+        },
+        "size": {
+          "width": 292,
+          "height": 164
+        }
+      },
+      {
+        "at": {
+          "x": 1346,
+          "y": 0
+        },
+        "size": {
+          "width": 220,
+          "height": 60
+        }
+      }
+    ]
+  }
+}

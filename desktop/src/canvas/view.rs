@@ -784,6 +784,7 @@ impl Render for CanvasView {
             )
         });
         let lit = store.lit();
+        let current = store.current();
         let groups = self.scene.groups.iter().map(|f| {
             let members = snapshot.into_iter().flat_map(|s| &s.nodes).filter(|n| {
                 f.place
@@ -865,6 +866,26 @@ impl Render for CanvasView {
                 .children(handles.into_iter().flatten()),
             )
         });
+        let rings = self
+            .scene
+            .cards
+            .iter()
+            .map(|c| (c.node.to_string(), c.rect, false))
+            .chain(
+                self.scene
+                    .groups
+                    .iter()
+                    .map(|f| (f.key.clone(), f.rect, true)),
+            )
+            .filter(|(key, _, _)| current == Some(key.as_str()))
+            .map(|(_, rect, group)| {
+                card::current(
+                    camera.screen_box(bounds_of(rect)),
+                    camera.zoom,
+                    group,
+                    &colors,
+                )
+            });
         let overlay = zoomed.and_then(|id| {
             let live = self.live.get(&id)?;
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == id)?;
@@ -916,6 +937,7 @@ impl Render for CanvasView {
             .children(groups)
             .child(edges::under(under, camera))
             .children(cards)
+            .children(rings)
             .child(edges::over(over, labels, camera))
             .children(handles)
             .children(line)

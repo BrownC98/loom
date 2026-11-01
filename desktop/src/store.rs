@@ -33,6 +33,7 @@ pub struct Store {
     notice: Option<(u64, Notice)>,
     notices: u64,
     found: Option<HashSet<String>>,
+    current: Option<String>,
     picked: Option<HashSet<String>>,
 }
 
@@ -98,6 +99,7 @@ impl Store {
             notice: None,
             notices: 0,
             found: None,
+            current: None,
             picked: None,
         }
     }
@@ -149,9 +151,19 @@ impl Store {
         self.found.as_ref().or(self.picked.as_ref())
     }
 
-    pub fn set_found(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
-        if self.found != keys {
+    pub fn current(&self) -> Option<&str> {
+        self.found.as_ref().and(self.current.as_deref())
+    }
+
+    pub fn set_found(
+        &mut self,
+        keys: Option<HashSet<String>>,
+        current: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.found != keys || self.current != current {
             self.found = keys;
+            self.current = current;
             cx.notify();
         }
     }

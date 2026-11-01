@@ -23,6 +23,8 @@ const HALO: f32 = 3.0;
 const FRAME_WASH: f32 = 0.03;
 const WAIT_WASH: f32 = 0.35;
 const DIM: f32 = 0.4;
+const CURRENT_LINE: f32 = 3.0;
+const CURRENT_GAP: f32 = 5.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mark {
@@ -191,4 +193,16 @@ pub fn card(
                 .h(bounds.size.height - head)
                 .child(body)
         }))
+}
+
+pub fn current(bounds: Bounds<Pixels>, zoom: f32, group: bool, colors: &Colors) -> Div {
+    let grow = px(CURRENT_GAP * zoom);
+    let round = if group { GROUP_ROUND } else { ROUND };
+    placed(Bounds::new(
+        bounds.origin - point(grow, grow),
+        bounds.size + gpui::size(grow * 2.0, grow * 2.0),
+    ))
+    .rounded(px((round + CURRENT_GAP) * zoom))
+    .border(px((CURRENT_LINE * zoom).max(1.0)))
+    .border_color(colors.warn)
 }

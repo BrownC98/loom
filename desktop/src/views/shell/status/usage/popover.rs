@@ -4,16 +4,17 @@ use api::settings::usage::Limits;
 use gpui::{
     Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, StatefulInteractiveElement, Styled, Window, anchored,
-    deferred, div, point, px,
+    deferred, div, point, px, relative,
 };
 
-use super::marks::{Brand, chevron, mark};
 use super::{Usage, name_cell, text};
+use super::{chevron, cursor_mark, provider_mark};
 use crate::fonts;
 use crate::settings::want_accounts;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::dock::ui::{button, say, say_with};
+use crate::views::icons::{Lucide, icon};
 use crate::views::tooltip::tip;
 use crate::views::usage::{self, PROVIDERS, account_name};
 
@@ -65,11 +66,10 @@ impl Usage {
             .gap(px(12.0))
             .p(px(14.0))
             .rounded(px(10.0))
-            .border_1()
-            .border_color(c.line)
             .bg(c.surface)
             .shadow_lg()
             .text_size(px(13.0))
+            .line_height(relative(1.5))
             .text_color(c.ink)
             .child(self.heading(c, cx));
         for provider in PROVIDERS {
@@ -119,7 +119,7 @@ impl Usage {
                     })
                     .tooltip(tip(say(cx, Str::StatusBarCollapse).to_owned()))
                     .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
-                    .child(chevron(false, c)),
+                    .child(icon(Lucide::ChevronDown, 18.0, c.ink_2)),
             )
     }
 
@@ -203,7 +203,7 @@ impl Usage {
                 };
                 cx.notify();
             }))
-            .child(mark(Brand::of(provider), c));
+            .child(provider_mark(provider, c));
         if let Some(account) = active {
             head = head.child(name_cell(account_name(account, cx)).text_color(c.ink_2));
         }
@@ -309,7 +309,7 @@ impl Usage {
                     .flex()
                     .items_center()
                     .gap(px(8.0))
-                    .child(mark(Brand::Cursor, c))
+                    .child(cursor_mark(c))
                     .child(name_cell(name).text_color(c.ink_2)),
             )
             .child(self.windows(&entry.usage.limits, c, cx))
@@ -332,7 +332,9 @@ impl Usage {
             .child(div().flex_1().children(read))
             .child(
                 button("usage-manage", cx)
-                    .min_h(px(26.0))
+                    .min_h(px(20.0))
+                    .h(px(20.0))
+                    .py_0()
                     .px(px(8.0))
                     .border_color(gpui::transparent_black())
                     .bg(gpui::transparent_black())

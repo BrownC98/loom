@@ -18,6 +18,7 @@ const FONT_SIZE: f32 = 13.0;
 const LINE: f32 = 18.0;
 const FORM_HEIGHT: f32 = 34.0;
 const FORM_LINE: f32 = 20.0;
+const NARROW_HEIGHT: f32 = 26.0;
 const CARET: f32 = 1.5;
 const ROUND: f32 = 6.0;
 
@@ -33,6 +34,8 @@ pub enum Form {
     Chat,
     Plain,
     Mono,
+    Narrow,
+    Stepper,
 }
 
 enum Hint {
@@ -788,10 +791,21 @@ impl Render for Field {
                     .line_height(px(FORM_LINE * z))
                     .bg(colors.bg)
             };
+            let narrow = |el: Div| {
+                el.min_h(px(NARROW_HEIGHT * z))
+                    .px(px(8.0 * z))
+                    .py_0()
+                    .line_height(px((NARROW_HEIGHT - 2.0) * z))
+                    .bg(colors.bg)
+            };
             match self.form {
                 Form::Chat => skinned,
                 Form::Plain => web(skinned),
                 Form::Mono => web(skinned).font_family(TERMINAL_FAMILY),
+                Form::Narrow => narrow(skinned)
+                    .font_family(TERMINAL_FAMILY)
+                    .text_size(px(12.0 * z)),
+                Form::Stepper => narrow(skinned).px(px(2.0 * z)).flex().justify_center(),
             }
             .child(text)
         } else {

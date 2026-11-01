@@ -1,4 +1,5 @@
 use api::settings::{HexColor, Language, Theme as ThemeSetting, ThemedColor, UiColors};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Anchor, App, AppContext, Div, ElementId, Entity, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Rgba, SharedString, Stateful,
@@ -8,6 +9,7 @@ use gpui::{
 use serde_json::Value;
 
 use super::agents::parts::badge;
+use crate::fonts::latin_mono;
 use crate::settings::widgets::button;
 use crate::settings::widgets::{
     Label, Select, SelectEvent, Text, TextEvent, field_reset, inert, segmented, tabbable,
@@ -16,7 +18,7 @@ use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
 use crate::theme::{self, Colors, Scheme, Theme, luminance_of, ratio};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
-use crate::views::icons::Lucide;
+use crate::views::icons::{Lucide, icon};
 use crate::views::tooltip::tip;
 
 const PRESETS: [&str; 8] = [
@@ -25,7 +27,11 @@ const PRESETS: [&str; 8] = [
 const SCHEMES: [Scheme; 2] = [Scheme::Light, Scheme::Dark];
 const POPOVER_W: f32 = 340.0;
 const SWATCH_W: f32 = 28.0;
-const SWATCH_H: f32 = 20.0;
+const SWATCH_H: f32 = 28.0;
+const POPOVER_DROP: f32 = 4.0;
+const ROW_INSET: f32 = 12.0;
+const RING: f32 = 4.0;
+const DISABLED: f32 = 0.6;
 
 struct Row {
     name: Str,
@@ -203,7 +209,7 @@ fn halves(
         .flex()
         .flex_none()
         .overflow_hidden()
-        .rounded(px(4.0))
+        .rounded(px(6.0))
         .w(px(width))
         .h(px(height))
         .child(div().flex_1().h_full().bg(light))
@@ -225,7 +231,7 @@ fn setup(
         target: Target::Both,
         presets: Vec::new(),
     });
-    let hex = cx.new(|cx| Text::mono("#rrggbb", window, cx));
+    let hex = cx.new(|cx| Text::narrow("#rrggbb", window, cx));
     let language = cx.new(|cx| Select::new("language", cx).full());
     {
         let (pop, writer, dialog) = (pop.clone(), ctx.writer.clone(), ctx.dialog.clone());
@@ -359,29 +365,29 @@ fn colors_section(
         let usage = section.text(say(cx, row.usage), cx);
         let reset_label = section.text(say(cx, Str::ColorsReset), cx);
         let default_label = say(cx, Str::ColorsDefault);
+        let mono = |text: &str| latin_mono(text, c.ink_3, FontWeight::NORMAL);
         let value = if color.light == color.dark {
             let text = color.light.as_ref().map_or(default_label, HexColor::as_str);
-            div().child(text.to_owned())
+            div().child(mono(text))
         } else {
-            div().flex().flex_col().children(SCHEMES.map(|scheme| {
+            div().flex().gap(px(10.0)).children(SCHEMES.map(|scheme| {
                 let label = match scheme {
                     Scheme::Light => Str::ThemeLight,
                     Scheme::Dark => Str::ThemeDark,
                 };
                 div()
                     .flex()
-                    .gap(px(4.0))
-                    .child(div().text_color(c.ink_3).child(say(cx, label)))
-                    .child(
-                        side(color, scheme)
-                            .map_or(default_label, HexColor::as_str)
-                            .to_owned(),
-                    )
+                    .child(div().mr(px(4.0)).text_size(px(11.0)).child(say(cx, label)))
+                    .child(mono(
+                        side(color, scheme).map_or(default_label, HexColor::as_str),
+                    ))
             }))
         };
         let writer = ctx.writer.clone();
         let reset = {
-            let item = button(("color-reset", index), cx).child(reset_label);
+            let item = small_button(("color-reset", index), cx)
+                .child(icon(Lucide::RotateCcw, 14.0, c.ink))
+                .child(reset_label);
             if changed(color) {
                 item.on_click(move |_, _, cx| {
                     writer.edit(cx, |settings| {
@@ -389,7 +395,7 @@ fn colors_section(
                     });
                 })
             } else {
-                inert(item).opacity(0.5)
+                inert(item).opacity(DISABLED)
             }
         };
         let swatch = {
@@ -408,6 +414,7 @@ fn colors_section(
             .cursor_pointer()
             .border_1()
             .border_color(c.line_strong)
+            .rounded(px(6.0))
             .on_click(move |_, window, cx| {
                 touch(&pop, &dialog, cx, |pop| {
                     if pop.open == Some(index) {
@@ -449,7 +456,7 @@ fn colors_section(
             .flex()
             .items_center()
             .gap(px(12.0))
-            .px(px(12.0))
+            .px(px(ROW_INSET))
             .py(px(6.0))
             .text_size(px(TEXT))
             .child(host)
@@ -457,12 +464,12 @@ fn colors_section(
                 div()
                     .w(px(120.0))
                     .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::BOLD)
                     .child(name_text),
             )
             .child(
                 div()
-                    .w(px(150.0))
+                    .w(px(190.0))
                     .flex_none()
                     .text_size(px(SMALL))
                     .child(value),
@@ -471,6 +478,7 @@ fn colors_section(
                 div()
                     .flex_1()
                     .min_w_0()
+                    .truncate()
                     .text_size(px(SMALL))
                     .text_color(c.ink_3)
                     .child(usage),
@@ -604,17 +612,22 @@ fn popover(
     let title = div()
         .flex()
         .items_center()
+        .justify_between()
         .child(
             div()
-                .flex_1()
+                .text_size(px(14.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(name.to_owned()),
         )
         .child(
             button("color-pop-close", cx)
+                .w(px(26.0))
+                .h(px(30.0))
+                .p_0()
+                .justify_center()
                 .border_color(gpui::transparent_black())
-                .bg(c.panel)
-                .child("\u{00D7}")
+                .bg(c.surface)
+                .child(icon(Lucide::X, 14.0, c.ink_2))
                 .on_click(move |_, _, cx| close_here(cx)),
         );
 
@@ -628,7 +641,8 @@ fn popover(
                     .zip(painted)
                     .enumerate()
                     .map(|(at, (scheme, set))| {
-                        let pressed = target == Target::Both || target == Target::Only(scheme);
+                        let only = target == Target::Only(scheme);
+                        let other = matches!(target, Target::Only(chosen) if chosen != scheme);
                         let label = match scheme {
                             Scheme::Light => Str::ThemeLight,
                             Scheme::Dark => Str::ThemeDark,
@@ -643,30 +657,48 @@ fn popover(
                             )
                         });
                         let (pop, dialog) = (pop.clone(), ctx.dialog.clone());
-                        let hint = if target == Target::Only(scheme) {
+                        let hint = if only {
                             say(cx, Str::ColorsBothThemes).to_owned()
                         } else {
                             say_with(cx, Str::ColorsOnlyTheme, &[("theme", say(cx, label))])
                         };
-                        button(("color-scheme", at), cx)
+                        let face = tabbable(div().id(("color-scheme", at)), cx)
                             .tooltip(tip(hint))
-                            .flex_1()
-                            .gap(px(6.0))
-                            .border_color(if pressed { c.accent } else { c.line_strong })
-                            .bg(if pressed { c.accent_wash } else { c.surface })
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .p(px(8.0))
+                            .rounded(px(6.0))
+                            .border_1()
+                            .border_color(set.line)
+                            .bg(set.bg)
+                            .text_color(set.ink)
+                            .text_size(px(SMALL))
+                            .cursor_pointer()
+                            .when(other, |face| face.opacity(0.45))
                             .child(
                                 div()
-                                    .size(px(22.0))
-                                    .rounded(px(4.0))
+                                    .min_w(px(18.0))
+                                    .h(px(18.0))
+                                    .px(px(5.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
+                                    .rounded(px(9.0))
                                     .bg((row.paint)(set))
                                     .text_color((row.against)(set))
+                                    .text_size(px(11.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .child("3"),
                             )
                             .child(say(cx, label))
-                            .children(ratio_text.map(|text| div().text_color(c.ink_3).child(text)))
+                            .children(ratio_text.map(|text| {
+                                div()
+                                    .ml_auto()
+                                    .text_size(px(11.0))
+                                    .text_color(set.ink_3)
+                                    .child(latin_mono(&text, set.ink_3, FontWeight::NORMAL))
+                            }))
                             .on_click(move |_, _, cx| {
                                 touch(&pop, &dialog, cx, |pop| {
                                     pop.target = if pop.target == Target::Only(scheme) {
@@ -675,33 +707,47 @@ fn popover(
                                         Target::Only(scheme)
                                     };
                                 })
-                            })
+                            });
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .child(face)
+                            .children(only.then(|| ring(c.ink, 10.0)))
                     }),
             );
 
-    let swatches = div().flex().flex_wrap().gap(px(6.0)).children(
-        PRESETS
-            .iter()
-            .zip(presets)
-            .enumerate()
-            .map(|(at, (text, &(light, dark)))| {
-                let (left, right) = match target {
-                    Target::Both => (light, dark),
-                    Target::Only(Scheme::Light) => (light, light),
-                    Target::Only(Scheme::Dark) => (dark, dark),
-                };
-                let chosen = current.as_ref().map(HexColor::as_str) == Some(*text);
-                let (writer, picked) = (ctx.writer.clone(), parse(text));
-                tabbable(
-                    halves(left, right, ("color-preset", at), SWATCH_W, SWATCH_H + 6.0),
-                    cx,
-                )
-                .cursor_pointer()
-                .border_2()
-                .border_color(if chosen { c.accent } else { c.line_strong })
-                .on_click(move |_, _, cx| pick(&writer, index, target, picked.clone(), cx))
-            }),
-    );
+    let swatches =
+        div()
+            .flex()
+            .gap(px(6.0))
+            .children(PRESETS.iter().zip(presets).enumerate().map(
+                |(at, (text, &(light, dark)))| {
+                    let (left, right) = match target {
+                        Target::Both => (light, dark),
+                        Target::Only(Scheme::Light) => (light, light),
+                        Target::Only(Scheme::Dark) => (dark, dark),
+                    };
+                    let chosen = current.as_ref().map(HexColor::as_str) == Some(*text);
+                    let (writer, picked) = (ctx.writer.clone(), parse(text));
+                    div()
+                        .relative()
+                        .flex_none()
+                        .child(
+                            tabbable(
+                                halves(left, right, ("color-preset", at), SWATCH_W, SWATCH_H),
+                                cx,
+                            )
+                            .cursor_pointer()
+                            .border_1()
+                            .border_color(c.line_strong)
+                            .on_click(move |_, _, cx| {
+                                pick(&writer, index, target, picked.clone(), cx)
+                            }),
+                        )
+                        .children(chosen.then(|| ring(c.ink, 8.0)))
+                },
+            ));
 
     let writer = ctx.writer.clone();
     let can_reset = match target {
@@ -709,7 +755,9 @@ fn popover(
         Target::Only(scheme) => side(color, scheme).is_some(),
     };
     let reset = {
-        let item = button("color-pop-reset", cx).child(say(cx, Str::ColorsReset));
+        let item = small_button("color-pop-reset", cx)
+            .child(icon(Lucide::RotateCcw, 14.0, c.ink))
+            .child(say(cx, Str::ColorsReset));
         if can_reset {
             let close = close.clone();
             item.on_click(move |_, _, cx| {
@@ -717,7 +765,7 @@ fn popover(
                 close(cx);
             })
         } else {
-            inert(item).opacity(0.5)
+            inert(item).opacity(DISABLED)
         }
     };
     let hint = |text: Str| {
@@ -733,12 +781,11 @@ fn popover(
         .occlude()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(px(12.0))
         .p(px(14.0))
         .rounded(px(10.0))
-        .border_1()
-        .border_color(c.line_strong)
-        .bg(c.panel)
+        .bg(c.surface)
+        .shadow_lg()
         .text_size(px(TEXT))
         .text_color(c.ink)
         .on_key_down({
@@ -760,7 +807,11 @@ fn popover(
             div()
                 .flex()
                 .items_center()
-                .gap(px(GAP))
+                .justify_between()
+                .gap(px(8.0))
+                .pt(px(10.0))
+                .border_t_1()
+                .border_color(c.line)
                 .child(reset)
                 .child(hint(Str::ColorsSaved)),
         );
@@ -781,12 +832,28 @@ fn popover(
     let body = deferred(
         anchored()
             .anchor(Anchor::TopLeft)
-            .offset(point(px(0.0), px(SWATCH_H + 6.0)))
+            .offset(point(px(-ROW_INSET), px(POPOVER_DROP)))
             .snap_to_window()
             .child(panel),
     )
     .with_priority(2);
     div().child(backdrop).child(body)
+}
+
+fn small_button(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
+    button(id, cx).h(px(26.0)).px(px(8.0)).py_0()
+}
+
+fn ring(color: Rgba, radius: f32) -> Div {
+    div()
+        .absolute()
+        .top(px(-RING))
+        .left(px(-RING))
+        .right(px(-RING))
+        .bottom(px(-RING))
+        .rounded(px(radius))
+        .border_2()
+        .border_color(color)
 }
 
 fn mix(top: Rgba, under: Rgba, amount: f32) -> Rgba {

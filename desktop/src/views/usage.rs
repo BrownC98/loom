@@ -83,16 +83,8 @@ pub fn duration(ms: i64, cx: &App) -> String {
 }
 
 pub fn fetched(read_at: i64, cx: &App) -> String {
-    let minutes = ((now_ms() - read_at * 1000) / MINUTE_MS).max(0);
-    let ago = if minutes < 1 {
-        say(cx, Str::UsageAgoNow).to_owned()
-    } else if minutes < HOUR_MIN {
-        count(cx, Str::UsageAgoMinute, minutes)
-    } else if minutes < HOUR_MIN * DAY_HOUR {
-        count(cx, Str::UsageAgoHour, minutes / HOUR_MIN)
-    } else {
-        count(cx, Str::UsageAgoDay, minutes / HOUR_MIN / DAY_HOUR)
-    };
+    let seconds = ((now_ms() - read_at * 1000) / 1000).max(0);
+    let ago = crate::views::ui::ago(seconds, *cx.global::<Lang>());
     say_with(cx, Str::UsageFetched, &[("ago", &ago)])
 }
 

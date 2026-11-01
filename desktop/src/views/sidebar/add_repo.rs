@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, BoxShadow, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Point, Render,
-    StatefulInteractiveElement, Styled, Window, div, point, px,
+    StatefulInteractiveElement, Styled, Window, div, point, px, relative,
 };
 
 use api::ids::RepoId;
@@ -1069,6 +1069,7 @@ impl Render for AddRepo {
         };
         let ready = self.ready(cx);
         let body = shell(&c, WIDTH)
+            .line_height(relative(1.5))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key))
             .child(title(Str::TreeAddRepo.text(lang).to_owned(), None, &c))

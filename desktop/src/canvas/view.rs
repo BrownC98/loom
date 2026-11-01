@@ -858,6 +858,7 @@ impl Render for CanvasView {
                 live.view.clone(),
                 &self.overlay,
                 collapse,
+                self.store.read(cx).composer_room(),
                 cx,
             ))
         });

@@ -8,7 +8,9 @@ use api::graph::{GraphEvent, NewNode, NodeState};
 use api::ids::{NodeId, WaitId};
 use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
-use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
+use gpui::{
+    App, AppContext, Bounds, Context, EventEmitter, Pixels, Task, Window, WindowAppearance,
+};
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
@@ -16,6 +18,7 @@ use crate::problem::Failure;
 use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
+const ROOM_GAP: f32 = 14.0;
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 pub struct Store {
@@ -34,6 +37,7 @@ pub struct Store {
     notices: u64,
     found: Option<HashSet<String>>,
     picked: Option<HashSet<String>>,
+    composer: Option<(Bounds<Pixels>, bool)>,
 }
 
 pub struct ZoomTo(pub f32);
@@ -99,6 +103,7 @@ impl Store {
             notices: 0,
             found: None,
             picked: None,
+            composer: None,
         }
     }
 
@@ -475,5 +480,41 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         self.call(cx, move |base| link::clear_sizes(base, &nodes))
+    }
+}
+
+impl Store {
+    pub fn composer_box(&self) -> Option<Bounds<Pixels>> {
+        self.composer.map(|(bounds, _)| bounds)
+    }
+
+    pub fn composer_room(&self) -> f32 {
+        self.composer
+            .filter(|(_, home)| *home)
+            .map_or(0.0, |(bounds, _)| f32::from(bounds.size.height) + ROOM_GAP)
+    }
+
+    pub fn set_composer(
+        &mut self,
+        composer: Option<(Bounds<Pixels>, bool)>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer != composer {
+            self.composer = composer;
+            cx.notify();
+        }
+    }
+
+    pub fn save_paste(
+        &self,
+        node: NodeId,
+        name: String,
+        mime: &'static str,
+        bytes: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<String, String>> {
+        self.call(cx, move |base| {
+            link::save_paste(base, node, &name, mime, &bytes)
+        })
     }
 }

@@ -8,6 +8,8 @@ use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, Processor, Rgb};
 
+pub mod view;
+
 pub type Rgb8 = [u8; 3];
 
 const ANSI: [Rgb8; 16] = [
@@ -177,7 +179,7 @@ impl Vt {
         let mut cells = Vec::with_capacity(cols * rows);
         for row in 0..rows {
             for col in 0..cols {
-                let cell = &grid[Line(row as i32)][Column(col)];
+                let cell = &grid[Line(row as i32 - grid.display_offset() as i32)][Column(col)];
                 let bold = cell.flags.contains(Flags::BOLD);
                 let (mut fg, mut bg) = (resolve(cell.fg, bold), resolve(cell.bg, false));
                 if cell.flags.contains(Flags::INVERSE) {

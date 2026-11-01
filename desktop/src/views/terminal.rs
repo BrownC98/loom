@@ -1,16 +1,22 @@
 use std::borrow::Cow;
 use std::ops::Range;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    App, AppContext, Bounds, Context, ElementInputHandler, Entity, EntityInputHandler, FocusHandle,
-    Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, Pixels, Render, Rgba, StrikethroughStyle, Styled, TextAlign,
-    TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill, font, point, px, rgb, size,
+    App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, Global, Hsla, InteractiveElement,
+    IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Render, Rgba, ScrollEvent, StrikethroughStyle, Styled, TextAlign, TextRun, UTF16Selection,
+    UnderlineStyle, Window, canvas, div, fill, font, point, px, rgb, size,
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::link::{self, Event, Pty};
+use crate::vt::view::Picked;
 use crate::vt::{self, Key, Screen, Shape, Vt};
+
+mod pointer;
 
 const SCALE_ENV: &str = "LOOM_DESKTOP_SCALE";
 const FONT_FAMILY: &str = "Jetendard";
@@ -21,6 +27,9 @@ const FONT_FILES: [&[u8]; 2] = [
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 1.3;
 const MARKED_BACKGROUND: vt::Rgb8 = [0x3a, 0x3a, 0x55];
+const PICKED_BACKGROUND: vt::Rgb8 = [0x26, 0x4f, 0x78];
+const READABLE_PX: f32 = 6.0;
+const SNAPSHOT_GAP: Duration = Duration::from_millis(250);
 const START: (u16, u16) = (80, 24);
 const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_IDLE_ALPHA: f32 = 0.3;
@@ -30,6 +39,11 @@ const CURSOR_THIN: f32 = 2.0;
 struct Metrics {
     cell_width: Pixels,
     cell_height: Pixels,
+}
+
+struct Frame {
+    screen: Screen,
+    picked: Vec<Picked>,
 }
 
 struct FontsLoaded;
@@ -48,6 +62,12 @@ pub struct TerminalView {
     ended: Option<String>,
     marked: Option<String>,
     cursor: Option<vt::Cursor>,
+    frame: Option<Rc<Frame>>,
+    dirty: bool,
+    taken: Instant,
+    refresh: bool,
+    picking: bool,
+    wheel_rest: f32,
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -56,6 +76,10 @@ fn color([r, g, b]: vt::Rgb8) -> Rgba {
 
 fn hsla(rgb: vt::Rgb8) -> Hsla {
     color(rgb).into()
+}
+
+fn cheap(scale: f32) -> bool {
+    FONT_SIZE * scale <= READABLE_PX
 }
 
 fn metrics(window: &Window, scale: f32) -> Metrics {
@@ -68,18 +92,17 @@ fn metrics(window: &Window, scale: f32) -> Metrics {
     }
 }
 
-pub fn open(base: &str, node: u32, window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
+pub fn open(base: &str, node: u32, _window: &mut Window, cx: &mut App) -> Entity<TerminalView> {
     let opened = (|| -> Result<_, String> {
         let (events, inbox) = async_channel::unbounded();
         Ok((link::attach(base, node, events)?, inbox))
     })();
-    cx.new(|cx| TerminalView::new(opened, window, cx))
+    cx.new(|cx| TerminalView::new(opened, cx))
 }
 
 impl TerminalView {
     fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let (pty, ended) = match opened {
@@ -108,7 +131,6 @@ impl TerminalView {
             cx.set_global(FontsLoaded);
         }
         let focus = cx.focus_handle();
-        window.focus(&focus, cx);
         Self {
             vt: Vt::new(START.0, START.1),
             pty,
@@ -124,11 +146,67 @@ impl TerminalView {
             ended,
             marked: None,
             cursor: None,
+            frame: None,
+            dirty: true,
+            taken: Instant::now(),
+            refresh: false,
+            picking: false,
+            wheel_rest: 0.0,
         }
     }
 
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.focus, cx);
+    }
+
     pub fn set_scale(&mut self, scale: f32) {
-        self.scale = scale;
+        if scale != self.scale {
+            self.scale = scale;
+            self.dirty = true;
+        }
+    }
+
+    fn cheap(&self) -> bool {
+        cheap(self.scale)
+    }
+
+    fn changed(&mut self, cx: &mut Context<Self>) {
+        self.dirty = true;
+        let wait = SNAPSHOT_GAP.saturating_sub(self.taken.elapsed());
+        if !self.cheap() || wait.is_zero() {
+            cx.notify();
+        } else if !self.refresh {
+            self.refresh = true;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |view, cx| {
+                    view.refresh = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+
+    fn frame(&mut self) -> Rc<Frame> {
+        if let Some(frame) = self.frame.as_ref().filter(|_| !self.dirty) {
+            return frame.clone();
+        }
+        let offset = self.vt.display_offset();
+        let mut screen = self.vt.snapshot();
+        let rows = screen.rows;
+        screen.cursor = screen.cursor.and_then(|cursor| {
+            let row = cursor.row + offset;
+            (row < rows).then_some(vt::Cursor { row, ..cursor })
+        });
+        let frame = Rc::new(Frame {
+            screen,
+            picked: self.vt.picked(),
+        });
+        self.frame = Some(frame.clone());
+        self.dirty = false;
+        self.taken = Instant::now();
+        frame
     }
 
     fn apply(&mut self, event: Event, cx: &mut Context<Self>) {
@@ -159,7 +237,7 @@ impl TerminalView {
                 });
             }
         }
-        cx.notify();
+        self.changed(cx);
     }
 
     fn reply(&self, bytes: Vec<u8>) {
@@ -195,8 +273,44 @@ impl TerminalView {
         }
     }
 
-    fn key(&mut self, event: &KeyDownEvent, cx: &mut App) {
+    fn type_in(&mut self, bytes: Vec<u8>) {
+        self.claim();
+        self.vt.select_clear();
+        self.vt.scroll_to_bottom();
+        self.dirty = true;
+        self.send(bytes);
+    }
+
+    fn copy(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self.vt.selected_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+        self.vt.select_clear();
+        self.changed(cx);
+    }
+
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let bytes = self.vt.paste_bytes(&text);
+            self.type_in(bytes);
+            self.changed(cx);
+        }
+    }
+
+    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let stroke = &event.keystroke;
+        let command = stroke.modifiers.secondary(cx);
+        let copying =
+            command && stroke.key == "c" && (stroke.modifiers.shift || self.vt.has_selection());
+        if copying || (command && stroke.key == "v") {
+            if copying {
+                self.copy(cx);
+            } else {
+                self.paste(cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
         if stroke.modifiers.platform {
             return;
         }
@@ -208,8 +322,8 @@ impl TerminalView {
             shift: stroke.modifiers.shift,
         };
         if let Some(bytes) = self.vt.encode_key(&key) {
-            self.claim();
-            self.send(bytes);
+            self.type_in(bytes);
+            self.changed(cx);
             cx.stop_propagation();
         }
     }
@@ -273,10 +387,9 @@ impl EntityInputHandler for TerminalView {
     ) {
         self.marked = None;
         if !text.is_empty() {
-            self.claim();
-            self.send(text.as_bytes().to_vec());
+            self.type_in(text.as_bytes().to_vec());
         }
-        cx.notify();
+        self.changed(cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -325,14 +438,15 @@ impl EntityInputHandler for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let screen = self.vt.snapshot();
-        self.cursor = screen.cursor;
+        let frame = self.frame();
+        self.cursor = frame.screen.cursor;
         let marked = self.marked.clone();
         let focus = self.focus.clone();
         let scale = self.scale;
         let focused = self.focus.is_focused(window);
         let view = cx.entity();
         let view_input = view.clone();
+        let view_pointer = view.clone();
         div()
             .id("terminal")
             .size_full()
@@ -342,8 +456,11 @@ impl Render for TerminalView {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| window.focus(&this.focus, cx)),
+                cx.listener(|this, event, window, cx| this.press(event, window, cx)),
             )
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
+                this.wheel(event, window, cx);
+            }))
             .child(
                 canvas(
                     move |bounds, window, cx| {
@@ -357,9 +474,22 @@ impl Render for TerminalView {
                             ElementInputHandler::new(bounds, view_input.clone()),
                             cx,
                         );
+                        let moving = view_pointer.clone();
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                            if phase == DispatchPhase::Capture {
+                                moving.update(cx, |view, cx| view.drag(event, window, cx));
+                            }
+                        });
+                        let releasing = view_pointer.clone();
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
+                            {
+                                releasing.update(cx, |view, cx| view.release(cx));
+                            }
+                        });
                         paint(
                             bounds,
-                            &screen,
+                            &frame,
                             marked.as_deref(),
                             scale,
                             focused,
@@ -414,15 +544,44 @@ fn same_style(a: &vt::Cell, b: &vt::Cell) -> bool {
         == (b.fg, b.bold, b.italic, b.underline, b.strike)
 }
 
+fn row_runs(cells: &[vt::Cell], cheap: bool) -> Vec<TextRun> {
+    if cheap {
+        let lead = cells.iter().find(|c| c.ch != ' ').unwrap_or(&cells[0]);
+        let plain = vt::Cell {
+            bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            ..lead.clone()
+        };
+        let len = cells.iter().map(|c| c.ch.len_utf8()).sum();
+        return vec![styled(&plain, len)];
+    }
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut first = 0;
+    for (i, c) in cells.iter().enumerate() {
+        if i > first && !same_style(&cells[first], c) {
+            let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
+            runs.push(styled(&cells[first], len));
+            first = i;
+        }
+    }
+    let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
+    runs.push(styled(&cells[first], len));
+    runs
+}
+
 fn paint(
     bounds: Bounds<Pixels>,
-    screen: &Screen,
+    frame: &Frame,
     marked: Option<&str>,
     scale: f32,
     focused: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let screen = &frame.screen;
+    let cheap = cheap(scale);
     let cell = metrics(window, scale);
     let em = px(FONT_SIZE * scale);
     let at = |col: usize, row: usize| {
@@ -449,6 +608,18 @@ fn paint(
                 ));
             }
         }
+        for picked in frame.picked.iter().filter(|p| p.row == row) {
+            window.paint_quad(fill(
+                Bounds::new(
+                    at(picked.from, row),
+                    size(
+                        cell.cell_width * (picked.to + 1 - picked.from) as f32,
+                        cell.cell_height,
+                    ),
+                ),
+                hsla(PICKED_BACKGROUND),
+            ));
+        }
         if cells
             .iter()
             .all(|c| c.ch == ' ' && !c.underline && !c.strike)
@@ -456,20 +627,13 @@ fn paint(
             continue;
         }
         let text: String = cells.iter().map(|c| c.ch).collect();
-        let mut runs: Vec<TextRun> = Vec::new();
-        let mut first = 0;
-        for (i, c) in cells.iter().enumerate() {
-            if i > first && !same_style(&cells[first], c) {
-                let len = cells[first..i].iter().map(|c| c.ch.len_utf8()).sum();
-                runs.push(styled(&cells[first], len));
-                first = i;
-            }
-        }
-        let len = cells[first..].iter().map(|c| c.ch.len_utf8()).sum();
-        runs.push(styled(&cells[first], len));
-        let line = window
-            .text_system()
-            .shape_line(text.into(), em, &runs, Some(cell.cell_width));
+        let runs = row_runs(cells, cheap);
+        let line = window.text_system().shape_line(
+            text.into(),
+            em,
+            &runs,
+            (!cheap).then_some(cell.cell_width),
+        );
         let _ = line.paint(
             at(0, row),
             cell.cell_height,

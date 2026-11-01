@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::time::Duration;
 
 use api::ids::AccountId;
 use api::profile::Provider;
@@ -18,19 +17,18 @@ use crate::settings::{Ctx, Section, Writer};
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say, say_with};
 use crate::views::terminal::TerminalView;
+use crate::views::usage::{
+    self, ACCOUNTS, PROVIDERS, REFRESH, Switching, account_name, active_index, provider_label, slug,
+};
 use parts::{Bound, Reload, Remote, Shared, badge, hint, row, rows, small};
 
 mod login;
 mod switch;
-mod usage;
 
-const ACCOUNTS: &str = "/api/accounts";
-const REFRESH: Duration = Duration::from_secs(5 * 60);
 const SYSTEM_DIR: [(Provider, &str); 2] = [
     (Provider::Claude, "~/.claude"),
     (Provider::Codex, "~/.codex"),
 ];
-const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 const WINDOWS_W: f32 = 300.0;
 const LABEL_W: f32 = 64.0;
 const PERCENT_W: f32 = 40.0;
@@ -55,15 +53,6 @@ pub(super) struct Login {
     pub title: String,
     pub fresh: bool,
     pub failed: bool,
-}
-
-pub(super) struct Switching {
-    pub provider: Provider,
-    pub distro: Option<String>,
-    pub to: Option<AccountId>,
-    pub name: String,
-    pub nodes: Vec<(String, bool)>,
-    pub busy: bool,
 }
 
 #[derive(Default)]
@@ -108,41 +97,11 @@ impl Actor {
                         .change(cx, |local| local.error = Some(error.text(lang)));
                 }
                 actor.reload.run(cx);
+                usage::accounts_changed(cx);
             });
         })
         .detach();
     }
-}
-
-pub(super) fn slug(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Claude => "claude",
-        Provider::Codex => "codex",
-    }
-}
-
-pub(super) fn provider_label(provider: Provider, cx: &App) -> &'static str {
-    say(
-        cx,
-        match provider {
-            Provider::Claude => Str::SwitchProviderClaude,
-            Provider::Codex => Str::SwitchProviderCodex,
-        },
-    )
-}
-
-pub(super) fn account_name(account: &AccountView, cx: &App) -> String {
-    account.usage.email.clone().unwrap_or_else(|| {
-        say(
-            cx,
-            if account.id.is_none() {
-                Str::UsageSystemDefault
-            } else {
-                Str::UsageNotLoggedIn
-            },
-        )
-        .to_owned()
-    })
 }
 
 fn place_name(distro: Option<&str>, cx: &App) -> String {
@@ -329,10 +288,7 @@ fn provider_body(
         .filter(|a| a.provider == provider && &a.distro == distro)
         .collect();
     let chosen = ctx.view.account(provider, distro.as_deref());
-    let active = own
-        .iter()
-        .position(|a| a.id.is_some() && a.id.as_ref() == chosen)
-        .or_else(|| own.iter().position(|a| a.id.is_none()));
+    let active = active_index(&own, chosen);
     let missing = own
         .iter()
         .any(|a| a.id.is_none() && usage::cli_missing(&a.usage.limits));

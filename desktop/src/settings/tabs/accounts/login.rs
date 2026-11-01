@@ -9,12 +9,13 @@ use gpui::{
 };
 
 use super::parts::{modal, small};
-use super::{Actor, Login, State, slug};
+use super::{Actor, Login, State};
 use crate::link;
 use crate::problem::Failure;
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say};
 use crate::views::terminal;
+use crate::views::usage::slug;
 
 const POLL: Duration = Duration::from_secs(1);
 const LOST: u16 = 404;

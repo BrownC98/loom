@@ -2,8 +2,8 @@ use std::os::windows::process::CommandExt;
 use std::process::Command;
 
 use gpui::{
-    AnyElement, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Styled,
-    TitlebarOptions, Window, WindowControlArea, WindowOptions, div, px, rgb,
+    AnyElement, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful,
+    Styled, TitlebarOptions, Window, WindowControlArea, WindowOptions, div, px, rgb,
 };
 
 use crate::theme::Colors;
@@ -42,7 +42,12 @@ pub fn drag_area(area: Div) -> Div {
     area.window_control_area(WindowControlArea::Drag)
 }
 
-fn caption(glyph: &'static str, area: WindowControlArea, colors: &Colors, close: bool) -> Div {
+fn caption(
+    glyph: &'static str,
+    area: WindowControlArea,
+    colors: &Colors,
+    close: bool,
+) -> Stateful<Div> {
     let hover = if close {
         Hsla::from(rgb(CLOSE_HOVER))
     } else {
@@ -54,6 +59,8 @@ fn caption(glyph: &'static str, area: WindowControlArea, colors: &Colors, close:
         Hsla::from(colors.ink)
     };
     div()
+        .id(glyph)
+        .occlude()
         .w(px(CAPTION_WIDTH))
         .h_full()
         .flex()

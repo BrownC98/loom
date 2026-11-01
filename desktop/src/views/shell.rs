@@ -257,7 +257,7 @@ impl Render for Shell {
                 shell.update(cx, |this, cx| this.open_settings(window, cx));
             },
         );
-        let status = status::bar(self.store.read(cx), &theme.colors, lang, &self.zoom);
+        let status = status::bar(&self.store, cx, &theme.colors, lang, &self.zoom);
         let left = Self::slot(&widths, Pane::Side, theme, self.left.clone());
         let right = Self::slot(&widths, Pane::Dock, theme, self.right.clone());
         let side_grip = if widths.open(Pane::Side) {

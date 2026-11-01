@@ -16,10 +16,10 @@ use super::frames::Probe;
 use super::grid;
 use super::layout::{Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
+use crate::link::Snapshot;
 use crate::link::{self, Graph};
 use crate::views::card;
 use crate::views::terminal::{self, TerminalView};
-use crate::wire::Snapshot;
 
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 const WHEEL_LINE: f32 = 25.0;

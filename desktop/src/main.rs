@@ -7,7 +7,6 @@ mod views;
 mod vt;
 #[cfg(windows)]
 mod windows;
-mod wire;
 
 use gpui::{App, AppContext, WindowOptions};
 

@@ -9,7 +9,7 @@ use super::layout::{
 };
 use api::graph::{CardView, NodeView};
 
-use crate::wire::Snapshot;
+use crate::link::Snapshot;
 
 const DIRECTION: Direction = Direction::Down;
 const CARD_X: f64 = 20.0;

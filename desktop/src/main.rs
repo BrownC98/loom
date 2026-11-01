@@ -15,10 +15,10 @@ mod vt;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(target_os = "macos")]
-use macos as platform;
 #[cfg(not(any(windows, target_os = "macos")))]
 use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
 use windows as platform;
 

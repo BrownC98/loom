@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{ErrorKind, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
@@ -172,6 +172,16 @@ pub fn delete(base: &str, path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+pub fn set_bookmark(base: &str, node: u32, on: bool) -> Result<(), String> {
+    let url = format!("{base}/api/nodes/{node}/bookmark");
+    if on {
+        agent().put(url).send_empty().map(|_| ())
+    } else {
+        agent().delete(url).call().map(|_| ())
+    }
+    .map_err(|e| e.to_string())
+}
+
 fn get(base: &str, path: &str) -> Result<String, String> {
     agent()
         .get(format!("{base}{path}"))
@@ -189,7 +199,10 @@ pub struct Snapshot {
     pub sizes: Vec<CardSize>,
 }
 
+static LOADS: AtomicU64 = AtomicU64::new(0);
+
 pub struct Loaded {
+    pub order: u64,
     pub snapshot: Snapshot,
     pub settings: SettingsView,
 }
@@ -203,7 +216,9 @@ fn frame(request: &impl Serialize) -> Message {
 }
 
 pub fn load(base: &str) -> Result<Loaded, String> {
+    let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
     Ok(Loaded {
+        order,
         snapshot: Snapshot {
             nodes: read(base, "/api/nodes")?,
             repos: read(base, "/api/repos")?,

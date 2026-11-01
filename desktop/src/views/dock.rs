@@ -13,6 +13,7 @@ use crate::strings::Str;
 
 mod body;
 mod docs;
+mod events;
 mod history;
 mod questions;
 mod ui;
@@ -21,6 +22,7 @@ mod ui;
 enum Tab {
     Questions,
     Docs,
+    Events,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,6 +63,7 @@ pub struct Dock {
     open_key: String,
     history: History,
     docs: Docs,
+    events: events::Events,
     fault: Option<String>,
     subscriptions: Vec<Subscription>,
 }
@@ -84,6 +87,7 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
                 hidden: Vec::new(),
                 query: query.clone(),
             },
+            events: events::Events::new(cx),
             fault: None,
             subscriptions: Vec::new(),
         };
@@ -91,6 +95,10 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.sync(cx)));
         dock.subscriptions
             .push(cx.observe(&query, |_, _, cx| cx.notify()));
+        dock.subscriptions
+            .push(cx.observe(dock.events.query(), |dock, _, cx| dock.query_changed(cx)));
+        dock.subscriptions
+            .push(cx.subscribe(&store, |dock, _, event, cx| dock.feed(event, cx)));
         dock.sync(cx);
         dock
     })
@@ -102,6 +110,9 @@ impl Dock {
         self.fault = None;
         if tab == Tab::Docs {
             self.load_docs(cx);
+        }
+        if tab == Tab::Events {
+            self.load_events(cx);
         }
         cx.notify();
     }
@@ -159,9 +170,11 @@ impl Render for Dock {
         };
         let questions = ui::say(cx, Str::WaitQuestion);
         let documents = ui::say(cx, Str::DocsTitle);
+        let events = ui::say(cx, Str::EventsTitle);
         let panel = match self.tab {
             Tab::Questions => self.questions(cx).into_any_element(),
             Tab::Docs => self.documents(cx).into_any_element(),
+            Tab::Events => self.events(cx).into_any_element(),
         };
         div()
             .size_full()
@@ -177,7 +190,8 @@ impl Render for Dock {
                     .border_b_1()
                     .border_color(c.line)
                     .child(tab("tab-questions", questions, Tab::Questions, waiting, cx))
-                    .child(tab("tab-docs", documents, Tab::Docs, 0, cx)),
+                    .child(tab("tab-docs", documents, Tab::Docs, 0, cx))
+                    .child(tab("tab-events", events, Tab::Events, 0, cx)),
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
             .child(

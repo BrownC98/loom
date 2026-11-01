@@ -1,8 +1,10 @@
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
+use api::graph::events::EventLog;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
 use api::graph::{GraphEvent, NodeState};
 use api::ids::{NodeId, WaitId};
+use api::profile::AgentView;
 use api::settings::SettingsView;
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
@@ -279,6 +281,17 @@ impl Store {
                 None => "/api/waits/closed".to_owned(),
             };
             link::read(base, &path)
+        })
+    }
+
+    pub fn event_console(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(EventLog, Vec<AgentView>), String>> {
+        self.call(cx, |base| {
+            let log = link::read(base, "/api/events/log")?;
+            let agents = link::read(base, "/api/agents").unwrap_or_default();
+            Ok((log, agents))
         })
     }
 

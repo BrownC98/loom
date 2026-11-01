@@ -633,3 +633,433 @@ pub fn settle(
     }
     at
 }
+
+#[derive(Clone, Debug)]
+pub struct Sibling {
+    pub key: String,
+    pub rect: Rect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PushSide {
+    Right,
+    Down,
+    Left,
+    Up,
+}
+
+const PUSH_SIDES: [PushSide; 4] = [
+    PushSide::Right,
+    PushSide::Down,
+    PushSide::Left,
+    PushSide::Up,
+];
+
+fn clearance(rect: Rect, by: Rect, side: PushSide, gap: f64) -> f64 {
+    match side {
+        PushSide::Right => by.at.x + by.size.width + gap - rect.at.x,
+        PushSide::Down => by.at.y + by.size.height + gap - rect.at.y,
+        PushSide::Left => rect.at.x + rect.size.width - (by.at.x - gap),
+        PushSide::Up => rect.at.y + rect.size.height - (by.at.y - gap),
+    }
+}
+
+fn moved(rect: Rect, side: PushSide, distance: f64) -> Rect {
+    let (dx, dy) = match side {
+        PushSide::Right => (distance, 0.0),
+        PushSide::Down => (0.0, distance),
+        PushSide::Left => (-distance, 0.0),
+        PushSide::Up => (0.0, -distance),
+    };
+    Rect {
+        at: Point {
+            x: rect.at.x + dx,
+            y: rect.at.y + dy,
+        },
+        size: rect.size,
+    }
+}
+
+pub fn push(
+    siblings: &[Sibling],
+    mover: Rect,
+    targets: &[String],
+    gap: f64,
+) -> BTreeMap<String, Point> {
+    push_by(siblings, mover, targets, gap, &|rect| {
+        PUSH_SIDES.iter().skip(1).fold(PUSH_SIDES[0], |best, &s| {
+            if clearance(rect, mover, s, gap) < clearance(rect, mover, best, gap) {
+                s
+            } else {
+                best
+            }
+        })
+    })
+}
+
+fn away(rect: Rect, mover: Rect) -> PushSide {
+    if (rect.at.x - mover.at.x) / mover.size.width >= (rect.at.y - mover.at.y) / mover.size.height {
+        PushSide::Right
+    } else {
+        PushSide::Down
+    }
+}
+
+fn push_by(
+    siblings: &[Sibling],
+    mover: Rect,
+    targets: &[String],
+    gap: f64,
+    side_of: &dyn Fn(Rect) -> PushSide,
+) -> BTreeMap<String, Point> {
+    let mut now: Vec<(String, Rect)> = Vec::new();
+    for s in siblings {
+        match now.iter_mut().find(|(k, _)| *k == s.key) {
+            Some(slot) => slot.1 = s.rect,
+            None => now.push((s.key.clone(), s.rect)),
+        }
+    }
+    let mut out = BTreeMap::new();
+    for key in targets {
+        let Some(rect) = now.iter().find(|(k, _)| k == key).map(|(_, r)| *r) else {
+            continue;
+        };
+        if !overlaps(rect, mover) {
+            continue;
+        }
+        let side = side_of(rect);
+        let mut queue = std::collections::VecDeque::from([(
+            key.clone(),
+            moved(rect, side, clearance(rect, mover, side, gap)),
+        )]);
+        while let Some((k, b)) = queue.pop_front() {
+            if let Some(slot) = now.iter_mut().find(|(n, _)| *n == k) {
+                slot.1 = b;
+            }
+            out.insert(k.clone(), b.at);
+            for (other, o) in &now {
+                if *other != k && overlaps(*o, b) {
+                    queue.push_back((other.clone(), moved(*o, side, clearance(*o, b, side, gap))));
+                }
+            }
+        }
+    }
+    out
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CenterSide {
+    pub x: f64,
+    pub y: f64,
+}
+
+fn center(r: Rect) -> Point {
+    Point {
+        x: r.at.x + r.size.width / 2.0,
+        y: r.at.y + r.size.height / 2.0,
+    }
+}
+
+fn sign(v: f64) -> f64 {
+    if v > 0.0 {
+        1.0
+    } else if v < 0.0 {
+        -1.0
+    } else {
+        v
+    }
+}
+
+pub fn center_side(dragged: Rect, rect: Rect) -> CenterSide {
+    let (d, o) = (center(dragged), center(rect));
+    let apart_x = dragged.at.x + dragged.size.width <= rect.at.x
+        || rect.at.x + rect.size.width <= dragged.at.x;
+    let apart_y = dragged.at.y + dragged.size.height <= rect.at.y
+        || rect.at.y + rect.size.height <= dragged.at.y;
+    CenterSide {
+        x: if apart_x { sign(d.x - o.x) } else { 0.0 },
+        y: if apart_y { sign(d.y - o.y) } else { 0.0 },
+    }
+}
+
+pub fn crossed(before: CenterSide, dragged: Rect, rect: Rect) -> bool {
+    let o = center(rect);
+    let lead = Point {
+        x: if before.x < 0.0 {
+            dragged.at.x + dragged.size.width
+        } else {
+            dragged.at.x
+        },
+        y: if before.y < 0.0 {
+            dragged.at.y + dragged.size.height
+        } else {
+            dragged.at.y
+        },
+    };
+    (before.x != 0.0 && sign(lead.x - o.x) != before.x)
+        || (before.y != 0.0 && sign(lead.y - o.y) != before.y)
+}
+
+#[derive(Clone, Debug)]
+pub struct Swap {
+    pub slot: Rect,
+    pub sides: BTreeMap<String, CenterSide>,
+    pub at: BTreeMap<String, Point>,
+}
+
+pub fn swap(state: &Swap, others: &[Sibling], dragged: Rect) -> Swap {
+    let mut slot = state.slot;
+    let mut sides = state.sides.clone();
+    let mut at = state.at.clone();
+    for s in others {
+        let o = Rect {
+            at: at.get(&s.key).copied().unwrap_or(s.rect.at),
+            size: s.rect.size,
+        };
+        if !overlaps(dragged, o) {
+            sides.insert(s.key.clone(), center_side(dragged, o));
+            continue;
+        }
+        let before = sides
+            .get(&s.key)
+            .copied()
+            .unwrap_or_else(|| center_side(slot, o));
+        sides.insert(s.key.clone(), before);
+        if !crossed(before, dragged, o) {
+            continue;
+        }
+        let edge = |side: f64, now: f64, from: f64, len: f64, own: f64| {
+            if side == 0.0 {
+                now
+            } else if side > 0.0 {
+                from + len - own
+            } else {
+                from
+            }
+        };
+        at.insert(
+            s.key.clone(),
+            Point {
+                x: edge(before.x, o.at.x, slot.at.x, slot.size.width, o.size.width),
+                y: edge(before.y, o.at.y, slot.at.y, slot.size.height, o.size.height),
+            },
+        );
+        slot = o;
+        sides.insert(
+            s.key.clone(),
+            CenterSide {
+                x: -before.x,
+                y: -before.y,
+            },
+        );
+    }
+    Swap { slot, sides, at }
+}
+
+pub fn unpile(siblings: &[Sibling], gap: f64) -> BTreeMap<String, Point> {
+    let mut now: BTreeMap<String, Point> = siblings
+        .iter()
+        .map(|s| (s.key.clone(), s.rect.at))
+        .collect();
+    for (i, s) in siblings.iter().enumerate() {
+        let boxes: Vec<Sibling> = siblings
+            .iter()
+            .map(|b| Sibling {
+                key: b.key.clone(),
+                rect: Rect {
+                    at: now[&b.key],
+                    size: b.rect.size,
+                },
+            })
+            .collect();
+        let mover = boxes[i].rect;
+        let later: Vec<String> = boxes[i + 1..]
+            .iter()
+            .filter(|o| overlaps(o.rect, mover))
+            .map(|o| o.key.clone())
+            .collect();
+        let rest: Vec<Sibling> = boxes.into_iter().filter(|b| b.key != s.key).collect();
+        now.extend(push_by(&rest, mover, &later, gap, &|r| away(r, mover)));
+    }
+    now
+}
+
+pub fn same_point(a: Point, b: Point) -> bool {
+    (a.x - b.x).abs() < 0.5 && (a.y - b.y).abs() < 0.5
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+pub const SIDES: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
+pub const ARRANGE_DIRECTIONS: [Direction; 4] = [
+    Direction::Down,
+    Direction::Right,
+    Direction::Up,
+    Direction::Left,
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TreeSides {
+    pub parent: Side,
+    pub child: Side,
+}
+
+pub fn tree_sides(direction: Direction) -> TreeSides {
+    let (parent, child) = match direction {
+        Direction::Down => (Side::Bottom, Side::Top),
+        Direction::Up => (Side::Top, Side::Bottom),
+        Direction::Right => (Side::Right, Side::Left),
+        Direction::Left => (Side::Left, Side::Right),
+    };
+    TreeSides { parent, child }
+}
+
+fn ahead_gap(parent: Rect, child: Rect, direction: Direction) -> f64 {
+    match direction {
+        Direction::Down => child.at.y - (parent.at.y + parent.size.height),
+        Direction::Up => parent.at.y - (child.at.y + child.size.height),
+        Direction::Right => child.at.x - (parent.at.x + parent.size.width),
+        Direction::Left => parent.at.x - (child.at.x + child.size.width),
+    }
+}
+
+pub fn step_at(parent: Rect, child: Rect, direction: Direction, bend: f64) -> Option<f64> {
+    let gap = ahead_gap(parent, child, direction);
+    (gap >= 0.0).then(|| bend.min(gap / 2.0))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BendCenter {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+}
+
+pub fn bend_center(parent: Rect, bend: f64, direction: Direction) -> BendCenter {
+    let none = BendCenter { x: None, y: None };
+    match direction {
+        Direction::Down => BendCenter {
+            y: Some(parent.at.y + parent.size.height + bend),
+            ..none
+        },
+        Direction::Up => BendCenter {
+            y: Some(parent.at.y - bend),
+            ..none
+        },
+        Direction::Right => BendCenter {
+            x: Some(parent.at.x + parent.size.width + bend),
+            ..none
+        },
+        Direction::Left => BendCenter {
+            x: Some(parent.at.x - bend),
+            ..none
+        },
+    }
+}
+
+pub fn edge_sides(parent: Rect, child: Rect, direction: Direction) -> TreeSides {
+    if ahead_gap(parent, child, direction) >= 0.0 {
+        return tree_sides(direction);
+    }
+    let gap_right = child.at.x - (parent.at.x + parent.size.width);
+    let gap_left = parent.at.x - (child.at.x + child.size.width);
+    let gap_down = child.at.y - (parent.at.y + parent.size.height);
+    let gap_up = parent.at.y - (child.at.y + child.size.height);
+    let horizontal = gap_right.max(gap_left) > gap_down.max(gap_up);
+    let toward = if horizontal {
+        if gap_right > gap_left {
+            Direction::Right
+        } else {
+            Direction::Left
+        }
+    } else if gap_down > gap_up {
+        Direction::Down
+    } else {
+        Direction::Up
+    };
+    tree_sides(toward)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct EdgeEnd {
+    pub rect: Rect,
+    pub side: Side,
+}
+
+pub fn side_point(end: EdgeEnd) -> Point {
+    let EdgeEnd { rect, side } = end;
+    let mid_x = rect.at.x + rect.size.width / 2.0;
+    let mid_y = rect.at.y + rect.size.height / 2.0;
+    match side {
+        Side::Left => Point {
+            x: rect.at.x,
+            y: mid_y,
+        },
+        Side::Right => Point {
+            x: rect.at.x + rect.size.width,
+            y: mid_y,
+        },
+        Side::Top => Point {
+            x: mid_x,
+            y: rect.at.y,
+        },
+        Side::Bottom => Point {
+            x: mid_x,
+            y: rect.at.y + rect.size.height,
+        },
+    }
+}
+
+fn js_round(v: f64) -> f64 {
+    (v + 0.5).floor()
+}
+
+pub fn label_heading(from: EdgeEnd, to: EdgeEnd, step: Option<f64>) -> Direction {
+    let a = side_point(from);
+    let b = side_point(to);
+    let dx = js_round(b.x - a.x);
+    let dy = js_round(b.y - a.y);
+    let vertical = matches!(from.side, Side::Top | Side::Bottom);
+    let lean = match (step.is_some(), vertical) {
+        (true, true) => Point { x: dx, y: 0.0 },
+        (true, false) => Point { x: 0.0, y: dy },
+        (false, true) => Point { x: 2.0 * dx, y: dy },
+        (false, false) => Point { x: dx, y: 2.0 * dy },
+    };
+    let m = if lean.x == 0.0 && lean.y == 0.0 {
+        Point { x: dx, y: dy }
+    } else {
+        lean
+    };
+    if m.x.abs() > m.y.abs() {
+        if m.x > 0.0 {
+            Direction::Right
+        } else {
+            Direction::Left
+        }
+    } else if m.y > 0.0 {
+        Direction::Down
+    } else {
+        Direction::Up
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Camera {
+    pub x: f64,
+    pub y: f64,
+    pub zoom: f64,
+}
+
+pub fn follow_card(old: Point, now: Point, camera: Camera) -> Camera {
+    Camera {
+        x: camera.x - (now.x - old.x) * camera.zoom,
+        y: camera.y - (now.y - old.y) * camera.zoom,
+        zoom: camera.zoom,
+    }
+}

@@ -3,12 +3,30 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hopParts, pickHue, siblingLanes } from '../src/hopLanes.ts';
-import { arrangeNested, settle } from '../src/layout.ts';
+import {
+  arrangeNested,
+  bendCenter,
+  centerSide,
+  crossed,
+  edgeSides,
+  followCard,
+  freeSpot,
+  labelHeading,
+  push,
+  samePoint,
+  settle,
+  stepAt,
+  swap,
+  unpile,
+} from '../src/layout.ts';
 import { attachCards, bookmarked, chosenRepo, groupParents, groupsOf, inGroup, placeName, splitChips } from '../src/repos.ts';
 
 const dir = fileURLToPath(new URL('../../fixtures/layout/', import.meta.url));
 const write = process.argv.includes('--write');
 const point = (p) => ({ x: p.x, y: p.y });
+const box = (b) => ({ at: point(b.at), size: { width: b.size.width, height: b.size.height } });
+const points = (m) => Object.fromEntries([...m].map(([key, p]) => [key, point(p)]));
+const entries = (o) => new Map(Object.entries(o));
 
 const run = {
   arrangeNested: (i) => {
@@ -22,7 +40,22 @@ const run = {
     );
     return { cards: Object.fromEntries([...out.cards].map(([id, p]) => [id, point(p)])), boxes: out.boxes };
   },
-  settle: (i) => Object.fromEntries([...settle(i.items, (key) => i.placed[key], i.gap)].map(([key, p]) => [key, point(p)])),
+  settle: (i) => points(settle(i.items, (key) => i.placed[key], i.gap)),
+  push: (i) => points(push(i.siblings, i.mover, i.targets, i.gap)),
+  unpile: (i) => points(unpile(i.siblings, i.gap)),
+  swap: (i) => {
+    const out = swap({ slot: i.state.slot, sides: entries(i.state.sides), at: entries(i.state.at) }, i.others, i.dragged);
+    return { slot: box(out.slot), sides: Object.fromEntries(out.sides), at: points(out.at) };
+  },
+  centerSide: (cases) => cases.map((c) => centerSide(c.dragged, c.box)),
+  crossed: (cases) => cases.map((c) => crossed(c.before, c.dragged, c.box)),
+  freeSpot: (cases) => cases.map((c) => point(freeSpot(c.box, c.others, c.gap))),
+  samePoint: (cases) => cases.map((c) => samePoint(c.a, c.b)),
+  stepAt: (cases) => cases.map((c) => ({ step: stepAt(c.parent, c.child, c.direction, c.bend) })),
+  bendCenter: (cases) => cases.map((c) => bendCenter(c.parent, c.bend, c.direction)),
+  edgeSides: (cases) => cases.map((c) => edgeSides(c.parent, c.child, c.direction)),
+  labelHeading: (cases) => cases.map((c) => ({ heading: labelHeading(c.from, c.to, c.step) })),
+  followCard: (cases) => cases.map((c) => followCard(c.old, c.now, c.camera)),
 };
 
 const place = (v) => ({ repo: v.repo, worktree: v.worktree });

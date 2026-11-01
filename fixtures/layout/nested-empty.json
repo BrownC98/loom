@@ -1,0 +1,18 @@
+{
+  "kind": "arrangeNested",
+  "input": {
+    "direction": "down",
+    "inset": {
+      "top": 60,
+      "side": 20
+    },
+    "groups": [],
+    "parents": {},
+    "sizes": {},
+    "rank": {}
+  },
+  "output": {
+    "cards": {},
+    "boxes": []
+  }
+}

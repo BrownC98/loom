@@ -4,11 +4,23 @@ use crate::strings::{Lang, Str};
 
 type Vars = Vec<(String, String)>;
 
-pub fn status(status: u16) -> String {
-    Str::ProblemStatus.with(Lang::current(), &[("status", &status.to_string())])
+pub enum Failure {
+    Refused { status: u16, body: String },
+    Other(String),
 }
 
-pub fn text(body: &str) -> Option<String> {
+impl Failure {
+    pub fn text(&self, lang: Lang) -> String {
+        match self {
+            Failure::Refused { status, body } => text(body, lang).unwrap_or_else(|| {
+                Str::ProblemStatus.with(lang, &[("status", &status.to_string())])
+            }),
+            Failure::Other(text) => text.clone(),
+        }
+    }
+}
+
+fn text(body: &str, lang: Lang) -> Option<String> {
     let problem: Value = serde_json::from_str(body).ok()?;
     let value = problem.get("value");
     let (keys, vars): (Vec<String>, Vars) = match problem.get("code")?.as_str()? {
@@ -40,7 +52,7 @@ pub fn text(body: &str) -> Option<String> {
     };
     let template = keys.iter().find_map(|key| Str::find(key))?;
     let args: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    Some(template.with(Lang::current(), &args))
+    Some(template.with(lang, &args))
 }
 
 fn code(coded: &Value) -> Option<&str> {

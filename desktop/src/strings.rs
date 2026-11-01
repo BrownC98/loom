@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU8, Ordering};
-
 use api::settings::Language;
 use gpui::Global;
 
@@ -11,20 +9,7 @@ pub enum Lang {
 
 impl Global for Lang {}
 
-static CURRENT: AtomicU8 = AtomicU8::new(Lang::En as u8);
-
 impl Lang {
-    pub fn remember(self) {
-        CURRENT.store(self as u8, Ordering::Relaxed);
-    }
-
-    pub fn current() -> Lang {
-        match CURRENT.load(Ordering::Relaxed) {
-            0 => Lang::Ko,
-            _ => Lang::En,
-        }
-    }
-
     pub fn resolve(language: Language, system_locale: &str) -> Lang {
         match language {
             Language::Ko => Lang::Ko,

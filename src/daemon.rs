@@ -32,6 +32,7 @@ mod usage_cache;
 mod verbs;
 mod waits;
 
+pub use api::graph::errors::Problem;
 pub use commands::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
     DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, ShowRequest,
@@ -137,56 +138,6 @@ struct App {
     passes: passes::Passes,
     choices: waits::Choices,
     doc_titles: user_doc::Titles,
-}
-
-/// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
-#[derive(Debug, Serialize, TS)]
-#[serde(tag = "code", content = "value", rename_all = "camelCase")]
-#[ts(export)]
-pub enum Problem {
-    Refused(Refusal),
-    Launch(LaunchError),
-    Repo(RepoProblem),
-    /// 없는 로그인 창이다.
-    NoLogin,
-    /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
-    Internal(String),
-}
-
-impl Problem {
-    fn status(&self) -> StatusCode {
-        match self {
-            Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            Problem::Refused(_) | Problem::Launch(_) | Problem::Repo(_) => StatusCode::BAD_REQUEST,
-            Problem::NoLogin => StatusCode::NOT_FOUND,
-        }
-    }
-}
-
-impl IntoResponse for Problem {
-    fn into_response(self) -> Response {
-        (self.status(), Json(self)).into_response()
-    }
-}
-
-impl From<Refusal> for Problem {
-    fn from(e: Refusal) -> Self {
-        Problem::Refused(e)
-    }
-}
-
-impl From<RepoProblem> for Problem {
-    fn from(e: RepoProblem) -> Self {
-        Problem::Repo(e)
-    }
-}
-
-impl From<LaunchError> for Problem {
-    fn from(e: LaunchError) -> Self {
-        Problem::Launch(e)
-    }
 }
 
 type AgentError = (StatusCode, String);

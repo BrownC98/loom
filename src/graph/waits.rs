@@ -3,13 +3,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+
+pub use api::graph::docs::DocQuestion;
+pub use api::graph::waits::{HumanWait, ScreenWait, WaitTone};
 
 use super::agent_state::{self, AgentEvent};
 use super::closed::{self, Closed, Open};
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
-use crate::choices::{Choice, choices, offers_choices_without_tail};
+use crate::choices::{choices, offers_choices_without_tail};
 use crate::link_text::{TextPart, bare_link, parts};
 use crate::protocol::{
     AgentId, MessageKind, OpenQuestion, Prompt, Question, Refusal, WaitDoc, WaitId, WaitKind,
@@ -24,118 +26,42 @@ pub enum WaitSource {
     Screen,
 }
 
-/// DB에 두는 대기 한 건.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
-pub struct HumanWait {
-    pub id: WaitId,
-    pub kind: WaitKind,
-    /// `loom ask` 질문과 완료는 전문, 다른 대기는 한 줄이다. 없으면 빈 글이고, 화면은 종류 이름만 보인다.
-    pub text: String,
-    /// 대기가 시작된 유닉스 초.
-    #[ts(type = "number")]
-    pub since: i64,
-    /// `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 `prompt`의 버튼·입력칸이나 그 노드 터미널에서 답한다.
-    pub answerable: bool,
-    pub doc: Option<WaitDoc>,
-    /// 완료(`Done`)만: 그 일을 맡긴 사람의 지시(`loom done --asked`). `text`는 결과(`loom done`의 요약)다.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub instruction: Option<String>,
-    /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
-    #[serde(default)]
-    pub images: Vec<String>,
-    /// 신호(훅·서버·화면)의 대기만: 지금 터미널 화면에서 읽은 창이나 서버가 준 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub prompt: Option<Prompt>,
-    /// `text`의 글 조각. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub parts: Vec<TextPart>,
-    /// 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub choices: Vec<Choice>,
-}
-
-/// 문서 페이지(`/docs/{id}`)의 응답 막대 상태: 그 문서가 붙은 가장 최근 질문. 목업 docs/mockups/doc-answer.html.
-#[derive(Serialize, TS, PartialEq, Debug)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum DocQuestion {
-    None,
-    Open {
-        wait: WaitId,
-    },
-    Answered {
-        wait: WaitId,
-        text: String,
-        /// 답한 유닉스 초.
-        #[ts(type = "number")]
-        at: i64,
-    },
-    Closed {
-        wait: WaitId,
-    },
-}
-
-/// 화면에 보내는 대기: 저장한 대기와 데몬이 정한 표시 값.
-#[derive(Clone, Serialize, TS)]
-#[ts(export)]
-pub struct ScreenWait {
-    #[serde(flatten)]
-    #[ts(flatten)]
-    pub wait: HumanWait,
-    pub tone: WaitTone,
-    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글.
-    pub summary: String,
-}
-
-/// 대기의 색과 아이콘, 알림 채널.
-#[derive(Clone, Copy, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum WaitTone {
-    Ask,
-    Done,
-}
-
-impl HumanWait {
-    pub(super) fn for_screen(self) -> ScreenWait {
-        let parts = parts(&self.text);
-        let summary = match &self.prompt {
-            Some(prompt) => prompt.summary.clone(),
-            None => parts
-                .iter()
-                .map(|part| match part {
-                    TextPart::Text { text } => text.as_str(),
-                    TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
-                })
-                .collect(),
-        };
-        let tone = match self.kind {
-            WaitKind::Question
-            | WaitKind::Approval
+pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
+    let parts = parts(&wait.text);
+    let summary = match &wait.prompt {
+        Some(prompt) => prompt.summary.clone(),
+        None => parts
+            .iter()
+            .map(|part| match part {
+                TextPart::Text { text } => text.as_str(),
+                TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
+            })
+            .collect(),
+    };
+    let tone = match wait.kind {
+        WaitKind::Question
+        | WaitKind::Approval
+        | WaitKind::Trust
+        | WaitKind::Auth
+        | WaitKind::Input => WaitTone::Ask,
+        WaitKind::Done => WaitTone::Done,
+    };
+    let wait = HumanWait {
+        parts,
+        choices: match wait.kind {
+            WaitKind::Question => choices(&wait.text),
+            WaitKind::Approval
             | WaitKind::Trust
             | WaitKind::Auth
-            | WaitKind::Input => WaitTone::Ask,
-            WaitKind::Done => WaitTone::Done,
-        };
-        let wait = HumanWait {
-            parts,
-            choices: match self.kind {
-                WaitKind::Question => choices(&self.text),
-                WaitKind::Approval
-                | WaitKind::Trust
-                | WaitKind::Auth
-                | WaitKind::Input
-                | WaitKind::Done => Vec::new(),
-            },
-            ..self
-        };
-        ScreenWait {
-            wait,
-            tone,
-            summary,
-        }
+            | WaitKind::Input
+            | WaitKind::Done => Vec::new(),
+        },
+        ..wait
+    };
+    ScreenWait {
+        wait,
+        tone,
+        summary,
     }
 }
 

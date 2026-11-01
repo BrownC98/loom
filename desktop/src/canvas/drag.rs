@@ -6,7 +6,7 @@ use api::ids::RepoId;
 use api::settings::{ArrangeDirection, SettingsView};
 
 use super::layout::{self, Direction, FREE_GAP, Inset, Point, Rect, Sibling, Swap};
-use super::scene::{Scene, cover};
+use super::scene::{REPO_INSET, Scene, cover};
 use crate::link::{self, Snapshot};
 
 pub struct Tier {
@@ -40,13 +40,20 @@ pub fn direction_of(direction: ArrangeDirection) -> Direction {
 }
 
 enum Write {
+    Clear(Vec<u32>),
     Spots(Vec<Placed>),
-    Arranged { clear: Vec<u32>, arranged: Arranged },
+    Arranged(Arranged),
 }
 
 pub struct Job {
     id: u64,
-    write: Write,
+    writes: Vec<Write>,
+}
+
+#[derive(Clone, Copy)]
+pub enum Scope {
+    All,
+    Repo(u32),
 }
 
 impl Job {
@@ -55,15 +62,18 @@ impl Job {
     }
 
     pub fn run(&self, base: &str) -> Result<(), String> {
-        match &self.write {
-            Write::Spots(placed) => link::put_spots(base, placed),
-            Write::Arranged { clear, arranged } => {
-                for repo in clear {
-                    link::clear_spots(base, *repo)?;
+        for write in &self.writes {
+            match write {
+                Write::Clear(repos) => {
+                    for repo in repos {
+                        link::clear_spots(base, *repo)?;
+                    }
                 }
-                link::put_arranged(base, arranged)
+                Write::Spots(placed) => link::put_spots(base, placed)?,
+                Write::Arranged(arranged) => link::put_arranged(base, arranged)?,
             }
         }
+        Ok(())
     }
 }
 
@@ -231,6 +241,38 @@ fn repo_of(snap: &Snapshot, spot: &Spot) -> Option<u32> {
     }
 }
 
+fn keep_around(scene: &Scene, key: &str, new_lead: Point) -> HashMap<String, Point> {
+    let Some(tier) = scene.tiers.get(key) else {
+        return HashMap::new();
+    };
+    let mut out = pinned(tier, &HashMap::new(), scene);
+    if let Some(me) = tier.boxes.iter().find(|b| b.key == key) {
+        out.insert(
+            key.to_owned(),
+            Point {
+                x: me.rect.at.x - new_lead.x,
+                y: me.rect.at.y - new_lead.y,
+            },
+        );
+    }
+    out
+}
+
+fn write_of(scene: &Scene, snap: &Snapshot, done: &HashMap<String, Point>, keep: bool) -> Write {
+    let placed = place(scene, done);
+    if !keep {
+        return Write::Spots(placed);
+    }
+    let repos: HashSet<u32> = placed
+        .iter()
+        .filter_map(|p| repo_of(snap, &p.spot))
+        .collect();
+    Write::Arranged(Arranged {
+        repos: repos.into_iter().map(RepoId).collect(),
+        placed,
+    })
+}
+
 fn place(scene: &Scene, spots: &HashMap<String, Point>) -> Vec<Placed> {
     spots
         .iter()
@@ -385,7 +427,7 @@ impl Moves {
         scene: &Scene,
         snap: &Snapshot,
         done: HashMap<String, Point>,
-        always: bool,
+        keep: bool,
     ) -> Option<Job> {
         let held: HashMap<&String, &Point> = self.drafts.iter().flat_map(|d| &d.spots).collect();
         let done: HashMap<String, Point> = done
@@ -395,26 +437,8 @@ impl Moves {
         if done.is_empty() {
             return None;
         }
-        let placed = place(scene, &done);
-        if always {
-            let repos: HashSet<u32> = placed
-                .iter()
-                .filter_map(|p| repo_of(snap, &p.spot))
-                .collect();
-            return Some(self.commit(
-                done,
-                Vec::new(),
-                None,
-                Write::Arranged {
-                    clear: Vec::new(),
-                    arranged: Arranged {
-                        repos: repos.into_iter().map(RepoId).collect(),
-                        placed,
-                    },
-                },
-            ));
-        }
-        Some(self.commit(done, Vec::new(), None, Write::Spots(placed)))
+        let writes = vec![write_of(scene, snap, &done, keep)];
+        Some(self.commit(done, Vec::new(), None, writes))
     }
 
     fn commit(
@@ -422,7 +446,7 @@ impl Moves {
         spots: HashMap<String, Point>,
         clearing: Vec<u32>,
         direction: Option<ArrangeDirection>,
-        write: Write,
+        writes: Vec<Write>,
     ) -> Job {
         self.issued += 1;
         self.drafts.push(Draft {
@@ -434,7 +458,7 @@ impl Moves {
         });
         Job {
             id: self.issued,
-            write,
+            writes,
         }
     }
 
@@ -443,39 +467,94 @@ impl Moves {
         scene: &Scene,
         settings: &SettingsView,
         direction: ArrangeDirection,
+        scope: Scope,
     ) -> Overlay {
         self.moving.clear();
         self.active = None;
         self.hold(scene, direction_of(settings.arrange_direction));
         let mut overlay = self.overlay(settings, scene.outers.clone());
         overlay.direction = direction_of(direction);
-        overlay.clearing = scene.autos.keys().copied().collect();
+        overlay.clearing = match scope {
+            Scope::All => scene.autos.keys().copied().collect(),
+            Scope::Repo(id) => HashSet::from([id]),
+        };
         overlay
     }
 
-    pub fn arranged(&mut self, cleared: &Scene, direction: ArrangeDirection) -> Job {
-        let mut ids: Vec<u32> = cleared.autos.keys().copied().collect();
+    pub fn arranged(
+        &mut self,
+        scene: &Scene,
+        cleared: &Scene,
+        snap: &Snapshot,
+        direction: ArrangeDirection,
+        scope: Scope,
+        always: bool,
+    ) -> Job {
+        let mut ids: Vec<u32> = match scope {
+            Scope::All => cleared.autos.keys().copied().collect(),
+            Scope::Repo(id) => vec![id],
+        };
         ids.sort_unstable();
-        let mut spots: HashMap<String, Point> = cleared
-            .autos
-            .values()
-            .flatten()
+        let mut spots: HashMap<String, Point> = HashMap::new();
+        let mut writes = vec![Write::Clear(ids.clone())];
+        if let Scope::Repo(id) = scope {
+            let key = format!("repo:{id}");
+            let kept = keep_around(
+                scene,
+                &key,
+                Point {
+                    x: -REPO_INSET.side,
+                    y: -REPO_INSET.top,
+                },
+            );
+            writes.push(write_of(scene, snap, &kept, always));
+            spots.extend(kept);
+        }
+        for id in &ids {
+            if let Some(auto) = cleared.autos.get(id) {
+                spots.extend(auto.iter().map(|(k, p)| (k.clone(), *p)));
+            }
+        }
+        if matches!(scope, Scope::All) {
+            spots.extend(cleared.repo_autos.iter().map(|(k, p)| (k.clone(), *p)));
+        }
+        let arranged: HashMap<String, Point> = spots
+            .iter()
+            .filter(|(k, _)| match scope {
+                Scope::All => true,
+                Scope::Repo(id) => cleared
+                    .autos
+                    .get(&id)
+                    .is_some_and(|auto| auto.contains_key(*k)),
+            })
             .map(|(k, p)| (k.clone(), *p))
             .collect();
-        spots.extend(cleared.repo_autos.iter().map(|(k, p)| (k.clone(), *p)));
-        let placed = place(cleared, &spots);
-        self.commit(
-            spots,
-            ids.clone(),
-            Some(direction),
-            Write::Arranged {
-                clear: ids.clone(),
-                arranged: Arranged {
-                    repos: ids.into_iter().map(RepoId).collect(),
-                    placed,
-                },
-            },
-        )
+        writes.push(Write::Arranged(Arranged {
+            repos: ids.iter().copied().map(RepoId).collect(),
+            placed: place(cleared, &arranged),
+        }));
+        self.commit(spots, ids, Some(direction), writes)
+    }
+
+    pub fn arrange_group(
+        &mut self,
+        scene: &Scene,
+        snap: &Snapshot,
+        settings: &SettingsView,
+        path: &str,
+    ) -> Option<Job> {
+        self.hold(scene, direction_of(settings.arrange_direction));
+        let auto = scene.group_autos.get(path)?;
+        let repo = match scene.spots.get(path)? {
+            Spot::Worktree { repo, .. } => repo.0,
+            _ => return None,
+        };
+        let mut done = keep_around(scene, path, Point { x: 0.0, y: 0.0 });
+        done.extend(auto.iter().map(|(k, p)| (k.clone(), *p)));
+        let keep = settings.always_arrange
+            || (snap.layout.arranged.contains(&RepoId(repo))
+                && !self.drafts.iter().any(|d| d.clearing.contains(&repo)));
+        self.save(scene, snap, done, keep)
     }
 
     pub fn finish(&mut self, id: u64) {

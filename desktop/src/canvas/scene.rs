@@ -10,7 +10,7 @@ use super::layout::{
     SettleItem, Sibling, Size,
 };
 use super::repos::{Group, GroupKind, attach_cards, group_parents, groups_of, split_chips};
-use api::graph::{CardView, NodeView};
+use api::graph::{CardView, NodeView, Place};
 use api::repos::RepoView;
 
 use crate::link::Snapshot;
@@ -44,11 +44,13 @@ pub struct Frame {
     pub key: String,
     pub label: String,
     pub rect: Rect,
+    pub place: Option<Place>,
 }
 
 pub struct Card {
     pub node: NodeId,
     pub rect: Rect,
+    pub spot: Point,
 }
 
 #[derive(Default)]
@@ -60,6 +62,7 @@ pub struct Scene {
     pub spots: HashMap<String, Spot>,
     pub branches: HashMap<String, String>,
     pub outers: HashMap<String, String>,
+    pub group_autos: HashMap<String, BTreeMap<String, Point>>,
     pub autos: HashMap<u32, BTreeMap<String, Point>>,
     pub repo_autos: BTreeMap<String, Point>,
 }
@@ -235,6 +238,7 @@ impl Level<'_> {
         for b in &g.tier.boxes {
             out.tiers.insert(b.key.clone(), g.tier.clone());
         }
+        out.group_autos.insert(path.clone(), g.auto.clone());
         for v in &self.members[g.group] {
             out.spots
                 .insert(v.id.to_string(), Spot::Node { node: v.id });
@@ -265,11 +269,16 @@ impl Level<'_> {
                 at: origin,
                 size: g.size,
             },
+            place: Some(Place {
+                repo: self.repo,
+                worktree: self.groups[g.group].path.clone(),
+            }),
         });
         for &id in &g.members {
             let p = g.local[&id.to_string()];
             out.cards.push(Card {
                 node: id,
+                spot: p,
                 rect: Rect {
                     at: Point {
                         x: origin.x + p.x - g.lead.x,
@@ -667,6 +676,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>, overlay: &Overlay) -
                 key: b.key.clone(),
                 label: b.repo.name.clone(),
                 rect: Rect { at, size: b.size },
+                place: None,
             });
             Point {
                 x: at.x - b.lead.x,

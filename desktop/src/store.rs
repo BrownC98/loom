@@ -1,12 +1,16 @@
+use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
+use api::graph::events::EventLog;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
-use api::graph::{GraphEvent, NodeState};
-use api::ids::WaitId;
+use api::graph::{GraphEvent, NewNode, NodeState};
+use api::ids::{NodeId, WaitId};
+use api::profile::AgentView;
 use api::settings::{ArrangeDirection, SettingsView};
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
 use crate::canvas::drag::Arrange;
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
+use crate::views::notice::{self, Notice};
 use crate::{strings, theme};
 
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
@@ -21,11 +25,17 @@ pub struct Store {
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
+    wanted: Option<u32>,
     zoom_percent: u32,
+    notice: Option<(u64, Notice)>,
+    notices: u64,
 }
+
+pub struct ZoomTo(pub f32);
 
 impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
+impl EventEmitter<ZoomTo> for Store {}
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
@@ -78,7 +88,10 @@ impl Store {
             settings,
             settings_key: String::new(),
             selected: None,
+            wanted: None,
             zoom_percent: 100,
+            notice: None,
+            notices: 0,
         }
     }
 
@@ -125,6 +138,52 @@ impl Store {
         }
     }
 
+    pub fn zoom_to(&mut self, percent: f32, cx: &mut Context<Self>) {
+        cx.emit(ZoomTo(percent / 100.0));
+    }
+
+    pub fn notice(&self) -> Option<&Notice> {
+        self.notice.as_ref().map(|(_, notice)| notice)
+    }
+
+    pub fn tell(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notices += 1;
+        let id = self.notices;
+        self.notice = Some((id, Notice { text }));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(notice::shown_for()).await;
+            let _ = this.update(cx, |store, cx| {
+                if store.notice.as_ref().is_some_and(|(shown, _)| *shown == id) {
+                    store.notice = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
+        let Some(base) = self.base.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_spawn(async move { link::put_settings(&base, &patch) })
+                .await;
+            let _ = this.update(cx, |store, cx| match saved {
+                Ok(()) => store.reload(cx),
+                Err(error) => store.tell(error, cx),
+            });
+        })
+        .detach();
+    }
+
+    pub fn select_when_loaded(&mut self, node: u32, cx: &mut Context<Self>) {
+        self.wanted = Some(node);
+        self.reload(cx);
+    }
+
     pub fn select(&mut self, node: u32, cx: &mut Context<Self>) {
         if self.selected != Some(node) {
             self.selected = Some(node);
@@ -132,7 +191,6 @@ impl Store {
         }
     }
 
-    #[allow(dead_code)]
     pub fn reload(&self, cx: &mut Context<Self>) {
         let Some(base) = self.base.clone() else {
             return;
@@ -188,6 +246,10 @@ impl Store {
             return;
         };
         let present = |id: u32| snapshot.nodes.iter().any(|n| n.id.0 == id);
+        if let Some(id) = self.wanted.filter(|&id| present(id)) {
+            self.selected = Some(id);
+            self.wanted = None;
+        }
         if self.selected.is_none_or(|id| !present(id)) {
             let wanted = std::env::var(NODE_ENV)
                 .ok()
@@ -206,23 +268,13 @@ impl Store {
 }
 
 impl Store {
-    fn edit_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
-        let saved = self.call(cx, move |base| link::put_settings(base, &patch));
-        cx.spawn(async move |this, cx| {
-            if saved.await.is_ok() {
-                let _ = this.update(cx, |store, cx| store.reload(cx));
-            }
-        })
-        .detach();
-    }
-
     pub fn arrange(&mut self, direction: ArrangeDirection, cx: &mut Context<Self>) {
-        self.edit_settings(serde_json::json!({ "arrangeDirection": direction }), cx);
+        self.save_settings(serde_json::json!({ "arrangeDirection": direction }), cx);
         cx.emit(Arrange { direction });
     }
 
     pub fn keep_arranged(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.edit_settings(serde_json::json!({ "alwaysArrange": on }), cx);
+        self.save_settings(serde_json::json!({ "alwaysArrange": on }), cx);
         if on {
             cx.emit(Arrange {
                 direction: self.settings.arrange_direction,
@@ -239,6 +291,25 @@ impl Store {
             return Task::ready(Err(self.status.clone()));
         };
         cx.background_spawn(async move { work(&base) })
+    }
+
+    pub fn agents(&self, cx: &mut Context<Self>) -> Task<Result<Vec<AgentView>, String>> {
+        self.call(cx, |base| link::read(base, "/api/agents"))
+    }
+
+    pub fn create_node(
+        &self,
+        body: NewNode,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<NodeId, String>> {
+        self.call(cx, move |base| {
+            link::post_within(
+                base,
+                "/api/nodes",
+                serde_json::to_string(&body).ok(),
+                link::SLOW_LIMIT,
+            )
+        })
     }
 
     pub fn answer_wait(
@@ -310,6 +381,17 @@ impl Store {
         })
     }
 
+    pub fn event_console(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(EventLog, Vec<AgentView>), String>> {
+        self.call(cx, |base| {
+            let log = link::read(base, "/api/events/log")?;
+            let agents = link::read(base, "/api/agents").unwrap_or_default();
+            Ok((log, agents))
+        })
+    }
+
     pub fn list_docs(&self, cx: &mut Context<Self>) -> Task<Result<Vec<DocRow>, String>> {
         self.call(cx, |base| link::read(base, "/api/docs"))
     }
@@ -324,5 +406,30 @@ impl Store {
                 found
             })
         })
+    }
+}
+
+impl Store {
+    pub fn save_size(
+        &self,
+        size: CardSize,
+        spot: Option<Placed>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| {
+            link::put_sizes(base, &[size])?;
+            match spot {
+                Some(spot) => link::put_spots(base, &[spot]),
+                None => Ok(()),
+            }
+        })
+    }
+
+    pub fn clear_sizes(
+        &self,
+        nodes: Vec<NodeId>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.call(cx, move |base| link::clear_sizes(base, &nodes))
     }
 }

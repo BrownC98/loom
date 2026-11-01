@@ -94,6 +94,15 @@ impl Field {
         self.text.trim().is_empty()
     }
 
+    pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.text = text.to_owned();
+        self.selected = 0..self.text.len();
+        self.reversed = false;
+        self.marked = None;
+        cx.emit(FieldEvent::Changed);
+        cx.notify();
+    }
+
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.text.clear();
         self.selected = 0..0;

@@ -1,6 +1,8 @@
 pub mod card;
 pub mod dock;
+pub mod expanded;
 pub mod field;
+pub mod notice;
 pub mod shell;
 pub mod sidebar;
 pub mod terminal;

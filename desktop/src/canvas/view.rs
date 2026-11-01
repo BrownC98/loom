@@ -12,24 +12,30 @@ use gpui::{
 
 use api::graph::CardView;
 use api::graph::pty::Pace;
+use api::ids::NodeId;
 use api::settings::ArrangeDirection;
 
+use super::arrange;
 use super::camera::Camera;
-use super::drag::{Arrange, Job, Moves};
+use super::drag::{Arrange, Job, Moves, Scope};
 use super::frames::Probe;
 use super::grid;
 use super::keys;
-use super::layout::{self, Rect, Size};
-use super::scene::{self, MIN_CARD, Scene};
+use super::layout::{self, Rect};
+use super::minimap;
+use super::popover;
+use super::resize::{self, Resizer};
+use super::scene::{self, Scene};
 use crate::link;
-use crate::store::Store;
+use crate::store::{Store, ZoomTo};
 use crate::views::card;
+use crate::views::expanded;
+use crate::views::notice;
 use crate::views::terminal::{self, TerminalView};
 
 const WHEEL_LINE: f32 = 25.0;
 const WHEEL_RATE: f32 = 0.002;
 const WHEEL_PINCH_BOOST: f32 = 10.0;
-const HANDLE: f32 = 18.0;
 const TERMINAL_STEP: f32 = 1.03;
 const HIDDEN_KEEP: Duration = Duration::from_secs(3);
 const GRAB_SLOP: f32 = 3.0;
@@ -41,32 +47,29 @@ struct Live {
     hidden: Option<Instant>,
 }
 
-struct Resizing {
-    node: u32,
-    from: Point<Pixels>,
-    size: Size,
-}
-
 struct Carry {
     from: Point<Pixels>,
     started: bool,
 }
 
 pub struct CanvasView {
-    store: Entity<Store>,
+    pub(super) store: Entity<Store>,
     focus: FocusHandle,
     moves: Moves,
     carry: Option<Carry>,
     seen: u64,
-    scene: Scene,
-    resized: HashMap<u32, Size>,
+    pub(super) scene: Scene,
+    resizer: Resizer,
     live: HashMap<u32, Live>,
     focused: Option<u32>,
-    resizing: Option<Resizing>,
+    expanded: Option<u32>,
+    overlay: FocusHandle,
     fit_pending: bool,
-    camera: Camera,
+    pub(super) camera: Camera,
     drag: Option<Point<Pixels>>,
-    area: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) area: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) map: minimap::Pan,
+    pub(super) pop: Option<popover::Popped>,
     probe: Option<Probe>,
     auto: bool,
     started: Instant,
@@ -91,8 +94,12 @@ impl CanvasView {
             cx.notify();
         })
         .detach();
+        cx.subscribe(&store, |this, _, event: &ZoomTo, cx| {
+            this.zoom_to(event.0, cx)
+        })
+        .detach();
         cx.subscribe(&store, |this, _, event: &Arrange, cx| {
-            this.arrange(event.direction, cx);
+            this.arrange(event.direction, Scope::All, cx);
         })
         .detach();
         cx.observe_window_activation(window, |_, window, _| {
@@ -110,14 +117,17 @@ impl CanvasView {
             carry: None,
             seen: 0,
             scene: Scene::default(),
-            resized: HashMap::new(),
+            resizer: Resizer::default(),
             live: HashMap::new(),
             focused: None,
-            resizing: None,
+            expanded: None,
+            overlay: cx.focus_handle(),
             fit_pending: true,
             camera: Camera::HOME,
             drag: None,
             area: Rc::new(Cell::new(Bounds::default())),
+            map: minimap::Pan::default(),
+            pop: None,
             probe: mode.is_some().then(Probe::default),
             auto: mode.as_deref() == Some("auto"),
             started: Instant::now(),
@@ -139,12 +149,14 @@ impl CanvasView {
         let Some(snapshot) = store.snapshot() else {
             return;
         };
+        self.resizer.settle(snapshot);
         let overlay = self
             .moves
             .overlay(store.settings(), self.scene.outers.clone());
-        let next = scene::build(snapshot, &self.resized, &overlay);
+        let mut next = scene::build(snapshot, &self.resizer.sizes(), &overlay);
+        self.resizer.place(&mut next);
         if !self.moves.dragging()
-            && self.resizing.is_none()
+            && !self.resizer.busy()
             && let Some(id) = store.selected()
             && let Some(before) = self.scene.cards.iter().find(|c| c.node == id)
             && let Some(after) = next.cards.iter().find(|c| c.node == id)
@@ -156,19 +168,56 @@ impl CanvasView {
             );
         }
         self.scene = next;
+        if self
+            .expanded
+            .is_some_and(|id| !snapshot.nodes.iter().any(|n| n.id.0 == id))
+        {
+            self.expanded = None;
+        }
     }
 
-    fn arrange(&mut self, direction: ArrangeDirection, cx: &mut Context<Self>) {
+    fn arrange(&mut self, direction: ArrangeDirection, scope: Scope, cx: &mut Context<Self>) {
         let store = self.store.read(cx);
         let Some(snapshot) = store.snapshot() else {
             return;
         };
+        let settings = store.settings();
         let overlay = self
             .moves
-            .arranging(&self.scene, store.settings(), direction);
-        let cleared = scene::build(snapshot, &self.resized, &overlay);
-        let job = self.moves.arranged(&cleared, direction);
+            .arranging(&self.scene, settings, direction, scope);
+        let cleared = scene::build(snapshot, &self.resizer.sizes(), &overlay);
+        let job = self.moves.arranged(
+            &self.scene,
+            &cleared,
+            snapshot,
+            direction,
+            scope,
+            settings.always_arrange,
+        );
         self.persist(job, cx);
+        self.rebuild(cx);
+        cx.notify();
+    }
+
+    pub(super) fn arrange_repo(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(id) = key.strip_prefix("repo:").and_then(|id| id.parse().ok()) else {
+            return;
+        };
+        let direction = self.store.read(cx).settings().arrange_direction;
+        self.arrange(direction, Scope::Repo(id), cx);
+    }
+
+    pub(super) fn arrange_group(&mut self, path: &str, cx: &mut Context<Self>) {
+        let store = self.store.read(cx);
+        let Some(snapshot) = store.snapshot() else {
+            return;
+        };
+        let job = self
+            .moves
+            .arrange_group(&self.scene, snapshot, store.settings(), path);
+        if let Some(job) = job {
+            self.persist(job, cx);
+        }
         self.rebuild(cx);
         cx.notify();
     }
@@ -180,12 +229,17 @@ impl CanvasView {
         let store = self.store.clone();
         cx.spawn(async move |this, cx| {
             let id = job.id();
-            let _ = cx.background_spawn(async move { job.run(&base) }).await;
+            let saved = cx.background_spawn(async move { job.run(&base) }).await;
             let _ = this.update(cx, |view, cx| {
                 view.moves.finish(id);
                 cx.notify();
             });
-            store.update(cx, |store, cx| store.reload(cx));
+            store.update(cx, |store, cx| {
+                if let Err(error) = saved {
+                    store.tell(error, cx);
+                }
+                store.reload(cx)
+            });
         })
         .detach();
     }
@@ -257,12 +311,95 @@ impl CanvasView {
             return;
         };
         cx.stop_propagation();
-        let store = self.store.read(cx);
-        if let Some(from) = store.selected()
+        if let Some(from) = self.store.read(cx).selected()
             && let Some(to) = keys::neighbor(&self.scene, from, direction)
         {
             self.select(to, cx);
         }
+    }
+
+    fn zoomed(&self, cx: &App) -> Option<u32> {
+        let store = self.store.read(cx);
+        let snapshot = store.snapshot()?;
+        let present = |id: u32| snapshot.nodes.iter().any(|n| n.id.0 == id);
+        let held = self.expanded.filter(|&id| present(id))?;
+        Some(store.selected().filter(|&id| present(id)).unwrap_or(held))
+    }
+
+    fn expand(&mut self, node: u32, cx: &mut Context<Self>) {
+        self.expanded = Some(node);
+        self.focused = None;
+        self.select(node, cx);
+        cx.notify();
+    }
+
+    fn collapse(&mut self, cx: &mut Context<Self>) {
+        self.expanded = None;
+        self.focused = None;
+        cx.notify();
+    }
+
+    fn begin_resize(
+        &mut self,
+        node: u32,
+        edge: resize::Edge,
+        at: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(card) = self.scene.cards.iter().find(|c| c.node == node) else {
+            return;
+        };
+        if let Some(snapshot) = self.store.read(cx).snapshot() {
+            self.resizer.begin(card, edge, at, snapshot);
+        }
+    }
+
+    fn end_resize(&mut self, cx: &mut Context<Self>) {
+        let Some(saved) = self.resizer.end() else {
+            return;
+        };
+        let node = saved.size.node;
+        let task = self
+            .store
+            .update(cx, |store, cx| store.save_size(saved.size, saved.spot, cx));
+        self.finish_save(node, task, cx);
+    }
+
+    fn reset_size(&mut self, node: u32, cx: &mut Context<Self>) {
+        let saved = self
+            .store
+            .read(cx)
+            .snapshot()
+            .is_some_and(|s| s.sizes.iter().any(|z| z.node.0 == node));
+        if !saved {
+            return;
+        }
+        self.resizer.reset(&[node]);
+        self.rebuild(cx);
+        let task = self
+            .store
+            .update(cx, |store, cx| store.clear_sizes(vec![NodeId(node)], cx));
+        self.finish_save(NodeId(node), task, cx);
+        cx.notify();
+    }
+
+    fn finish_save(
+        &mut self,
+        node: NodeId,
+        task: gpui::Task<Result<(), String>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            if let Err(error) = task.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.resizer.fail(&[node.0]);
+                    this.store.update(cx, |store, cx| store.tell(error, cx));
+                    this.rebuild(cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn select(&mut self, node: u32, cx: &mut Context<Self>) {
@@ -270,7 +407,7 @@ impl CanvasView {
         self.store.update(cx, |store, cx| store.select(node, cx));
     }
 
-    fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn mount(&mut self, zoomed: Option<u32>, window: &mut Window, cx: &mut Context<Self>) {
         let store = self.store.read(cx);
         let (Some(base), selected) = (store.base().map(str::to_owned), store.selected()) else {
             return;
@@ -284,13 +421,18 @@ impl CanvasView {
             point(-area.width, -area.height),
             size(area.width * 3.0, area.height * 3.0),
         );
-        let near: Vec<u32> = self
+        let mut near: Vec<u32> = self
             .scene
             .cards
             .iter()
             .filter(|c| camera.screen_box(bounds_of(c.rect)).intersects(&reach))
             .map(|c| c.node)
             .collect();
+        if let Some(id) = zoomed
+            && !near.contains(&id)
+        {
+            near.push(id);
+        }
         let now = Instant::now();
         for id in near.iter().copied() {
             let entry = self.live.entry(id).or_insert_with(|| Live {
@@ -314,7 +456,7 @@ impl CanvasView {
             keep
         });
         self.focused = focused;
-        if let Some(id) = selected
+        if let Some(id) = zoomed.or(selected)
             && self.focused != Some(id)
             && let Some(live) = self.live.get(&id)
         {
@@ -366,6 +508,13 @@ impl CanvasView {
         self.fit_pending = false;
     }
 
+    fn zoom_to(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let area = self.area.get().size;
+        let centre = point(area.width / 2.0, area.height / 2.0);
+        self.camera.zoom_about(centre, zoom);
+        cx.notify();
+    }
+
     fn on_scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
         let dy = f32::from(event.delta.pixel_delta(px(WHEEL_LINE)).y);
         let boost = if event.modifiers.control {
@@ -387,6 +536,7 @@ impl CanvasView {
     }
 
     fn on_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        popover::dismiss(self, cx);
         window.focus(&self.focus, cx);
         if let Some(key) = self.frame_head_at(event.position) {
             self.grab(&key, event.position, cx);
@@ -396,10 +546,18 @@ impl CanvasView {
     }
 
     fn on_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if minimap::drag(self, event, cx) {
+            return;
+        }
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = None;
-            self.resizing = None;
+            self.end_resize(cx);
             self.release(cx);
+            return;
+        }
+        if self.resizer.drag(event.position, self.camera.zoom) {
+            self.rebuild(cx);
+            cx.notify();
             return;
         }
         if let Some(carry) = &mut self.carry {
@@ -421,20 +579,6 @@ impl CanvasView {
             }
             return;
         }
-        if let Some(resizing) = &self.resizing {
-            let zoom = f64::from(self.camera.zoom);
-            let delta = event.position - resizing.from;
-            let next = Size {
-                width: (resizing.size.width + f64::from(f32::from(delta.x)) / zoom)
-                    .max(MIN_CARD.width),
-                height: (resizing.size.height + f64::from(f32::from(delta.y)) / zoom)
-                    .max(MIN_CARD.height),
-            };
-            self.resized.insert(resizing.node, next);
-            self.rebuild(cx);
-            cx.notify();
-            return;
-        }
         let Some(last) = self.drag else { return };
         let delta = event.position - last;
         self.camera.pan_by(f32::from(delta.x), f32::from(delta.y));
@@ -444,8 +588,9 @@ impl CanvasView {
 
     fn on_up(&mut self, cx: &mut Context<Self>) {
         self.drag = None;
-        self.resizing = None;
+        self.end_resize(cx);
         self.release(cx);
+        minimap::release(self, cx);
     }
 }
 
@@ -461,18 +606,27 @@ impl Render for CanvasView {
             self.scripted();
             window.request_animation_frame();
         }
-        self.mount(window, cx);
+        let zoomed = self.zoomed(cx);
+        self.mount(zoomed, window, cx);
         let camera = self.camera;
         let percent = (camera.zoom * 100.0).round() as u32;
         if self.store.read(cx).zoom_percent() != percent {
             let store = self.store.clone();
             cx.defer(move |cx| store.update(cx, |store, cx| store.set_zoom_percent(percent, cx)));
         }
+        let map = minimap::view(self, cx);
+        let heads = popover::heads(self, cx);
+        let repo_heads = arrange::repo_heads(self, cx);
+        let pop = popover::element(self);
         let area = self.area.clone();
         let frame_end = self.probe.clone();
-        for live in self.live.values() {
-            live.view
-                .update(cx, |view, _| view.set_scale(snapped(camera.zoom)));
+        for (id, live) in &self.live {
+            let scale = if zoomed == Some(*id) {
+                1.0
+            } else {
+                snapped(camera.zoom)
+            };
+            live.view.update(cx, |view, _| view.set_scale(scale));
         }
         let viewport = Bounds::from_corners(
             point(px(0.0), px(0.0)),
@@ -481,6 +635,9 @@ impl Render for CanvasView {
         let store = self.store.read(cx);
         let selected = store.selected();
         let snapshot = store.snapshot();
+        let notice = store
+            .notice()
+            .map(|n| notice::element(n, cx.global::<crate::theme::Theme>()));
         let repos = self.scene.repos.iter().map(|f| {
             card::frame(
                 &f.label,
@@ -490,12 +647,13 @@ impl Render for CanvasView {
             )
         });
         let groups = self.scene.groups.iter().map(|f| {
-            card::frame(
+            let frame = card::frame(
                 &f.label,
                 camera.screen_box(bounds_of(f.rect)),
                 camera.zoom,
                 false,
-            )
+            );
+            popover::context(frame, f.place.clone(), f.label.clone(), cx)
         });
         let grabbed = self.moves.grabbed().and_then(|k| k.parse::<u32>().ok());
         let ordered = self
@@ -507,12 +665,11 @@ impl Render for CanvasView {
         let cards = ordered.filter_map(|placed| {
             let node = snapshot?.nodes.iter().find(|n| n.id.0 == placed.node)?;
             let id = node.id.0;
-            let node_simple = node.card_view == Some(CardView::Simple);
             let screen = camera.screen_box(bounds_of(placed.rect));
             let body = self
                 .live
                 .get(&id)
-                .filter(|_| screen.intersects(&viewport))
+                .filter(|_| screen.intersects(&viewport) && zoomed != Some(id))
                 .map(|live| {
                     let scale = snapped(camera.zoom);
                     div()
@@ -521,32 +678,18 @@ impl Render for CanvasView {
                         .child(live.view.clone())
                         .into_any_element()
                 });
-            let handle = (node.card_view != Some(CardView::Simple)).then(|| {
-                let side = px(HANDLE * camera.zoom);
-                div()
-                    .absolute()
-                    .right_0()
-                    .bottom_0()
-                    .w(side)
-                    .h(side)
-                    .bg(rgb(0x4a4d55))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                            let size = this
-                                .scene
-                                .cards
-                                .iter()
-                                .find(|c| c.node == id)
-                                .map(|c| c.rect.size);
-                            this.resizing = size.map(|size| Resizing {
-                                node: id,
-                                from: e.position,
-                                size,
-                            });
-                            cx.stop_propagation();
-                        }),
-                    )
+            let standard = node.card_view != Some(CardView::Simple);
+            let handles = standard.then(|| {
+                resize::handles(camera.zoom, |edge| {
+                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                        if e.click_count >= 2 {
+                            this.reset_size(id, cx);
+                        } else {
+                            this.begin_resize(id, edge, e.position, cx);
+                        }
+                        cx.stop_propagation();
+                    })
+                })
             });
             Some(
                 card::card(node, screen, camera.zoom, selected == Some(id), body)
@@ -556,24 +699,44 @@ impl Render for CanvasView {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                            this.grab_card(id, e, node_simple, cx);
+                            let head = f32::from(screen.origin.y) + card::HEAD * camera.zoom;
+                            let top = f32::from(this.local(e.position).y);
+                            if e.click_count == 2 && top <= head && standard {
+                                this.expand(id, cx);
+                            } else {
+                                this.grab_card(id, e, !standard, cx);
+                            }
                             cx.stop_propagation();
                         }),
                     )
-                    .children(handle),
+                    .children(handles.into_iter().flatten()),
             )
+        });
+        let overlay = zoomed.and_then(|id| {
+            let live = self.live.get(&id)?;
+            let node = snapshot?.nodes.iter().find(|n| n.id.0 == id)?;
+            let this = cx.entity();
+            let collapse =
+                Rc::new(move |cx: &mut App| this.update(cx, |this, cx| this.collapse(cx)));
+            Some(expanded::overlay(
+                node,
+                live.view.clone(),
+                &self.overlay,
+                collapse,
+                cx,
+            ))
         });
         div()
             .size_full()
             .relative()
             .overflow_hidden()
             .bg(rgb(0x14161a))
-            .on_scroll(cx.listener(|this, e: &ScrollEvent, _, cx| this.on_scroll(e, cx)))
-            .on_pinch(cx.listener(|this, e: &PinchEvent, _, cx| this.on_pinch(e, cx)))
             .track_focus(&self.focus)
             .capture_key_down(
                 cx.listener(|this, e: &KeyDownEvent, window, cx| this.on_key(e, window, cx)),
             )
+            .on_scroll(cx.listener(|this, e: &ScrollEvent, _, cx| this.on_scroll(e, cx)))
+            .on_pinch(cx.listener(|this, e: &PinchEvent, _, cx| this.on_pinch(e, cx)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e: &MouseDownEvent, window, cx| this.on_down(e, window, cx)),
@@ -598,6 +761,12 @@ impl Render for CanvasView {
             .children(repos)
             .children(groups)
             .children(cards)
+            .children(heads)
+            .children(repo_heads)
+            .children(map)
+            .children(pop)
+            .children(notice)
+            .children(overlay)
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

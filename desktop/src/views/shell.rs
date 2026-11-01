@@ -1,6 +1,7 @@
 mod pane;
 mod status;
 mod title;
+mod zoom;
 
 use api::settings::PaneWidths;
 use gpui::{
@@ -9,7 +10,7 @@ use gpui::{
     div, px,
 };
 
-use crate::link;
+use crate::fonts;
 use crate::store::Store;
 use crate::strings::Lang;
 use crate::theme::Theme;
@@ -27,8 +28,13 @@ struct Drag {
     now: f32,
 }
 
+pub fn zoom(store: Entity<Store>, window: &mut Window, cx: &mut App) -> Entity<zoom::Zoom> {
+    cx.new(|cx| zoom::Zoom::new(store, window, cx))
+}
+
 pub struct Shell {
     store: Entity<Store>,
+    zoom: Entity<zoom::Zoom>,
     main: AnyView,
     left: Option<AnyView>,
     right: Option<AnyView>,
@@ -40,6 +46,7 @@ pub struct Shell {
 impl Shell {
     pub fn new(
         store: Entity<Store>,
+        zoom: Entity<zoom::Zoom>,
         main: AnyView,
         left: Option<AnyView>,
         right: Option<AnyView>,
@@ -57,6 +64,7 @@ impl Shell {
         let seen = store.read(cx).settings().pane_widths.clone();
         Self {
             store,
+            zoom,
             main,
             left,
             right,
@@ -127,20 +135,9 @@ impl Shell {
             Pane::Dock => self.kept.dock = Some(width),
         }
         cx.notify();
-        let Some(base) = self.store.read(cx).base().map(str::to_owned) else {
-            return;
-        };
         let patch = serde_json::json!({ "paneWidths": { pane.key(): width } });
-        let store = self.store.clone();
-        cx.spawn(async move |_, cx| {
-            let saved = cx
-                .background_spawn(async move { link::put_settings(&base, &patch) })
-                .await;
-            if saved.is_ok() {
-                store.update(cx, |store, cx| store.reload(cx));
-            }
-        })
-        .detach();
+        self.store
+            .update(cx, |store, cx| store.save_settings(patch, cx));
     }
 }
 
@@ -193,7 +190,7 @@ impl Render for Shell {
         let theme = cx.global::<Theme>();
         let lang = *cx.global::<Lang>();
         let title = title::bar(window, &theme.colors);
-        let status = status::bar(self.store.read(cx), &theme.colors, lang);
+        let status = status::bar(self.store.read(cx), &theme.colors, lang, &self.zoom);
         let left = Self::slot(&widths, Pane::Side, theme, self.left.clone());
         let right = Self::slot(&widths, Pane::Dock, theme, self.right.clone());
         let side_grip = if widths.open(Pane::Side) {
@@ -212,6 +209,7 @@ impl Render for Shell {
             .flex_col()
             .bg(theme.colors.bg)
             .text_color(theme.colors.ink)
+            .font_family(fonts::UI_FAMILY)
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))

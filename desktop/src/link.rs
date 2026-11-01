@@ -11,6 +11,7 @@ use tungstenite::{Message, WebSocket};
 use api::canvas::{Arranged, CardSize, Layout, Placed};
 use api::graph::pty::{Pace, PtyNotice, PtyRequest, Resize};
 use api::graph::{GraphEvent, NodeView};
+use api::ids::NodeId;
 use api::repos::RepoView;
 use api::settings::SettingsView;
 use serde::Serialize;
@@ -19,6 +20,7 @@ const HTTP: &str = "http://";
 const RECONNECT: Duration = Duration::from_secs(1);
 const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 const HTTP_LIMIT: Duration = Duration::from_secs(10);
+pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
 
@@ -119,28 +121,48 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
-fn agent() -> ureq::Agent {
+fn agent_within(limit: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(HTTP_LIMIT))
+        .timeout_global(Some(limit))
         .build()
         .into()
 }
 
-fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), String> {
-    agent()
-        .put(format!("{base}{path}"))
-        .header("content-type", "application/json")
-        .send(serde_json::to_string(body).map_err(|e| e.to_string())?)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+fn agent() -> ureq::Agent {
+    agent_within(HTTP_LIMIT)
 }
 
 pub fn put_settings(base: &str, patch: &serde_json::Value) -> Result<(), String> {
     put(base, "/api/settings", patch)
 }
 
+fn put<T: Serialize>(base: &str, path: &str, body: &T) -> Result<(), String> {
+    let text = serde_json::to_string(body).map_err(|e| e.to_string())?;
+    agent()
+        .put(format!("{base}{path}"))
+        .header("content-type", "application/json")
+        .send(text)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+pub fn put_sizes(base: &str, sizes: &[CardSize]) -> Result<(), String> {
+    put(base, "/api/sizes", &sizes)
+}
+
 pub fn put_spots(base: &str, placed: &[Placed]) -> Result<(), String> {
     put(base, "/api/spots", &placed)
+}
+
+pub fn clear_sizes(base: &str, nodes: &[NodeId]) -> Result<(), String> {
+    let text = serde_json::to_string(nodes).map_err(|e| e.to_string())?;
+    agent()
+        .delete(format!("{base}/api/sizes"))
+        .force_send_body()
+        .header("content-type", "application/json")
+        .send(text)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 pub fn put_arranged(base: &str, arranged: &Arranged) -> Result<(), String> {
@@ -156,7 +178,16 @@ pub fn post<T: serde::de::DeserializeOwned>(
     path: &str,
     body: Option<String>,
 ) -> Result<T, String> {
-    let request = agent().post(format!("{base}{path}"));
+    post_within(base, path, body, HTTP_LIMIT)
+}
+
+pub fn post_within<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Option<String>,
+    limit: Duration,
+) -> Result<T, String> {
+    let request = agent_within(limit).post(format!("{base}{path}"));
     let response = match body {
         Some(body) => request
             .header("content-type", "application/json")

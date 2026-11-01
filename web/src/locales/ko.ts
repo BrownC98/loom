@@ -619,6 +619,7 @@ const ko: typeof en = {
     reading: '불러오는 중…',
     empty: '아직 커밋이 없습니다.',
     list: '커밋 목록',
+    ago: { lastDay: '어제', lastWeek: '지난주', lastMonth: '지난달', lastYear: '작년', now: '지금', minute: '{{n}}분 전', hour: '{{n}}시간 전', day: '{{n}}일 전', week: '{{n}}주 전', month: '{{n}}개월 전', year: '{{n}}년 전' },
   },
   docs: {
     title: '문서',

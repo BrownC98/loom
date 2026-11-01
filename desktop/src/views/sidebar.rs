@@ -13,6 +13,7 @@ use super::field::{self, Field, FieldEvent};
 use icons::{Glyph, icon};
 use tree::{Body, Built, Dot, Found, Key, Row, Tag, Tone};
 
+use crate::fonts;
 use crate::link;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -523,7 +524,7 @@ impl Sidebar {
                     .text_ellipsis()
                     .whitespace_nowrap()
                     .text_size(px(12.0))
-                    .font_family("monospace")
+                    .font_family(fonts::TERMINAL_FAMILY)
                     .text_color(c.ink_3)
                     .child(line.clone());
                 shell

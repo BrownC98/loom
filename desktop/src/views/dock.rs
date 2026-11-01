@@ -13,10 +13,13 @@ use crate::strings::Str;
 
 mod arrange;
 mod body;
+mod commits;
 mod docs;
 pub mod events;
 mod history;
+mod lanes;
 pub(crate) mod questions;
+mod strokes;
 pub mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,6 +27,7 @@ enum Tab {
     Questions,
     Docs,
     Events,
+    Commits,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,6 +78,7 @@ pub struct Dock {
     arrange_menu: bool,
     history: History,
     docs: Docs,
+    commits: commits::Commits,
     events: events::Events,
     fault: Option<String>,
     subscriptions: Vec<Subscription>,
@@ -102,12 +107,15 @@ pub fn dock(store: Entity<Store>, _: &mut Window, cx: &mut gpui::App) -> Entity<
                 hidden: Vec::new(),
                 query: query.clone(),
             },
+            commits: commits::Commits::default(),
             events: events::Events::new(cx),
             fault: None,
             subscriptions: Vec::new(),
         };
         dock.subscriptions
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.sync(cx)));
+        dock.subscriptions
+            .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.commits_follow(cx)));
         dock.subscriptions
             .push(cx.observe(&query, |_, _, cx| cx.notify()));
         dock.subscriptions
@@ -133,6 +141,9 @@ impl Dock {
         if tab == Tab::Events {
             self.load_events(cx);
         }
+        if tab == Tab::Commits {
+            self.commits_enter(cx);
+        }
         cx.notify();
     }
 
@@ -149,12 +160,13 @@ impl Render for Dock {
         let c = ui::colors(cx);
         self.remember(cx);
         let waiting = self.waiting(cx);
+        let current = self.tab;
         let tab = |id: &'static str,
                    label: &'static str,
                    tab: Tab,
                    count: usize,
                    cx: &mut Context<Self>| {
-            let on = self.tab == tab;
+            let on = current == tab;
             div()
                 .id(id)
                 .flex()
@@ -191,10 +203,12 @@ impl Render for Dock {
         let questions = ui::say(cx, Str::WaitQuestion);
         let documents = ui::say(cx, Str::DocsTitle);
         let events = ui::say(cx, Str::EventsTitle);
+        let graph = ui::say(cx, Str::AppCommitGraph);
         let panel = match self.tab {
             Tab::Questions => self.questions(cx).into_any_element(),
             Tab::Docs => self.documents(cx).into_any_element(),
             Tab::Events => self.events(cx).into_any_element(),
+            Tab::Commits => self.commits_panel(cx).into_any_element(),
         };
         div()
             .size_full()
@@ -212,7 +226,8 @@ impl Render for Dock {
                     .border_color(c.line)
                     .child(tab("tab-questions", questions, Tab::Questions, waiting, cx))
                     .child(tab("tab-docs", documents, Tab::Docs, 0, cx))
-                    .child(tab("tab-events", events, Tab::Events, 0, cx)),
+                    .child(tab("tab-events", events, Tab::Events, 0, cx))
+                    .child(tab("tab-commits", graph, Tab::Commits, 0, cx)),
             )
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
             .child(

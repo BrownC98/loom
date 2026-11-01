@@ -149,6 +149,11 @@ fn escape(value: &str) -> String {
         .collect()
 }
 
+pub const VERSION: &str = match option_env!("LOOM_VERSION") {
+    Some(version) => version,
+    None => "dev",
+};
+
 pub fn query(pairs: &[(&str, Option<&str>)]) -> String {
     let joined: Vec<String> = pairs
         .iter()

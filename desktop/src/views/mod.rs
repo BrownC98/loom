@@ -8,4 +8,5 @@ pub mod shell;
 pub mod sidebar;
 pub mod terminal;
 pub mod tooltip;
+pub mod usage;
 pub mod viewer;

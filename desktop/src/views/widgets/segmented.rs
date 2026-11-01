@@ -61,6 +61,24 @@ pub fn segmented<T: Copy + PartialEq + 'static, L: Into<Label>>(
     )
 }
 
+pub fn segmented_fit<T: Copy + PartialEq + 'static, L: Into<Label>>(
+    id: &'static str,
+    items: Vec<(T, L)>,
+    current: T,
+    change: impl Fn(T, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> Stateful<Div> {
+    build(
+        Width::Fit,
+        id,
+        items,
+        current,
+        change,
+        None::<fn(Option<T>, &mut Window, &mut App)>,
+        cx,
+    )
+}
+
 pub fn segmented_wide<T: Copy + PartialEq + 'static, L: Into<Label>>(
     id: &'static str,
     items: Vec<(T, L)>,
@@ -69,7 +87,7 @@ pub fn segmented_wide<T: Copy + PartialEq + 'static, L: Into<Label>>(
     cx: &App,
 ) -> Stateful<Div> {
     build(
-        true,
+        Width::Equal,
         id,
         items,
         current,
@@ -87,11 +105,18 @@ pub fn segmented_on<T: Copy + PartialEq + 'static, L: Into<Label>>(
     hover: Option<impl Fn(Option<T>, &mut Window, &mut App) + 'static>,
     cx: &App,
 ) -> Stateful<Div> {
-    build(false, id, items, current, change, hover, cx)
+    build(Width::Natural, id, items, current, change, hover, cx)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Width {
+    Natural,
+    Equal,
+    Fit,
 }
 
 fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
-    wide: bool,
+    width: Width,
     id: &'static str,
     items: Vec<(T, L)>,
     current: T,
@@ -99,6 +124,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
     hover: Option<impl Fn(Option<T>, &mut Window, &mut App) + 'static>,
     cx: &App,
 ) -> Stateful<Div> {
+    let wide = width != Width::Natural;
     let c = colors(cx);
     let change = Rc::new(change);
     let hover = hover.map(Rc::new);
@@ -137,7 +163,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
             .cursor_pointer()
             .border_color(c.line_strong)
             .when(index != last, |item| item.border_r_1())
-            .text_color(c.ink)
+            .text_color(if chosen { c.ink } else { c.ink_2 })
             .font_weight(if chosen {
                 FontWeight::SEMIBOLD
             } else {
@@ -154,7 +180,8 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
                 item.flex().items_center().gap(px(6.0))
             })
             .when(wide, |item| {
-                item.flex_1()
+                item.when(width == Width::Fit, |item| item.flex_auto())
+                    .when(width == Width::Equal, |item| item.flex_1())
                     .justify_center()
                     .whitespace_nowrap()
                     .line_height(px(19.5))

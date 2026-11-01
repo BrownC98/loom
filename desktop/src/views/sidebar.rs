@@ -1,4 +1,3 @@
-pub mod icons;
 mod tree;
 
 use std::collections::HashSet;
@@ -11,8 +10,9 @@ use gpui::{
 
 use super::field::{self, Field, FieldEvent};
 use super::scrollbar::Bar;
+use super::rail;
 use super::shell::OpenSettings;
-use icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag, Tone};
 
@@ -46,6 +46,7 @@ pub struct Sidebar {
     seen: Option<u32>,
     at: usize,
     refusal: Option<(Key, String)>,
+    want_find: bool,
 }
 
 pub fn sidebar(store: Entity<Store>, _: &mut Window, cx: &mut App) -> Entity<Sidebar> {
@@ -82,6 +83,7 @@ impl Sidebar {
             seen: None,
             at: 0,
             refusal: None,
+            want_find: false,
         }
     }
 
@@ -372,9 +374,9 @@ fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
 fn chevron(open: bool, c: &Colors) -> impl IntoElement {
     icon(
         if open {
-            Glyph::ChevronOpen
+            Lucide::ChevronDown
         } else {
-            Glyph::ChevronClosed
+            Lucide::ChevronRight
         },
         ICON,
         c.ink_3,
@@ -480,7 +482,7 @@ impl Sidebar {
                     cx.stop_propagation();
                     cx.notify();
                 }))
-                .child(icon(Glyph::Bookmark { filled: on }, ICON, c.ink_2))
+                .child(icon_styled(Lucide::Bookmark, ICON, c.ink_2, 2.0, on))
         };
         let lang_unread = |n: u32| {
             div()
@@ -495,7 +497,7 @@ impl Sidebar {
                 .font_weight(FontWeight::SEMIBOLD)
                 .flex()
                 .items_center()
-                .child(icon(Glyph::Mail, 13.0, c.accent_ink))
+                .child(icon(Lucide::Mail, 13.0, c.accent_ink))
                 .child(n.to_string())
         };
         match &row.body {
@@ -522,7 +524,7 @@ impl Sidebar {
                 )
                 .into_any_element(),
             Body::Group { label, tag } => shell
-                .child(icon(Glyph::Branch, ICON, c.ink_3))
+                .child(icon(Lucide::GitBranch, ICON, c.ink_3))
                 .child(
                     div()
                         .min_w_0()
@@ -568,7 +570,10 @@ impl Sidebar {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(name.clone()),
                     )
-                    .children(from.as_ref().map(|_| icon(Glyph::Reply, 12.0, c.ink_3)))
+                    .children(
+                        from.as_ref()
+                            .map(|_| icon(Lucide::CornerLeftUp, 12.0, c.ink_3)),
+                    )
                     .child(div().flex_1())
                     .children((*unread > 0).then(|| {
                         div()
@@ -635,6 +640,70 @@ impl Sidebar {
 
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.store.read(cx).settings().closed_panes.side {
+            self.rail(cx).into_any_element()
+        } else {
+            if self.want_find {
+                self.want_find = false;
+                self.focus_find(window, cx);
+            }
+            self.expanded(window, cx).into_any_element()
+        }
+    }
+}
+
+impl Sidebar {
+    fn rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = cx.global::<Theme>().colors;
+        let lang = *cx.global::<Lang>();
+        let finding = !self.field.read(cx).text().trim().is_empty();
+        let open = rail::button(
+            "side-open",
+            Lucide::PanelLeftOpen,
+            rail::titled(Str::AppSideExpand.text(lang), "["),
+            rail::BUTTON,
+            &c,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.set_open(true, cx)));
+        let find = rail::button(
+            "side-find",
+            Lucide::Search,
+            rail::titled(Str::FindOpen.text(lang), "F"),
+            rail::BUTTON,
+            &c,
+        )
+        .children(finding.then(|| rail::dot(&c)))
+        .on_click(cx.listener(|this, _, _, cx| this.reveal_find(cx)));
+        let settings = rail::button(
+            "side-settings-rail",
+            Lucide::Settings,
+            Str::SettingsTitle.text(lang).to_owned(),
+            rail::BUTTON,
+            &c,
+        )
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx));
+        rail::column(&c)
+            .child(open)
+            .child(find)
+            .child(div().flex_1())
+            .child(settings)
+    }
+
+    fn set_open(&self, open: bool, cx: &mut Context<Self>) {
+        self.store
+            .update(cx, |store, cx| store.set_pane_open("side", open, cx));
+    }
+
+    pub fn reveal_find(&mut self, cx: &mut Context<Self>) {
+        self.want_find = true;
+        if self.store.read(cx).settings().closed_panes.side {
+            self.set_open(true, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn expanded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.global::<Theme>().colors;
         let c = &c;
         let lang = *cx.global::<Lang>();
@@ -789,7 +858,7 @@ impl Render for Sidebar {
                 this.closed.clear();
                 cx.notify();
             }))
-            .child(icon(Glyph::ExpandAll, ICON, c.ink_2));
+            .child(icon(Lucide::ChevronsUpDown, ICON, c.ink_2));
 
         div()
             .size_full()
@@ -801,44 +870,65 @@ impl Render for Sidebar {
             .border_r_1()
             .border_color(c.line)
             .child(
-                div().px(px(10.0)).pt(px(10.0)).pb(px(6.0)).child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .h(px(30.0))
-                        .pl(px(8.0))
-                        .pr(px(2.0))
-                        .bg(c.bg)
-                        .border_1()
-                        .border_color(find_edge)
-                        .rounded(px(6.0))
-                        .child(icon(Glyph::Search, ICON, c.ink_3))
-                        .child(self.field.clone())
-                        .children(count.map(|(text, color)| {
-                            div()
-                                .flex_none()
-                                .text_size(px(12.0))
-                                .text_color(color)
-                                .child(text)
-                        }))
-                        .children(searching.then(|| {
-                            div()
-                                .id("find-clear")
-                                .flex_none()
-                                .size(px(26.0))
-                                .rounded(px(5.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(move |_, _, cx| {
-                                    clear.update(cx, |field, cx| field.clear(cx));
-                                })
-                                .child(icon(Glyph::Clear, ICON, c.ink_2))
-                        })),
-                ),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .px(px(10.0))
+                    .pt(px(10.0))
+                    .pb(px(6.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .h(px(30.0))
+                            .pl(px(8.0))
+                            .pr(px(2.0))
+                            .bg(c.bg)
+                            .border_1()
+                            .border_color(find_edge)
+                            .rounded(px(6.0))
+                            .child(icon(Lucide::Search, ICON, c.ink_3))
+                            .child(self.field.clone())
+                            .children(count.map(|(text, color)| {
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.0))
+                                    .text_color(color)
+                                    .child(text)
+                            }))
+                            .children(searching.then(|| {
+                                div()
+                                    .id("find-clear")
+                                    .flex_none()
+                                    .size(px(26.0))
+                                    .rounded(px(5.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        clear.update(cx, |field, cx| field.clear(cx));
+                                    })
+                                    .child(icon(Lucide::X, ICON, c.ink_2))
+                            })),
+                    )
+                    .child(
+                        rail::button(
+                            "side-collapse",
+                            Lucide::PanelLeftClose,
+                            rail::titled(Str::AppSideCollapse.text(lang), "["),
+                            rail::SMALL_BUTTON,
+                            c,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.set_open(false, cx))),
+                    ),
             )
             .child(marks_head)
             .children(self.marks_open.then(|| {
@@ -887,7 +977,7 @@ impl Render for Sidebar {
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx)
                             })
-                            .child(icon(Glyph::Gear, ICON, c.ink_2))
+                            .child(icon(Lucide::Settings, ICON, c.ink_2))
                             .child(Str::SettingsTitle.text(lang)),
                     ),
             )

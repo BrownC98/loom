@@ -13,7 +13,7 @@ use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
-use crate::views::sidebar::icons::{Glyph, icon};
+use crate::views::icons::{Lucide, icon};
 use crate::views::sidebar::{Pickable, dot, pickables};
 
 const SHADOW_BLUR: f32 = 14.0;
@@ -228,7 +228,7 @@ impl Render for Picker {
             .border_color(c.line_strong)
             .bg(c.surface)
             .text_size(px(13.0 * z))
-            .child(icon(Glyph::Search, 14.0 * z, c.ink_3))
+            .child(icon(Lucide::Search, 14.0 * z, c.ink_3))
             .child(self.query.clone());
         let body = div()
             .id("composer-pick")

@@ -20,8 +20,8 @@ use crate::store::Store;
 use crate::strings::Str;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
+use crate::views::icons::{Lucide, icon};
 use crate::views::pictures::{self, Pictures, PicturesEvent};
-use crate::views::sidebar::icons::{Glyph, icon};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
@@ -658,7 +658,7 @@ pub fn face<W: ComposerWire>(
         .gap(px(4.0 * z))
         .min_w_0()
         .overflow_hidden()
-        .child(icon(Glyph::SquareTerminal, 14.0 * z, c.ink_3))
+        .child(icon(Lucide::SquareTerminal, 14.0 * z, c.ink_3))
         .child(
             wire.name(
                 div()
@@ -709,12 +709,12 @@ pub fn face<W: ComposerWire>(
         .gap(px(4.0 * z))
         .child(div().flex_1().min_w_0().child(field))
         .child(wire.image(tool("composer-image", BUTTON).child(icon(
-            Glyph::Image,
+            Lucide::Image,
             16.0 * z,
             c.ink_2,
         ))))
         .child(wire.file(tool("composer-file", BUTTON).child(icon(
-            Glyph::Paperclip,
+            Lucide::Paperclip,
             16.0 * z,
             c.ink_2,
         ))))
@@ -731,7 +731,7 @@ pub fn face<W: ComposerWire>(
                     .bg(c.accent)
                     .text_color(c.accent_ink)
                     .when(!view.sendable, |d| d.opacity(DISABLED_ALPHA))
-                    .child(icon(Glyph::ArrowUp, 16.0 * z, c.accent_ink)),
+                    .child(icon(Lucide::ArrowUp, 16.0 * z, c.accent_ink)),
             ),
         );
     wire.shell(

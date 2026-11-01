@@ -7,6 +7,7 @@ use gpui::{
 };
 
 use crate::link;
+use crate::problem::Failure;
 use crate::settings::widgets::{Text, TextEvent, field_reset, switch};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::Str;
@@ -51,7 +52,7 @@ fn load(places: Entity<Places>, base: String, dialog: WeakEntity<Dialog>, cx: &m
                         Some((name.clone(), view.workspace))
                     })
                     .collect();
-                Ok::<_, String>((distros, defaults))
+                Ok::<_, Failure>((distros, defaults))
             })
             .await;
         places.update(cx, |places, cx| {

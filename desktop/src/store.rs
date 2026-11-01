@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
 use api::graph::events::EventLog;
@@ -9,6 +11,7 @@ use api::settings::SettingsView;
 use gpui::{App, AppContext, Context, EventEmitter, Task, Window, WindowAppearance};
 
 use crate::link::{self, Graph, LinkState, Loaded, Snapshot};
+use crate::problem::Failure;
 use crate::{strings, theme};
 
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
@@ -25,6 +28,8 @@ pub struct Store {
     selected: Option<u32>,
     wanted: Option<u32>,
     zoom_percent: u32,
+    found: Option<HashSet<String>>,
+    picked: Option<HashSet<String>>,
 }
 
 pub struct ZoomTo(pub f32);
@@ -85,6 +90,8 @@ impl Store {
             selected: None,
             wanted: None,
             zoom_percent: 100,
+            found: None,
+            picked: None,
         }
     }
 
@@ -123,6 +130,24 @@ impl Store {
     pub fn set_zoom_percent(&mut self, percent: u32, cx: &mut Context<Self>) {
         if self.zoom_percent != percent {
             self.zoom_percent = percent;
+            cx.notify();
+        }
+    }
+
+    pub fn lit(&self) -> Option<&HashSet<String>> {
+        self.found.as_ref().or(self.picked.as_ref())
+    }
+
+    pub fn set_found(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.found != keys {
+            self.found = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.picked != keys {
+            self.picked = keys;
             cx.notify();
         }
     }
@@ -178,10 +203,11 @@ impl Store {
                 if !self.newer(order) {
                     return;
                 }
-                self.status = if error.is_empty() {
+                let text = error.text(*cx.global::<strings::Lang>());
+                self.status = if text.is_empty() {
                     "connection closed".to_owned()
                 } else {
-                    error
+                    text
                 }
             }
         }
@@ -238,12 +264,15 @@ impl Store {
     fn call<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,
-        work: impl FnOnce(&str) -> Result<T, String> + Send + 'static,
+        work: impl FnOnce(&str) -> Result<T, Failure> + Send + 'static,
     ) -> Task<Result<T, String>> {
         let Some(base) = self.base.clone() else {
             return Task::ready(Err(self.status.clone()));
         };
-        cx.background_spawn(async move { work(&base) })
+        cx.spawn(async move |_, cx| {
+            let done = cx.background_spawn(async move { work(&base) }).await;
+            done.map_err(|failure| failure.text(cx.update(|app| *app.global::<strings::Lang>())))
+        })
     }
 
     pub fn agents(&self, cx: &mut Context<Self>) -> Task<Result<Vec<AgentView>, String>> {
@@ -312,6 +341,18 @@ impl Store {
             let path = format!("/api/waits/{}/type", wait.0);
             link::post(base, &path, serde_json::to_string(&body).ok())
         })
+    }
+
+    pub fn adopt(
+        &self,
+        child: u32,
+        parent: u32,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), link::Rejected>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(link::Rejected::Link(self.status.clone())));
+        };
+        cx.background_spawn(async move { link::adopt(&base, child, parent) })
     }
 
     pub fn dismiss_wait(&self, wait: WaitId, cx: &mut Context<Self>) -> Task<Result<(), String>> {

@@ -8,7 +8,7 @@ use gpui::{
 
 use crate::link;
 use crate::settings::{Ctx, Dialog, Section};
-use crate::strings::Str;
+use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{GAP, SMALL, button, colors, say, say_with};
 
 const VERSION: &str = match option_env!("LOOM_VERSION") {
@@ -62,6 +62,7 @@ fn request(
     call: Call,
     cx: &mut App,
 ) {
+    let lang = *cx.global::<Lang>();
     let ticket = model.update(cx, |model, _| {
         model.issued += 1;
         model.checking |= matches!(call, Call::Check);
@@ -89,7 +90,7 @@ fn request(
                 model.outcome = Some(match &reply {
                     Ok(view) if view.latest.is_some() => Outcome::New,
                     Ok(_) => Outcome::Latest,
-                    Err(error) => Outcome::Failed(error.clone()),
+                    Err(error) => Outcome::Failed(error.text(lang)),
                 });
             }
             if ticket > model.applied {
@@ -100,7 +101,9 @@ fn request(
                     }
                     Err(error) if matches!(call, Call::Install) => {
                         if let Some(view) = &mut model.view {
-                            view.step = Some(UpdateStep::Failed { message: error });
+                            view.step = Some(UpdateStep::Failed {
+                                message: error.text(lang),
+                            });
                         }
                     }
                     Err(_) => {}

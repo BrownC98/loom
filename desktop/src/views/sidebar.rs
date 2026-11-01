@@ -121,6 +121,18 @@ impl Sidebar {
                 self.reveal = true;
             }
         }
+        let found = self.built(cx).filter(|b| !b.hits.is_empty()).map(|b| {
+            b.hits
+                .iter()
+                .map(|key| match key {
+                    Key::Node(id) | Key::Mark(id) => id.to_string(),
+                    Key::Repo(id) => format!("repo:{id}"),
+                    Key::Group(_, path) => path.clone(),
+                })
+                .collect()
+        });
+        self.store
+            .update(cx, |store, cx| store.set_found(found, cx));
         cx.notify();
     }
 
@@ -158,7 +170,7 @@ impl Sidebar {
                 .await;
             if let Err(error) = sent {
                 let _ = this.update(cx, |this, cx| {
-                    this.refusal = Some((key, error));
+                    this.refusal = Some((key, error.text(*cx.global::<Lang>())));
                     cx.notify();
                 });
             }

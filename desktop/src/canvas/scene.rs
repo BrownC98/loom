@@ -48,11 +48,13 @@ pub struct Frame {
 pub struct Card {
     pub node: NodeId,
     pub rect: Rect,
+    pub inset: Inset,
     pub spot: Point,
 }
 
 #[derive(Default)]
 pub struct Scene {
+    pub direction: Direction,
     pub repos: Vec<Frame>,
     pub groups: Vec<Frame>,
     pub cards: Vec<Card>,
@@ -184,6 +186,7 @@ impl Level<'_> {
                     },
                     size: (self.size_of)(id),
                 },
+                inset: self.inset(&self.groups[g.group].path),
             });
         }
         for k in &g.kids {
@@ -431,7 +434,10 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
         })
         .collect();
     let repo_at = layout::settle(&items, &|key| spots.get(key).copied(), FREE_GAP);
-    let mut scene = Scene::default();
+    let mut scene = Scene {
+        direction: DIRECTION,
+        ..Scene::default()
+    };
     for b in &built {
         let origin = if framed {
             let at = repo_at[&b.key];

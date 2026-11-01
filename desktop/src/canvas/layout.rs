@@ -27,8 +27,9 @@ pub struct Rect {
     pub size: Size,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Direction {
+    #[default]
     Down,
     Right,
     Up,

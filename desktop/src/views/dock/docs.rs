@@ -17,10 +17,16 @@ fn kind_label(kind: DocGroup) -> Str {
 
 impl Dock {
     pub(super) fn load_docs(&mut self, cx: &mut Context<Self>) {
+        self.docs.order += 1;
+        let order = self.docs.order;
         let task = self.store.update(cx, |store, cx| store.list_docs(cx));
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |dock, cx| {
+                if order <= dock.docs.loaded {
+                    return;
+                }
+                dock.docs.loaded = order;
                 match result {
                     Ok(rows) => {
                         dock.docs.rows = Some(rows);

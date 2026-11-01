@@ -46,12 +46,10 @@ impl Oklch {
     }
 }
 
-#[allow(dead_code)]
 pub struct Terminal {
     pub background: Rgba,
     pub foreground: Rgba,
     pub cursor: Rgba,
-    pub cursor_accent: Rgba,
     pub selection_background: Rgba,
     pub selection_foreground: Rgba,
     pub ansi: [Rgba; 16],
@@ -60,7 +58,6 @@ pub struct Terminal {
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 include!(concat!(env!("OUT_DIR"), "/terminals.rs"));
 
-#[allow(dead_code)]
 pub struct Theme {
     pub scheme: Scheme,
     pub colors: Colors,

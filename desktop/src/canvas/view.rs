@@ -16,7 +16,7 @@ use api::ids::NodeId;
 use api::settings::ArrangeDirection;
 
 use super::arrange;
-use super::camera::Camera;
+use super::camera::{Camera, Glide};
 use super::connect::{self, Connect};
 use super::drag::{Arrange, Job, Moves, Scope};
 use super::edges;
@@ -73,6 +73,7 @@ pub struct CanvasView {
     overlay: FocusHandle,
     fit_pending: bool,
     pub(super) camera: Camera,
+    pub(super) glide: Option<Glide>,
     drag: Option<Point<Pixels>>,
     pub(super) area: Rc<Cell<Bounds<Pixels>>>,
     pub(super) map: minimap::Pan,
@@ -144,6 +145,7 @@ impl CanvasView {
             overlay: cx.focus_handle(),
             fit_pending: true,
             camera: Camera::HOME,
+            glide: None,
             drag: None,
             area: Rc::new(Cell::new(Bounds::default())),
             map: minimap::Pan::default(),
@@ -186,10 +188,14 @@ impl CanvasView {
             && let Some(after) = next.cards.iter().find(|c| c.node == id)
         {
             let zoom = self.camera.zoom;
-            self.camera.pan_by(
+            let (dx, dy) = (
                 -(after.rect.at.x - before.rect.at.x) as f32 * zoom,
                 -(after.rect.at.y - before.rect.at.y) as f32 * zoom,
             );
+            self.camera.pan_by(dx, dy);
+            if let Some(glide) = &mut self.glide {
+                glide.shift(dx, dy);
+            }
         }
         self.scene = next;
         if self
@@ -530,6 +536,7 @@ impl CanvasView {
         {
             content = content.union(&bounds_of(rect));
         }
+        self.glide = None;
         self.camera = Camera::fit(area, content);
         self.fit_pending = false;
     }
@@ -540,16 +547,21 @@ impl CanvasView {
             return;
         };
         if area.width > px(0.0) {
-            self.camera = Camera::fit(area, bounds_of(card.rect));
-            cx.notify();
+            self.fly(Camera::fit(area, bounds_of(card.rect)), cx);
         }
+    }
+
+    pub(super) fn fly(&mut self, to: Camera, cx: &mut Context<Self>) {
+        self.glide = Some(Glide::new(self.camera, to, Instant::now()));
+        cx.notify();
     }
 
     fn zoom_to(&mut self, zoom: f32, cx: &mut Context<Self>) {
         let area = self.area.get().size;
         let centre = point(area.width / 2.0, area.height / 2.0);
-        self.camera.zoom_about(centre, zoom);
-        cx.notify();
+        let mut to = self.glide.map_or(self.camera, |g| g.at(Instant::now()).0);
+        to.zoom_about(centre, zoom);
+        self.fly(to, cx);
     }
 
     fn on_scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
@@ -561,12 +573,14 @@ impl CanvasView {
         };
         let zoom = self.camera.zoom * 2f32.powf(dy * WHEEL_RATE * boost);
         let at = self.local(event.position);
+        self.glide = None;
         self.camera.zoom_about(at, zoom);
         cx.notify();
     }
 
     fn on_pinch(&mut self, event: &PinchEvent, cx: &mut Context<Self>) {
         let at = self.local(event.position);
+        self.glide = None;
         self.camera
             .zoom_about(at, self.camera.zoom * (1.0 + event.delta));
         cx.notify();
@@ -600,6 +614,7 @@ impl CanvasView {
     fn on_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         popover::dismiss(self, cx);
         window.focus(&self.focus, cx);
+        self.glide = None;
         if let Some(key) = self.frame_head_at(event.position) {
             self.grab(&key, event.position, cx);
             return;
@@ -687,6 +702,15 @@ impl Render for CanvasView {
         if self.auto {
             self.scripted();
             window.request_animation_frame();
+        }
+        if let Some(glide) = self.glide {
+            let (camera, done) = glide.at(Instant::now());
+            self.camera = camera;
+            if done {
+                self.glide = None;
+            } else {
+                window.request_animation_frame();
+            }
         }
         let zoomed = self.zoomed(cx);
         self.store

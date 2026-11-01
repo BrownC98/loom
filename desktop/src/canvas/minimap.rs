@@ -99,19 +99,22 @@ fn origin(canvas: &CanvasView) -> Point<Pixels> {
     )
 }
 
-fn centre_on(canvas: &mut CanvasView, at: Point<Pixels>) {
+fn centre_on(canvas: &mut CanvasView, at: Point<Pixels>, cx: &mut Context<CanvasView>) {
     let Some(plan) = canvas.map.plan else { return };
     let local = at - origin(canvas);
     let (x, y) = plan.to_graph(f32::from(local.x), f32::from(local.y));
     let area = canvas.area.get().size;
-    canvas.camera.x = f32::from(area.width) / 2.0 - x * canvas.camera.zoom;
-    canvas.camera.y = f32::from(area.height) / 2.0 - y * canvas.camera.zoom;
+    let mut to = canvas.camera;
+    to.x = f32::from(area.width) / 2.0 - x * to.zoom;
+    to.y = f32::from(area.height) / 2.0 - y * to.zoom;
+    canvas.fly(to, cx);
 }
 
 pub fn press(canvas: &mut CanvasView, event: &MouseDownEvent, cx: &mut Context<CanvasView>) {
     canvas.map.down = true;
     canvas.map.last = event.position;
     canvas.map.travel = 0.0;
+    canvas.glide = None;
     cx.stop_propagation();
 }
 
@@ -145,8 +148,7 @@ pub fn release(canvas: &mut CanvasView, cx: &mut Context<CanvasView>) {
     }
     canvas.map.down = false;
     if canvas.map.travel < CLICK {
-        centre_on(canvas, canvas.map.last);
-        cx.notify();
+        centre_on(canvas, canvas.map.last, cx);
     }
 }
 

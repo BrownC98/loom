@@ -1,0 +1,181 @@
+{
+  "kind": "repoGroups",
+  "input": {
+    "repo": {
+      "id": 1,
+      "name": "loom",
+      "hasCommits": true,
+      "worktrees": [
+        {
+          "path": "/home/u/loom",
+          "branch": "main",
+          "original": true
+        },
+        {
+          "path": "/home/u/wt/a",
+          "branch": "a",
+          "original": false
+        },
+        {
+          "path": "/home/u/wt/b",
+          "branch": "b",
+          "original": false
+        },
+        {
+          "path": "/home/u/wt/c",
+          "branch": null,
+          "original": false
+        },
+        {
+          "path": "C:\\Users\\u\\wt\\d",
+          "branch": null,
+          "original": false
+        }
+      ]
+    },
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 1,
+        "worktree": "/home/u/loom",
+        "bookmark": null
+      },
+      {
+        "id": 2,
+        "parent": 1,
+        "repo": 1,
+        "worktree": "/home/u/wt/a",
+        "bookmark": null
+      },
+      {
+        "id": 3,
+        "parent": 2,
+        "repo": 1,
+        "worktree": "/home/u/wt/b",
+        "bookmark": null
+      },
+      {
+        "id": 4,
+        "parent": 1,
+        "repo": 1,
+        "worktree": "/home/u/wt/orphan",
+        "bookmark": null
+      },
+      {
+        "id": 5,
+        "parent": 1,
+        "repo": 1,
+        "worktree": "/home/u/wt/a",
+        "bookmark": null
+      },
+      {
+        "id": 6,
+        "parent": null,
+        "repo": 2,
+        "worktree": "/home/u/other",
+        "bookmark": null
+      },
+      {
+        "id": 7,
+        "parent": 3,
+        "repo": 1,
+        "worktree": "C:\\Users\\u\\wt\\d",
+        "bookmark": null
+      },
+      {
+        "id": 8,
+        "parent": 2,
+        "repo": 1,
+        "worktree": "/home/u/wt/b",
+        "bookmark": null
+      }
+    ]
+  },
+  "output": {
+    "groups": [
+      {
+        "path": "/home/u/loom",
+        "label": "main",
+        "kind": "original",
+        "branch": "main"
+      },
+      {
+        "path": "/home/u/wt/a",
+        "label": "a",
+        "kind": "linked",
+        "branch": "a"
+      },
+      {
+        "path": "/home/u/wt/b",
+        "label": "b",
+        "kind": "linked",
+        "branch": "b"
+      },
+      {
+        "path": "/home/u/wt/c",
+        "label": "c",
+        "kind": "linked",
+        "branch": null
+      },
+      {
+        "path": "C:\\Users\\u\\wt\\d",
+        "label": "d",
+        "kind": "linked",
+        "branch": null
+      },
+      {
+        "path": "/home/u/wt/orphan",
+        "label": "orphan",
+        "kind": "linked",
+        "branch": null
+      }
+    ],
+    "boxes": [
+      "/home/u/loom",
+      "/home/u/wt/a",
+      "/home/u/wt/b",
+      "C:\\Users\\u\\wt\\d",
+      "/home/u/wt/orphan"
+    ],
+    "chips": [
+      "/home/u/wt/c"
+    ],
+    "parents": [
+      null,
+      0,
+      1,
+      null,
+      2,
+      0
+    ],
+    "attach": [
+      null,
+      1,
+      2,
+      null,
+      3,
+      1
+    ],
+    "inGroup": [
+      [
+        1
+      ],
+      [
+        2,
+        5
+      ],
+      [
+        3,
+        8
+      ],
+      [],
+      [
+        7
+      ],
+      [
+        4
+      ]
+    ]
+  }
+}

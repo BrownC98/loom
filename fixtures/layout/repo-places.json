@@ -1,0 +1,131 @@
+{
+  "kind": "repoPlaces",
+  "input": {
+    "repos": [
+      {
+        "id": 1,
+        "name": "loom",
+        "hasCommits": true,
+        "worktrees": [
+          {
+            "path": "/home/u/loom",
+            "branch": "main",
+            "original": true
+          },
+          {
+            "path": "/home/u/wt/a",
+            "branch": "a",
+            "original": false
+          },
+          {
+            "path": "/home/u/wt/b",
+            "branch": "b",
+            "original": false
+          },
+          {
+            "path": "/home/u/wt/c",
+            "branch": null,
+            "original": false
+          },
+          {
+            "path": "C:\\Users\\u\\wt\\d",
+            "branch": null,
+            "original": false
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "notes",
+        "hasCommits": true,
+        "worktrees": [
+          {
+            "path": "/home/u/notes",
+            "branch": "main",
+            "original": true
+          }
+        ]
+      }
+    ],
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 1,
+        "worktree": "/home/u/loom",
+        "bookmark": 2
+      },
+      {
+        "id": 2,
+        "parent": 1,
+        "repo": 1,
+        "worktree": "/home/u/wt/a",
+        "bookmark": 0
+      },
+      {
+        "id": 3,
+        "parent": 2,
+        "repo": 1,
+        "worktree": "/home/u/wt/zzz",
+        "bookmark": null
+      },
+      {
+        "id": 4,
+        "parent": null,
+        "repo": 2,
+        "worktree": "/home/u/notes",
+        "bookmark": 1
+      },
+      {
+        "id": 5,
+        "parent": null,
+        "repo": 9,
+        "worktree": "/home/u/x",
+        "bookmark": 3
+      },
+      {
+        "id": 6,
+        "parent": null,
+        "repo": 2,
+        "worktree": "/home/u/loom",
+        "bookmark": null
+      },
+      {
+        "id": 7,
+        "parent": null,
+        "repo": 1,
+        "worktree": "C:\\Users\\u\\wt\\d",
+        "bookmark": null
+      }
+    ],
+    "saved": [
+      null,
+      2,
+      9,
+      1
+    ]
+  },
+  "output": {
+    "names": [
+      "loom · main",
+      "loom · a",
+      "loom · zzz",
+      "notes · main",
+      "",
+      "notes · loom",
+      "loom · d"
+    ],
+    "bookmarked": [
+      2,
+      4,
+      1,
+      5
+    ],
+    "chosen": [
+      1,
+      2,
+      1,
+      1
+    ]
+  }
+}

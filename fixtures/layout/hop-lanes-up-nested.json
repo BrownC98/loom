@@ -1,0 +1,643 @@
+{
+  "kind": "siblingLanes",
+  "input": {
+    "direction": "up",
+    "parent": {
+      "at": {
+        "x": 400,
+        "y": -100
+      },
+      "size": {
+        "width": 300,
+        "height": 100
+      }
+    },
+    "pairs": [
+      {
+        "key": "1>2",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 300,
+              "y": -420
+            },
+            "size": {
+              "width": 240,
+              "height": 160
+            }
+          },
+          "room": {
+            "at": {
+              "x": 284,
+              "y": -436
+            },
+            "size": {
+              "width": 272,
+              "height": 238
+            }
+          },
+          "bend": 40
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>1",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 300,
+              "y": -420
+            },
+            "size": {
+              "width": 240,
+              "height": 160
+            }
+          },
+          "room": {
+            "at": {
+              "x": 284,
+              "y": -436
+            },
+            "size": {
+              "width": 272,
+              "height": 238
+            }
+          },
+          "bend": 40
+        },
+        "target": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 60,
+            "height": 16
+          },
+          "short": {
+            "width": 20,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>4",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 300,
+              "y": -420
+            },
+            "size": {
+              "width": 240,
+              "height": 160
+            }
+          },
+          "room": {
+            "at": {
+              "x": 284,
+              "y": -436
+            },
+            "size": {
+              "width": 272,
+              "height": 238
+            }
+          },
+          "bend": 40
+        },
+        "target": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": 860,
+              "y": -440
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 844,
+              "y": -456
+            },
+            "size": {
+              "width": 272,
+              "height": 258
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "3>5",
+        "source": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 5,
+          "box": {
+            "at": {
+              "x": 1140,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 1140,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 120,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "1>5",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 5,
+          "box": {
+            "at": {
+              "x": 1140,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 1140,
+              "y": -460
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "4>3",
+        "source": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": 860,
+              "y": -440
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 844,
+              "y": -456
+            },
+            "size": {
+              "width": 272,
+              "height": 258
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "3>3x",
+        "source": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": 580,
+              "y": -500
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": 860,
+              "y": -440
+            },
+            "size": {
+              "width": 240,
+              "height": 180
+            }
+          },
+          "room": {
+            "at": {
+              "x": 844,
+              "y": -456
+            },
+            "size": {
+              "width": 272,
+              "height": 258
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      }
+    ]
+  },
+  "output": {
+    "1>2": {
+      "points": [
+        {
+          "x": 180,
+          "y": -260
+        },
+        {
+          "x": 180,
+          "y": -249
+        },
+        {
+          "x": 380,
+          "y": -249
+        },
+        {
+          "x": 380,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 280,
+          "y": -249
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "2>1": {
+      "points": [
+        {
+          "x": 420,
+          "y": -260
+        },
+        {
+          "x": 420,
+          "y": -196
+        },
+        {
+          "x": 140,
+          "y": -196
+        },
+        {
+          "x": 140,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 280,
+          "y": -196
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "3>3x": {
+      "points": [
+        {
+          "x": 740,
+          "y": -260
+        },
+        {
+          "x": 740,
+          "y": -249
+        },
+        {
+          "x": 940,
+          "y": -249
+        },
+        {
+          "x": 940,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 840,
+          "y": -249
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "4>3": {
+      "points": [
+        {
+          "x": 980,
+          "y": -260
+        },
+        {
+          "x": 980,
+          "y": -196
+        },
+        {
+          "x": 700,
+          "y": -196
+        },
+        {
+          "x": 700,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 840,
+          "y": -196
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "2>4": {
+      "points": [
+        {
+          "x": 460,
+          "y": -260
+        },
+        {
+          "x": 460,
+          "y": -196
+        },
+        {
+          "x": 1020,
+          "y": -196
+        },
+        {
+          "x": 1020,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 544,
+          "y": -196
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "3>5": {
+      "points": [
+        {
+          "x": 660,
+          "y": -260
+        },
+        {
+          "x": 660,
+          "y": -196
+        },
+        {
+          "x": 1240,
+          "y": -196
+        },
+        {
+          "x": 1240,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 1153,
+          "y": -196
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "1>5": {
+      "points": [
+        {
+          "x": 100,
+          "y": -260
+        },
+        {
+          "x": 100,
+          "y": -196
+        },
+        {
+          "x": 1280,
+          "y": -196
+        },
+        {
+          "x": 1280,
+          "y": -260
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 926,
+          "y": -196
+        },
+        "short": false
+      },
+      "turned": false
+    }
+  }
+}

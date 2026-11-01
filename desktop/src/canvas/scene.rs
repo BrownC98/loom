@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use api::canvas::Spot;
-use api::repos::RepoView;
 
 use super::layout::{
     self, Direction, FREE_GAP, GROUP_GAP, Inset, Kid, NestGroup, Nested, NodeId, Point, Rect,
     SettleItem, Size,
 };
+use super::repos::{Group, GroupKind, attach_cards, group_parents, groups_of, split_chips};
 use api::graph::{CardView, NodeView};
+use api::repos::RepoView;
 
 use crate::link::Snapshot;
 
@@ -52,12 +53,6 @@ pub struct Scene {
     pub repos: Vec<Frame>,
     pub groups: Vec<Frame>,
     pub cards: Vec<Card>,
-}
-
-struct Group {
-    path: String,
-    label: String,
-    linked: bool,
 }
 
 struct Laid {
@@ -231,115 +226,6 @@ fn cover(contents: &[Rect], inset: Inset) -> Rect {
     }
 }
 
-fn folder_name(path: &str) -> String {
-    path.rsplit(['/', '\\'])
-        .find(|part| !part.is_empty())
-        .unwrap_or(path)
-        .to_owned()
-}
-
-fn groups_of(repo: &RepoView, views: &[&NodeView]) -> Vec<Group> {
-    let mut groups: Vec<Group> = repo
-        .worktrees
-        .iter()
-        .map(|w| Group {
-            path: w.path.clone(),
-            label: w.branch.clone().unwrap_or_else(|| folder_name(&w.path)),
-            linked: !w.original,
-        })
-        .collect();
-    for v in views {
-        if !groups.iter().any(|g| g.path == v.place.worktree) {
-            groups.push(Group {
-                path: v.place.worktree.clone(),
-                label: folder_name(&v.place.worktree),
-                linked: true,
-            });
-        }
-    }
-    groups
-}
-
-fn split_chips(groups: Vec<Group>, views: &[&NodeView]) -> (Vec<Group>, Vec<Group>) {
-    if groups.iter().all(|g| g.linked) {
-        return (groups, Vec::new());
-    }
-    groups
-        .into_iter()
-        .partition(|g| !(g.linked && !views.iter().any(|v| v.place.worktree == g.path)))
-}
-
-fn break_cycles(parents: &[Option<usize>]) -> Vec<Option<usize>> {
-    let mut fixed = parents.to_vec();
-    for i in 0..fixed.len() {
-        let mut seen = HashSet::from([i]);
-        let mut at = fixed[i];
-        while let Some(a) = at {
-            if !seen.insert(a) {
-                let mut ring = vec![a];
-                let mut k = fixed[a];
-                while let Some(next) = k.filter(|&next| next != a) {
-                    ring.push(next);
-                    k = fixed[next];
-                }
-                if let Some(&last) = ring.iter().max() {
-                    fixed[last] = None;
-                }
-                break;
-            }
-            at = fixed[a];
-        }
-    }
-    fixed
-}
-
-fn group_parents(groups: &[Group], views: &[&NodeView]) -> Vec<Option<usize>> {
-    let group_of: HashMap<u32, usize> = views
-        .iter()
-        .filter_map(|v| {
-            Some((
-                v.id.0,
-                groups.iter().position(|g| g.path == v.place.worktree)?,
-            ))
-        })
-        .collect();
-    let parents: Vec<Option<usize>> = groups
-        .iter()
-        .enumerate()
-        .map(|(i, group)| {
-            views
-                .iter()
-                .filter(|v| v.place.worktree == group.path)
-                .filter_map(|v| group_of.get(&v.parent?.0).copied())
-                .filter(|&p| p != i)
-                .min()
-        })
-        .collect();
-    break_cycles(&parents)
-}
-
-fn attach_cards(
-    groups: &[Group],
-    views: &[&NodeView],
-    parents: &[Option<usize>],
-) -> Vec<Option<u32>> {
-    let by_id: HashMap<u32, &NodeView> = views.iter().map(|v| (v.id.0, *v)).collect();
-    groups
-        .iter()
-        .zip(parents)
-        .map(|(group, parent)| {
-            let parent = (*parent)?;
-            views
-                .iter()
-                .filter(|v| v.place.worktree == group.path)
-                .find_map(|v| {
-                    let up = v.parent?.0;
-                    (by_id.get(&up)?.place.worktree == groups[parent].path).then_some(up)
-                })
-        })
-        .collect()
-}
-
 pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
     let spots: HashMap<String, Point> = snap
         .layout
@@ -415,7 +301,7 @@ pub fn build(snap: &Snapshot, resized: &HashMap<u32, Size>) -> Scene {
         let mut groups = boxes;
         groups.sort_by(|a, b| rank(&a.path).total_cmp(&rank(&b.path)));
         let mut chip_hosts = HashSet::new();
-        if let Some(host) = groups.iter().find(|g| !g.linked)
+        if let Some(host) = groups.iter().find(|g| g.kind != GroupKind::Linked)
             && !chips.is_empty()
         {
             chip_hosts.insert(host.path.clone());

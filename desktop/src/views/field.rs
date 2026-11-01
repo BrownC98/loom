@@ -65,6 +65,10 @@ pub fn boxed(hint: &str, secret: bool, multiline: bool, cx: &mut App) -> Entity<
     cx.new(|cx| Field::new(hint, secret, multiline, true, cx))
 }
 
+pub fn boxed_label(label: Str, secret: bool, multiline: bool, cx: &mut App) -> Entity<Field> {
+    cx.new(|cx| Field::new(Hint::Label(label), secret, multiline, true, cx))
+}
+
 impl Field {
     fn new(hint: Hint, secret: bool, multiline: bool, boxed: bool, cx: &mut Context<Self>) -> Self {
         Self {

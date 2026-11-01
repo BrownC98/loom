@@ -140,7 +140,7 @@ impl Composer {
         if self.drafts.contains_key(&node) {
             return;
         }
-        let field = field::boxed(ui::say(cx, Str::ComposerPlaceholder), false, true, cx);
+        let field = field::boxed_label(Str::ComposerPlaceholder, false, true, cx);
         let pictures = cx.new(|_| Pictures::new(self.store.clone(), NodeId(node)));
         let attach = pictures.clone();
         field.update(cx, |field, _| {
@@ -651,7 +651,15 @@ pub fn face<W: ComposerWire>(
         .justify_center()
         .text_color(c.ink_2)
         .when(view.listing, |d| d.bg(c.surface_hover).text_color(c.ink))
-        .child(if view.listing { "\u{25b4}" } else { "\u{25be}" });
+        .child(icon(
+            if view.listing {
+                Lucide::ChevronUp
+            } else {
+                Lucide::ChevronDown
+            },
+            14.0 * z,
+            if view.listing { c.ink } else { c.ink_2 },
+        ));
     let target = div()
         .flex()
         .items_center()

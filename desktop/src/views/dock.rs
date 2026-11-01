@@ -1,17 +1,22 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use api::graph::docs::{DocGroup, DocRow};
 use api::graph::waits::ClosedWait;
-use gpui::prelude::FluentBuilder;
+use api::graph::{CardView, NodeView};
+use api::settings::DefaultCardView;
 use gpui::{
-    AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, Window, div,
-    px,
+    AppContext, Bounds, Context, Entity, FocusHandle, IntoElement, ParentElement, Pixels, Render,
+    Styled, Subscription, UniformListScrollHandle, Window, div, px,
 };
 
 use self::answers::Answers;
 use super::field::{self, Field};
-use super::icons::{Lucide, icon};
-use super::rail;
+use super::icons::Lucide;
 use super::scrollbar::Bar;
+use super::terminal::TerminalView;
+use crate::canvas::repos::chosen_repo;
+use crate::float::inputs::Inputs;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::pictures::Shelf;
@@ -21,12 +26,16 @@ mod arrange;
 mod body;
 mod commits;
 mod docs;
+pub(crate) mod entry;
 pub mod events;
 mod history;
 mod lanes;
 pub(crate) mod questions;
 mod strip;
 mod strokes;
+mod tabs;
+mod terminal;
+mod tools;
 pub mod ui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -35,10 +44,17 @@ enum Tab {
     Docs,
     Events,
     Commits,
+    Terminal,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::Questions, Tab::Docs, Tab::Events, Tab::Commits];
+    const ALL: [Tab; 5] = [
+        Tab::Questions,
+        Tab::Docs,
+        Tab::Events,
+        Tab::Commits,
+        Tab::Terminal,
+    ];
 
     fn id(self) -> &'static str {
         match self {
@@ -46,6 +62,7 @@ impl Tab {
             Tab::Docs => "tab-docs",
             Tab::Events => "tab-events",
             Tab::Commits => "tab-commits",
+            Tab::Terminal => "tab-terminal",
         }
     }
 
@@ -55,6 +72,7 @@ impl Tab {
             Tab::Docs => Lucide::FileText,
             Tab::Events => Lucide::AlignLeft,
             Tab::Commits => Lucide::GitCommitVertical,
+            Tab::Terminal => Lucide::SquareTerminal,
         }
     }
 
@@ -64,8 +82,18 @@ impl Tab {
             Tab::Docs => Str::DocsTitle,
             Tab::Events => Str::EventsTitle,
             Tab::Commits => Str::AppCommitGraph,
+            Tab::Terminal => Str::DockTerminal,
         }
     }
+}
+
+pub(crate) fn card_view_of(node: &NodeView, default: DefaultCardView) -> CardView {
+    node.card_view.unwrap_or(match default {
+        DefaultCardView::Simple => CardView::Simple,
+        DefaultCardView::Standard => CardView::Standard,
+        DefaultCardView::RootTerminal if node.parent.is_none() => CardView::Standard,
+        DefaultCardView::RootTerminal => CardView::Simple,
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -97,7 +125,14 @@ pub struct Dock {
     inbox: Inbox,
     answers: Entity<Answers>,
     open_key: String,
-    arrange_menu: bool,
+    shown: Tab,
+    arrange_menu: Option<bool>,
+    menu_focus: Vec<FocusHandle>,
+    caret_focus: FocusHandle,
+    caret: Rc<Cell<Bounds<Pixels>>>,
+    tab_focus: Vec<FocusHandle>,
+    terminal: Option<(u32, Entity<TerminalView>)>,
+    inputs: Entity<Inputs>,
     history: History,
     docs: Docs,
     commits: commits::Commits,
@@ -115,15 +150,21 @@ pub fn dock(
     cx: &mut gpui::App,
 ) -> Entity<Dock> {
     cx.new(|cx| {
-        let placeholder = ui::say(cx, Str::DocsFilterPlaceholder);
-        let query = field::boxed(placeholder, false, false, cx);
+        let query = field::new(Str::DocsFilterPlaceholder, cx);
         let mut dock = Dock {
             store: store.clone(),
             tab: Tab::Questions,
             inbox: Inbox::New,
             answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
             open_key: String::new(),
-            arrange_menu: false,
+            shown: Tab::Questions,
+            arrange_menu: None,
+            menu_focus: (0..5).map(|_| cx.focus_handle()).collect(),
+            caret_focus: cx.focus_handle(),
+            caret: arrange::new_caret(),
+            tab_focus: (0..Tab::ALL.len()).map(|_| cx.focus_handle()).collect(),
+            terminal: None,
+            inputs: cx.new(|_| Inputs::default()),
             history: History::default(),
             docs: Docs {
                 order: 0,
@@ -161,6 +202,9 @@ impl Dock {
     fn choose_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.tab = tab;
         self.fault = None;
+        self.arrange_menu = None;
+        self.inbox = Inbox::New;
+        self.panel_bar.reset();
         if tab != Tab::Events {
             self.store
                 .update(cx, |store, cx| store.set_picked(None, cx));
@@ -177,6 +221,18 @@ impl Dock {
         cx.notify();
     }
 
+    fn docked(&self, cx: &Context<Self>) -> Option<NodeView> {
+        let store = self.store.read(cx);
+        let id = store.selected()?;
+        let default = store.settings().card_view;
+        store
+            .snapshot()?
+            .nodes
+            .iter()
+            .find(|node| node.id.0 == id && card_view_of(node, default) == CardView::Simple)
+            .cloned()
+    }
+
     fn waiting(&self, cx: &Context<Self>) -> usize {
         self.store
             .read(cx)
@@ -186,79 +242,41 @@ impl Dock {
 }
 
 impl Render for Dock {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.store.read(cx).settings().closed_panes.dock {
             return self.strip(cx).into_any_element();
         }
         let c = ui::colors(cx);
         let waiting = self.waiting(cx);
-        let current = self.tab;
-        let tabs = Tab::ALL.map(|tab| {
-            let on = current == tab;
-            let count = if tab == Tab::Questions { waiting } else { 0 };
-            let color = if on { c.ink } else { c.ink_2 };
-            let label = ui::say(cx, tab.label());
-            div()
-                .id(tab.id())
-                .flex()
-                .items_center()
-                .gap(px(ui::GAP))
-                .h(px(36.0))
-                .px(px(ui::PAD))
-                .min_w_0()
-                .border_b_2()
-                .border_color(if on {
-                    gpui::Hsla::from(c.accent)
-                } else {
-                    gpui::transparent_black()
-                })
-                .text_size(px(ui::TEXT))
-                .text_color(color)
-                .when(on, |tab| tab.flex_none().font_weight(FontWeight::SEMIBOLD))
-                .cursor_pointer()
-                .child(icon(tab.glyph(), 14.0, color))
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(label),
-                )
-                .children((count > 0).then(|| {
-                    div()
-                        .flex_none()
-                        .min_w(px(18.0))
-                        .h(px(18.0))
-                        .px(px(5.0))
-                        .rounded(px(9.0))
-                        .bg(c.notice)
-                        .text_color(c.notice_ink)
-                        .text_size(px(11.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(count.to_string())
-                }))
-                .on_click(cx.listener(move |dock, _, _, cx| dock.choose_tab(tab, cx)))
-        });
-        let panel = match self.tab {
-            Tab::Questions => self.questions(cx).into_any_element(),
-            Tab::Docs => self.documents(cx).into_any_element(),
-            Tab::Events => self.events(cx).into_any_element(),
-            Tab::Commits => self.commits_panel(cx).into_any_element(),
+        let docked = self.docked(cx);
+        let tabs: Vec<Tab> = if docked.is_some() {
+            Tab::ALL.to_vec()
+        } else {
+            Tab::ALL[..4].to_vec()
         };
-        let store = self.store.clone();
-        let collapse = rail::button(
-            "dock-collapse",
-            Lucide::PanelRightClose,
-            rail::titled(ui::say(cx, Str::DockCollapse), "]"),
-            rail::SMALL_BUTTON,
-            &c,
-        )
-        .on_click(move |_, _, cx| {
-            store.update(cx, |store, cx| store.set_pane_open("dock", false, cx))
-        });
+        let shown = if tabs.contains(&self.tab) {
+            self.tab
+        } else {
+            Tab::Questions
+        };
+        self.shown = shown;
+        if shown != Tab::Terminal {
+            self.terminal = None;
+        }
+        let repo =
+            self.store.read(cx).snapshot().is_some_and(|s| {
+                chosen_repo(&s.repos, self.store.read(cx).settings().repo).is_some()
+            });
+        let tab_bar = self.tab_bar(&tabs, shown, waiting, cx);
+        let panel = match (shown, docked) {
+            (Tab::Terminal, Some(node)) => {
+                self.terminal_panel(&node, window, cx).into_any_element()
+            }
+            (Tab::Docs, _) => self.documents(cx).into_any_element(),
+            (Tab::Events, _) => self.events(cx).into_any_element(),
+            (Tab::Commits, _) => self.commits_panel(cx).into_any_element(),
+            _ => self.questions(cx).into_any_element(),
+        };
         div()
             .size_full()
             .flex()
@@ -266,47 +284,11 @@ impl Render for Dock {
             .bg(c.panel)
             .text_color(c.ink)
             .text_size(px(ui::TEXT))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .pl(px(12.0))
-                    .pr(px(ui::PAD))
-                    .pt(px(ui::PAD))
-                    .child(
-                        div()
-                            .text_size(px(ui::SMALL))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c.ink_3)
-                            .child(ui::say(cx, Str::DockView)),
-                    )
-                    .child(collapse),
-            )
-            .child(self.arrange_bar(cx))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(2.0))
-                    .px(px(ui::PAD))
-                    .border_b_1()
-                    .border_color(c.line)
-                    .children(tabs),
-            )
+            .line_height(gpui::relative(1.5))
+            .child(self.tools(repo, cx))
+            .child(tab_bar)
             .children(self.fault.clone().map(|fault| ui::note(fault, true, cx)))
-            .child({
-                let area = div()
-                    .id("dock-panel")
-                    .overflow_y_scroll()
-                    .track_scroll(self.panel_bar.handle())
-                    .child(panel);
-                let column = if matches!(self.tab, Tab::Questions | Tab::Docs) {
-                    self.panel_bar.reserved(area)
-                } else {
-                    self.panel_bar.on_overflow(area)
-                };
-                column.flex_1().min_h_0()
-            })
+            .child(div().flex_1().min_h_0().child(panel))
             .into_any_element()
     }
 }

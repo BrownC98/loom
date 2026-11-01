@@ -11,6 +11,7 @@ use super::Dock;
 use super::body;
 use super::field::{self, Field};
 use super::ui::{self, GAP, PAD, SMALL};
+use crate::fonts;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::scrollbar::Bar;
@@ -241,38 +242,21 @@ impl Dock {
     }
 
     pub(super) fn events(&self, cx: &mut Context<Self>) -> Div {
-        let c = ui::colors(cx);
         let chips = CATEGORIES.iter().map(|&(category, label)| {
             let on = !self.events.hidden.contains(&category);
-            let chip = ui::button(("event-category", category as usize), cx);
-            if on {
-                chip.bg(c.accent_wash).border_color(c.accent)
-            } else {
-                chip
-            }
-            .child(ui::say(cx, label))
-            .on_click(cx.listener(move |dock, _, _, cx| dock.toggle_category(category, cx)))
+            ui::chip(("event-category", category as usize), on, cx)
+                .child(ui::say(cx, label))
+                .on_click(cx.listener(move |dock, _, _, cx| dock.toggle_category(category, cx)))
         });
         let head = div()
+            .flex_none()
             .flex()
             .flex_col()
-            .gap(px(GAP))
-            .p(px(PAD))
-            .border_b_1()
-            .border_color(c.line)
+            .child(ui::hint(ui::say(cx, Str::EventsOrder), cx))
             .child(
-                div()
-                    .text_size(px(SMALL))
-                    .text_color(c.ink_3)
-                    .child(ui::say(cx, Str::EventsOrder)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(GAP))
+                ui::filters(cx)
                     .children(chips)
-                    .child(div().flex_1().min_w_0().child(self.events.query.clone())),
+                    .child(ui::search(&self.events.query, cx)),
             );
         let mut panel = div().h_full().flex().flex_col().child(head);
         if let Some(error) = &self.events.error {
@@ -360,6 +344,7 @@ impl Dock {
                     .w(px(62.0))
                     .flex_none()
                     .text_size(px(SMALL))
+                    .font_family(fonts::TERMINAL_FAMILY)
                     .text_color(c.ink_3)
                     .child(ui::clock(record.at, TIME)),
             )
@@ -374,6 +359,7 @@ impl Dock {
                     .children(preview.filter(|_| !current).map(|text| {
                         div()
                             .text_size(px(SMALL))
+                            .font_family(fonts::TERMINAL_FAMILY)
                             .text_color(c.ink_2)
                             .overflow_hidden()
                             .text_ellipsis()
@@ -424,6 +410,11 @@ impl Dock {
         cx: &mut Context<Self>,
     ) -> Div {
         let c = ui::colors(cx);
+        let link = if what::family_of(&record.entry) == Some(Family::Done) {
+            c.ok
+        } else {
+            c.warn
+        };
         let mut details = div()
             .flex()
             .flex_col()
@@ -452,6 +443,7 @@ impl Dock {
                     body_parts.as_deref().unwrap_or_default(),
                     "",
                     doc,
+                    link,
                     cx,
                 );
                 details = details.child(div().text_color(c.ink_2).child(text));
@@ -459,14 +451,21 @@ impl Dock {
             return details;
         };
         for (at, field) in facts.fields.iter().enumerate() {
-            let text = body::text(("event-field", key * 32 + at), &field.parts, "", None, cx);
+            let text = body::text(
+                ("event-field", key * 32 + at),
+                &field.parts,
+                "",
+                None,
+                link,
+                cx,
+            );
             details = details.child(line(
                 ui::say(cx, what::field_name(field.name)),
                 text.into_any_element(),
             ));
         }
         if let Some(parts) = body_parts {
-            let text = body::text(("event-body", key), &parts, "", None, cx);
+            let text = body::text(("event-body", key), &parts, "", None, link, cx);
             let mut value = div()
                 .flex()
                 .flex_col()

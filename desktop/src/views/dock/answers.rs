@@ -3,15 +3,17 @@ use std::sync::Arc;
 
 use api::graph::waits::{InputField, Prompt, ScreenWait, WaitKind, WaitTone};
 use api::ids::{NodeId, WaitId};
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, Image, InteractiveElement,
-    IntoElement, ObjectFit, ParentElement, StatefulInteractiveElement, Styled, StyledImage,
-    Subscription, Task, Window, div, img, px,
+    AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, FontWeight, Image,
+    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Window, div, img, px,
 };
 
 use super::body::{self, Target};
+use super::entry::{self, Choice, Look};
 use super::questions::{key_label, kind_label};
-use super::ui::{self, GAP, PAD, SMALL};
+use super::ui::{self, GAP, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::views::field::{self, Field, FieldEvent};
@@ -20,9 +22,8 @@ use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
 
-const TIME: &str = "%Y/%m/%d %H:%M:%S";
-const SHOT_HEIGHT: f32 = 96.0;
-const SHOT_WIDTH: f32 = 128.0;
+const SHOT_HEIGHT: f32 = 44.0;
+const SHOT_WIDTH: f32 = 64.0;
 
 struct Draft {
     field: Entity<Field>,
@@ -36,6 +37,11 @@ struct Attach {
 }
 
 type Done = Box<dyn FnOnce(&mut App)>;
+
+enum Caption<'a> {
+    Label(Str),
+    Text(&'a str),
+}
 
 enum Text {
     Typed(String),
@@ -234,15 +240,12 @@ impl Answers {
         let id = wait.wait.id.0;
         if wait.wait.answerable {
             let done = matches!(wait.tone, WaitTone::Done);
-            let hint = ui::say(
-                cx,
-                if done {
-                    Str::InboxFollowUpPlaceholder
-                } else {
-                    Str::InboxAnswerPlaceholder
-                },
-            );
-            self.make_field(id, Slot::Answer, hint, false, true, cx);
+            let hint = if done {
+                Str::InboxFollowUpPlaceholder
+            } else {
+                Str::InboxAnswerPlaceholder
+            };
+            self.make_field(id, Slot::Answer, Caption::Label(hint), false, true, cx);
             self.hook_files(id, cx);
         }
         let prompt = wait.wait.prompt.as_ref();
@@ -252,20 +255,24 @@ impl Answers {
         };
         for (index, option) in prompt.options.iter().enumerate() {
             if option.writes {
-                self.make_field(id, Slot::Option(index), &option.label, false, false, cx);
+                self.make_field(
+                    id,
+                    Slot::Option(index),
+                    Caption::Text(&option.label),
+                    false,
+                    false,
+                    cx,
+                );
             }
         }
         if let Some(kind) = prompt.field {
             let secret = kind == InputField::Secret;
-            let hint = ui::say(
-                cx,
-                if secret {
-                    Str::InboxSecretLabel
-                } else {
-                    Str::InboxTextLabel
-                },
-            );
-            self.make_field(id, Slot::Field, hint, secret, false, cx);
+            let hint = if secret {
+                Str::InboxSecretLabel
+            } else {
+                Str::InboxTextLabel
+            };
+            self.make_field(id, Slot::Field, Caption::Label(hint), secret, false, cx);
         }
     }
 
@@ -287,7 +294,7 @@ impl Answers {
         &mut self,
         id: u32,
         slot: Slot,
-        hint: &str,
+        hint: Caption,
         secret: bool,
         multiline: bool,
         cx: &mut Context<Self>,
@@ -299,7 +306,10 @@ impl Answers {
         {
             return;
         }
-        let field = field::boxed(hint, secret, multiline, cx);
+        let field = match hint {
+            Caption::Label(label) => field::boxed_label(label, secret, multiline, cx),
+            Caption::Text(text) => field::boxed(text, secret, multiline, cx),
+        };
         if !secret {
             let kept = self.store.read(cx).draft(id, slot).to_owned();
             if !kept.is_empty() {
@@ -516,53 +526,48 @@ pub(crate) fn entry(
     let id = wait.wait.id.0;
     let done = matches!(wait.tone, WaitTone::Done);
     let busy = answers.read(cx).store.read(cx).is_busy(id);
-    let published = ui::say_with(
-        cx,
-        Str::InboxPublished,
-        &[("time", &ui::clock(wait.wait.since, TIME))],
-    );
     let dismiss = {
         let answers = answers.clone();
         move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut App| {
             answers.update(cx, |answers, cx| answers.dismiss(id, cx));
         }
     };
+    let refused = answers.read(cx).notes.get(&id).cloned();
     let close = if done {
-        ui::button_at(("close", id as usize), z, cx).child(ui::say(cx, Str::InboxConfirm))
-    } else {
         ui::button_at(("close", id as usize), z, cx)
-            .px(px(8.0 * z))
-            .child("\u{00d7}")
+            .flex_none()
+            .child(ui::say(cx, Str::InboxConfirm))
+    } else {
+        entry::ghost_close("close", id as usize, z, &c).tooltip(tip(refused
+            .clone()
+            .unwrap_or_else(|| ui::say(cx, Str::InboxDismiss).to_owned())))
     }
+    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
     .on_click(dismiss);
     let top = div()
         .flex()
         .items_center()
         .gap(px(GAP * z))
-        .text_size(px(SMALL * z))
-        .text_color(c.ink_3)
-        .child(ui::say(cx, kind_label(wait.wait.kind)))
-        .children((wait.wait.kind == WaitKind::Question).then(|| wait.wait.id.to_string()))
-        .child(div().flex_1().child(published))
+        .min_w_0()
+        .child(entry::mark(wait.tone, z, &c))
+        .child(entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c))
+        .children(
+            (wait.wait.kind == WaitKind::Question)
+                .then(|| entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c)),
+        )
+        .child(entry::published(wait.wait.since, z, cx))
         .child(close);
     let mut entry = div()
         .flex()
         .flex_col()
         .gap(px(GAP * z))
-        .mx(px(PAD * z))
-        .mb(px(10.0 * z))
-        .p(px(PAD * z))
-        .rounded(px(8.0 * z))
-        .border_1()
-        .border_color(c.line)
-        .bg(c.surface)
         .opacity(if busy { 0.6 } else { 1.0 })
         .child(top);
     if let Some(text) = &wait.wait.instruction {
         entry = entry.child(
             div()
                 .text_size(px(SMALL * z))
-                .text_color(c.ink_3)
+                .text_color(c.ink)
                 .child(ui::say_with(cx, Str::InboxInstruction, &[("text", text)])),
         );
     }
@@ -572,13 +577,8 @@ pub(crate) fn entry(
         (state.zoomed == Some(id) && state.viewer.read(cx).is_open()).then(|| state.viewer.clone())
     };
     entry = entry.children(viewer);
-    if let Some(note) = answers.read(cx).notes.get(&id) {
-        entry = entry.child(
-            div()
-                .text_size(px(SMALL * z))
-                .text_color(c.err)
-                .child(note.clone()),
-        );
+    if let Some(note) = refused {
+        entry = entry.child(div().text_size(px(SMALL * z)).text_color(c.err).child(note));
     }
     entry
 }
@@ -593,41 +593,56 @@ fn wait_body(
     let c = ui::colors(cx);
     let id = wait.wait.id.0;
     let done = matches!(wait.tone, WaitTone::Done);
-    let mut body = div().flex().flex_col().gap(px(GAP * z));
+    let group = format!("wait-{id}");
+    let mut body = div()
+        .group(group.clone())
+        .relative()
+        .flex()
+        .flex_col()
+        .gap(px(GAP * z));
     let shots: Vec<(usize, Arc<Image>)> = (0..wait.wait.images.len())
         .filter_map(|index| Some((index, answers.read(cx).images.get(&(id, index))?.clone())))
         .collect();
     if !shots.is_empty() {
-        body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
-            shots.into_iter().map(|(index, image)| {
-                let owner = answers.clone();
-                let opened = image.clone();
-                let name = wait.wait.images[index]
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned();
-                div()
-                    .id(("shot", id as usize * 256 + index % 256))
-                    .cursor_pointer()
-                    .tooltip(tip(ui::say_with(
-                        cx,
-                        Str::InboxZoomImage,
-                        &[("name", &name)],
-                    )))
-                    .on_click(move |_, window, cx| {
-                        let opened = opened.clone();
-                        owner.update(cx, |answers, cx| answers.zoom(id, opened, window, cx))
-                    })
-                    .child(
-                        img(image)
-                            .w(px(SHOT_WIDTH * z))
-                            .h(px(SHOT_HEIGHT * z))
-                            .object_fit(ObjectFit::Contain)
-                            .rounded(px(4.0 * z)),
-                    )
-            }),
-        ));
+        body = body.child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.0 * z))
+                .pt(px(4.0 * z))
+                .children(shots.into_iter().map(|(index, image)| {
+                    let owner = answers.clone();
+                    let opened = image.clone();
+                    let name = wait.wait.images[index]
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned();
+                    div()
+                        .id(("shot", id as usize * 256 + index % 256))
+                        .cursor_pointer()
+                        .tooltip(tip(ui::say_with(
+                            cx,
+                            Str::InboxZoomImage,
+                            &[("name", &name)],
+                        )))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_, window, cx| {
+                            let opened = opened.clone();
+                            owner.update(cx, |answers, cx| answers.zoom(id, opened, window, cx))
+                        })
+                        .child(
+                            img(image)
+                                .w(px(SHOT_WIDTH * z))
+                                .h(px(SHOT_HEIGHT * z))
+                                .object_fit(ObjectFit::Cover)
+                                .rounded(px(6.0 * z))
+                                .border_1()
+                                .border_color(c.line_strong)
+                                .bg(c.panel),
+                        )
+                })),
+        );
     }
     if wait.wait.prompt.is_none() {
         answers.update(cx, |answers, _| {
@@ -640,36 +655,64 @@ fn wait_body(
                 answers.shown.insert(id, prompt.clone());
             }
         });
-        body = body.child(prompt_body(answers, id, prompt, z, cx));
+        body = body.child(prompt_body(answers, id, wait.tone, prompt, z, cx));
     } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
         let owner = answers.clone();
-        body = body.child(div().text_size(px(SMALL * z)).child(body::render(
-            ("text", id as usize),
-            &wait.wait.parts,
-            &wait.wait.text,
-            wait.wait.doc.as_ref(),
-            cx,
-            move |target, cx| owner.update(cx, |answers, cx| answers.follow(id, target, cx)),
-        )));
+        body = body.child(
+            div()
+                .text_size(px(ui::TEXT * z))
+                .when(done, |text| text.font_weight(FontWeight::SEMIBOLD))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(body::render(
+                    ("text", id as usize),
+                    &wait.wait.parts,
+                    &wait.wait.text,
+                    wait.wait.doc.as_ref(),
+                    entry::tone_of(wait.tone, &c),
+                    cx,
+                    move |target, cx| {
+                        owner.update(cx, |answers, cx| answers.follow(id, target, cx))
+                    },
+                )),
+        );
     }
+    let qid = if wait.wait.kind == WaitKind::Question {
+        wait.wait.id.to_string()
+    } else {
+        ui::say(cx, kind_label(wait.wait.kind)).to_owned()
+    };
     if wait.wait.answerable {
         if !done && !wait.wait.choices.is_empty() {
             body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
                 wait.wait.choices.iter().map(|choice| {
                     let key = choice.key;
                     let owner = answers.clone();
-                    let mut button =
-                        ui::button_at(("choice", id as usize * 256 + key as usize % 256), z, cx)
-                            .child(div().text_color(c.ink_3).child(key.to_string()))
-                            .child(choice.label.clone());
-                    if choice.recommended {
-                        button = button.border_color(c.warn).child(
-                            div()
-                                .text_color(c.warn)
-                                .child(ui::say(cx, Str::InboxRecommended)),
-                        );
-                    }
-                    button.on_click(move |_, _, cx| {
+                    let look = if choice.recommended {
+                        Look::Recommended
+                    } else {
+                        Look::Plain
+                    };
+                    let button = div()
+                        .id(("choice", id as usize * 256 + key as usize % 256))
+                        .cursor_pointer()
+                        .hover({
+                            let hover = c.surface_hover;
+                            move |style| style.bg(hover)
+                        });
+                    entry::choice_face(
+                        button,
+                        Choice {
+                            key: key.to_string(),
+                            label: &choice.label,
+                            recommended: choice.recommended,
+                            look,
+                            tone: wait.tone,
+                        },
+                        z,
+                        cx,
+                    )
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(move |_, _, cx| {
                         owner.update(cx, |answers, cx| answers.reply(id, key.to_string(), cx))
                     })
                 }),
@@ -695,15 +738,54 @@ fn wait_body(
         }
         let field = scaled(answers, id, Slot::Answer, z, cx);
         if let Some(field) = field {
-            body = body.child(send_row(answers, id, Slot::Answer, &field, z, cx));
+            body = body.child(send_row(
+                answers,
+                id,
+                Slot::Answer,
+                wait.tone,
+                &field,
+                z,
+                cx,
+            ));
         }
         if let Some(pictures) = pictures {
-            let drop_edge = c.warn;
+            let cover = div()
+                .absolute()
+                .inset(px(-4.0 * z))
+                .invisible()
+                .group_drag_over::<ExternalPaths>(group, |style| style.visible())
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(2.0 * z))
+                .rounded(px(8.0 * z))
+                .border(px(2.0 * z))
+                .border_dashed()
+                .border_color(entry::tone_of(wait.tone, &c))
+                .bg(entry::mix(entry::tone_of(wait.tone, &c), 0.1, c.surface))
+                .text_color(c.ink)
+                .text_size(px(ui::TEXT * z))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(icon(
+                    Lucide::ImagePlus,
+                    20.0 * z,
+                    entry::tone_of(wait.tone, &c),
+                ))
+                .child(ui::say_with(cx, Str::InboxDropImage, &[("id", &qid)]))
+                .child(
+                    div()
+                        .text_size(px(SMALL * z))
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(c.ink_2)
+                        .child(ui::say_with(
+                            cx,
+                            Str::InboxDropLimit,
+                            &[("limit", &pictures::LIMIT_MEGABYTES.to_string())],
+                        )),
+                );
             body = body
-                .rounded(px(6.0 * z))
-                .drag_over::<ExternalPaths>(move |style, _, _, _| {
-                    style.border_1().border_color(drop_edge)
-                })
+                .child(cover)
                 .on_drop(move |paths: &ExternalPaths, _, cx| {
                     pictures.update(cx, |pictures, cx| {
                         pictures.take_paths(paths.paths().to_vec(), cx)
@@ -712,9 +794,29 @@ fn wait_body(
         }
     } else if wait.wait.prompt.is_none() {
         let store = answers.read(cx).store.clone();
+        let hover = c.surface_hover;
+        let ink = c.ink;
         body = body.child(
-            ui::button_at(("terminal", id as usize), z, cx)
+            div()
+                .id(("terminal", id as usize))
+                .self_start()
+                .flex()
+                .items_center()
+                .gap(px(GAP * z))
+                .max_w_full()
+                .min_w_0()
+                .h(px(28.0 * z))
+                .ml(px(-8.0 * z))
+                .px(px(8.0 * z))
+                .rounded(px(6.0 * z))
+                .text_size(px(SMALL * z))
+                .text_color(c.ink_2)
+                .underline()
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover).text_color(ink))
                 .child(ui::say(cx, Str::InboxToTerminal))
+                .child(icon(Lucide::ArrowRight, 12.0 * z, c.ink_2))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, _, cx| {
                     store.update(cx, |store, cx| store.select(node.0, cx));
                 }),
@@ -727,6 +829,7 @@ fn send_row(
     answers: &Entity<Answers>,
     id: u32,
     slot: Slot,
+    tone: WaitTone,
     field: &Entity<Field>,
     z: f32,
     cx: &mut App,
@@ -738,49 +841,50 @@ fn send_row(
         Slot::Option(index) => index + 1,
         Slot::Field => 255,
     };
-    let pictures = (slot == Slot::Answer)
-        .then(|| {
-            answers
-                .read(cx)
-                .attached
-                .get(&id)
-                .map(|a| a.pictures.clone())
-        })
-        .flatten();
-    let attach = pictures.map(|pictures| {
-        ui::button_at(("attach", id as usize), z, cx)
-            .w(px(28.0 * z))
-            .h(px(28.0 * z))
-            .justify_center()
-            .px(px(0.0))
-            .tooltip(tip(ui::say(cx, Str::InboxAttachImage).to_owned()))
-            .child(icon(Lucide::Image, 14.0 * z, c.ink_2))
-            .on_click(move |_, _, cx| pictures.update(cx, |pictures, cx| pictures.pick_files(cx)))
-    });
+    let empty = {
+        let state = answers.read(cx);
+        let bare = state
+            .attached
+            .get(&id)
+            .is_none_or(|a| a.pictures.read(cx).is_empty());
+        slot == Slot::Answer && field.read(cx).is_blank() && bare
+    };
+    let busy = answers.read(cx).store.read(cx).is_busy(id);
+    let off = empty || (slot != Slot::Answer && busy);
+    let color = entry::tone_of(tone, &c);
+    let mut send = div()
+        .id(("send", id as usize * 256 + slot_id))
+        .flex_none()
+        .size(px(28.0 * z))
+        .rounded(px(6.0 * z))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(color)
+        .child(icon(Lucide::ArrowUp, 14.0 * z, entry::tone_ink(tone, &c)));
+    if slot != Slot::Answer {
+        send = send.tooltip(tip(ui::say(cx, Str::InboxTypeSend).to_owned()));
+    }
+    let send = if off {
+        send.opacity(0.45)
+    } else {
+        send.cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, _, cx| owner.update(cx, |answers, cx| answers.submit(id, slot, cx)))
+    };
     div()
         .flex()
         .items_end()
         .gap(px(GAP * z))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(div().flex_1().min_w_0().child(field.clone()))
-        .children(attach)
-        .child(
-            ui::button_at(("send", id as usize * 256 + slot_id), z, cx)
-                .w(px(28.0 * z))
-                .h(px(28.0 * z))
-                .justify_center()
-                .border_color(c.warn)
-                .bg(c.warn)
-                .text_color(c.warn_ink)
-                .child("\u{2191}")
-                .on_click(move |_, _, cx| {
-                    owner.update(cx, |answers, cx| answers.submit(id, slot, cx))
-                }),
-        )
+        .child(send)
 }
 
 fn prompt_body(
     answers: &Entity<Answers>,
     id: u32,
+    tone: WaitTone,
     prompt: &Prompt,
     z: f32,
     cx: &mut App,
@@ -791,35 +895,62 @@ fn prompt_body(
         .flex()
         .flex_col()
         .gap(px(GAP * z))
-        .child(div().text_size(px(SMALL * z)).child(prompt.body.join("\n")));
-    let plain: Vec<_> = prompt
-        .options
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| !o.writes)
-        .collect();
-    if !plain.is_empty() {
-        body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
-            plain.into_iter().map(|(index, option)| {
-                let owner = answers.clone();
-                let mut button = ui::button_at(("option", id as usize * 256 + index), z, cx)
-                    .child(
-                        div()
-                            .text_color(c.ink_3)
-                            .child(key_label(&option.key, index)),
+        .child(entry::prompt_box(prompt.body.join("\n"), z, &c));
+    let options =
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(GAP * z))
+            .children(prompt.options.iter().enumerate().map(|(index, option)| {
+                let label = key_label(&option.key, index);
+                if option.writes {
+                    return entry::choice_face(
+                        div(),
+                        Choice {
+                            key: label,
+                            label: &option.label,
+                            recommended: false,
+                            look: Look::Plain,
+                            tone,
+                        },
+                        z,
+                        cx,
                     )
-                    .child(option.label.clone());
-                if index == 0 {
-                    button = button.border_color(c.warn);
+                    .into_any_element();
                 }
-                if busy {
-                    button = button.opacity(0.5);
-                }
-                button.on_click(move |_, _, cx| {
+                let owner = answers.clone();
+                let button = div()
+                    .id(("option", id as usize * 256 + index))
+                    .cursor_pointer()
+                    .when(busy, |button| button.opacity(0.6))
+                    .hover({
+                        let hover = c.surface_hover;
+                        move |style| style.bg(hover)
+                    });
+                entry::choice_face(
+                    button,
+                    Choice {
+                        key: label,
+                        label: &option.label,
+                        recommended: index == 0,
+                        look: if index == 0 {
+                            Look::Recommended
+                        } else {
+                            Look::Plain
+                        },
+                        tone,
+                    },
+                    z,
+                    cx,
+                )
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, _, cx| {
                     owner.update(cx, |answers, cx| answers.pick(id, index, cx))
                 })
-            }),
-        ));
+                .into_any_element()
+            }));
+    if !prompt.options.is_empty() {
+        body = body.child(options);
     }
     for (index, option) in prompt.options.iter().enumerate() {
         let field = option
@@ -827,28 +958,20 @@ fn prompt_body(
             .then(|| scaled(answers, id, Slot::Option(index), z, cx))
             .flatten();
         if let Some(field) = field {
-            body = body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0 * z))
-                    .child(
-                        div()
-                            .text_size(px(SMALL * z))
-                            .text_color(c.ink_3)
-                            .child(format!(
-                                "{} {}",
-                                key_label(&option.key, index),
-                                option.label
-                            )),
-                    )
-                    .child(send_row(answers, id, Slot::Option(index), &field, z, cx)),
-            );
+            body = body.child(send_row(
+                answers,
+                id,
+                Slot::Option(index),
+                tone,
+                &field,
+                z,
+                cx,
+            ));
         }
     }
     let field = scaled(answers, id, Slot::Field, z, cx);
     if let Some(field) = field {
-        body = body.child(send_row(answers, id, Slot::Field, &field, z, cx));
+        body = body.child(send_row(answers, id, Slot::Field, tone, &field, z, cx));
     }
     body.into_any_element()
 }

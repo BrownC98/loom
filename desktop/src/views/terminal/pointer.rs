@@ -26,7 +26,7 @@ fn reported(button: MouseButton) -> Option<vt::MouseButton> {
 impl TerminalView {
     fn spot(&self, position: Point<Pixels>, window: &Window) -> Option<Spot> {
         let screen = &self.frame.as_ref()?.screen;
-        let cell = metrics(window, self.scale);
+        let cell = metrics(window, &self.style.face, self.scale);
         let rel = position - self.area.origin;
         let x = rel.x / cell.cell_width;
         let y = rel.y / cell.cell_height;
@@ -171,7 +171,7 @@ impl TerminalView {
             return;
         }
         cx.stop_propagation();
-        let height = metrics(window, self.scale).cell_height;
+        let height = metrics(window, &self.style.face, self.scale).cell_height;
         self.wheel_rest += event.delta.pixel_delta(height).y / height;
         let whole = self.wheel_rest.trunc();
         self.wheel_rest -= whole;

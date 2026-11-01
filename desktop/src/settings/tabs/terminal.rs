@@ -2,8 +2,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, ParentElement, Rgba,
-    ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
+    AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
+    ParentElement, Rgba, ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div,
+    point, px,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
@@ -23,6 +24,8 @@ const PREVIEW_H: f32 = 216.0;
 const ROW_H: f32 = 28.0;
 const ROWS_ABOVE: usize = 4;
 const CHIP: f32 = 14.0;
+const SWATCH_W: f32 = 26.0;
+const SWATCH_H: f32 = 18.0;
 
 #[derive(Default)]
 struct Picker {
@@ -67,6 +70,26 @@ fn chips(colors: &[Rgba]) -> Div {
             .iter()
             .map(|color| div().size(px(CHIP)).bg(*color).mr(px(2.0))),
     )
+}
+
+fn swatch(theme: &Terminal, border: Rgba) -> AnyElement {
+    div()
+        .flex_none()
+        .w(px(SWATCH_W))
+        .h(px(SWATCH_H))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(border)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .font_family(TERMINAL_FAMILY)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(px(11.0))
+        .child("Aa")
+        .into_any_element()
 }
 
 fn sample(theme: &Terminal) -> Div {
@@ -154,7 +177,7 @@ fn picker_block(
         id,
         themes
             .iter()
-            .map(|(name, _)| SharedString::from(*name))
+            .map(|(name, theme)| (SharedString::from(*name), Some(swatch(theme, c.line))))
             .collect(),
         Some(chosen),
         LIST_W,

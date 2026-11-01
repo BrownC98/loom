@@ -3,6 +3,8 @@ use api::settings::{
 };
 use gpui::{Global, Rgba};
 
+use crate::fonts::{self, Wanted};
+
 const TEXT_CONTRAST: f64 = 4.5;
 const TONE_STEP: f64 = 0.5;
 const TONE_STEPS: usize = 200;
@@ -63,6 +65,7 @@ pub struct Theme {
     pub scheme: Scheme,
     pub colors: Colors,
     pub terminal: &'static Terminal,
+    pub face: Wanted,
 }
 
 impl Global for Theme {}
@@ -74,6 +77,7 @@ impl Theme {
             scheme,
             colors: colors(scheme, &settings.colors),
             terminal: terminal(&settings.terminal_theme, scheme),
+            face: fonts::wanted(&settings.terminal_font),
         }
     }
 }

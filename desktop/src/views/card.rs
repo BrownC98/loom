@@ -1090,7 +1090,7 @@ pub fn card(
                 .top(head_h)
                 .left_0()
                 .w_full()
-                .h(bounds.size.height - head_h - px(foot_h))
+                .h(bounds.size.height - head_h - px(foot_h) - px(2.0 * zoom.max(0.5)))
                 .child(body)
         }))
         .children(foot.map(|row| row.absolute().bottom_0().left_0()))

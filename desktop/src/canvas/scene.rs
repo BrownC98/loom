@@ -32,11 +32,7 @@ pub const REPO_INSET: Inset = Inset {
 const GROUP_POSITION: Point = Point { x: 16.0, y: 64.0 };
 pub const STANDARD: Size = Size {
     width: 600.0,
-    height: 466.0,
-};
-pub const SIMPLE: Size = Size {
-    width: 260.0,
-    height: 134.0,
+    height: 437.0,
 };
 pub const MIN_CARD: Size = Size {
     width: 360.0,
@@ -414,15 +410,18 @@ pub fn build(
         })
         .collect();
     sizes.extend(resized);
-    let simple: HashSet<u32> = snap
+    let simple: HashMap<u32, f64> = snap
         .nodes
         .iter()
         .filter(|n| card::view_of(n, card_view) == CardView::Simple)
-        .map(|n| n.id.0)
+        .map(|n| (n.id.0, card::simple_height(n)))
         .collect();
     let size_of = |id: NodeId| {
-        if simple.contains(&id) {
-            SIMPLE
+        if let Some(&height) = simple.get(&id) {
+            Size {
+                width: card::SIMPLE_WIDTH,
+                height,
+            }
         } else {
             sizes.get(&id).copied().unwrap_or(STANDARD)
         }
@@ -728,13 +727,6 @@ pub fn build(
                 },
                 &mut scene,
             );
-        }
-    }
-    for placed in &mut scene.cards {
-        if simple.contains(&placed.node)
-            && let Some(view) = by_id.get(&placed.node)
-        {
-            placed.rect.size.height = card::simple_height(view);
         }
     }
     scene

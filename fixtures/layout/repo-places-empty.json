@@ -1,0 +1,29 @@
+{
+  "kind": "repoPlaces",
+  "input": {
+    "repos": [],
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 1,
+        "worktree": "/a",
+        "bookmark": null
+      }
+    ],
+    "saved": [
+      null,
+      1
+    ]
+  },
+  "output": {
+    "names": [
+      ""
+    ],
+    "bookmarked": [],
+    "chosen": [
+      null,
+      null
+    ]
+  }
+}

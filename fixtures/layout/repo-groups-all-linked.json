@@ -1,0 +1,66 @@
+{
+  "kind": "repoGroups",
+  "input": {
+    "repo": {
+      "id": 4,
+      "name": "odd",
+      "hasCommits": true,
+      "worktrees": [
+        {
+          "path": "/home/u/odd/x",
+          "branch": "x",
+          "original": false
+        },
+        {
+          "path": "/home/u/odd/y",
+          "branch": "y",
+          "original": false
+        }
+      ]
+    },
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 4,
+        "worktree": "/home/u/odd/x",
+        "bookmark": null
+      }
+    ]
+  },
+  "output": {
+    "groups": [
+      {
+        "path": "/home/u/odd/x",
+        "label": "x",
+        "kind": "linked",
+        "branch": "x"
+      },
+      {
+        "path": "/home/u/odd/y",
+        "label": "y",
+        "kind": "linked",
+        "branch": "y"
+      }
+    ],
+    "boxes": [
+      "/home/u/odd/x",
+      "/home/u/odd/y"
+    ],
+    "chips": [],
+    "parents": [
+      null,
+      null
+    ],
+    "attach": [
+      null,
+      null
+    ],
+    "inGroup": [
+      [
+        1
+      ],
+      []
+    ]
+  }
+}

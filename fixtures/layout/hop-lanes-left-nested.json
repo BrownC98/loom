@@ -1,0 +1,643 @@
+{
+  "kind": "siblingLanes",
+  "input": {
+    "direction": "left",
+    "parent": {
+      "at": {
+        "x": -100,
+        "y": 400
+      },
+      "size": {
+        "width": 100,
+        "height": 300
+      }
+    },
+    "pairs": [
+      {
+        "key": "1>2",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": -420,
+              "y": 300
+            },
+            "size": {
+              "width": 160,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -436,
+              "y": 284
+            },
+            "size": {
+              "width": 238,
+              "height": 272
+            }
+          },
+          "bend": 40
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>1",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": -420,
+              "y": 300
+            },
+            "size": {
+              "width": 160,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -436,
+              "y": 284
+            },
+            "size": {
+              "width": 238,
+              "height": 272
+            }
+          },
+          "bend": 40
+        },
+        "target": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 60,
+            "height": 16
+          },
+          "short": {
+            "width": 20,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>4",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": -420,
+              "y": 300
+            },
+            "size": {
+              "width": 160,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -436,
+              "y": 284
+            },
+            "size": {
+              "width": 238,
+              "height": 272
+            }
+          },
+          "bend": 40
+        },
+        "target": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": -440,
+              "y": 860
+            },
+            "size": {
+              "width": 180,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -456,
+              "y": 844
+            },
+            "size": {
+              "width": 258,
+              "height": 272
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "3>5",
+        "source": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 5,
+          "box": {
+            "at": {
+              "x": -460,
+              "y": 1140
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -460,
+              "y": 1140
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 120,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "1>5",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -460,
+              "y": 20
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 5,
+          "box": {
+            "at": {
+              "x": -460,
+              "y": 1140
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -460,
+              "y": 1140
+            },
+            "size": {
+              "width": 200,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "4>3",
+        "source": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": -440,
+              "y": 860
+            },
+            "size": {
+              "width": 180,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -456,
+              "y": 844
+            },
+            "size": {
+              "width": 258,
+              "height": 272
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "3>3x",
+        "source": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -500,
+              "y": 580
+            },
+            "size": {
+              "width": 240,
+              "height": 240
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 4,
+          "box": {
+            "at": {
+              "x": -440,
+              "y": 860
+            },
+            "size": {
+              "width": 180,
+              "height": 240
+            }
+          },
+          "room": {
+            "at": {
+              "x": -456,
+              "y": 844
+            },
+            "size": {
+              "width": 258,
+              "height": 272
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      }
+    ]
+  },
+  "output": {
+    "1>2": {
+      "points": [
+        {
+          "x": -260,
+          "y": 180
+        },
+        {
+          "x": -249,
+          "y": 180
+        },
+        {
+          "x": -249,
+          "y": 380
+        },
+        {
+          "x": -260,
+          "y": 380
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -249,
+          "y": 240
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "2>1": {
+      "points": [
+        {
+          "x": -260,
+          "y": 420
+        },
+        {
+          "x": -196,
+          "y": 420
+        },
+        {
+          "x": -196,
+          "y": 140
+        },
+        {
+          "x": -260,
+          "y": 140
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -196,
+          "y": 336
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "3>3x": {
+      "points": [
+        {
+          "x": -260,
+          "y": 740
+        },
+        {
+          "x": -249,
+          "y": 740
+        },
+        {
+          "x": -249,
+          "y": 940
+        },
+        {
+          "x": -260,
+          "y": 940
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -249,
+          "y": 800
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "4>3": {
+      "points": [
+        {
+          "x": -260,
+          "y": 980
+        },
+        {
+          "x": -196,
+          "y": 980
+        },
+        {
+          "x": -196,
+          "y": 700
+        },
+        {
+          "x": -260,
+          "y": 700
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -196,
+          "y": 896
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "2>4": {
+      "points": [
+        {
+          "x": -260,
+          "y": 460
+        },
+        {
+          "x": -196,
+          "y": 460
+        },
+        {
+          "x": -196,
+          "y": 1020
+        },
+        {
+          "x": -260,
+          "y": 1020
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -196,
+          "y": 544
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "3>5": {
+      "points": [
+        {
+          "x": -260,
+          "y": 660
+        },
+        {
+          "x": -196,
+          "y": 660
+        },
+        {
+          "x": -196,
+          "y": 1240
+        },
+        {
+          "x": -260,
+          "y": 1240
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -196,
+          "y": 1153
+        },
+        "short": false
+      },
+      "turned": true
+    },
+    "1>5": {
+      "points": [
+        {
+          "x": -260,
+          "y": 100
+        },
+        {
+          "x": -196,
+          "y": 100
+        },
+        {
+          "x": -196,
+          "y": 1280
+        },
+        {
+          "x": -260,
+          "y": 1280
+        }
+      ],
+      "label": {
+        "at": {
+          "x": -196,
+          "y": 159
+        },
+        "short": true
+      },
+      "turned": true
+    }
+  }
+}

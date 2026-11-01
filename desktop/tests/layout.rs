@@ -1,5 +1,12 @@
+#[path = "../src/canvas/hops.rs"]
+mod hops;
 #[path = "../src/canvas/layout.rs"]
 mod layout;
+#[path = "../src/canvas/repos.rs"]
+mod repos;
+
+#[path = "layout/hop_repo.rs"]
+mod hop_repo;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -89,6 +96,28 @@ enum Case {
     Settle {
         input: SettleIn,
         output: BTreeMap<String, P>,
+    },
+    #[serde(rename = "hopParts")]
+    HopParts {
+        input: hop_repo::PartsIn,
+        output: Vec<Vec<hop_repo::PartOut>>,
+    },
+    #[serde(rename = "pickHue")]
+    PickHue { input: hop_repo::HueIn, output: f64 },
+    #[serde(rename = "siblingLanes")]
+    SiblingLanes {
+        input: hop_repo::LanesIn,
+        output: BTreeMap<String, hop_repo::RouteOut>,
+    },
+    #[serde(rename = "repoGroups")]
+    RepoGroups {
+        input: hop_repo::GroupsIn,
+        output: hop_repo::GroupsOut,
+    },
+    #[serde(rename = "repoPlaces")]
+    RepoPlaces {
+        input: hop_repo::PlacesIn,
+        output: hop_repo::PlacesOut,
     },
 }
 
@@ -197,6 +226,21 @@ fn layout_fixtures_match_the_web() {
             }
             Case::Settle { input, output } => {
                 assert_eq!(settled(&input), output, "{}", file.display())
+            }
+            Case::HopParts { input, output } => {
+                assert_eq!(hop_repo::parts(&input), output, "{}", file.display())
+            }
+            Case::PickHue { input, output } => {
+                assert_eq!(hop_repo::hue(&input), output, "{}", file.display())
+            }
+            Case::SiblingLanes { input, output } => {
+                assert_eq!(hop_repo::lanes(&input), output, "{}", file.display())
+            }
+            Case::RepoGroups { input, output } => {
+                assert_eq!(hop_repo::groups(&input), output, "{}", file.display())
+            }
+            Case::RepoPlaces { input, output } => {
+                assert_eq!(hop_repo::places(&input), output, "{}", file.display())
             }
         }
     }

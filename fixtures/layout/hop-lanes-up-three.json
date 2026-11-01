@@ -1,0 +1,287 @@
+{
+  "kind": "siblingLanes",
+  "input": {
+    "direction": "up",
+    "parent": {
+      "at": {
+        "x": 300,
+        "y": -100
+      },
+      "size": {
+        "width": 300,
+        "height": 100
+      }
+    },
+    "pairs": [
+      {
+        "key": "1>2",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 330,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 330,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "2>3",
+        "source": {
+          "id": 2,
+          "box": {
+            "at": {
+              "x": 330,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 330,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 640,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 640,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      },
+      {
+        "key": "1>3",
+        "source": {
+          "id": 1,
+          "box": {
+            "at": {
+              "x": 20,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 20,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "target": {
+          "id": 3,
+          "box": {
+            "at": {
+              "x": 640,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "room": {
+            "at": {
+              "x": 640,
+              "y": -450
+            },
+            "size": {
+              "width": 240,
+              "height": 200
+            }
+          },
+          "bend": null
+        },
+        "label": {
+          "full": {
+            "width": 80,
+            "height": 16
+          },
+          "short": {
+            "width": 24,
+            "height": 16
+          }
+        }
+      }
+    ]
+  },
+  "output": {
+    "1>2": {
+      "points": [
+        {
+          "x": 160,
+          "y": -250
+        },
+        {
+          "x": 160,
+          "y": -239
+        },
+        {
+          "x": 430,
+          "y": -239
+        },
+        {
+          "x": 430,
+          "y": -250
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 295,
+          "y": -239
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "2>3": {
+      "points": [
+        {
+          "x": 470,
+          "y": -250
+        },
+        {
+          "x": 470,
+          "y": -239
+        },
+        {
+          "x": 740,
+          "y": -239
+        },
+        {
+          "x": 740,
+          "y": -250
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 605,
+          "y": -239
+        },
+        "short": false
+      },
+      "turned": false
+    },
+    "1>3": {
+      "points": [
+        {
+          "x": 120,
+          "y": -250
+        },
+        {
+          "x": 120,
+          "y": -221
+        },
+        {
+          "x": 780,
+          "y": -221
+        },
+        {
+          "x": 780,
+          "y": -250
+        }
+      ],
+      "label": {
+        "at": {
+          "x": 450,
+          "y": -221
+        },
+        "short": false
+      },
+      "turned": false
+    }
+  }
+}

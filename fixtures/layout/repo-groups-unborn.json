@@ -1,0 +1,59 @@
+{
+  "kind": "repoGroups",
+  "input": {
+    "repo": {
+      "id": 3,
+      "name": "fresh",
+      "hasCommits": false,
+      "worktrees": [
+        {
+          "path": "/home/u/fresh",
+          "branch": null,
+          "original": true
+        }
+      ]
+    },
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 3,
+        "worktree": "/home/u/fresh",
+        "bookmark": null
+      },
+      {
+        "id": 2,
+        "parent": 1,
+        "repo": 3,
+        "worktree": "/home/u/fresh",
+        "bookmark": null
+      }
+    ]
+  },
+  "output": {
+    "groups": [
+      {
+        "path": "/home/u/fresh",
+        "label": "fresh",
+        "kind": "unborn",
+        "branch": null
+      }
+    ],
+    "boxes": [
+      "/home/u/fresh"
+    ],
+    "chips": [],
+    "parents": [
+      null
+    ],
+    "attach": [
+      null
+    ],
+    "inGroup": [
+      [
+        1,
+        2
+      ]
+    ]
+  }
+}

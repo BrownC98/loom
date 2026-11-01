@@ -241,7 +241,7 @@ impl<T: Track> Bar<T> {
         } else if self.shared.flips.get() < FLIPS {
             self.shared.flips.set(self.shared.flips.get() + 1);
             self.shared.shown.set(wants);
-            window.refresh();
+            window.on_next_frame(|window, _| window.refresh());
         }
     }
 

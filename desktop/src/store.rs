@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use api::graph::docs::DocRow;
 use api::graph::events::EventLog;
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
@@ -23,6 +25,8 @@ pub struct Store {
     settings_key: String,
     selected: Option<u32>,
     zoom_percent: u32,
+    found: Option<HashSet<String>>,
+    picked: Option<HashSet<String>>,
 }
 
 impl EventEmitter<GraphEvent> for Store {}
@@ -79,6 +83,8 @@ impl Store {
             settings_key: String::new(),
             selected: None,
             zoom_percent: 100,
+            found: None,
+            picked: None,
         }
     }
 
@@ -118,6 +124,24 @@ impl Store {
     pub fn set_zoom_percent(&mut self, percent: u32, cx: &mut Context<Self>) {
         if self.zoom_percent != percent {
             self.zoom_percent = percent;
+            cx.notify();
+        }
+    }
+
+    pub fn lit(&self) -> Option<&HashSet<String>> {
+        self.found.as_ref().or(self.picked.as_ref())
+    }
+
+    pub fn set_found(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.found != keys {
+            self.found = keys;
+            cx.notify();
+        }
+    }
+
+    pub fn set_picked(&mut self, keys: Option<HashSet<String>>, cx: &mut Context<Self>) {
+        if self.picked != keys {
+            self.picked = keys;
             cx.notify();
         }
     }

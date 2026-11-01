@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use api::graph::{NodeView, Toward};
@@ -15,7 +15,7 @@ use super::layout::{
     BendCenter, Direction, EdgeEnd, Point, Rect, Side, Size, bend_center, edge_sides,
     label_heading, side_point, step_at,
 };
-use super::scene::{DIRECTION, Scene};
+use super::scene::Scene;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Oklch, Scheme, to_rgba};
 
@@ -25,6 +25,9 @@ const STEP_BEND: f64 = ARROW + BEND_DROP;
 const ARROW_LENGTH: f64 = 3.3;
 const ARROW_HALF: f64 = 2.7;
 const WIDTH: f64 = 1.5;
+const LIT_WIDTH: f64 = 3.0;
+const DIM: f32 = 0.4;
+const HIT_WIDTH: f64 = 6.0;
 const CHOSEN_WIDTH: f64 = 2.25;
 const LIVE_WIDTH: f64 = 2.0;
 const DASH: f64 = 6.0;
@@ -50,6 +53,7 @@ pub struct Stroke {
     shift: Option<f64>,
     from_start: bool,
     to_end: bool,
+    fade: f32,
 }
 
 pub fn plain(points: Vec<Point>, color: Rgba, width: f64) -> Stroke {
@@ -60,6 +64,7 @@ pub fn plain(points: Vec<Point>, color: Rgba, width: f64) -> Stroke {
         shift: None,
         from_start: false,
         to_end: false,
+        fade: 1.0,
     }
 }
 
@@ -68,6 +73,7 @@ pub struct Label {
     text: String,
     fill: Rgba,
     ink: Rgba,
+    fade: f32,
 }
 
 #[derive(Default)]
@@ -75,6 +81,7 @@ pub struct Drawing {
     pub under: Vec<Stroke>,
     pub over: Vec<Stroke>,
     pub labels: Vec<Label>,
+    pub titles: Vec<(Vec<Point>, String)>,
 }
 
 pub struct Params<'a> {
@@ -83,6 +90,7 @@ pub struct Params<'a> {
     pub style: EdgeStyle,
     pub selected: Option<u32>,
     pub traffic: &'a Traffic,
+    pub lit: Option<&'a HashSet<String>>,
     pub colors: &'a Colors,
     pub scheme: Scheme,
     pub lang: Lang,
@@ -341,6 +349,14 @@ fn flow_shift(flow: Duration, forward: bool) -> f64 {
     }
 }
 
+fn lit(params: &Params, a: u32, b: u32) -> (bool, f32) {
+    match params.lit {
+        None => (false, 1.0),
+        Some(keys) if keys.contains(&a.to_string()) && keys.contains(&b.to_string()) => (true, 1.0),
+        Some(_) => (false, DIM),
+    }
+}
+
 pub fn build(params: &Params) -> Drawing {
     let Params {
         scene,
@@ -349,6 +365,7 @@ pub fn build(params: &Params) -> Drawing {
         traffic,
         ..
     } = *params;
+    let direction = scene.direction;
     let boxes = Boxes {
         rects: scene
             .cards
@@ -359,7 +376,7 @@ pub fn build(params: &Params) -> Drawing {
     };
     let step_of = |parent: Rect, child: Rect| {
         (style == EdgeStyle::Step)
-            .then(|| step_at(parent, child, DIRECTION, STEP_BEND))
+            .then(|| step_at(parent, child, direction, STEP_BEND))
             .flatten()
     };
     let mut drawing = Drawing::default();
@@ -373,7 +390,7 @@ pub fn build(params: &Params) -> Drawing {
         let (Some(p), Some(c)) = (boxes.rect(parent), boxes.rect(child)) else {
             continue;
         };
-        let sides = edge_sides(p, c, DIRECTION);
+        let sides = edge_sides(p, c, direction);
         let step = step_of(p, c);
         let from = EdgeEnd {
             rect: p,
@@ -390,23 +407,33 @@ pub fn build(params: &Params) -> Drawing {
                 sides.parent,
                 target,
                 sides.child,
-                bend_center(p, bend, DIRECTION),
+                bend_center(p, bend, direction),
             ),
             None => curve(source, sides.parent, target, sides.child),
         };
         let chosen = params.selected == Some(child) || params.selected == Some(parent);
+        let (marked, fade) = lit(params, parent, child);
         match traffic.pulses.get(&child) {
             None => drawing.under.push(Stroke {
                 points,
                 color: if chosen {
                     params.colors.ink_2
+                } else if marked {
+                    params.colors.accent
                 } else {
                     params.colors.edge
                 },
-                width: if chosen { CHOSEN_WIDTH } else { WIDTH },
+                width: if chosen {
+                    CHOSEN_WIDTH
+                } else if marked {
+                    LIT_WIDTH
+                } else {
+                    WIDTH
+                },
                 shift: None,
                 from_start: false,
                 to_end: false,
+                fade,
             }),
             Some(pulse) => {
                 let color = hop_color(pulse.hue, params.scheme);
@@ -418,6 +445,7 @@ pub fn build(params: &Params) -> Drawing {
                     shift: Some(flow_shift(params.flow, forward)),
                     from_start: pulse.counts[slot(Toward::Parent)] > 0,
                     to_end: pulse.counts[slot(Toward::Child)] > 0,
+                    fade,
                 });
                 let text = [(Toward::Parent, parent), (Toward::Child, child)]
                     .into_iter()
@@ -442,6 +470,7 @@ pub fn build(params: &Params) -> Drawing {
                     text,
                     fill: color,
                     ink,
+                    fade,
                 });
             }
         }
@@ -456,7 +485,7 @@ fn hops(
     step_of: &dyn Fn(Rect, Rect) -> Option<f64>,
     drawing: &mut Drawing,
 ) {
-    let turned = matches!(DIRECTION, Direction::Right | Direction::Left);
+    let turned = matches!(params.scene.direction, Direction::Right | Direction::Left);
     let mut keys: Vec<&String> = params.traffic.hops.keys().collect();
     keys.sort();
     let texts: HashMap<&String, (String, String)> = keys
@@ -543,7 +572,7 @@ fn hops(
         .filter_map(|(&parent, pairs)| {
             boxes
                 .rect(parent)
-                .map(|up| sibling_lanes(up, pairs, DIRECTION))
+                .map(|up| sibling_lanes(up, pairs, params.scene.direction))
         })
         .flatten()
         .collect();
@@ -583,6 +612,8 @@ fn hops(
                 )
             }
         };
+        let (_, fade) = lit(params, hop.source, hop.target);
+        let points_for_title = points.clone();
         drawing.over.push(Stroke {
             points,
             color,
@@ -590,13 +621,16 @@ fn hops(
             shift: Some(flow_shift(params.flow, hop.last == HopEndName::Target)),
             from_start: hop.counts[HopEndName::Source as usize] > 0,
             to_end: hop.counts[HopEndName::Target as usize] > 0,
+            fade,
         });
+        drawing.titles.push((points_for_title, full.clone()));
         if let Some((at, text)) = label {
             drawing.labels.push(Label {
                 at,
                 text,
                 fill: color,
                 ink: params.colors.accent_ink,
+                fade,
             });
         }
     }
@@ -701,7 +735,8 @@ fn paint_stroke(window: &mut Window, frame: &Frame, s: &Stroke) {
         Some(shift) => dashes(&s.points, shift),
         None => vec![s.points.clone()],
     };
-    stroke(window, frame, &lines, s.width, s.color);
+    let color = faded(s.color, s.fade);
+    stroke(window, frame, &lines, s.width, color);
     let (first, last) = (s.points[0], s.points[s.points.len() - 1]);
     if s.from_start {
         head(
@@ -721,9 +756,21 @@ fn paint_stroke(window: &mut Window, frame: &Frame, s: &Stroke) {
     }
 }
 
+fn faded(color: Rgba, fade: f32) -> Rgba {
+    Rgba {
+        a: color.a * fade,
+        ..color
+    }
+}
+
 fn paint_label(window: &mut Window, cx: &mut App, frame: &Frame, label: &Label) {
     let zoom = frame.camera.zoom;
-    let line = shape(window, &label.text, px(LABEL_FONT * zoom), label.ink);
+    let line = shape(
+        window,
+        &label.text,
+        px(LABEL_FONT * zoom),
+        faded(label.ink, label.fade),
+    );
     let center = frame.at(label.at);
     let pad = px(LABEL_PAD_X as f32 * zoom);
     let height = px((LABEL_LINE + 2.0 * LABEL_PAD_Y) as f32 * zoom);
@@ -732,7 +779,9 @@ fn paint_label(window: &mut Window, cx: &mut App, frame: &Frame, label: &Label) 
         point(center.x - width / 2.0, center.y - height / 2.0),
         size(width, height),
     );
-    window.paint_quad(fill(pill, label.fill).corner_radii(px(LABEL_RADIUS as f32 * zoom)));
+    window.paint_quad(
+        fill(pill, faded(label.fill, label.fade)).corner_radii(px(LABEL_RADIUS as f32 * zoom)),
+    );
     let line_height = px(LABEL_LINE as f32 * zoom);
     let _ = line.paint(
         point(center.x - line.width / 2.0, center.y - line_height / 2.0),
@@ -773,4 +822,23 @@ pub fn over(strokes: Vec<Stroke>, labels: Vec<Label>, camera: Camera) -> impl gp
     )
     .absolute()
     .size_full()
+}
+
+fn near(a: Point, b: Point, p: Point) -> f64 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let length = dx * dx + dy * dy;
+    let t = if length == 0.0 {
+        0.0
+    } else {
+        (((p.x - a.x) * dx + (p.y - a.y) * dy) / length).clamp(0.0, 1.0)
+    };
+    distance(p, pt(a.x + t * dx, a.y + t * dy))
+}
+
+pub fn title_at(titles: &[(Vec<Point>, String)], graph: Point, zoom: f64) -> Option<&str> {
+    let reach = HIT_WIDTH / 2.0 / zoom;
+    titles
+        .iter()
+        .find(|(points, _)| points.windows(2).any(|w| near(w[0], w[1], graph) <= reach))
+        .map(|(_, title)| title.as_str())
 }

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use gpui::{
     App, Bounds, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, PinchEvent, Pixels, Point, Render, ScrollEvent,
-    Styled, Window, canvas, div, point, px, rgb, size,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgb, size,
 };
 
 use api::graph::pty::Pace;
@@ -18,7 +18,7 @@ use super::edges;
 use super::frames::Probe;
 use super::grid;
 use super::hop_anim::Traffic;
-use super::layout::{Rect, Size};
+use super::layout::{self, Rect, Size};
 use super::scene::{self, MIN_CARD, Scene};
 use crate::link;
 use crate::store::Store;
@@ -31,6 +31,8 @@ const WHEEL_LINE: f32 = 25.0;
 const WHEEL_RATE: f32 = 0.002;
 const WHEEL_PINCH_BOOST: f32 = 10.0;
 const HANDLE: f32 = 18.0;
+const TIP_OFFSET: f32 = 12.0;
+const TIP_FONT: f32 = 12.0;
 const TERMINAL_STEP: f32 = 1.03;
 const HIDDEN_KEEP: Duration = Duration::from_secs(3);
 
@@ -62,6 +64,8 @@ pub struct CanvasView {
     started: Instant,
     connect: Connect,
     traffic: Traffic,
+    titles: Vec<(Vec<layout::Point>, String)>,
+    tip: Option<(String, Point<Pixels>)>,
 }
 
 fn snapped(zoom: f32) -> f32 {
@@ -113,6 +117,8 @@ impl CanvasView {
             started: Instant::now(),
             connect: Connect::default(),
             traffic: Traffic::default(),
+            titles: Vec::new(),
+            tip: None,
         }
     }
 
@@ -289,6 +295,20 @@ impl CanvasView {
         {
             cx.notify();
         }
+        let graph = self.camera.to_graph(self.local(event.position));
+        let tip = edges::title_at(
+            &self.titles,
+            layout::Point {
+                x: f64::from(graph.x),
+                y: f64::from(graph.y),
+            },
+            f64::from(self.camera.zoom),
+        )
+        .map(|title| (title.to_owned(), self.local(event.position)));
+        if tip != self.tip {
+            self.tip = tip;
+            cx.notify();
+        }
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = None;
             self.resizing = None;
@@ -367,6 +387,7 @@ impl Render for CanvasView {
                 style: store.settings().edge_style,
                 selected,
                 traffic: &self.traffic,
+                lit: store.lit(),
                 colors: &colors,
                 scheme,
                 lang,
@@ -374,9 +395,22 @@ impl Render for CanvasView {
                 text_width: &|text| edges::text_width(window, text),
             })
         });
-        let (under, over, labels) = drawing
-            .map(|d| (d.under, d.over, d.labels))
-            .unwrap_or_default();
+        let drawing = drawing.unwrap_or_default();
+        self.titles = drawing.titles;
+        let (under, over, labels) = (drawing.under, drawing.over, drawing.labels);
+        let tip = self.tip.as_ref().map(|(text, at)| {
+            div()
+                .absolute()
+                .left(at.x + px(TIP_OFFSET))
+                .top(at.y + px(TIP_OFFSET))
+                .px(px(8.0))
+                .py(px(4.0))
+                .rounded(px(6.0))
+                .bg(colors.surface)
+                .text_color(colors.ink)
+                .text_size(px(TIP_FONT))
+                .child(text.clone())
+        });
         let handles = self
             .scene
             .cards
@@ -478,6 +512,7 @@ impl Render for CanvasView {
             )
         });
         div()
+            .id("canvas")
             .size_full()
             .relative()
             .overflow_hidden()
@@ -514,6 +549,12 @@ impl Render for CanvasView {
             .children(line)
             .children(tracker)
             .children(refusal)
+            .children(tip)
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !hovered && (this.connect.leave() | this.tip.take().is_some()) {
+                    cx.notify();
+                }
+            }))
             .children(frame_end.map(|probe| {
                 canvas(|_, _, _| (), move |_, _, _, _| probe.end())
                     .absolute()

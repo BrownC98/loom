@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use api::graph::errors::{Problem, Refusal};
+use api::graph::errors::Problem;
 use gpui::{
     App, CursorStyle, DispatchPhase, Div, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Point, Styled, canvas, div, px,
@@ -9,10 +9,11 @@ use gpui::{
 use super::camera::Camera;
 use super::edges;
 use super::layout::{self, EdgeEnd, Side, tree_sides};
-use super::scene::{DIRECTION, Scene};
+use super::scene::Scene;
 use crate::link::Rejected;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
+use crate::views::dock::events::refusal;
 
 const PORT: f32 = 10.0;
 const PORT_BORDER: f32 = 2.0;
@@ -31,15 +32,15 @@ pub struct Connect {
     refusal: Option<String>,
 }
 
-fn port_side() -> Side {
-    tree_sides(DIRECTION).parent
+fn port_side(scene: &Scene) -> Side {
+    tree_sides(scene.direction).parent
 }
 
 fn port_at(scene: &Scene, node: u32) -> Option<layout::Point> {
     scene.cards.iter().find(|c| c.node == node).map(|c| {
         layout::side_point(EdgeEnd {
             rect: c.rect,
-            side: port_side(),
+            side: port_side(scene),
         })
     })
 }
@@ -85,6 +86,10 @@ impl Connect {
         let changed = next != self.hovered;
         self.hovered = next;
         changed
+    }
+
+    pub fn leave(&mut self) -> bool {
+        self.hovered.take().is_some()
     }
 
     pub fn shows(&self, node: u32, selected: Option<u32>) -> bool {
@@ -157,7 +162,8 @@ impl Connect {
             x: f64::from(pointer.x),
             y: f64::from(pointer.y),
         };
-        let (points, _) = edges::curve(source, port_side(), target, opposite(port_side()));
+        let (points, _) =
+            edges::curve(source, port_side(scene), target, opposite(port_side(scene)));
         Some(edges::over(
             vec![edges::plain(
                 points,
@@ -232,15 +238,7 @@ pub fn refusal_text(rejected: &Rejected, lang: Lang) -> String {
         Rejected::Status(status) => {
             Str::ProblemStatus.with(lang, &[("status", &status.to_string())])
         }
-        Rejected::Problem(Problem::Refused(refusal)) => match refusal {
-            Refusal::Cycle => Str::ProblemRefusedCycle.text(lang).to_owned(),
-            Refusal::TooDeep => Str::ProblemRefusedTooDeep.text(lang).to_owned(),
-            Refusal::TooManyChildren(n) => {
-                Str::ProblemRefusedTooManyChildren.with(lang, &[("value", &n.to_string())])
-            }
-            Refusal::NameTaken(name) => Str::ProblemRefusedNameTaken.with(lang, &[("value", name)]),
-            other => other.to_string(),
-        },
+        Rejected::Problem(Problem::Refused(refusal)) => refusal::nameless(refusal, lang),
         Rejected::Problem(Problem::Launch(error)) => error.to_string(),
         Rejected::Problem(Problem::Repo(error)) => error.to_string(),
         Rejected::Problem(Problem::NoLogin) => Str::ProblemNoLogin.text(lang).to_owned(),

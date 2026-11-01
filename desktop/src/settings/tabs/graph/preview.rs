@@ -8,6 +8,7 @@ use gpui::{
 use crate::strings::Str;
 use crate::views::dock::questions::kind_label;
 use crate::views::dock::ui::{SMALL, colors, say};
+use crate::views::sidebar::icons::{Glyph, icon};
 
 const DOT_GAP: f32 = 20.0;
 const HEAD: f32 = 34.0;
@@ -118,7 +119,7 @@ pub fn pill(size: FloatSize, name: &str, text: &str, cx: &App) -> Div {
 pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
     let c = colors(cx);
     let z = zoom(size);
-    let button = |glyph: &'static str| {
+    let button = |glyph: Glyph| {
         div()
             .flex_none()
             .size(px(BUTTON * z))
@@ -127,7 +128,7 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
             .justify_center()
             .rounded(px(6.0 * z))
             .text_color(c.ink_2)
-            .child(glyph)
+            .child(icon(glyph, 16.0 * z, c.ink_2))
     };
     let to = div()
         .flex()
@@ -141,7 +142,7 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
                 .flex()
                 .items_center()
                 .gap(px(4.0 * z))
-                .child(">_")
+                .child(icon(Glyph::SquareTerminal, 14.0 * z, c.ink_3))
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -177,8 +178,8 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
                 .text_color(c.ink_3)
                 .child(say(cx, Str::ComposerPlaceholder)),
         )
-        .child(button("\u{25a3}"))
-        .child(button("+"))
+        .child(button(Glyph::Image))
+        .child(button(Glyph::Paperclip))
         .child(
             div()
                 .flex_none()
@@ -190,7 +191,7 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
                 .bg(c.accent)
                 .text_color(c.accent_ink)
                 .opacity(0.4)
-                .child("\u{2191}"),
+                .child(icon(Glyph::ArrowUp, 16.0 * z, c.accent_ink)),
         );
     div()
         .flex()

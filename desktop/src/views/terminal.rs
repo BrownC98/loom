@@ -53,7 +53,7 @@ impl Style {
     fn current(cx: &App) -> Style {
         let theme = cx.global::<Theme>();
         Style {
-            face: theme.face.resolve(&cx.text_system().all_font_names()),
+            face: Theme::face(cx),
             terminal: theme.terminal,
             palette: palette(theme.terminal),
         }

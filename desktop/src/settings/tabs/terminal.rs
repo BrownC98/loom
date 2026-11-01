@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
     ParentElement, Rgba, ScrollHandle, SharedString, Styled, StyledText, Subscription, Window, div,
@@ -13,7 +14,7 @@ use crate::settings::widgets::{
 };
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
-use crate::theme::{Scheme, Terminal, chosen_terminal_name, terminal_themes};
+use crate::theme::{Scheme, Terminal, Theme, chosen_terminal_name, terminal_themes};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
 
 const SIZE_RANGE: std::ops::RangeInclusive<i64> = 10..=24;
@@ -166,6 +167,7 @@ fn picker_block(
     cx: &App,
 ) -> Div {
     let c = colors(cx);
+    let face = Theme::face(cx);
     let themes = terminal_themes();
     let hovered = picker.hover.get().filter(|_| !disabled);
     let shown = hovered.unwrap_or(chosen).min(themes.len() - 1);
@@ -221,7 +223,11 @@ fn picker_block(
                 .border_color(c.line_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .font_family(TERMINAL_FAMILY)
+                .font_family(face.font.family.clone())
+                .when_some(face.font.fallbacks.clone(), |mut d, fallbacks| {
+                    d.text_style().font_fallbacks = Some(fallbacks);
+                    d
+                })
                 .text_size(px(12.0))
                 .line_height(px(18.0))
                 .child(sample(theme)),

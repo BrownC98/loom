@@ -236,7 +236,9 @@ impl<T: Track> Bar<T> {
             self.shared.flips.set(0);
         }
         let wants = self.overflows();
-        if wants != shown && self.shared.flips.get() < FLIPS {
+        if wants == shown {
+            self.shared.flips.set(0);
+        } else if self.shared.flips.get() < FLIPS {
             self.shared.flips.set(self.shared.flips.get() + 1);
             self.shared.shown.set(wants);
             window.refresh();

@@ -146,7 +146,14 @@ impl Vt {
     pub fn new(cols: u16, rows: u16) -> Self {
         let listener = Listener::default();
         Self {
-            term: Term::new(Config::default(), &size(cols, rows), listener.clone()),
+            term: Term::new(
+                Config {
+                    kitty_keyboard: true,
+                    ..Config::default()
+                },
+                &size(cols, rows),
+                listener.clone(),
+            ),
             parser: Processor::default(),
             listener,
         }
@@ -220,69 +227,355 @@ impl Vt {
                 }),
         }
     }
+}
 
+#[allow(dead_code)]
+impl Vt {
     pub fn encode_key(&self, key: &Key) -> Option<Vec<u8>> {
-        let app_cursor = self.term.mode().contains(TermMode::APP_CURSOR);
-        let modifier = 1 + u8::from(key.shift) + 2 * u8::from(key.alt) + 4 * u8::from(key.ctrl);
-        let arrow = |letter: char| {
-            Some(if modifier > 1 {
-                format!("\x1b[1;{modifier}{letter}")
-            } else if app_cursor {
-                format!("\x1bO{letter}")
-            } else {
-                format!("\x1b[{letter}")
-            })
-        };
-        let tilde = |code: u8| {
-            Some(if modifier > 1 {
-                format!("\x1b[{code};{modifier}~")
-            } else {
-                format!("\x1b[{code}~")
-            })
-        };
-        let named = match key.name {
-            "enter" => Some("\r".to_owned()),
-            "backspace" => Some("\x7f".to_owned()),
-            "escape" => Some("\x1b".to_owned()),
-            "tab" if key.shift => Some("\x1b[Z".to_owned()),
-            "tab" => Some("\t".to_owned()),
-            "up" => arrow('A'),
-            "down" => arrow('B'),
-            "right" => arrow('C'),
-            "left" => arrow('D'),
-            "home" => arrow('H'),
-            "end" => arrow('F'),
-            "insert" => tilde(2),
-            "delete" => tilde(3),
-            "pageup" => tilde(5),
-            "pagedown" => tilde(6),
-            _ => None,
-        };
-        if let Some(named) = named {
-            return Some(named.into_bytes());
-        }
-        let mut chars = key.name.chars();
-        let single = chars.next().filter(|_| chars.next().is_none());
-        if key.ctrl
-            && let Some(c) = single.or((key.name == "space").then_some(' '))
-        {
-            let byte = match c {
-                ' ' | '@' | '2' => 0,
-                'a'..='z' | 'A'..='Z' | '[' | '\\' | ']' | '^' | '_' => c as u8 & 0x1f,
-                _ => return None,
-            };
-            let mut bytes = Vec::new();
-            if key.alt {
-                bytes.push(0x1b);
-            }
-            bytes.push(byte);
-            return Some(bytes);
-        }
-        let text = key.text.filter(|text| !text.is_empty() && key.alt)?;
-        let mut bytes = vec![0x1b];
-        bytes.extend(text.as_bytes());
-        Some(bytes)
+        self.encode_key_as(key, KeyKind::Press)
     }
+
+    pub fn encode_key_as(&self, key: &Key, kind: KeyKind) -> Option<Vec<u8>> {
+        let mode = *self.term.mode();
+        let mods = 1 + u8::from(key.shift) + 2 * u8::from(key.alt) + 4 * u8::from(key.ctrl);
+        let kitty =
+            mode.intersects(TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_ALL_KEYS_AS_ESC);
+        if kitty && let Some(text) = kitty_key(mode, key, mods, kind) {
+            return Some(text.into_bytes());
+        }
+        if kind == KeyKind::Release {
+            return None;
+        }
+        legacy_key(mode.contains(TermMode::APP_CURSOR), key, mods)
+    }
+
+    pub fn encode_paste(&self, text: &str) -> Vec<u8> {
+        let lines = text.replace("\r\n", "\r").replace('\n', "\r");
+        if self.term.mode().contains(TermMode::BRACKETED_PASTE) {
+            format!("\x1b[200~{lines}\x1b[201~").into_bytes()
+        } else {
+            lines.into_bytes()
+        }
+    }
+
+    pub fn encode_focus(&self, focused: bool) -> Option<Vec<u8>> {
+        self.term.mode().contains(TermMode::FOCUS_IN_OUT).then(|| {
+            if focused {
+                b"\x1b[I".to_vec()
+            } else {
+                b"\x1b[O".to_vec()
+            }
+        })
+    }
+
+    pub fn mouse_reporting(&self) -> bool {
+        self.term.mode().intersects(TermMode::MOUSE_MODE)
+    }
+
+    pub fn encode_mouse(&self, mouse: &Mouse) -> Option<Vec<u8>> {
+        let mode = *self.term.mode();
+        let (base, release) = match mouse.action {
+            MouseAction::Press(button) => (button as u8, false),
+            MouseAction::Release(button) => (button as u8, true),
+            MouseAction::Drag(button) => (button as u8 + 32, false),
+            MouseAction::Move => (3 + 32, false),
+            MouseAction::Wheel { up, .. } => (if up { 64 } else { 65 }, false),
+        };
+        let wanted = match mouse.action {
+            MouseAction::Press(_) | MouseAction::Release(_) | MouseAction::Wheel { .. } => {
+                TermMode::MOUSE_MODE
+            }
+            MouseAction::Drag(_) => TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION,
+            MouseAction::Move => TermMode::MOUSE_MOTION,
+        };
+        if !mode.intersects(wanted) {
+            return self.alternate_scroll(&mode, mouse);
+        }
+        let repeat = match mouse.action {
+            MouseAction::Wheel { lines, .. } => lines.max(1),
+            _ => 1,
+        };
+        let sgr = mode.contains(TermMode::SGR_MOUSE);
+        let flags = 4 * u8::from(mouse.shift) + 8 * u8::from(mouse.alt) + 16 * u8::from(mouse.ctrl);
+        let (col, row) = (mouse.col + 1, mouse.row + 1);
+        let one = if sgr {
+            let code = base + flags;
+            format!(
+                "\x1b[<{code};{col};{row}{}",
+                if release { 'm' } else { 'M' }
+            )
+            .into_bytes()
+        } else {
+            let code = if release { 3 } else { base } + flags;
+            let mut bytes = b"\x1b[M".to_vec();
+            for value in [usize::from(code), col, row] {
+                let value = value + 32;
+                if mode.contains(TermMode::UTF8_MOUSE) {
+                    let c = char::from_u32(value as u32).filter(|_| value < 2048)?;
+                    bytes.extend(c.to_string().into_bytes());
+                } else {
+                    bytes.push(u8::try_from(value).ok().filter(|v| *v < 255)?);
+                }
+            }
+            bytes
+        };
+        Some(one.repeat(repeat))
+    }
+
+    fn alternate_scroll(&self, mode: &TermMode, mouse: &Mouse) -> Option<Vec<u8>> {
+        let MouseAction::Wheel { up, lines } = mouse.action else {
+            return None;
+        };
+        if mode.intersects(TermMode::MOUSE_MODE)
+            || !mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+        {
+            return None;
+        }
+        let arrow = match (up, mode.contains(TermMode::APP_CURSOR)) {
+            (true, true) => "\x1bOA",
+            (true, false) => "\x1b[A",
+            (false, true) => "\x1bOB",
+            (false, false) => "\x1b[B",
+        };
+        Some(arrow.repeat(lines.max(1)).into_bytes())
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    Press,
+    Repeat,
+    Release,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    Left = 0,
+    Middle = 1,
+    Right = 2,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MouseAction {
+    Press(MouseButton),
+    Release(MouseButton),
+    Drag(MouseButton),
+    Move,
+    Wheel { up: bool, lines: usize },
+}
+
+#[allow(dead_code)]
+pub struct Mouse {
+    pub action: MouseAction,
+    pub col: usize,
+    pub row: usize,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+}
+
+fn single_char(name: &str) -> Option<char> {
+    let mut chars = name.chars();
+    chars.next().filter(|_| chars.next().is_none())
+}
+
+fn text_key(name: &str) -> Option<char> {
+    if name == "space" {
+        return Some(' ');
+    }
+    single_char(name).map(|c| c.to_lowercase().next().unwrap_or(c))
+}
+
+fn ctrl_byte(c: char) -> Option<u8> {
+    Some(match c {
+        ' ' | '@' | '2' => 0,
+        'a'..='z' | 'A'..='Z' | '[' | '\\' | ']' | '^' | '_' => c as u8 & 0x1f,
+        '3' => 27,
+        '4' => 28,
+        '5' => 29,
+        '6' => 30,
+        '7' | '/' => 31,
+        '8' | '?' => 127,
+        _ => return None,
+    })
+}
+
+fn function_key(name: &str) -> Option<(u32, char)> {
+    Some(match name {
+        "up" => (1, 'A'),
+        "down" => (1, 'B'),
+        "right" => (1, 'C'),
+        "left" => (1, 'D'),
+        "home" => (1, 'H'),
+        "end" => (1, 'F'),
+        "insert" => (2, '~'),
+        "delete" => (3, '~'),
+        "pageup" => (5, '~'),
+        "pagedown" => (6, '~'),
+        _ => {
+            let n: u32 = name.strip_prefix('f')?.parse().ok()?;
+            match n {
+                1 => (1, 'P'),
+                2 => (1, 'Q'),
+                3 => (1, 'R'),
+                4 => (1, 'S'),
+                5 => (15, '~'),
+                6 => (17, '~'),
+                7 => (18, '~'),
+                8 => (19, '~'),
+                9 => (20, '~'),
+                10 => (21, '~'),
+                11 => (23, '~'),
+                12 => (24, '~'),
+                13 => (25, '~'),
+                14 => (26, '~'),
+                15 => (28, '~'),
+                16 => (29, '~'),
+                17 => (31, '~'),
+                18 => (32, '~'),
+                19 => (33, '~'),
+                20 => (34, '~'),
+                _ => return None,
+            }
+        }
+    })
+}
+
+fn legacy_key(app_cursor: bool, key: &Key, mods: u8) -> Option<Vec<u8>> {
+    let alt = |mut bytes: Vec<u8>| {
+        if key.alt {
+            bytes.insert(0, 0x1b);
+        }
+        bytes
+    };
+    if let Some((number, fin)) = function_key(key.name) {
+        let text = if mods > 1 {
+            if fin == '~' {
+                format!("\x1b[{number};{mods}~")
+            } else {
+                format!("\x1b[1;{mods}{fin}")
+            }
+        } else if fin == '~' {
+            format!("\x1b[{number}~")
+        } else if app_cursor || matches!(fin, 'P'..='S') {
+            format!("\x1bO{fin}")
+        } else {
+            format!("\x1b[{fin}")
+        };
+        return Some(text.into_bytes());
+    }
+    match key.name {
+        "enter" if key.shift && !key.ctrl => return Some(alt(b"\n".to_vec())),
+        "enter" if key.ctrl => return Some(alt(b"\n".to_vec())),
+        "enter" => return Some(alt(b"\r".to_vec())),
+        "backspace" if key.ctrl => return Some(alt(vec![0x08])),
+        "backspace" => return Some(alt(vec![0x7f])),
+        "escape" => return Some(alt(vec![0x1b])),
+        "tab" if key.shift => return Some(alt(b"\x1b[Z".to_vec())),
+        "tab" if key.ctrl => return None,
+        "tab" => return Some(alt(b"\t".to_vec())),
+        _ => {}
+    }
+    if key.ctrl
+        && let Some(byte) = text_key(key.name).and_then(ctrl_byte)
+    {
+        return Some(alt(vec![byte]));
+    }
+    if key.alt && !key.ctrl {
+        let text = key
+            .text
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                text_key(key.name).map(|c| {
+                    if key.shift {
+                        c.to_uppercase().collect()
+                    } else {
+                        c.to_string()
+                    }
+                })
+            })?;
+        return Some(alt(text.into_bytes()));
+    }
+    None
+}
+
+fn kitty_key(mode: TermMode, key: &Key, mods: u8, kind: KeyKind) -> Option<String> {
+    let all = mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC);
+    let events = mode.contains(TermMode::REPORT_EVENT_TYPES);
+    if kind == KeyKind::Release && !events {
+        return None;
+    }
+    let event = match kind {
+        KeyKind::Press => 1,
+        KeyKind::Repeat => 2,
+        KeyKind::Release => 3,
+    };
+    let event = if events { event } else { 1 };
+    let sequence = |number: u32, shifted: Option<u32>, fin: char, text: &str| {
+        let mut out = String::from("\x1b[");
+        let params = mods > 1 || event > 1 || !text.is_empty();
+        if number != 1 || params || fin == '~' || fin == 'u' {
+            out.push_str(&number.to_string());
+        }
+        if let Some(shifted) = shifted {
+            out.push_str(&format!(":{shifted}"));
+        }
+        if params {
+            out.push_str(&format!(";{mods}"));
+            if event > 1 {
+                out.push_str(&format!(":{event}"));
+            }
+            if !text.is_empty() {
+                out.push_str(&format!(";{text}"));
+            }
+        }
+        out.push(fin);
+        out
+    };
+    if let Some((number, fin)) = function_key(key.name) {
+        let (number, fin) = if key.name == "f3" {
+            (13, '~')
+        } else {
+            (number, fin)
+        };
+        return Some(sequence(number, None, fin, ""));
+    }
+    let plain = |number: u32| (all || mods > 1).then(|| sequence(number, None, 'u', ""));
+    match key.name {
+        "escape" => return Some(sequence(27, None, 'u', "")),
+        "enter" => return plain(13),
+        "tab" => return plain(9),
+        "backspace" => return plain(127),
+        _ => {}
+    }
+    let c = text_key(key.name)?;
+    if !key.ctrl && !key.alt {
+        return None;
+    }
+    let shifted = (mode.contains(TermMode::REPORT_ALTERNATE_KEYS) && key.shift)
+        .then(|| key.text.and_then(single_char))
+        .flatten()
+        .filter(|s| *s != c)
+        .map(|s| s as u32);
+    let text = if mode.contains(TermMode::REPORT_ASSOCIATED_TEXT) && all && kind != KeyKind::Release
+    {
+        key.text
+            .filter(|_| !key.ctrl)
+            .map(|t| {
+                t.chars()
+                    .map(|c| (c as u32).to_string())
+                    .collect::<Vec<_>>()
+                    .join(":")
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some(sequence(c as u32, shifted, 'u', &text))
 }
 
 fn size(cols: u16, rows: u16) -> TermSize {

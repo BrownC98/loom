@@ -10,6 +10,7 @@ use gpui::{
     div, px,
 };
 
+use crate::fonts;
 use crate::store::Store;
 use crate::strings::Lang;
 use crate::theme::Theme;
@@ -208,6 +209,7 @@ impl Render for Shell {
             .flex_col()
             .bg(theme.colors.bg)
             .text_color(theme.colors.ink)
+            .font_family(fonts::UI_FAMILY)
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
                 this.slide(e, window, cx);
             }))

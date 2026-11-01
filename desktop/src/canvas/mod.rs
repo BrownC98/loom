@@ -6,5 +6,6 @@ pub mod layout;
 pub mod minimap;
 pub mod popover;
 pub mod repos;
+pub mod resize;
 pub mod scene;
 pub mod view;

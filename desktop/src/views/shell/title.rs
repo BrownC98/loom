@@ -1,6 +1,6 @@
 use gpui::{
-    Bounds, Div, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Styled, canvas,
-    div, fill, point, px, size,
+    Bounds, Div, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba,
+    Styled, canvas, div, fill, point, px, size,
 };
 
 use crate::platform;
@@ -60,7 +60,12 @@ pub fn bar(window: &gpui::Window, colors: &Colors) -> Div {
                 }
             })
             .child(div().mx(px(12.0)).child(mark(colors.ink_2)))
-            .child(div().text_color(colors.ink).child("loom"))
+            .child(
+                div()
+                    .text_color(colors.ink)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("loom"),
+            )
             .child(div().flex_1())
             .children(platform::captions(window, colors)),
     )

@@ -1,8 +1,9 @@
 use std::ops::Range;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Div, Element,
-    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    App, AppContext, Bounds, BoxShadow, ClipboardEntry, ClipboardItem, Context, CursorStyle, Div,
+    Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
     IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     ParentElement, Pixels, Point, Render, Rgba, SharedString, Styled, StyledText, TextLayout,
@@ -16,8 +17,10 @@ use crate::theme::{Colors, Theme};
 const MASK: char = '\u{2022}';
 const FONT_SIZE: f32 = 13.0;
 const LINE: f32 = 18.0;
-const FORM_HEIGHT: f32 = 34.0;
-const FORM_LINE: f32 = 20.0;
+const FORM_HEIGHT: f32 = 35.0;
+const FORM_LINE: f32 = 21.0;
+const FORM_FONT: f32 = 14.0;
+const FORM_RING: f32 = 2.0;
 const NARROW_HEIGHT: f32 = 26.0;
 const CARET: f32 = 1.5;
 const ROUND: f32 = 6.0;
@@ -784,19 +787,30 @@ impl Render for Field {
                 Some(tone) => skinned.border_color(tone),
                 None => skinned,
             };
+            let ring = BoxShadow {
+                color: colors.accent_wash.into(),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(FORM_RING * z),
+                inset: false,
+            };
             let web = |el: Div| {
                 el.min_h(px(FORM_HEIGHT * z))
                     .px(px(9.0 * z))
                     .py(px(6.0 * z))
+                    .text_size(px(FORM_FONT * z))
                     .line_height(px(FORM_LINE * z))
                     .bg(colors.bg)
+                    .when(focused, |el| el.shadow(vec![ring.clone()]))
             };
             let narrow = |el: Div| {
                 el.min_h(px(NARROW_HEIGHT * z))
                     .px(px(8.0 * z))
                     .py_0()
+                    .text_size(px(FORM_FONT * z))
                     .line_height(px((NARROW_HEIGHT - 2.0) * z))
                     .bg(colors.bg)
+                    .when(focused, |el| el.shadow(vec![ring.clone()]))
             };
             match self.form {
                 Form::Chat => skinned,

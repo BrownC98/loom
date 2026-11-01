@@ -16,7 +16,7 @@ use crate::settings::widgets::{
 };
 use crate::settings::{Ctx, Dialog, Section, Writer};
 use crate::strings::Str;
-use crate::theme::{self, Colors, Scheme, Theme, luminance_of, ratio};
+use crate::theme::{self, Colors, Scheme, Theme, luminance_of, mix, ratio};
 use crate::views::dock::ui::{GAP, SMALL, TEXT, colors, say, say_with};
 use crate::views::icons::{Lucide, icon};
 use crate::views::tooltip::tip;
@@ -528,7 +528,7 @@ fn colors_section(
                 .rounded(px(14.0))
                 .border_1()
                 .border_color(now.warn)
-                .bg(mix(now.warn, now.surface, 0.1))
+                .bg(mix(now.warn, 0.1, now.surface))
                 .child(div().font_weight(FontWeight::BOLD).child(pill_label))
                 .child(
                     div()
@@ -854,16 +854,6 @@ fn ring(color: Rgba, radius: f32) -> Div {
         .rounded(px(radius))
         .border_2()
         .border_color(color)
-}
-
-fn mix(top: Rgba, under: Rgba, amount: f32) -> Rgba {
-    let blend = |a: f32, b: f32| a * amount + b * (1.0 - amount);
-    Rgba {
-        r: blend(top.r, under.r),
-        g: blend(top.g, under.g),
-        b: blend(top.b, under.b),
-        a: 1.0,
-    }
 }
 
 fn sample_card(now: &Colors) -> Div {

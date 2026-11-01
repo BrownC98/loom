@@ -17,6 +17,7 @@ use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
 use crate::store::Store;
 use crate::strings::Str;
+use crate::theme::mix;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
@@ -738,10 +739,12 @@ pub fn face<W: ComposerWire>(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(c.accent)
-                    .text_color(c.accent_ink)
-                    .when(!view.sendable, |d| d.opacity(DISABLED_ALPHA))
-                    .child(icon(Lucide::ArrowUp, 16.0 * z, c.accent_ink)),
+                    .bg(shade(c.accent, view.sendable, c.panel))
+                    .child(icon(
+                        Lucide::ArrowUp,
+                        16.0 * z,
+                        shade(c.accent_ink, view.sendable, c.panel),
+                    )),
             ),
         );
     wire.shell(
@@ -770,6 +773,14 @@ pub fn face<W: ComposerWire>(
             .children(note)
             .child(line),
     )
+}
+
+fn shade(color: gpui::Rgba, live: bool, under: gpui::Rgba) -> gpui::Rgba {
+    if live {
+        color
+    } else {
+        mix(color, DISABLED_ALPHA, under)
+    }
 }
 
 struct Live<'a, 'b> {

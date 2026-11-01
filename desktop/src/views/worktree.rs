@@ -15,6 +15,7 @@ use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::cardlink;
 use crate::views::field::{self, Field, FieldEvent, Form};
+use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
 
 pub const NEW_WIDTH: f32 = 380.0;
@@ -296,7 +297,7 @@ impl Render for NewWorktreeView {
             .bg(c.bg)
             .cursor_pointer()
             .child(current)
-            .child(div().text_color(c.ink_3).child("\u{25BE}"))
+            .child(icon(Lucide::ChevronDown, 14.0, c.ink_3))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| {

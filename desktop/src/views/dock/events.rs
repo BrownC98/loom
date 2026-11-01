@@ -388,7 +388,7 @@ impl Dock {
         let mut row = div()
             .id(("event", key))
             .relative()
-            .mx(px(4.0))
+            .mx(px(8.0))
             .rounded(px(6.0))
             .hover(move |style| style.bg(c.surface_hover))
             .child(head);

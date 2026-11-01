@@ -30,14 +30,16 @@ pub const REPO_INSET: Inset = Inset {
     side: 16.0,
 };
 const GROUP_POSITION: Point = Point { x: 16.0, y: 64.0 };
-pub const STANDARD: Size = Size {
+const STANDARD: Size = Size {
     width: 600.0,
-    height: 466.0,
+    height: 437.0,
 };
-pub const SIMPLE: Size = Size {
-    width: 260.0,
-    height: 134.0,
-};
+pub fn standard_size(node: &NodeView) -> Size {
+    Size {
+        width: STANDARD.width,
+        height: STANDARD.height + f64::from(card::foot_height(node)),
+    }
+}
 pub const MIN_CARD: Size = Size {
     width: 360.0,
     height: 200.0,
@@ -414,19 +416,25 @@ pub fn build(
         })
         .collect();
     sizes.extend(resized);
-    let simple: HashSet<u32> = snap
+    let laid: HashMap<u32, Size> = snap
         .nodes
         .iter()
-        .filter(|n| card::view_of(n, card_view) == CardView::Simple)
-        .map(|n| n.id.0)
+        .map(|n| {
+            let size = if card::view_of(n, card_view) == CardView::Simple {
+                Size {
+                    width: card::SIMPLE_WIDTH,
+                    height: card::simple_height(n),
+                }
+            } else {
+                sizes
+                    .get(&n.id.0)
+                    .copied()
+                    .unwrap_or_else(|| standard_size(n))
+            };
+            (n.id.0, size)
+        })
         .collect();
-    let size_of = |id: NodeId| {
-        if simple.contains(&id) {
-            SIMPLE
-        } else {
-            sizes.get(&id).copied().unwrap_or(STANDARD)
-        }
-    };
+    let size_of = |id: NodeId| laid.get(&id).copied().unwrap_or(STANDARD);
     let direction = overlay.direction;
     let vertical = matches!(direction, Direction::Down | Direction::Up);
     let reversed = matches!(direction, Direction::Up | Direction::Left);
@@ -728,13 +736,6 @@ pub fn build(
                 },
                 &mut scene,
             );
-        }
-    }
-    for placed in &mut scene.cards {
-        if simple.contains(&placed.node)
-            && let Some(view) = by_id.get(&placed.node)
-        {
-            placed.rect.size.height = card::simple_height(view);
         }
     }
     scene

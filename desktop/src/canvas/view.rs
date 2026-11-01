@@ -504,15 +504,16 @@ impl CanvasView {
     }
 
     fn reset_size(&mut self, node: u32, cx: &mut Context<Self>) {
-        let saved = self
-            .store
-            .read(cx)
-            .snapshot()
-            .is_some_and(|s| s.sizes.iter().any(|z| z.node.0 == node));
-        if !saved {
+        let Some(size) = self.store.read(cx).snapshot().and_then(|s| {
+            s.sizes.iter().any(|z| z.node.0 == node).then_some(())?;
+            s.nodes
+                .iter()
+                .find(|n| n.id.0 == node)
+                .map(scene::standard_size)
+        }) else {
             return;
-        }
-        self.resizer.reset(&[node]);
+        };
+        self.resizer.reset(&[(node, size)]);
         self.rebuild(cx);
         let task = self
             .store
@@ -1042,11 +1043,6 @@ impl Render for CanvasView {
                 collapse: false,
                 width: placed.rect.size.width as f32,
             };
-            let foot = if card::foot_text(node, parent, lang).is_some() {
-                card::FOOT
-            } else {
-                0.0
-            };
             let body = self
                 .live
                 .get(&id)
@@ -1056,7 +1052,7 @@ impl Render for CanvasView {
                     div()
                         .w(px((placed.rect.size.width as f32) * scale))
                         .h(px(
-                            (placed.rect.size.height as f32 - card::HEAD - foot) * scale
+                            card::body_height(placed.rect.size.height as f32, node) * scale
                         ))
                         .child(live.view.clone())
                         .into_any_element()

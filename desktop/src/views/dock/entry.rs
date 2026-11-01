@@ -6,7 +6,7 @@ use gpui::{
 use super::ui::{self, SMALL};
 use crate::fonts;
 use crate::strings::Str;
-use crate::theme::Colors;
+use crate::theme::{Colors, mix};
 use crate::views::icons::{Lucide, icon};
 
 pub(crate) fn tone_of(tone: WaitTone, c: &Colors) -> Rgba {
@@ -20,16 +20,6 @@ pub(crate) fn tone_ink(tone: WaitTone, c: &Colors) -> Rgba {
     match tone {
         WaitTone::Ask => c.warn_ink,
         WaitTone::Done => c.surface,
-    }
-}
-
-pub(crate) fn mix(top: Rgba, share: f32, under: Rgba) -> Rgba {
-    let blend = |a: f32, b: f32| a * share + b * (1.0 - share);
-    Rgba {
-        r: blend(top.r, under.r),
-        g: blend(top.g, under.g),
-        b: blend(top.b, under.b),
-        a: 1.0,
     }
 }
 

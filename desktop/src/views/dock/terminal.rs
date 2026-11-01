@@ -190,7 +190,7 @@ impl Dock {
             collapse: false,
             width: 300.0,
         };
-        let head = card::head(&face, 1.0, &c);
+        let head = card::dock_head(&face, &c);
         div().size_full().flex().flex_col().child(head).children(
             self.terminal
                 .as_ref()

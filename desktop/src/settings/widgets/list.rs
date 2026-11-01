@@ -9,7 +9,7 @@ use gpui::{
 use crate::views::dock::ui::{TEXT, colors};
 use crate::views::scrollbar::Bar;
 
-const ROW: f32 = 24.0;
+const ROW: f32 = 27.5;
 const GAP: f32 = 1.0;
 pub const PITCH: f32 = ROW + GAP;
 

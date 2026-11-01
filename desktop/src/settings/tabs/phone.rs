@@ -240,7 +240,7 @@ fn dot(color: Rgba) -> Div {
 
 fn mono(text: StyledText) -> Div {
     div()
-        .font_family("monospace")
+        .font_family(crate::fonts::TERMINAL_FAMILY)
         .text_size(px(SMALL))
         .child(text)
 }
@@ -461,7 +461,7 @@ fn connect(model: &Entity<Model>, m: &Model, view: &PhoneView, ctx: &Ctx, cx: &A
                             .child(code_hint)
                             .child(
                                 div()
-                                    .font_family("monospace")
+                                    .font_family(crate::fonts::TERMINAL_FAMILY)
                                     .text_size(px(22.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(code),

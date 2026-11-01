@@ -24,6 +24,14 @@ impl Text {
         Self::build(hint, secret, Form::Plain, window, cx)
     }
 
+    pub fn narrow(hint: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::build(hint, false, Form::Narrow, window, cx)
+    }
+
+    pub fn stepper(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::build("", false, Form::Stepper, window, cx)
+    }
+
     pub fn mono(hint: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self::build(hint, false, Form::Mono, window, cx)
     }

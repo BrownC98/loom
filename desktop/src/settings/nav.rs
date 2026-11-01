@@ -112,7 +112,8 @@ pub(super) fn column(
             .px(px(10.0))
             .py(px(7.0))
             .rounded(px(6.0))
-            .text_size(px(TEXT))
+            .text_size(px(14.0))
+            .line_height(px(21.0))
             .text_color(if current { c.ink } else { c.ink_2 })
             .font_weight(if current {
                 FontWeight::SEMIBOLD

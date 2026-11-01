@@ -2,9 +2,9 @@ use api::graph::GraphEvent;
 use api::graph::events::{Entry, EventRecord};
 use api::profile::AgentView;
 use gpui::{
-    AnyElement, App, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
-    ListAlignment, ListOffset, ListState, ParentElement, StatefulInteractiveElement, Styled, div,
-    list, px,
+    AnyElement, App, Context, Div, Entity, FocusHandle, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState, ParentElement,
+    StatefulInteractiveElement, Styled, div, list, px,
 };
 
 use super::Dock;
@@ -38,6 +38,7 @@ pub struct Events {
     query: Entity<Field>,
     needle: String,
     open: Option<u32>,
+    focus: FocusHandle,
     shown: Vec<usize>,
     list: ListState,
 }
@@ -55,6 +56,7 @@ impl Events {
             query: field::new(Str::EventsFilterNamePlaceholder, cx),
             needle: String::new(),
             open: None,
+            focus: cx.focus_handle(),
             shown: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(240.0)),
         }
@@ -191,40 +193,31 @@ impl Dock {
     }
 
     fn pick_event(&mut self, id: u32, cx: &mut Context<Self>) {
-        let opening = self.events.open != Some(id);
+        let before = self.events.open;
+        let opening = before != Some(id);
         self.events.open = opening.then_some(id);
-        let keys = self
+        let involved: Vec<u32> = self
             .events
             .records
             .iter()
             .flatten()
             .find(|record| record.id == id)
             .filter(|_| opening)
-            .map(|record| {
-                what::involved(&record.entry)
-                    .iter()
-                    .map(u32::to_string)
-                    .collect()
-            });
-        self.store
-            .update(cx, |store, cx| store.set_picked(keys, cx));
-        if opening {
-            let first = self
-                .events
-                .records
-                .iter()
-                .flatten()
-                .find(|record| record.id == id)
-                .and_then(|record| {
-                    let present = self.store.read(cx).snapshot()?;
-                    what::involved(&record.entry)
-                        .into_iter()
-                        .find(|&node| present.nodes.iter().any(|n| n.id.0 == node))
-                });
-            if let Some(node) = first {
-                self.store.update(cx, |store, cx| store.select(node, cx));
-            }
+            .map(|record| what::involved(&record.entry))
+            .unwrap_or_default();
+        let keys = opening.then(|| involved.iter().map(u32::to_string).collect());
+        self.store.update(cx, |store, cx| {
+            store.set_picked(keys, cx);
+            store.show_nodes(involved, cx);
+        });
+        self.remeasure(id);
+        if let Some(before) = before {
+            self.remeasure(before);
         }
+        cx.notify();
+    }
+
+    fn remeasure(&self, id: u32) {
         if let Some(at) = self
             .events
             .shown
@@ -233,7 +226,15 @@ impl Dock {
         {
             self.events.list.remeasure_items(at..at + 1);
         }
-        cx.notify();
+    }
+
+    pub(super) fn drop_pick(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.events.open
+            && !self.store.read(cx).has_picked()
+        {
+            self.events.open = None;
+            self.remeasure(id);
+        }
     }
 
     pub(super) fn events(&self, cx: &mut Context<Self>) -> Div {
@@ -270,7 +271,19 @@ impl Dock {
                     .children(chips)
                     .child(div().flex_1().min_w_0().child(self.events.query.clone())),
             );
-        let mut panel = div().h_full().flex().flex_col().child(head);
+        let mut panel = div()
+            .h_full()
+            .flex()
+            .flex_col()
+            .track_focus(&self.events.focus)
+            .on_key_down(cx.listener(|dock, e: &KeyDownEvent, _, cx| {
+                if e.keystroke.key == "escape" {
+                    dock.store
+                        .update(cx, |store, cx| store.set_picked(None, cx));
+                    cx.stop_propagation();
+                }
+            }))
+            .child(head);
         if let Some(error) = &self.events.error {
             panel = panel.child(ui::note(error.clone(), true, cx));
         }
@@ -376,7 +389,10 @@ impl Dock {
                             .child(text)
                     })),
             )
-            .on_click(cx.listener(move |dock, _, _, cx| dock.pick_event(id, cx)));
+            .on_click(cx.listener(move |dock, _, window, cx| {
+                window.focus(&dock.events.focus, cx);
+                dock.pick_event(id, cx)
+            }));
 
         let mut row = div()
             .id(("event", key))

@@ -716,7 +716,7 @@ fn wait_body(
             ui::button_at(("terminal", id as usize), z, cx)
                 .child(ui::say(cx, Str::InboxToTerminal))
                 .on_click(move |_, _, cx| {
-                    store.update(cx, |store, cx| store.select(node.0, cx));
+                    store.update(cx, |store, cx| store.go(node.0, cx));
                 }),
         );
     }

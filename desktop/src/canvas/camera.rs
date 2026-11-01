@@ -4,7 +4,7 @@ use gpui::{Bounds, Pixels, Point, Size, point, px, size};
 
 pub const MIN_ZOOM: f32 = 0.1;
 pub const MAX_ZOOM: f32 = 3.5;
-const FIT_MARGIN: f32 = 40.0;
+const FIT_PADDING: f32 = 0.1;
 const GLIDE: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,8 +55,9 @@ impl Camera {
 
     pub fn fit(area: Size<Pixels>, content: Bounds<f32>) -> Camera {
         let (width, height) = (f32::from(area.width), f32::from(area.height));
-        let zoom = ((width - 2.0 * FIT_MARGIN) / content.size.width)
-            .min((height - 2.0 * FIT_MARGIN) / content.size.height)
+        let margin = |view: f32| 2.0 * ((view - view / (1.0 + FIT_PADDING)) * 0.5).floor();
+        let zoom = ((width - margin(width)) / content.size.width)
+            .min((height - margin(height)) / content.size.height)
             .clamp(MIN_ZOOM, 1.0);
         Camera {
             x: (width - content.size.width * zoom) / 2.0 - content.origin.x * zoom,

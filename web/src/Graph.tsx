@@ -55,8 +55,8 @@ const CARD_TOP = 60;
 const BEND_DROP = 16;
 const STEP_BEND = ARROW + BEND_DROP;
 const CARD_SIZE: Record<CardView, Size> = {
-  standard: { width: 600, height: 466 },
-  simple: { width: 260, height: 134 },
+  standard: { width: 600, height: 437 },
+  simple: { width: 260, height: 104 },
 };
 const MIN_CARD: Size = { width: 360, height: 200 };
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
@@ -594,10 +594,7 @@ export function Graph(props: {
     if (zoomed !== null && !standard(zoomed)) setExpanded(null);
   });
   const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : savedSize(id));
-  const size = (id: NodeId): Size => {
-    const measured = flowState.get(String(id))?.measured;
-    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : (chosenSize(id) ?? CARD_SIZE[viewOf(id)]);
-  };
+  const size = (id: NodeId): Size => chosenSize(id) ?? CARD_SIZE[viewOf(id)];
   const levels = new Map<string, Level>();
   const spotOf = new Map<string, Spot>();
   const branchOf = new Map<string, string>();
@@ -913,13 +910,14 @@ export function Graph(props: {
         onNavigate: navigate(view.id),
         onRemove: () => removeNode(view.id).catch((err: Error) => setRefusal(err.message)),
       };
-      if (!standard(view.id)) return keep<SimpleNode>({ ...base, type: 'simple', data });
-      const chosen = chosenSize(view.id);
+      const fixed = size(view.id);
+      if (!standard(view.id)) return keep<SimpleNode>({ ...base, type: 'simple', width: fixed.width, height: fixed.height, data });
       return keep<CardNode>({
         ...base,
         type: 'card',
         dragHandle: '.card-head',
-        ...(chosen && { width: chosen.width, height: chosen.height, className: [base.className, 'sized'].filter(Boolean).join(' ') }),
+        width: fixed.width,
+        height: fixed.height,
         data: {
           ...data,
           sized: savedSize(view.id) !== undefined,

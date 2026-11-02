@@ -97,7 +97,7 @@ async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, 
         })
         .await;
     match &*shared {
-        Ok(views) => Ok(Json(views.clone())),
+        Ok(views) => Ok(Json(app.without_leaving(views))),
         Err(e) => Err(internal(e)),
     }
 }

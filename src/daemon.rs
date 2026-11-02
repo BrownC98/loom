@@ -98,7 +98,7 @@ use api::graph::{CardView, GraphEvent, NodeView, Place};
 use api::ids::{AccountId, NodeId, RepoId, WaitId};
 use api::limits::TreeLimits;
 use api::profile::Profile;
-use api::repos::{FolderList, RepoProblem, RepoView};
+use api::repos::{FolderList, RepoProblem, RepoView, Worktree};
 use api::settings::roles::Roles;
 use api::settings::update::UpdateView;
 use api::start::Start;
@@ -128,6 +128,8 @@ struct App {
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
     repo_list: one_flight::OneFlight<Result<Vec<RepoView>, String>>,
+    worktree_lists: std::sync::Mutex<HashMap<PathBuf, Vec<Worktree>>>,
+    leaving: std::sync::Mutex<std::collections::HashSet<String>>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
     ptys_changed: tokio::sync::Notify,
@@ -403,6 +405,8 @@ impl App {
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             repo_list: one_flight::OneFlight::default(),
+            worktree_lists: Default::default(),
+            leaving: Default::default(),
             turn_ends,
             merge_queue: tokio::sync::Notify::new(),
             ptys_changed: tokio::sync::Notify::new(),

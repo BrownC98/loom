@@ -139,12 +139,27 @@ impl App {
                 None => at.path.clone(),
             },
         };
+        let worktrees = match worktree::listed(self.files(), path).await {
+            Ok(listed) => {
+                let mut lists = self.worktree_lists.lock().unwrap();
+                lists.insert(path.to_owned(), listed.clone());
+                listed
+            }
+            Err(_) => {
+                let lists = self.worktree_lists.lock().unwrap();
+                lists
+                    .get(path)
+                    .cloned()
+                    .unwrap_or_else(|| worktree::alone(path))
+            }
+        };
         worktree::view(
             self.files(),
             id,
             path,
             worktree::place_view(&machine),
             shown,
+            worktrees,
         )
         .await
     }

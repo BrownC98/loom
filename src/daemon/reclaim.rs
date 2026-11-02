@@ -91,11 +91,13 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
             .note_reclaim(&round, &kept(branch, &round))
             .map_err(text);
     }
+    let leaving = only_owner.map(|w| app.leaving(&w.path));
     remove(app, round.owner).map_err(|e| e.to_string())?;
     if let Some(own) = own
         && alone(app, None)?
         && let Err(e) = worktree::remove_clean(app.files(), dir, &own).await
     {
+        drop(leaving);
         return app
             .graph
             .note_reclaim(&round, &changed(branch, &round, &e.to_string()))

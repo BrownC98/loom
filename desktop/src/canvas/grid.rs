@@ -17,14 +17,16 @@ pub fn paint(window: &mut Window, bounds: Bounds<Pixels>, camera: Camera, color:
     let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let start_x = camera.x.rem_euclid(gap);
     let start_y = camera.y.rem_euclid(gap);
-    let mut y = start_y;
-    while y < height {
-        let mut x = start_x;
-        while x < width {
-            let origin = bounds.origin + point(px(x - dot / 2.0), px(y - dot / 2.0));
-            window.paint_quad(fill(Bounds::new(origin, size(px(dot), px(dot))), color));
-            x += gap;
+    window.paint_layer(bounds, |window| {
+        let mut y = start_y;
+        while y < height {
+            let mut x = start_x;
+            while x < width {
+                let origin = bounds.origin + point(px(x - dot / 2.0), px(y - dot / 2.0));
+                window.paint_quad(fill(Bounds::new(origin, size(px(dot), px(dot))), color));
+                x += gap;
+            }
+            y += gap;
         }
-        y += gap;
-    }
+    });
 }

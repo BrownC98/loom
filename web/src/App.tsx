@@ -342,13 +342,7 @@ export function App() {
 
   const shownNodes = useRef<ReadonlyMap<NodeId, NodeView>>(nodes);
   useEffect(() => {
-    const gone = [...shownNodes.current.values()].filter((v) => !nodes.has(v.id));
     shownNodes.current = nodes;
-    if (gone.length === 0) return;
-    const used = new Set([...nodes.values()].map((v) => v.place.worktree));
-    const left = new Set(gone.map((v) => v.place.worktree).filter((path) => !used.has(path)));
-    setRepos((prev) => prev.map((r) => ({ ...r, worktrees: r.worktrees.filter((w) => w.original || !left.has(w.path)) })));
-    getRepos().then(setRepos);
   }, [nodes]);
 
   useEffect(() => {
@@ -374,13 +368,18 @@ export function App() {
       reading = true;
       getNodes()
         .then(
-          (views) =>
-            again ||
+          async (views) => {
+            const ids = new Set(views.map((v) => v.id));
+            const dropped = [...shownNodes.current.keys()].some((id) => !ids.has(id));
+            const next = dropped ? await getRepos().catch(() => null) : null;
+            if (again) return;
+            if (next) setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
             setNodes((old) => {
               const before = [...old.values()];
               const kept = keepSame(before, views);
               return kept === before ? old : new Map(kept.map((view) => [view.id, view]));
-            }),
+            });
+          },
           () => again || events.reopen(),
         )
         .finally(() => {

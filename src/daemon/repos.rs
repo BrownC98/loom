@@ -85,9 +85,7 @@ pub struct DeleteWorktree {
 const REPO_LIST_TRIES: u32 = 3;
 
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
-    let mut tries = REPO_LIST_TRIES;
-    loop {
-        tries -= 1;
+    for _ in 0..REPO_LIST_TRIES {
         let shared = app
             .repo_list
             .run(|| {
@@ -103,11 +101,14 @@ async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, 
             })
             .await;
         match &*shared {
-            Ok((removals, _)) if *removals != app.removals() && tries > 0 => continue,
+            Ok((removals, _)) if *removals != app.removals() => continue,
             Ok((_, views)) => return Ok(Json(app.without_leaving(views))),
             Err(e) => return Err(internal(e)),
         }
     }
+    Err(internal(
+        "worktrees kept changing while the repo list was read",
+    ))
 }
 
 async fn add_repo(

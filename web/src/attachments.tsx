@@ -37,7 +37,7 @@ export function droppedFiles(data: DataTransfer): { files: File[]; errors: strin
 
 type Upload = 'busy' | 'saved' | 'failed';
 
-export type AttachedImage = { id: number; url: string; name: string; upload: Upload; saved: Promise<string | null> };
+export type AttachedImage = { id: number; url: string; name: string; upload: Upload; file: File; node: NodeId; saved: Promise<string | null> };
 
 const NONE: readonly AttachedImage[] = [];
 const lists = new Map<string, readonly AttachedImage[]>();
@@ -70,7 +70,7 @@ export function useImages(key: string, node: NodeId, onError: (message: string) 
           (path) => (mark('saved'), path),
           (err: Error) => (mark('failed'), onError(err.message), null),
         );
-        edit(key, (now) => [...now, { id, url: URL.createObjectURL(file), name: file.name, upload: 'busy', saved }]);
+        edit(key, (now) => [...now, { id, url: URL.createObjectURL(file), name: file.name, upload: 'busy', file, node, saved }]);
       }
     }
   };
@@ -82,8 +82,16 @@ export function useImages(key: string, node: NodeId, onError: (message: string) 
     list.filter((i) => ids.includes(i.id)).forEach((i) => URL.revokeObjectURL(i.url));
     edit(key, (now) => now.filter((i) => !ids.includes(i.id)));
   };
-  const paths = () =>
-    Promise.all(list.map((i) => i.saved.then((path) => ({ id: i.id, path })))).then((all) => {
+  const savedFor = (image: AttachedImage, target: NodeId) =>
+    image.saved.then((path) => {
+      if (path === null || image.node === target) return path;
+      return savePastedFile(image.file, target).then(
+        (moved) => (edit(key, (now) => now.map((i) => (i.id === image.id ? { ...i, node: target, saved: Promise.resolve(moved) } : i))), moved),
+        (err: Error) => (onError(err.message), null),
+      );
+    });
+  const paths = (target: NodeId = node) =>
+    Promise.all(list.map((i) => savedFor(i, target).then((path) => ({ id: i.id, path })))).then((all) => {
       const saved = all.filter((s): s is { id: number; path: string } => s.path !== null);
       return { ids: saved.map((s) => s.id), paths: saved.map((s) => s.path) };
     });

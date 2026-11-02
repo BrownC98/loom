@@ -30,6 +30,7 @@ struct Attached {
     name: String,
     picture: Arc<Image>,
     state: Upload,
+    node: NodeId,
 }
 
 pub enum PicturesEvent {
@@ -50,6 +51,7 @@ pub struct Pictures {
     list: Vec<Attached>,
     next: u32,
     reading: usize,
+    locked: bool,
 }
 
 #[derive(Default)]
@@ -125,11 +127,35 @@ impl Pictures {
             list: Vec::new(),
             next: 0,
             reading: 0,
+            locked: false,
         }
+    }
+
+    pub fn set_locked(&mut self, locked: bool, cx: &mut Context<Self>) {
+        if self.locked != locked {
+            self.locked = locked;
+            cx.notify();
+        }
+    }
+
+    pub fn aim(&mut self, node: NodeId) {
+        self.node = node;
     }
 
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
+    }
+
+    pub fn retarget(&mut self, node: NodeId, cx: &mut Context<Self>) {
+        let stale: Vec<u32> = self
+            .list
+            .iter()
+            .filter(|image| matches!(image.state, Upload::Saved(_)) && image.node != node)
+            .map(|image| image.id)
+            .collect();
+        for id in stale {
+            self.upload(id, node, cx);
+        }
     }
 
     pub fn busy(&self) -> bool {
@@ -156,6 +182,9 @@ impl Pictures {
     }
 
     pub fn take_clipboard(&mut self, entries: Vec<ClipboardEntry>, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         for entry in entries {
             match entry {
                 ClipboardEntry::Image(image) => {
@@ -171,6 +200,9 @@ impl Pictures {
     }
 
     pub fn take_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         for path in paths {
             let read = cx.background_spawn(async move { read_file(&path) });
             self.reading += 1;
@@ -207,6 +239,9 @@ impl Pictures {
     }
 
     pub fn pick_files(&mut self, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         let chosen = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -237,13 +272,29 @@ impl Pictures {
         self.next += 1;
         self.list.push(Attached {
             id,
-            name: name.clone(),
-            picture: Arc::new(Image::from_bytes(format, bytes.clone())),
+            name,
+            picture: Arc::new(Image::from_bytes(format, bytes)),
             state: Upload::Busy,
+            node: self.node,
         });
-        let node = self.node;
+        self.upload(id, self.node, cx);
+    }
+
+    fn upload(&mut self, id: u32, node: NodeId, cx: &mut Context<Self>) {
+        let Some(image) = self.list.iter_mut().find(|image| image.id == id) else {
+            return;
+        };
+        image.state = Upload::Busy;
+        image.node = node;
+        let (name, picture) = (image.name.clone(), image.picture.clone());
         let task = self.store.update(cx, |store, cx| {
-            store.save_paste(node, name, format.mime_type(), bytes, cx)
+            store.save_paste(
+                node,
+                name,
+                picture.format.mime_type(),
+                picture.bytes.clone(),
+                cx,
+            )
         });
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -269,6 +320,9 @@ impl Pictures {
     }
 
     fn remove(&mut self, id: u32, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         self.list.retain(|image| image.id != id);
         cx.notify();
     }

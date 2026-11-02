@@ -1,5 +1,5 @@
 import { Check, Search } from 'lucide-react';
-import { useEffect, useId, useState, type RefObject } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nameHit, spotsWhere } from './findSpots';
 import type { NodeId } from './gen/NodeId';
@@ -16,6 +16,7 @@ export function NodePick(props: {
   anchor: RefObject<HTMLElement | null>;
   width: number;
   room: number;
+  above: boolean;
   onPick: (id: NodeId) => void;
   onClose: () => void;
   onEscape: () => void;
@@ -26,24 +27,42 @@ export function NodePick(props: {
   const box = useEscapeClose<HTMLDivElement>(props.onEscape);
   useOutsidePress(box, props.onClose, props.anchor);
   const views = [...props.views.values()];
-  const hit = nameHit(query);
-  const marks = bookmarked(views).filter((v) => hit(v.name));
-  const all = spotsWhere(props.repos, views, hit).flatMap((f) => (f.kind === 'node' ? (props.views.get(f.node) ?? []) : []));
-  const rows = [...marks, ...all];
-  const [at, setAt] = useState(() => Math.max(0, rows.findIndex((v) => v.id === props.current)));
+  const sectionsFor = (q: string) => {
+    const hit = nameHit(q);
+    const marks = { key: 'marks', label: t('bookmark.title'), rows: bookmarked(views).filter((v) => hit(v.name)), from: 0 };
+    const all = { key: 'all', label: t('composer.pickAll'), rows: spotsWhere(props.repos, views, hit).flatMap((f) => (f.kind === 'node' ? (props.views.get(f.node) ?? []) : [])), from: 0 };
+    const shown = (props.above ? [all, marks] : [marks, all]).filter((s) => s.rows.length > 0);
+    let from = 0;
+    for (const s of shown) {
+      s.from = from;
+      from += s.rows.length;
+    }
+    return shown;
+  };
+  const nearest = (shown: ReturnType<typeof sectionsFor>) => (props.above ? Math.max(0, shown.reduce((n, s) => n + s.rows.length, 0) - 1) : 0);
+  const sections = sectionsFor(query);
+  const rows = sections.flatMap((s) => s.rows);
+  const [at, setAt] = useState(() => {
+    const mark = sections.find((s) => s.key === 'marks');
+    const inMarks = mark?.rows.findIndex((v) => v.id === props.current) ?? -1;
+    if (mark && inMarks >= 0) return mark.from + inMarks;
+    const found = rows.findIndex((v) => v.id === props.current);
+    return found >= 0 ? found : nearest(sections);
+  });
   const option = (n: number) => `${id}-${n}`;
-  useEffect(() => {
+  const opened = useRef(false);
+  useLayoutEffect(() => {
     const row = document.getElementById(option(at));
     const list = row?.parentElement?.parentElement;
     if (!row || !list) return;
+    if (!opened.current) {
+      opened.current = true;
+      list.scrollTop = props.above ? list.scrollHeight : 0;
+    }
     const top = row.offsetTop;
     if (top < list.scrollTop) list.scrollTop = top;
     else if (top + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + row.offsetHeight - list.clientHeight;
-  }, [at]);
-  const sections = [
-    { key: 'marks', label: t('bookmark.title'), rows: marks, from: 0 },
-    { key: 'all', label: t('composer.pickAll'), rows: all, from: marks.length },
-  ].filter((s) => s.rows.length > 0);
+  }, [at, query]);
   return (
     <div ref={box} className="node-pick" style={{ width: props.width, maxHeight: props.room }} role="dialog" aria-label={t('composer.pickNode')}>
       <label className="pick-find">
@@ -61,7 +80,7 @@ export function NodePick(props: {
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            setAt(0);
+            setAt(nearest(sectionsFor(e.target.value)));
           }}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return;

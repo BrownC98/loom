@@ -50,10 +50,38 @@ function keyed<T>(none: T) {
   return { get, set, use: (key: string) => useSyncExternalStore(listen, () => get(key)) };
 }
 
+const DRAFT_KEY = 'composer';
+
 const NO_UPLOADS: readonly Promise<unknown>[] = [];
 const uploads = keyed(NO_UPLOADS);
 const sendings = keyed(false);
 const refusals = keyed<string | null>(null);
+
+type Filed = { node: NodeId; file: File; path: string };
+const NO_FILED: readonly Filed[] = [];
+const filed = keyed(NO_FILED);
+
+function fileOn(file: File, node: NodeId) {
+  return savePastedFile(file, node).then((path) => {
+    filed.set(DRAFT_KEY, [...filed.get(DRAFT_KEY), { node, file, path }]);
+    return path;
+  });
+}
+
+function moveFiles(target: NodeId) {
+  return Promise.allSettled(
+    filed.get(DRAFT_KEY).map(async (f) => {
+      const old = quotePath(f.path);
+      if (f.node === target || !readDraft(DRAFT_KEY).includes(old)) return;
+      const path = await savePastedFile(f.file, target);
+      filed.set(DRAFT_KEY, filed.get(DRAFT_KEY).map((g) => (g === f ? { ...f, node: target, path } : g)));
+      editDraft(DRAFT_KEY, (now) => now.replaceAll(old, quotePath(path)));
+    }),
+  ).then((all) => {
+    const failed = all.find((r) => r.status === 'rejected');
+    if (failed) throw failed.reason;
+  });
+}
 
 function holdUpload(key: string, upload: Promise<unknown>) {
   uploads.set(key, [...uploads.get(key), upload]);
@@ -118,6 +146,7 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
               anchor={listButton}
               width={pickWidth / floatZoom(props.size)}
               room={space.room / floatZoom(props.size)}
+              above={space.above}
               onPick={pick}
               onClose={() => setListing(false)}
               onEscape={() => {
@@ -134,12 +163,11 @@ export function CanvasComposer(props: ComposerProps & { place: FloatPlace | null
 
 export function Composer(props: ComposerProps & { float?: FloatHead }) {
   const { t } = useTranslation();
-  const key = `composer:${props.node}`;
-  const [text, setText] = useDraft(key);
-  const refusal = refusals.use(key);
-  const setRefusal = (message: string | null) => refusals.set(key, message);
+  const [text, setText] = useDraft(DRAFT_KEY);
+  const refusal = refusals.use(DRAFT_KEY);
+  const setRefusal = (message: string | null) => refusals.set(DRAFT_KEY, message);
   const [dragging, setDragging] = useState(false);
-  const images = useImages(key, props.node, setRefusal);
+  const images = useImages(DRAFT_KEY, props.node, setRefusal);
   const area = useRef<HTMLTextAreaElement>(null);
   const composition = useRef<Composition | null>(null);
   useEffect(() => {
@@ -162,14 +190,14 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, [text]);
-  const filing = uploads.use(key).length;
-  const sending = sendings.use(key);
+  const filing = uploads.use(DRAFT_KEY).length;
+  const sending = sendings.use(DRAFT_KEY);
   const ready = text.trim() !== '' || images.list.length > 0 || filing > 0 || props.keys.blank !== null;
 
   const insertPath = (path: string) => {
     const el = area.current;
     let caret: number | null = null;
-    editDraft(key, (now) => {
+    editDraft(DRAFT_KEY, (now) => {
       const at = el?.isConnected && el.value === now ? el.selectionStart : now.length;
       const typed = `${at > 0 && !/\s/.test(now[at - 1]) ? ' ' : ''}${quotePath(path)} `;
       caret = at + typed.length;
@@ -178,17 +206,17 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
     requestAnimationFrame(() => caret !== null && el?.isConnected && el.setSelectionRange(caret, caret));
   };
   const take = (files: File[]) => {
-    if (sendings.get(key)) return;
+    if (sendings.get(DRAFT_KEY)) return;
     setRefusal(null);
     images.attach(files.filter(isImage));
     for (const file of files.filter((f) => !isImage(f))) {
       const big = tooBig(file);
       if (big) setRefusal(big);
-      else holdUpload(key, savePastedFile(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message)));
+      else holdUpload(DRAFT_KEY, fileOn(file, props.node).then(insertPath, (err: Error) => setRefusal(err.message)));
     }
   };
-  const deliverable = (): NodeInput => {
-    const input = nodeInput(props.node);
+  const deliverable = (target: NodeId): NodeInput => {
+    const input = nodeInput(target);
     const state = input?.state() ?? 'gone';
     if (!input || state !== 'open') throw new Error(state === 'offline' ? t('composer.offline') : t('composer.gone'));
     return input;
@@ -196,13 +224,14 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
 
   const send = () => {
     setRefusal(null);
-    if (sendings.get(key)) return;
-    sendings.set(key, true);
+    if (sendings.get(DRAFT_KEY)) return;
+    sendings.set(DRAFT_KEY, true);
     const attached = images.list.length;
-    Promise.all([images.paths(), Promise.all(uploads.get(key))])
+    const target = props.node;
+    Promise.all([images.paths(target), Promise.all(uploads.get(DRAFT_KEY)).then(() => moveFiles(target))])
       .then(([saved]) => {
-        const body = readDraft(key).trimEnd();
-        const input = deliverable();
+        const body = readDraft(DRAFT_KEY).trimEnd();
+        const input = deliverable(target);
         if (body.trim() === '' && saved.paths.length === 0) {
           if (attached > 0) throw new Error(t('composer.nothingSaved'));
           props.keys.blank?.(input);
@@ -210,11 +239,12 @@ export function Composer(props: ComposerProps & { float?: FloatHead }) {
         }
         input.paste([body, saved.paths.map(quotePath).join(' ')].filter((part) => part !== '').join('\n'));
         input.enter();
-        editDraft(key, (now) => (now.trimEnd() === body ? '' : now));
+        editDraft(DRAFT_KEY, (now) => (now.trimEnd() === body ? '' : now));
+        filed.set(DRAFT_KEY, filed.get(DRAFT_KEY).filter((f) => readDraft(DRAFT_KEY).includes(quotePath(f.path))));
         images.forget(saved.ids);
       })
       .catch((err: Error) => setRefusal(err.message))
-      .finally(() => sendings.set(key, false));
+      .finally(() => sendings.set(DRAFT_KEY, false));
   };
   const submit = () => {
     if (!composition.current?.afterText(send)) send();

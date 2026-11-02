@@ -498,7 +498,8 @@ export function Graph(props: {
   const { highlight } = props;
   const reaches = useContext(Reaches);
   const downRepos = new Set(props.repos.filter((r) => unreachedAt(r.place, reaches) !== null).map((r) => `repo:${r.id}`));
-  const repoInset = (key: string) => (downRepos.has(key) ? DOWN_INSET : REPO_INSET);
+  const sshRepos = new Set(props.repos.filter((r) => r.place.kind === 'ssh').map((r) => `repo:${r.id}`));
+  const repoInset = (key: string) => (sshRepos.has(key) ? DOWN_INSET : REPO_INSET);
   const lit = (...keys: string[]) => (highlight === null ? undefined : keys.every((key) => highlight.keys.has(key)) ? 'hl' : 'dim');
   const litGroup = (path: string, inside: string[]) => (highlight !== null && !highlight.keys.has(path) && inside.some((key) => highlight.keys.has(key)) ? undefined : lit(path));
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;

@@ -275,20 +275,17 @@ impl Resizer {
             if active == Some(node) {
                 return true;
             }
-            let Some(view) = snapshot.nodes.iter().find(|n| n.id.0 == node) else {
+            if !snapshot.nodes.iter().any(|n| n.id.0 == node) {
                 return false;
-            };
+            }
             let saved = snapshot
                 .sizes
                 .iter()
                 .find(|s| s.node.0 == node)
-                .map_or_else(
-                    || standard_size(view),
-                    |s| Size {
-                        width: s.width,
-                        height: s.height,
-                    },
-                );
+                .map_or_else(standard_size, |s| Size {
+                    width: s.width,
+                    height: s.height,
+                });
             let sized =
                 near(saved.width, draft.size.width) && near(saved.height, draft.size.height);
             let placed = draft.spot.is_none_or(|want| {

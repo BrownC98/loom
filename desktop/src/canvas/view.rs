@@ -504,16 +504,15 @@ impl CanvasView {
     }
 
     fn reset_size(&mut self, node: u32, cx: &mut Context<Self>) {
-        let Some(size) = self.store.read(cx).snapshot().and_then(|s| {
-            s.sizes.iter().any(|z| z.node.0 == node).then_some(())?;
-            s.nodes
-                .iter()
-                .find(|n| n.id.0 == node)
-                .map(scene::standard_size)
-        }) else {
+        let saved = self
+            .store
+            .read(cx)
+            .snapshot()
+            .is_some_and(|s| s.sizes.iter().any(|z| z.node.0 == node));
+        if !saved {
             return;
-        };
-        self.resizer.reset(&[(node, size)]);
+        }
+        self.resizer.reset(&[(node, scene::standard_size())]);
         self.rebuild(cx);
         let task = self
             .store

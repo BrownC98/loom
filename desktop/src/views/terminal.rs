@@ -27,6 +27,7 @@ const LINE_HEIGHT: f32 = 1.3;
 const MARKED_BACKGROUND: vt::Rgb8 = [0x3a, 0x3a, 0x55];
 const READABLE_PX: f32 = 6.0;
 const SNAPSHOT_GAP: Duration = Duration::from_millis(250);
+const TYPING_HOLD: Duration = Duration::from_secs(1);
 const START: (u16, u16) = (80, 24);
 const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_THIN: f32 = 2.0;
@@ -110,6 +111,7 @@ pub struct TerminalView {
     style: Style,
     dirty: bool,
     taken: Instant,
+    typed: Option<Instant>,
     refresh: bool,
     picking: bool,
     reporting: Option<MouseButton>,
@@ -229,6 +231,7 @@ impl TerminalView {
             style,
             dirty: true,
             taken: Instant::now(),
+            typed: None,
             refresh: false,
             picking: false,
             reporting: None,
@@ -268,7 +271,8 @@ impl TerminalView {
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.dirty = true;
         let wait = SNAPSHOT_GAP.saturating_sub(self.taken.elapsed());
-        if !self.cheap() || wait.is_zero() {
+        let typing = self.typed.is_some_and(|at| at.elapsed() < TYPING_HOLD);
+        if !self.cheap() || typing || wait.is_zero() {
             cx.notify();
         } else if !self.refresh {
             self.refresh = true;
@@ -387,6 +391,7 @@ impl TerminalView {
         self.vt.select_clear();
         self.vt.scroll_to_bottom();
         self.dirty = true;
+        self.typed = Some(Instant::now());
         self.send(bytes);
     }
 

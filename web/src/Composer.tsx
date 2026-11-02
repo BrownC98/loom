@@ -69,7 +69,7 @@ function fileOn(file: File, node: NodeId) {
 }
 
 function moveFiles(target: NodeId) {
-  return Promise.all(
+  return Promise.allSettled(
     filed.get(DRAFT_KEY).map(async (f) => {
       const old = quotePath(f.path);
       if (f.node === target || !readDraft(DRAFT_KEY).includes(old)) return;
@@ -77,7 +77,10 @@ function moveFiles(target: NodeId) {
       filed.set(DRAFT_KEY, filed.get(DRAFT_KEY).map((g) => (g === f ? { ...f, node: target, path } : g)));
       editDraft(DRAFT_KEY, (now) => now.replaceAll(old, quotePath(path)));
     }),
-  );
+  ).then((all) => {
+    const failed = all.find((r) => r.status === 'rejected');
+    if (failed) throw failed.reason;
+  });
 }
 
 function holdUpload(key: string, upload: Promise<unknown>) {

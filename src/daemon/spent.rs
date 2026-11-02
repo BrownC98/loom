@@ -6,7 +6,7 @@ use crate::graph::ParentWork;
 use crate::worktree;
 use crate::worktree::merge::{delete_local_merged, still_merged};
 use api::ids::NodeId;
-use api::repos::{RepoProblem, Worktree};
+use api::repos::{RepoProblem, RepoView, Worktree};
 
 #[derive(Default)]
 pub(super) struct Swept {
@@ -26,7 +26,38 @@ enum Left {
     Work(String),
 }
 
+pub(super) struct Leaving<'a> {
+    set: &'a std::sync::Mutex<std::collections::HashSet<String>>,
+    path: String,
+}
+
+impl Drop for Leaving<'_> {
+    fn drop(&mut self) {
+        self.set.lock().unwrap().remove(&self.path);
+    }
+}
+
 impl App {
+    pub(super) fn leaving(&self, path: &str) -> Leaving<'_> {
+        self.leaving.lock().unwrap().insert(path.to_owned());
+        Leaving {
+            set: &self.leaving,
+            path: path.to_owned(),
+        }
+    }
+
+    pub(super) fn without_leaving(&self, views: &[RepoView]) -> Vec<RepoView> {
+        let leaving = self.leaving.lock().unwrap();
+        views
+            .iter()
+            .cloned()
+            .map(|mut view| {
+                view.worktrees.retain(|w| !leaving.contains(&w.path));
+                view
+            })
+            .collect()
+    }
+
     pub(super) async fn sweep(self: &Arc<Self>, parent: NodeId) -> Swept {
         let mut swept = Swept::default();
         let mut failed = Vec::new();
@@ -123,6 +154,10 @@ impl App {
             return Ok(false);
         }
         let limits = self.settings.get().map_err(|e| e.to_string())?.tree_limits;
+        let _leaving = match &left {
+            Left::Clean { own, .. } => Some(self.leaving(&own.path)),
+            Left::Nothing | Left::Work(_) => None,
+        };
         let Some(moved) = self
             .graph
             .remove_spent_child(parent, child, name, parent_work, limits)

@@ -166,9 +166,9 @@ pub async fn view(
     path: &Path,
     place: PlaceView,
     shown_path: String,
+    worktrees: Vec<Worktree>,
 ) -> RepoView {
     let branches = branches(files, path).await;
-    let worktrees = worktrees(files, path).await;
     RepoView {
         id,
         name: folder_name(path),
@@ -252,14 +252,16 @@ fn repo_name(url: &str) -> &str {
 }
 
 pub async fn worktrees(files: Files<'_>, repo: &Path) -> Vec<Worktree> {
-    listed(files, repo).await.unwrap_or_else(|_| {
-        vec![Worktree {
-            path: repo.to_string_lossy().into_owned(),
-            head: String::new(),
-            branch: None,
-            original: true,
-        }]
-    })
+    listed(files, repo).await.unwrap_or_else(|_| alone(repo))
+}
+
+pub fn alone(repo: &Path) -> Vec<Worktree> {
+    vec![Worktree {
+        path: repo.to_string_lossy().into_owned(),
+        head: String::new(),
+        branch: None,
+        original: true,
+    }]
 }
 
 pub async fn listed(files: Files<'_>, repo: &Path) -> Result<Vec<Worktree>, String> {

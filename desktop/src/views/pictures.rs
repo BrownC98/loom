@@ -30,6 +30,7 @@ struct Attached {
     name: String,
     picture: Arc<Image>,
     state: Upload,
+    node: NodeId,
 }
 
 pub enum PicturesEvent {
@@ -128,8 +129,24 @@ impl Pictures {
         }
     }
 
+    pub fn aim(&mut self, node: NodeId) {
+        self.node = node;
+    }
+
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
+    }
+
+    pub fn retarget(&mut self, node: NodeId, cx: &mut Context<Self>) {
+        let stale: Vec<u32> = self
+            .list
+            .iter()
+            .filter(|image| matches!(image.state, Upload::Saved(_)) && image.node != node)
+            .map(|image| image.id)
+            .collect();
+        for id in stale {
+            self.upload(id, node, cx);
+        }
     }
 
     pub fn busy(&self) -> bool {
@@ -237,13 +254,29 @@ impl Pictures {
         self.next += 1;
         self.list.push(Attached {
             id,
-            name: name.clone(),
-            picture: Arc::new(Image::from_bytes(format, bytes.clone())),
+            name,
+            picture: Arc::new(Image::from_bytes(format, bytes)),
             state: Upload::Busy,
+            node: self.node,
         });
-        let node = self.node;
+        self.upload(id, self.node, cx);
+    }
+
+    fn upload(&mut self, id: u32, node: NodeId, cx: &mut Context<Self>) {
+        let Some(image) = self.list.iter_mut().find(|image| image.id == id) else {
+            return;
+        };
+        image.state = Upload::Busy;
+        image.node = node;
+        let (name, picture) = (image.name.clone(), image.picture.clone());
         let task = self.store.update(cx, |store, cx| {
-            store.save_paste(node, name, format.mime_type(), bytes, cx)
+            store.save_paste(
+                node,
+                name,
+                picture.format.mime_type(),
+                picture.bytes.clone(),
+                cx,
+            )
         });
         cx.notify();
         cx.spawn(async move |this, cx| {

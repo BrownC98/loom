@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use api::ids::NodeId;
@@ -36,13 +35,12 @@ const DISABLED_ALPHA: f32 = 0.4;
 const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 const PICK_WIDTH: f32 = 380.0;
 
-struct Draft {
-    field: Entity<Field>,
-    pictures: Entity<Pictures>,
-    note: Option<String>,
-    filing: usize,
-    sending: bool,
-    _subs: [Subscription; 2],
+struct Filed {
+    node: NodeId,
+    path: String,
+    name: String,
+    bytes: Vec<u8>,
+    moving: bool,
 }
 
 pub struct Composer {
@@ -54,7 +52,12 @@ pub struct Composer {
     at: Option<Point<Pixels>>,
     kept: Option<Option<FloatPlace>>,
     seen_place: Option<FloatPlace>,
-    drafts: HashMap<u32, Draft>,
+    field: Entity<Field>,
+    pictures: Entity<Pictures>,
+    note: Option<String>,
+    filing: usize,
+    sending: Option<u32>,
+    files: Vec<Filed>,
     viewer: Entity<Viewer>,
     chevron: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
@@ -69,6 +72,39 @@ pub fn composer(
 ) -> Entity<Composer> {
     cx.new(|cx| {
         let seen_place = store.read(cx).settings().composer_place;
+        let field = field::boxed_label(Str::ComposerPlaceholder, false, true, cx);
+        let pictures = cx.new(|_| Pictures::new(store.clone(), NodeId(0)));
+        let attach = pictures.clone();
+        field.update(cx, |field, _| {
+            field.on_files(move |entries, _, cx| {
+                attach.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
+            });
+        });
+        let typed = cx.subscribe_in(
+            &field,
+            window,
+            |composer: &mut Composer, _, event: &FieldEvent, window, cx| match event {
+                FieldEvent::Enter => composer.send(cx),
+                FieldEvent::Escape => {
+                    if let Some(node) = composer.target(cx) {
+                        let registry = composer.inputs.clone();
+                        registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
+                    }
+                }
+                FieldEvent::Changed | FieldEvent::Step(_) => {}
+            },
+        );
+        let heard = cx.subscribe_in(
+            &pictures,
+            window,
+            |composer: &mut Composer, _, event: &PicturesEvent, window, cx| match event {
+                PicturesEvent::Settled => composer.flush(cx),
+                PicturesEvent::Refused(text) => composer.refuse(text.clone(), cx),
+                PicturesEvent::Other(name, bytes) => {
+                    composer.take_file(name.clone(), bytes.clone(), window, cx)
+                }
+            },
+        );
         let mut composer = Composer {
             store: store.clone(),
             inputs: registry.clone(),
@@ -78,21 +114,24 @@ pub fn composer(
             at: None,
             kept: None,
             seen_place,
-            drafts: HashMap::new(),
+            field,
+            pictures,
+            note: None,
+            filing: 0,
+            sending: None,
+            files: Vec::new(),
             viewer: cx.new(Viewer::new),
             chevron: Rc::new(Cell::new(Bounds::default())),
             listing: None,
-            subscriptions: Vec::new(),
+            subscriptions: vec![typed, heard],
         };
-        composer.subscriptions.push(cx.observe_in(
-            &store,
-            window,
-            |composer: &mut Composer, _, window, cx| composer.sync(window, cx),
-        ));
+        composer
+            .subscriptions
+            .push(cx.observe(&store, |composer: &mut Composer, _, cx| composer.sync(cx)));
         composer
             .subscriptions
             .push(cx.observe(&registry, |_, _, cx| cx.notify()));
-        composer.sync(window, cx);
+        composer.sync(cx);
         composer
     })
 }
@@ -118,71 +157,28 @@ struct Look {
 }
 
 impl Composer {
-    fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn target(&self, cx: &App) -> Option<u32> {
         let store = self.store.read(cx);
-        let place = store.settings().composer_place;
-        let live: HashSet<u32> = store
-            .snapshot()
-            .map(|s| s.nodes.iter().map(|n| n.id.0).collect())
-            .unwrap_or_default();
-        let selected = store.selected().filter(|id| live.contains(id));
+        let id = store.selected()?;
+        store
+            .snapshot()?
+            .nodes
+            .iter()
+            .any(|n| n.id.0 == id)
+            .then_some(id)
+    }
+
+    fn sync(&mut self, cx: &mut Context<Self>) {
+        let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {
             self.seen_place = place;
             self.kept = None;
         }
-        self.drafts.retain(|id, _| live.contains(id));
-        if let Some(node) = selected {
-            self.ensure(node, window, cx);
+        if let Some(node) = self.target(cx) {
+            self.pictures
+                .update(cx, |pictures, _| pictures.aim(NodeId(node)));
         }
         cx.notify();
-    }
-
-    fn ensure(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
-        if self.drafts.contains_key(&node) {
-            return;
-        }
-        let field = field::boxed_label(Str::ComposerPlaceholder, false, true, cx);
-        let pictures = cx.new(|_| Pictures::new(self.store.clone(), NodeId(node)));
-        let attach = pictures.clone();
-        field.update(cx, |field, _| {
-            field.on_files(move |entries, _, cx| {
-                attach.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
-            });
-        });
-        let sub = cx.subscribe_in(
-            &field,
-            window,
-            move |composer, _, event: &FieldEvent, window, cx| match event {
-                FieldEvent::Enter => composer.send(node, window, cx),
-                FieldEvent::Escape => {
-                    let registry = composer.inputs.clone();
-                    registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
-                }
-                FieldEvent::Changed | FieldEvent::Step(_) => {}
-            },
-        );
-        let heard = cx.subscribe_in(
-            &pictures,
-            window,
-            move |composer, _, event: &PicturesEvent, window, cx| match event {
-                PicturesEvent::Settled => composer.flush(node, cx),
-                PicturesEvent::Refused(text) => composer.refuse(node, text.clone(), cx),
-                PicturesEvent::Other(name, bytes) => {
-                    composer.take_file(node, name.clone(), bytes.clone(), window, cx)
-                }
-            },
-        );
-        self.drafts.insert(
-            node,
-            Draft {
-                field,
-                pictures,
-                note: None,
-                filing: 0,
-                sending: false,
-                _subs: [sub, heard],
-            },
-        );
     }
 
     fn look(&self, cx: &Context<Self>) -> Look {
@@ -263,34 +259,43 @@ impl Composer {
         cx.notify();
     }
 
-    fn refuse(&mut self, node: u32, text: String, cx: &mut Context<Self>) {
-        if let Some(draft) = self.drafts.get_mut(&node) {
-            draft.note = Some(text);
-            cx.notify();
-        }
+    fn refuse(&mut self, text: String, cx: &mut Context<Self>) {
+        self.note = Some(text);
+        cx.notify();
     }
 
     fn take_file(
         &mut self,
-        node: u32,
         name: String,
         bytes: Vec<u8>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(draft) = self.drafts.get_mut(&node) else {
+        let Some(node) = self.target(cx).map(NodeId) else {
             return;
         };
-        draft.note = None;
-        draft.filing += 1;
+        self.note = None;
+        self.filing += 1;
         let task = self.store.update(cx, |store, cx| {
-            store.save_paste(NodeId(node), name, "application/octet-stream", bytes, cx)
+            store.save_paste(
+                node,
+                name.clone(),
+                "application/octet-stream",
+                bytes.clone(),
+                cx,
+            )
         });
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
-            let saved = task.await;
+            let saved = task.await.map(|path| Filed {
+                node,
+                path,
+                name,
+                bytes,
+                moving: false,
+            });
             let _ = this.update_in(cx, |composer, window, cx| {
-                composer.uploaded(node, saved, window, cx)
+                composer.uploaded(saved, window, cx)
             });
         })
         .detach();
@@ -298,57 +303,115 @@ impl Composer {
 
     fn uploaded(
         &mut self,
-        node: u32,
-        saved: Result<String, String>,
+        saved: Result<Filed, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(draft) = self.drafts.get_mut(&node) else {
+        self.filing = self.filing.saturating_sub(1);
+        match saved {
+            Ok(filed) => {
+                let token = quote(&filed.path);
+                self.files.push(filed);
+                self.field
+                    .update(cx, |field, cx| field.insert_token(&token, window, cx));
+            }
+            Err(error) => self.note = Some(error),
+        }
+        cx.notify();
+        self.flush(cx);
+    }
+
+    fn move_files(&mut self, target: u32, cx: &mut Context<Self>) {
+        let body = self.field.read(cx).text().to_owned();
+        self.files
+            .retain(|filed| body.contains(&quote(&filed.path)));
+        let node = NodeId(target);
+        for filed in self
+            .files
+            .iter_mut()
+            .filter(|filed| filed.node != node && !filed.moving)
+        {
+            filed.moving = true;
+            self.filing += 1;
+            let old = filed.path.clone();
+            let (name, bytes) = (filed.name.clone(), filed.bytes.clone());
+            let task = self.store.update(cx, |store, cx| {
+                store.save_paste(node, name, "application/octet-stream", bytes, cx)
+            });
+            cx.spawn(async move |this, cx| {
+                let saved = task.await;
+                let _ = this.update(cx, |composer, cx| composer.moved(&old, node, saved, cx));
+            })
+            .detach();
+        }
+    }
+
+    fn moved(
+        &mut self,
+        old: &str,
+        node: NodeId,
+        saved: Result<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.filing = self.filing.saturating_sub(1);
+        let Some(filed) = self.files.iter_mut().find(|filed| filed.path == old) else {
+            self.flush(cx);
             return;
         };
-        draft.filing = draft.filing.saturating_sub(1);
+        filed.moving = false;
         match saved {
             Ok(path) => {
-                let field = draft.field.clone();
-                field.update(cx, |field, cx| {
-                    field.insert_token(&quote(&path), window, cx)
-                });
+                let text = self
+                    .field
+                    .read(cx)
+                    .text()
+                    .replace(&quote(old), &quote(&path));
+                self.field
+                    .update(cx, |field, cx| field.set_text_at_end(&text, cx));
+                filed.path = path;
+                filed.node = node;
             }
-            Err(error) => draft.note = Some(error),
+            Err(error) => {
+                self.sending = None;
+                self.note = Some(error);
+            }
         }
         cx.notify();
-        self.flush(node, cx);
+        self.flush(cx);
     }
 
-    fn send(&mut self, node: u32, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(draft) = self.drafts.get_mut(&node) else {
-            return;
-        };
-        draft.note = None;
-        if draft.sending {
+    fn send(&mut self, cx: &mut Context<Self>) {
+        self.note = None;
+        if self.sending.is_some() {
             return;
         }
-        draft.sending = true;
+        let Some(target) = self.target(cx) else {
+            return;
+        };
+        self.sending = Some(target);
         cx.notify();
-        self.flush(node, cx);
+        self.flush(cx);
     }
 
-    fn flush(&mut self, node: u32, cx: &mut Context<Self>) {
-        let Some(draft) = self.drafts.get_mut(&node) else {
+    fn flush(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.sending else {
             return;
         };
-        let pictures = draft.pictures.clone();
-        if !draft.sending || draft.filing > 0 || pictures.read(cx).busy() {
+        self.move_files(target, cx);
+        self.pictures
+            .update(cx, |pictures, cx| pictures.retarget(NodeId(target), cx));
+        let pictures = self.pictures.clone();
+        if self.filing > 0 || pictures.read(cx).busy() {
             return;
         }
-        draft.sending = false;
-        let body = draft.field.read(cx).text().trim_end().to_owned();
+        self.sending = None;
+        let body = self.field.read(cx).text().trim_end().to_owned();
         let saved = pictures.read(cx).saved();
         let attached = !pictures.read(cx).is_empty();
         if body.trim().is_empty() && saved.is_empty() {
             if attached {
                 let text = ui::say(cx, Str::ComposerNothingSaved).to_owned();
-                self.refuse(node, text, cx);
+                self.refuse(text, cx);
             }
             return;
         }
@@ -360,23 +423,21 @@ impl Composer {
             .join("\n");
         let state = self
             .inputs
-            .update(cx, |inputs, cx| inputs.deliver(node, &text, cx));
+            .update(cx, |inputs, cx| inputs.deliver(target, &text, cx));
         match state {
             Some(InputState::Open) => {
-                if let Some(draft) = self.drafts.get_mut(&node) {
-                    let ids: Vec<u32> = saved.iter().map(|(id, _)| *id).collect();
-                    pictures.update(cx, |pictures, cx| pictures.forget(&ids, cx));
-                    let field = draft.field.clone();
-                    field.update(cx, |field, cx| field.clear(cx));
-                }
+                let ids: Vec<u32> = saved.iter().map(|(id, _)| *id).collect();
+                pictures.update(cx, |pictures, cx| pictures.forget(&ids, cx));
+                self.files.clear();
+                self.field.update(cx, |field, cx| field.clear(cx));
             }
             Some(InputState::Offline) => {
                 let text = ui::say(cx, Str::ComposerOffline).to_owned();
-                self.refuse(node, text, cx);
+                self.refuse(text, cx);
             }
             Some(InputState::Gone) | None => {
                 let text = ui::say(cx, Str::ComposerGone).to_owned();
-                self.refuse(node, text, cx);
+                self.refuse(text, cx);
             }
         }
         cx.notify();
@@ -395,7 +456,7 @@ impl Composer {
                 composer.listing = None;
                 match event {
                     PickerEvent::Pick(id) => composer.pick(node, *id, window, cx),
-                    PickerEvent::Escape => composer.focus_field(node, window, cx),
+                    PickerEvent::Escape => composer.focus_field(window, cx),
                     PickerEvent::Close => {}
                 }
                 cx.notify();
@@ -405,11 +466,9 @@ impl Composer {
         cx.notify();
     }
 
-    fn focus_field(&self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(draft) = self.drafts.get(&node) {
-            let handle = draft.field.read(cx).handle();
-            window.focus(&handle, cx);
-        }
+    fn focus_field(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = self.field.read(cx).handle();
+        window.focus(&handle, cx);
     }
 
     fn pick(&mut self, current: u32, id: u32, window: &mut Window, cx: &mut Context<Self>) {
@@ -418,14 +477,12 @@ impl Composer {
             store.select(id, cx);
         });
         if id == current {
-            self.focus_field(id, window, cx);
+            self.focus_field(window, cx);
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(FOCUS_DELAY).await;
-            let _ = this.update_in(cx, |composer, window, cx| {
-                composer.focus_field(id, window, cx)
-            });
+            let _ = this.update_in(cx, |composer, window, cx| composer.focus_field(window, cx));
         })
         .detach();
     }
@@ -448,7 +505,7 @@ impl Render for Composer {
         let shown = node.filter(|(id, _)| {
             !store.settings().composer_off && self.inputs.read(cx).state(*id, cx).is_some()
         });
-        let Some((node, name)) = shown.filter(|(id, _)| self.drafts.contains_key(id)) else {
+        let Some((node, name)) = shown else {
             self.grab = None;
             self.at = None;
             self.store
@@ -507,7 +564,7 @@ impl Render for Composer {
                 .min(f32::from(pane.width) - MARGIN - wide)
                 .max(MARGIN))
                 - f32::from(at.x);
-            list.update(cx, |list, _| list.place(z, wide, room, above));
+            list.update(cx, |list, cx| list.place(z, wide, room, above, cx));
             let gap = px(place::POP_GAP * z);
             let anchored = div().absolute().left(px(left)).child(list.clone());
             if above {
@@ -539,21 +596,20 @@ impl Composer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let draft = &self.drafts[&node];
-        draft.field.update(cx, |field, cx| field.set_scale(z, cx));
-        let focused = draft.field.read(cx).focused(window);
-        let ready = !draft.field.read(cx).is_blank()
-            || !draft.pictures.read(cx).is_empty()
-            || draft.filing > 0;
-        let sendable = ready && !draft.sending;
+        self.field.update(cx, |field, cx| field.set_scale(z, cx));
+        let focused = self.field.read(cx).focused(window);
+        let ready = !self.field.read(cx).is_blank()
+            || !self.pictures.read(cx).is_empty()
+            || self.filing > 0;
+        let sendable = ready && self.sending.is_none();
         let viewer = self.viewer.clone();
         let images = pictures::chips(
-            &draft.pictures,
+            &self.pictures,
             move |picture, window, cx| {
                 viewer.update(cx, |viewer, cx| viewer.open(picture, window, cx))
             },
             "composer-chip",
-            node,
+            0,
             z,
             cx,
         )
@@ -565,16 +621,16 @@ impl Composer {
             focused,
             sendable,
             listing: self.listing.is_some(),
-            filing: (draft.filing > 0).then(|| {
+            filing: (self.filing > 0).then(|| {
                 ui::say_with(
                     cx,
                     Str::ComposerFiling,
-                    &[("count", &draft.filing.to_string())],
+                    &[("count", &self.filing.to_string())],
                 )
             }),
-            note: draft.note.clone(),
+            note: self.note.clone(),
         };
-        let field = draft.field.clone().into_any_element();
+        let field = self.field.clone().into_any_element();
         let live = Live {
             cx,
             node,
@@ -803,31 +859,25 @@ impl Live<'_, '_> {
 
 impl Live<'_, '_> {
     fn pick(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
-        let node = self.node;
         self.tool(el, label)
             .on_click(self.cx.listener(move |composer, _, _, cx| {
-                if let Some(draft) = composer.drafts.get(&node) {
-                    draft
-                        .pictures
-                        .update(cx, |pictures, cx| pictures.pick_files(cx));
-                }
+                composer
+                    .pictures
+                    .update(cx, |pictures, cx| pictures.pick_files(cx));
             }))
     }
 }
 
 impl ComposerWire for Live<'_, '_> {
     fn shell(&self, el: Div) -> Div {
-        let node = self.node;
         el.on_mouse_down(MouseButton::Left, place::stop)
             .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
             .on_drop(
                 self.cx
                     .listener(move |composer, paths: &ExternalPaths, _, cx| {
-                        if let Some(draft) = composer.drafts.get(&node) {
-                            draft.pictures.update(cx, |pictures, cx| {
-                                pictures.take_paths(paths.paths().to_vec(), cx)
-                            });
-                        }
+                        composer.pictures.update(cx, |pictures, cx| {
+                            pictures.take_paths(paths.paths().to_vec(), cx)
+                        });
                     }),
             )
     }
@@ -887,15 +937,12 @@ impl ComposerWire for Live<'_, '_> {
     }
 
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
-        let node = self.node;
         let el = el
             .tooltip(tip(ui::say(self.cx, Str::ComposerSend).to_owned()))
             .on_mouse_down(MouseButton::Left, place::stop);
         if self.sendable {
-            el.cursor_pointer().on_click(
-                self.cx
-                    .listener(move |composer, _, window, cx| composer.send(node, window, cx)),
-            )
+            el.cursor_pointer()
+                .on_click(self.cx.listener(|composer, _, _, cx| composer.send(cx)))
         } else {
             el
         }

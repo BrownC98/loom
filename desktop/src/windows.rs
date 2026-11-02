@@ -4,13 +4,13 @@ use std::process::Command;
 use gpui::{
     AnyElement, App, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, WindowOptions,
-    div, px, rgb, svg,
+    div, px, rgb,
 };
 
 use crate::frame;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
-use crate::views::icons::Lucide;
+use crate::views::icons::{Lucide, icon_styled};
 use crate::views::tooltip::tip;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -68,15 +68,13 @@ fn caption(
         .flex()
         .items_center()
         .justify_center()
-        .text_color(colors.ink_3)
+        .group(glyph.path())
         .window_control_area(area)
-        .hover(move |style| style.bg(hover).text_color(hover_ink))
+        .hover(move |style| style.bg(hover))
         .tooltip(tip(label.to_owned()))
         .child(
-            svg()
-                .path(format!("{}?stroke={CAPTION_STROKE}", glyph.path()))
-                .size(px(CAPTION_ICON))
-                .flex_none(),
+            icon_styled(glyph, CAPTION_ICON, colors.ink_3, CAPTION_STROKE, false)
+                .group_hover(glyph.path(), move |style| style.text_color(hover_ink)),
         )
 }
 

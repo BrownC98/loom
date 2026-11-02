@@ -13,8 +13,6 @@ use api::graph::{CardView, NodeState, NodeView};
 use api::repos::PlaceView;
 use api::settings::DefaultCardView;
 
-use unicode_width::UnicodeWidthChar;
-
 use crate::canvas::repos::GroupKind;
 use crate::fonts;
 use crate::strings::{Lang, Str};
@@ -485,47 +483,7 @@ pub fn group_frame(
 }
 
 pub const SIMPLE_WIDTH: f64 = 260.0;
-const REPLY_WIDTH: f64 = SIMPLE_WIDTH - 22.0;
-const REPLY_LINE: f64 = 18.0;
-const REPLY_LINES: usize = 2;
-const GLYPH: f64 = 6.2;
-
-fn reply_lines(text: &str) -> usize {
-    let width = |word: &str| {
-        word.chars()
-            .map(|c| c.width().unwrap_or(1) as f64 * GLYPH)
-            .sum::<f64>()
-    };
-    let mut lines = 1usize;
-    let mut used = 0.0;
-    for word in text.split_whitespace() {
-        let w = width(word);
-        if used == 0.0 {
-            used = w;
-        } else if used + GLYPH + w <= REPLY_WIDTH {
-            used += GLYPH + w;
-        } else {
-            lines += 1;
-            used = w;
-        }
-        if used > REPLY_WIDTH {
-            lines += (used / REPLY_WIDTH).ceil() as usize - 1;
-            used %= REPLY_WIDTH;
-        }
-    }
-    lines
-}
-
-pub fn simple_height(node: &NodeView) -> f64 {
-    let mut height = 2.0 + 16.0 + f64::from(BUTTON);
-    if !model_text(node).is_empty() {
-        height += 4.0 + 16.0;
-    }
-    if let Some(reply) = &node.reply {
-        height += 4.0 + REPLY_LINE * reply_lines(reply).min(REPLY_LINES) as f64;
-    }
-    height
-}
+pub const SIMPLE_HEIGHT: f64 = 104.0;
 
 pub fn base_view(node: &NodeView, setting: DefaultCardView) -> CardView {
     match setting {
@@ -1181,7 +1139,6 @@ pub fn card(
         .text_color(colors.ink);
     if simple {
         return shell
-            .h_auto()
             .pt(px(8.0 * zoom))
             .pb(px(8.0 * zoom))
             .pl(px(12.0 * zoom))

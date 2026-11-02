@@ -34,11 +34,8 @@ const STANDARD: Size = Size {
     width: 600.0,
     height: 437.0,
 };
-pub fn standard_size(node: &NodeView) -> Size {
-    Size {
-        width: STANDARD.width,
-        height: STANDARD.height + f64::from(card::foot_height(node)),
-    }
+pub const fn standard_size() -> Size {
+    STANDARD
 }
 pub const MIN_CARD: Size = Size {
     width: 360.0,
@@ -423,13 +420,10 @@ pub fn build(
             let size = if card::view_of(n, card_view) == CardView::Simple {
                 Size {
                     width: card::SIMPLE_WIDTH,
-                    height: card::simple_height(n),
+                    height: card::SIMPLE_HEIGHT,
                 }
             } else {
-                sizes
-                    .get(&n.id.0)
-                    .copied()
-                    .unwrap_or_else(|| standard_size(n))
+                sizes.get(&n.id.0).copied().unwrap_or_else(standard_size)
             };
             (n.id.0, size)
         })

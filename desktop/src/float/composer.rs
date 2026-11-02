@@ -57,6 +57,7 @@ pub struct Composer {
     note: Option<String>,
     filing: usize,
     sending: Option<u32>,
+    aborted: bool,
     files: Vec<Filed>,
     viewer: Entity<Viewer>,
     chevron: Rc<Cell<Bounds<Pixels>>>,
@@ -119,6 +120,7 @@ pub fn composer(
             note: None,
             filing: 0,
             sending: None,
+            aborted: false,
             files: Vec::new(),
             viewer: cx.new(Viewer::new),
             chevron: Rc::new(Cell::new(Bounds::default())),
@@ -372,7 +374,7 @@ impl Composer {
                 filed.node = node;
             }
             Err(error) => {
-                self.sending = None;
+                self.aborted = true;
                 self.note = Some(error);
             }
         }
@@ -388,23 +390,37 @@ impl Composer {
         let Some(target) = self.target(cx) else {
             return;
         };
-        self.sending = Some(target);
-        cx.notify();
+        self.set_sending(Some(target), cx);
         self.flush(cx);
+    }
+
+    fn set_sending(&mut self, target: Option<u32>, cx: &mut Context<Self>) {
+        self.sending = target;
+        let locked = target.is_some();
+        self.field
+            .update(cx, |field, cx| field.set_locked(locked, cx));
+        self.pictures
+            .update(cx, |pictures, cx| pictures.set_locked(locked, cx));
+        cx.notify();
     }
 
     fn flush(&mut self, cx: &mut Context<Self>) {
         let Some(target) = self.sending else {
             return;
         };
-        self.move_files(target, cx);
-        self.pictures
-            .update(cx, |pictures, cx| pictures.retarget(NodeId(target), cx));
+        if !self.aborted {
+            self.move_files(target, cx);
+            self.pictures
+                .update(cx, |pictures, cx| pictures.retarget(NodeId(target), cx));
+        }
         let pictures = self.pictures.clone();
         if self.filing > 0 || pictures.read(cx).busy() {
             return;
         }
-        self.sending = None;
+        self.set_sending(None, cx);
+        if std::mem::take(&mut self.aborted) {
+            return;
+        }
         let body = self.field.read(cx).text().trim_end().to_owned();
         let saved = pictures.read(cx).saved();
         let attached = !pictures.read(cx).is_empty();

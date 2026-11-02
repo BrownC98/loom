@@ -51,6 +51,7 @@ pub struct Pictures {
     list: Vec<Attached>,
     next: u32,
     reading: usize,
+    locked: bool,
 }
 
 #[derive(Default)]
@@ -126,6 +127,14 @@ impl Pictures {
             list: Vec::new(),
             next: 0,
             reading: 0,
+            locked: false,
+        }
+    }
+
+    pub fn set_locked(&mut self, locked: bool, cx: &mut Context<Self>) {
+        if self.locked != locked {
+            self.locked = locked;
+            cx.notify();
         }
     }
 
@@ -173,6 +182,9 @@ impl Pictures {
     }
 
     pub fn take_clipboard(&mut self, entries: Vec<ClipboardEntry>, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         for entry in entries {
             match entry {
                 ClipboardEntry::Image(image) => {
@@ -188,6 +200,9 @@ impl Pictures {
     }
 
     pub fn take_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         for path in paths {
             let read = cx.background_spawn(async move { read_file(&path) });
             self.reading += 1;
@@ -224,6 +239,9 @@ impl Pictures {
     }
 
     pub fn pick_files(&mut self, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         let chosen = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -302,6 +320,9 @@ impl Pictures {
     }
 
     fn remove(&mut self, id: u32, cx: &mut Context<Self>) {
+        if self.locked {
+            return;
+        }
         self.list.retain(|image| image.id != id);
         cx.notify();
     }

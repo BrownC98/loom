@@ -64,6 +64,7 @@ pub struct Field {
     marked: Option<Range<usize>>,
     layout: Option<TextLayout>,
     selecting: bool,
+    locked: bool,
 }
 
 impl EventEmitter<FieldEvent> for Field {}
@@ -114,6 +115,14 @@ impl Field {
             marked: None,
             layout: None,
             selecting: false,
+            locked: false,
+        }
+    }
+
+    pub fn set_locked(&mut self, locked: bool, cx: &mut Context<Self>) {
+        if self.locked != locked {
+            self.locked = locked;
+            cx.notify();
         }
     }
 
@@ -340,6 +349,9 @@ impl Field {
         if other || (self.marked.is_some() && !command) {
             return;
         }
+        if self.locked && !matches!((command, stroke.key.as_str()), (true, "a" | "c")) {
+            return;
+        }
         let handled = match (command, stroke.key.as_str()) {
             (true, "a") => {
                 self.selected = 0..self.text.len();
@@ -548,6 +560,9 @@ impl EntityInputHandler for Field {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.locked {
+            return;
+        }
         let range = range
             .map(|range| self.range_from_utf16(&range))
             .or_else(|| self.marked.clone())
@@ -563,6 +578,9 @@ impl EntityInputHandler for Field {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.locked {
+            return;
+        }
         let range = range
             .map(|range| self.range_from_utf16(&range))
             .or_else(|| self.marked.clone())

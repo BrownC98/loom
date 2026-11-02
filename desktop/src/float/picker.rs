@@ -37,6 +37,7 @@ pub struct Picker {
     width: f32,
     room: f32,
     above: bool,
+    placed: bool,
     _subscription: Subscription,
 }
 
@@ -57,8 +58,8 @@ pub fn picker(
             &query,
             |picker: &mut Picker, _, event: &FieldEvent, cx| match event {
                 FieldEvent::Changed => {
-                    picker.at = 0;
-                    cx.notify();
+                    picker.at = picker.nearest(cx);
+                    picker.reveal(cx);
                 }
                 FieldEvent::Step(by) => picker.step(*by, cx),
                 FieldEvent::Enter => {
@@ -69,7 +70,7 @@ pub fn picker(
                 FieldEvent::Escape => cx.emit(PickerEvent::Escape),
             },
         );
-        let mut picker = Picker {
+        Picker {
             store,
             current,
             query,
@@ -80,23 +81,85 @@ pub fn picker(
             width: 0.0,
             room: 0.0,
             above: false,
+            placed: false,
             _subscription: subscription,
-        };
-        picker.at = picker
-            .rows(cx)
-            .iter()
-            .position(|row| row.id == current)
-            .unwrap_or(0);
-        picker
+        }
     })
 }
 
 impl Picker {
-    pub fn place(&mut self, zoom: f32, width: f32, room: f32, above: bool) {
+    pub fn place(&mut self, zoom: f32, width: f32, room: f32, above: bool, cx: &mut Context<Self>) {
         self.zoom = zoom;
         self.width = width;
         self.room = room;
+        let moved = !self.placed || self.above != above;
         self.above = above;
+        if moved {
+            self.placed = true;
+            self.at = self.start(cx);
+            self.reveal(cx);
+        }
+    }
+
+    fn groups(&self, cx: &App) -> [(Str, Vec<Pickable>); 2] {
+        let (marks, all) = self.lists(cx);
+        let marks = (Str::BookmarkTitle, marks);
+        let all = (Str::ComposerPickAll, all);
+        if self.above {
+            [all, marks]
+        } else {
+            [marks, all]
+        }
+    }
+
+    fn nearest(&self, cx: &App) -> usize {
+        if self.above {
+            self.rows(cx).len().saturating_sub(1)
+        } else {
+            0
+        }
+    }
+
+    fn start(&self, cx: &App) -> usize {
+        let groups = self.groups(cx);
+        let find = |group: usize| {
+            let before: usize = groups[..group].iter().map(|(_, rows)| rows.len()).sum();
+            groups[group]
+                .1
+                .iter()
+                .position(|row| row.id == self.current)
+                .map(|at| before + at)
+        };
+        let marks = usize::from(self.above);
+        find(marks)
+            .or_else(|| find(1 - marks))
+            .unwrap_or_else(|| self.nearest(cx))
+    }
+
+    fn child_of(&self, at: usize, cx: &App) -> usize {
+        let mut before = 0;
+        let mut heads = 0;
+        for (_, rows) in self.groups(cx) {
+            if rows.is_empty() {
+                continue;
+            }
+            heads += 1;
+            if at < before + rows.len() {
+                break;
+            }
+            before += rows.len();
+        }
+        heads + at
+    }
+
+    fn reveal(&mut self, cx: &mut Context<Self>) {
+        if self.above {
+            self.bar.handle().scroll_to_bottom();
+        } else {
+            self.bar.reset();
+        }
+        self.bar.handle().scroll_to_item(self.child_of(self.at, cx));
+        cx.notify();
     }
 
     fn lists(&self, cx: &App) -> (Vec<Pickable>, Vec<Pickable>) {
@@ -108,8 +171,10 @@ impl Picker {
     }
 
     fn rows(&self, cx: &App) -> Vec<Pickable> {
-        let (marks, all) = self.lists(cx);
-        marks.into_iter().chain(all).collect()
+        self.groups(cx)
+            .into_iter()
+            .flat_map(|(_, rows)| rows)
+            .collect()
     }
 
     fn step(&mut self, by: isize, cx: &mut Context<Self>) {
@@ -118,14 +183,7 @@ impl Picker {
             return;
         }
         self.at = (self.at as isize + by).rem_euclid(count) as usize;
-        let (marks, all) = self.lists(cx);
-        let child = if self.at < marks.len() {
-            usize::from(!marks.is_empty()) + self.at
-        } else {
-            let heads = usize::from(!marks.is_empty()) + usize::from(!all.is_empty());
-            heads + self.at
-        };
-        self.bar.handle().scroll_to_item(child);
+        self.bar.handle().scroll_to_item(self.child_of(self.at, cx));
         cx.notify();
     }
 
@@ -180,7 +238,7 @@ impl Render for Picker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ui::colors(cx);
         let z = self.zoom;
-        let (marks, all) = self.lists(cx);
+        let groups = self.groups(cx);
         let anchor = self.anchor.clone();
         let head = |text: &'static str| {
             div()
@@ -202,19 +260,17 @@ impl Render for Picker {
             .px(px(6.0 * z))
             .pb(px(6.0 * z))
             .pt(px(if self.above { 6.0 } else { 0.0 } * z));
-        let empty = marks.is_empty() && all.is_empty();
-        if !marks.is_empty() {
-            list = list.child(head(ui::say(cx, Str::BookmarkTitle)));
-        }
-        let split = marks.len();
-        for (n, item) in marks.iter().enumerate() {
-            list = list.child(self.row(n, item, cx));
-        }
-        if !all.is_empty() {
-            list = list.child(head(ui::say(cx, Str::ComposerPickAll)));
-        }
-        for (n, item) in all.iter().enumerate() {
-            list = list.child(self.row(split + n, item, cx));
+        let empty = groups.iter().all(|(_, rows)| rows.is_empty());
+        let mut n = 0;
+        for (title, rows) in &groups {
+            if rows.is_empty() {
+                continue;
+            }
+            list = list.child(head(ui::say(cx, *title)));
+            for item in rows {
+                list = list.child(self.row(n, item, cx));
+                n += 1;
+            }
         }
         let find = div()
             .flex_none()

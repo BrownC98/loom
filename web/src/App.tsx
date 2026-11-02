@@ -340,6 +340,11 @@ export function App() {
     }
   }, [nodes, repos]);
 
+  const shownNodes = useRef<ReadonlyMap<NodeId, NodeView>>(nodes);
+  useEffect(() => {
+    shownNodes.current = nodes;
+  }, [nodes]);
+
   useEffect(() => {
     const refreshRepos = () =>
       getRepos()
@@ -363,13 +368,18 @@ export function App() {
       reading = true;
       getNodes()
         .then(
-          (views) =>
-            again ||
+          async (views) => {
+            const ids = new Set(views.map((v) => v.id));
+            const dropped = [...shownNodes.current.keys()].some((id) => !ids.has(id));
+            const next = dropped ? await getRepos().catch(() => null) : null;
+            if (again) return;
+            if (next) setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
             setNodes((old) => {
               const before = [...old.values()];
               const kept = keepSame(before, views);
               return kept === before ? old : new Map(kept.map((view) => [view.id, view]));
-            }),
+            });
+          },
           () => again || events.reopen(),
         )
         .finally(() => {

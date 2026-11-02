@@ -41,6 +41,11 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const GUARD: &str = "loom guard";
 const HOOK: &str = "loom hook claude";
+const LEAN_ENV: [(&str, &str); 3] = [
+    ("BUN_JSC_useDFGJIT", "0"),
+    ("BUN_JSC_useBaselineJIT", "0"),
+    ("DISABLE_TELEMETRY", "1"),
+];
 const HELPER_SHELLS: [&str; 1] = [HOOK];
 const RUNNING_STATUS: &str = "esc to interrupt";
 const TRANSCRIPT_DEPTH: usize = 3;
@@ -114,8 +119,13 @@ impl Adapter for Claude {
     }
 
     fn command(&self, cmd: &mut CommandBuilder, at: Command<'_>) {
-        if let Self::Open = self {
-            cmd.env("OPENCLAUDE_DISABLE_HEAP_RELAUNCH", "1");
+        match self {
+            Self::Code => {
+                for (key, value) in LEAN_ENV {
+                    cmd.env(key, value);
+                }
+            }
+            Self::Open => cmd.env("OPENCLAUDE_DISABLE_HEAP_RELAUNCH", "1"),
         }
         cmd.args(args(at.plugin, at.launch));
     }

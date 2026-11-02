@@ -340,6 +340,17 @@ export function App() {
     }
   }, [nodes, repos]);
 
+  const shownNodes = useRef<ReadonlyMap<NodeId, NodeView>>(nodes);
+  useEffect(() => {
+    const gone = [...shownNodes.current.values()].filter((v) => !nodes.has(v.id));
+    shownNodes.current = nodes;
+    if (gone.length === 0) return;
+    const used = new Set([...nodes.values()].map((v) => v.place.worktree));
+    const left = new Set(gone.map((v) => v.place.worktree).filter((path) => !used.has(path)));
+    setRepos((prev) => prev.map((r) => ({ ...r, worktrees: r.worktrees.filter((w) => w.original || !left.has(w.path)) })));
+    getRepos().then(setRepos);
+  }, [nodes]);
+
   useEffect(() => {
     const refreshRepos = () =>
       getRepos()

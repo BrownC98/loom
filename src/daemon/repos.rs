@@ -82,23 +82,31 @@ pub struct DeleteWorktree {
     pub delete_branch: bool,
 }
 
+const REPO_LIST_TRIES: u32 = 3;
+
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
-    let shared = app
-        .repo_list
-        .run(|| {
-            let app = app.clone();
-            async move {
-                let mut views = Vec::new();
-                for (id, path) in app.repos.list().map_err(|e| e.to_string())? {
-                    views.push(app.repo_view(id, &path).await);
+    let mut tries = REPO_LIST_TRIES;
+    loop {
+        tries -= 1;
+        let shared = app
+            .repo_list
+            .run(|| {
+                let app = app.clone();
+                let removals = app.removals();
+                async move {
+                    let mut views = Vec::new();
+                    for (id, path) in app.repos.list().map_err(|e| e.to_string())? {
+                        views.push(app.repo_view(id, &path).await);
+                    }
+                    Ok((removals, views))
                 }
-                Ok(views)
-            }
-        })
-        .await;
-    match &*shared {
-        Ok(views) => Ok(Json(app.without_leaving(views))),
-        Err(e) => Err(internal(e)),
+            })
+            .await;
+        match &*shared {
+            Ok((removals, _)) if *removals != app.removals() && tries > 0 => continue,
+            Ok((_, views)) => return Ok(Json(app.without_leaving(views))),
+            Err(e) => return Err(internal(e)),
+        }
     }
 }
 

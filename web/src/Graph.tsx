@@ -603,10 +603,7 @@ export function Graph(props: {
     for (const b of level.boxes) levels.set(b.key, level);
   };
   type Laid = { group: Group; members: NodeView[]; local: Map<string, XYPosition>; auto: Map<string, XYPosition>; lead: XYPosition; size: Size; kids: Laid[] };
-  const emptySize = (path: string): Size => {
-    const measured = flowState.get(path)?.measured;
-    return { width: measured?.width ?? EMPTY_GROUP.width, height: measured?.height ?? EMPTY_GROUP.height };
-  };
+  const emptySize = (path: string): Size => ({ width: EMPTY_GROUP.width, height: EMPTY_GROUP.height + insetOf(path).top - CARD_TOP });
   const framed = props.repos.length > 1;
   const vertical = direction === 'down' || direction === 'up';
   const chipsIn = new Map<string, Group[]>();
@@ -866,7 +863,7 @@ export function Graph(props: {
       type: 'worktree',
       className: classes(group.path, litGroup(group.path, [...members.map((v) => String(v.id)), ...chipsOf(group.path).map((c) => c.path)])),
       ...(outer ? { parentId: outer.path, position: outer.at } : { position: origin }),
-      style: members.length > 0 ? { width: box.width, height: box.height } : undefined,
+      style: { width: box.width, height: box.height },
       dragHandle: '.group-head',
       data: {
         branch: group.label,

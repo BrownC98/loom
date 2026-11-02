@@ -26,24 +26,36 @@ enum Left {
     Work(String),
 }
 
+#[derive(Default)]
+pub(super) struct Leavings {
+    paths: std::collections::HashSet<String>,
+    left: u64,
+}
+
 pub(super) struct Leaving<'a> {
-    set: &'a std::sync::Mutex<std::collections::HashSet<String>>,
+    set: &'a std::sync::Mutex<Leavings>,
     path: String,
 }
 
 impl Drop for Leaving<'_> {
     fn drop(&mut self) {
-        self.set.lock().unwrap().remove(&self.path);
+        let mut set = self.set.lock().unwrap();
+        set.paths.remove(&self.path);
+        set.left += 1;
     }
 }
 
 impl App {
     pub(super) fn leaving(&self, path: &str) -> Leaving<'_> {
-        self.leaving.lock().unwrap().insert(path.to_owned());
+        self.leaving.lock().unwrap().paths.insert(path.to_owned());
         Leaving {
             set: &self.leaving,
             path: path.to_owned(),
         }
+    }
+
+    pub(super) fn removals(&self) -> u64 {
+        self.leaving.lock().unwrap().left
     }
 
     pub(super) fn without_leaving(&self, views: &[RepoView]) -> Vec<RepoView> {
@@ -52,7 +64,7 @@ impl App {
             .iter()
             .cloned()
             .map(|mut view| {
-                view.worktrees.retain(|w| !leaving.contains(&w.path));
+                view.worktrees.retain(|w| !leaving.paths.contains(&w.path));
                 view
             })
             .collect()

@@ -76,6 +76,7 @@ if [ -f "$wt/scripts/gate/check.sh" ]; then
   (cd "$wt" && CARGO_TARGET_DIR="$cargo_target" bash scripts/gate/check.sh 9>&-)
   code=$?
   echo "check $(($(date +%s) - start))" >&3
+  rm -rf "$common/loom-batch-target"
   cap_kib=$((32 * 1024 * 1024))
   if [ -d "$cargo_target" ] && [ "$(du -sk "$cargo_target" | cut -f1)" -gt "$cap_kib" ]; then
     echo "== $cargo_target is over $((cap_kib / 1024 / 1024))GiB; loom deletes it"

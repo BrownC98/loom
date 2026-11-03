@@ -63,20 +63,24 @@ if [ -f "$wt/scripts/gate/check.sh" ]; then
     echo "neither flock nor perl is on this machine; loom cannot lock $lock" >&3
     exit 1
   fi
+  check=$common/loom-batches/check
+  git worktree remove --force "$check" 2>/dev/null
+  rm -rf "$check"
+  git worktree prune
+  git worktree move "$wt" "$check" || exit 1
+  wt=$check
+  key=$(printf %s "$common" | git hash-object --stdin)
+  repo=${common%/.git}
+  cargo_target=${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target/${repo##*/}-${key:0:12}
   start=$(date +%s)
-  (cd "$wt" && CARGO_TARGET_DIR="$common/loom-batch-target" bash scripts/gate/check.sh 9>&-)
+  (cd "$wt" && CARGO_TARGET_DIR="$cargo_target" bash scripts/gate/check.sh 9>&-)
   code=$?
   echo "check $(($(date +%s) - start))" >&3
-  unused_min=2880
-  find "$common/loom-batch-target" -type d -name .fingerprint | while read -r fingerprints; do
-    profile=${fingerprints%/.fingerprint}
-    find "$fingerprints" -mindepth 1 -maxdepth 1 -type d | while read -r unit; do
-      [ -z "$(find "$unit" -mindepth 1 \( -amin -$unused_min -o -mmin -$unused_min \) -print -quit)" ] || continue
-      rm -rf "$unit" "$profile/build/${unit##*/}" "$profile"/deps/*-"${unit##*-}"*
-    done
-    [ ! -d "$profile/incremental" ] || find "$profile/incremental" -mindepth 1 -maxdepth 1 -type d -mmin +$unused_min -exec rm -rf {} +
-  done
-  find "$common/loom-batch-target" -mindepth 1 -type d -empty -delete
+  cap_kib=$((32 * 1024 * 1024))
+  if [ -d "$cargo_target" ] && [ "$(du -sk "$cargo_target" | cut -f1)" -gt "$cap_kib" ]; then
+    echo "== $cargo_target is over $((cap_kib / 1024 / 1024))GiB; loom deletes it"
+    rm -rf "$cargo_target"
+  fi
   [ "$code" -eq 0 ] || exit 14
 else
   echo "== no scripts/gate/check.sh"

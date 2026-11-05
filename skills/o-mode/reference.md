@@ -17,7 +17,7 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 
 ## Mockup approval
 
-- [user-doc](../user-doc/SKILL.md) sets the form, style and display of mockups and reports. This section gives only the Loom roles.
+- [user-doc](../user-doc/SKILL.md) sets the form, style and display of documents, and [mockup.md](../user-doc/mockup.md) the mockup body and callouts. This section gives only the Loom roles.
 - For screen work, check with the built-in skill `design-stack`. The coordinator makes the mockup, checks the render and reports only the path, the version and the check result.
 - The lead checks the file with user-doc `show.sh` and attaches it with `loom ask "<question>" --doc <file>`. Nobody opens the human's browser. The head line names the lead as the node to answer to.
 - Before the human approves, do not write screen product code and do not spawn implementation workers. Show the version to approve and the open decisions.

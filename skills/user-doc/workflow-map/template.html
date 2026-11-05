@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>고객 문의 처리 정보 구조</title>
+<style>
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --surface2:#f0eee9; --ink:#1d1d1b; --ink2:#55534e; --ink3:#8a877f;
+  --line:#dcd9d1; --accent:#1f5fbf; --accent-soft:#e3ecfa; --need:#8a877f; --warn:#b4540a; --warn-soft:#fbeadb;
+  --out:#a8a59c; --ok:#2f7d4a;
+  --l0:#7a4fb5; --l1:#3f6fb0; --l2:#2e8a8a; --l3:#3d8a46; --l4:#a77a12; --l5:#c0572b; --l6:#b03a62; --lc:#5f5f5f; --lx:#a8a59c;
+}
+:root[data-theme="dark"]{
+  --bg:#151513; --surface:#1f1f1c; --surface2:#2a2a26; --ink:#ecebe6; --ink2:#b9b6ad; --ink3:#87847b;
+  --line:#3a3934; --accent:#7aa7f0; --accent-soft:#22324d; --need:#87847b; --warn:#f0a35e; --warn-soft:#3d2a18;
+  --out:#5d5b55; --ok:#6cc08a; color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+header{padding:20px 20px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+header .who{color:var(--ink3);font-size:12px;margin-bottom:6px}
+header h1{margin:0 0 4px;font-size:20px;letter-spacing:-.01em}
+header h1 .ver{font-weight:400;color:var(--ink3);font-size:14px}
+header p{margin:0;color:var(--ink2);max-width:900px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.toolbar button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:5px 10px;border-radius:999px;cursor:pointer}
+.toolbar button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.toolbar button[hidden]{display:none}
+.legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;color:var(--ink2);font-size:12.5px;margin-left:auto}
+.legend svg{vertical-align:middle}
+#bad{display:none;margin:12px 20px 0;padding:8px 12px;border:2px solid #c0392b;color:#c0392b;border-radius:6px;font-weight:700;white-space:pre-line}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;align-items:start}
+#board{position:relative;padding:16px 16px 40px}
+#edges{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.layer{position:relative;display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.layer:last-child{border-bottom:0}
+.layer.sub{border-top:0;margin-top:-6px}
+.layer.sub .lab{border-left:3px solid var(--line);padding-left:8px}
+.layer.hidden{display:none}
+.lab{padding-top:4px}
+.lab .tag{display:inline-block;font-weight:700;font-size:12px;color:#fff;padding:1px 7px;border-radius:4px}
+.lab .nm{font-weight:700;margin-top:4px}
+.lab .q{color:var(--ink3);font-size:12px;margin-top:2px}
+.cards{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.card{position:relative;z-index:1;width:210px;background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--lc);border-radius:8px;padding:8px 10px;cursor:pointer;transition:opacity .15s,box-shadow .15s,border-color .15s}
+.card:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.card.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.card.dim{opacity:.28}
+.card.out{border-style:dashed;background:var(--surface2);color:var(--ink2)}
+.card .t{font-weight:700;font-size:14px}
+.card .c{color:var(--ink3);font-size:12px}
+.card .meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;color:var(--ink3);font-size:12px}
+.card .chk{display:inline-flex;gap:3px}
+.card .chk span{display:inline-block;min-width:18px;text-align:center;border-radius:4px;background:var(--warn-soft);color:var(--warn);font-size:11.5px;font-weight:700;padding:0 3px}
+.card .exp{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:0}
+.card ul{margin:6px 0 0;padding:0;list-style:none;font-size:12px;border-top:1px solid var(--line)}
+.card ul li{padding:2px 0;color:var(--ink2)}
+.card ul li.fn{color:var(--accent)}
+.card ul li.sec{color:var(--ink3);font-weight:700;margin-top:4px}
+body.showchecks .card.has-chk{box-shadow:0 0 0 2px var(--warn)}
+body.showchecks .card:not(.has-chk){opacity:.45}
+#edges path{fill:none;stroke-width:1.4;opacity:.16;transition:opacity .15s}
+#edges path.need{stroke:var(--need);stroke-dasharray:4 4}
+#edges path.produce{stroke:var(--accent)}
+#edges path.outedge{stroke:var(--out);stroke-dasharray:2 4}
+#edges path.hot{opacity:.95;stroke-width:2}
+body.noedges #edges path:not(.hot){opacity:0}
+#panel{position:sticky;top:0;height:100vh;overflow:auto;border-left:1px solid var(--line);background:var(--surface);padding:18px 18px 40px}
+#panel h2{margin:0;font-size:19px}
+#panel .cls{color:var(--ink3);font-size:13px}
+#panel h3{font-size:13px;margin:18px 0 6px;color:var(--ink2);letter-spacing:.02em;border-bottom:1px solid var(--line);padding-bottom:4px}
+#panel p{margin:6px 0}
+#panel table{border-collapse:collapse;width:100%;font-size:12.5px}
+#panel th,#panel td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+#panel th{color:var(--ink3);font-weight:600;background:var(--surface2)}
+.tblwrap{overflow-x:auto}
+.badge{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink2);margin-right:4px}
+.badge.in{border-color:var(--ok);color:var(--ok)}
+.badge.outb{border-color:var(--out);color:var(--ink3)}
+.link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.fnbox{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:6px 0;background:var(--surface2)}
+.fnbox .sig{font-weight:600}
+.fnbox .io{color:var(--ink2);font-size:12.5px}
+.ex{border-left:3px solid var(--accent);background:var(--accent-soft);padding:6px 10px;border-radius:0 6px 6px 0;font-size:13px}
+.ex table{background:var(--surface)}
+.ex svg{max-width:340px;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.fail{border-left:3px solid var(--warn);background:var(--warn-soft);padding:6px 10px;border-radius:0 6px 6px 0;margin:6px 0;font-size:13px}
+.empty{color:var(--ink3)}
+.flow li{margin:2px 0}
+footer{padding:16px 20px;color:var(--ink3);font-size:12px;border-top:1px solid var(--line)}
+@media (max-width: 980px){
+  .wrap{grid-template-columns:1fr}
+  #panel{position:relative;height:auto;border-left:0;border-top:1px solid var(--line)}
+  .layer{grid-template-columns:1fr}
+  .legend{margin-left:0}
+}
+@media (max-width: 480px){ .card{width:100%} }
+</style>
+</head>
+<body>
+<header>
+  <div class="who">응답할 곳: 총괄 · loom 총괄</div>
+  <h1>고객 문의 처리 정보 구조 <span class="ver">v0.1 · 2026-11-05</span></h1>
+  <p>목표: <b>들어온 문의를 빠짐없이 분류해 담당에게 넘긴다</b>. 카드를 누르면 오른쪽에 속성·함수·실제 예시·실패 사례가 나온다.</p>
+  <div class="toolbar">
+    <button id="tOut" aria-pressed="false">범위 밖 노드 보기</button>
+    <button id="tEdges" aria-pressed="true">모든 연결 흐리게 보기</button>
+    <button id="tChecks" aria-pressed="false">누락 검사 지점</button>
+    <button id="tExpand" aria-pressed="false">카드 모두 펼치기</button>
+    <button id="tTheme" class="theme-toggle" aria-pressed="false">다크/라이트</button>
+    <div class="legend">
+      <span><svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="var(--need)" stroke-width="2" stroke-dasharray="4 4"/></svg> 필요 (입력)</span>
+      <span><svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="var(--accent)" stroke-width="2"/></svg> 산출 (판단 결과)</span>
+      <span id="lgChk"><span style="display:inline-block;background:var(--warn-soft);color:var(--warn);font-weight:700;border-radius:4px;padding:0 4px;font-size:11.5px">①</span> 누락 검사</span>
+    </div>
+  </div>
+</header>
+<div id="bad"></div>
+<div class="wrap">
+  <main id="board"><svg id="edges"></svg></main>
+  <aside id="panel"></aside>
+</div>
+<footer>근거 문서: <code>docs/문의처리_현황.md</code> · 케이스: <code>2026-10 문의 기록 120건</code>.</footer>
+
+<script>
+const META={
+ scope:'1차 목표',
+ exLabel:'예시 — 문의 #4812 (환불 요청)',
+ intro:`<h2>읽는 법</h2>
+  <p>위에서 아래로 <b>작업 레이어</b>(L0 접수 → L1 분류 → L2 처리). 각 카드는 하나의 <b>클래스</b>: 가진 정보(<b>속성</b>)와 하는 판단(<b>함수</b>).</p>
+  <p><b>점선</b> = 필요(입력), <b>실선</b> = 산출(판단 결과). 카드에 마우스를 올리면 앞뒤 연결만 강조된다.</p>
+  <h3>1차 목표의 흐름</h3>
+  <ol class="flow"><li>문의 접수 (①)</li><li>유형 분류</li><li>담당 배정 → <b>처리 결과</b></li></ol>`,
+ introEnd:'카드를 눌러 시작. 「배정」이 1차 목표의 최종 산출물.',
+};
+const LAYERS=[
+ {id:'L0',name:'접수',q:'무엇이, 어디로 들어왔나',color:'--l0'},
+ {id:'L1',name:'분류',q:'어떤 문의이고, 얼마나 급한가',color:'--l1'},
+ {id:'L1b',tag:'L1-2',name:'분류 근거',q:'분류에 쓴 말은 무엇인가',color:'--l1',sub:true},
+ {id:'L2',name:'배정',q:'누가 언제까지 처리하나',color:'--l3'},
+ {id:'LC',name:'공통',q:'불확실한 것은 어디로 모이나',color:'--lc'},
+ {id:'LX',name:'범위 밖 (추가 목표)',q:'1차 목표 이후에 다룬다',color:'--lx',out:true},
+];
+const CHECKS={'①':'문의 누락 — 채널별 수신 수 대 접수 목록 대조','②':'분류 누락 — 유형 없음·복수 유형 표시'};
+const N=[
+{id:'Inquiry',layer:'L0',ko:'문의',checks:['①'],desc:'고객 문의 1건. 이후 모든 레이어는 문의 단위로 반복된다.',
+ attrs:[['번호','텍스트',''],['채널','메일 | 전화 | 채팅',''],['본문','텍스트','원문 보존'],['받은 시각','날짜·시각','']],
+ fns:[['verifyIntake(채널 목록)','채널별 수신 기록','누락 문의[] → ReviewItem','① 수신 수 대 접수 수 대조']],
+ ex:'#4812 · 메일 · 2026-10-14 09:12 · 「지난주 주문한 상품을 환불받고 싶습니다」',
+ fail:[['10월 기록','채팅 채널 문의 7건이 접수 목록에 없음 — 채널 대조 없음']]},
+{id:'Category',layer:'L1',ko:'유형',checks:['②'],desc:'문의가 무엇에 대한 것인지. 배정 기준이 된다.',
+ attrs:[['유형','환불 | 배송 | 계정 | 기타',''],['긴급도','상 | 중 | 하','']],
+ fns:[['classify()','Inquiry.본문, Keyword','유형, 긴급도','']],
+ ex:'<table><tr><th>문의</th><th>유형</th><th>긴급도</th></tr><tr><td>#4812</td><td>환불</td><td>중</td></tr></table>'},
+{id:'Keyword',layer:'L1b',ko:'분류어',desc:'유형을 정한 근거 말. 사람이 분류를 확인할 때 본다.',
+ attrs:[['말','텍스트',''],['유형','Category','']],
+ fns:[['extract()','Inquiry.본문','Keyword[]','']],
+ ex:'「환불」 → 환불'},
+{id:'Assignment',layer:'L2',ko:'배정',desc:'1차 목표의 최종 산출물. 담당과 기한.',
+ attrs:[['담당','사람',''],['기한','날짜','긴급도로 정함']],
+ fns:[['assign()','Category','Assignment','']],
+ ex:'#4812 → 환불팀 김OO · 기한 10-16'},
+{id:'ReviewItem',layer:'LC',ko:'확인 필요',desc:'모든 레이어의 결함·불일치가 모이는 곳.',
+ attrs:[['대상','노드·레코드',''],['문제 종류','누락 | 불일치','']],
+ fns:[['collect()','모든 검사 함수 결과','ReviewItem[]','']],
+ ex:'채팅 7건 누락'},
+{id:'AutoReply',layer:'LX',out:true,ko:'자동 답변',desc:'자주 묻는 문의에 자동으로 답한다. 추가 목표.',attrs:[],fns:[]},
+];
+const E=[
+ ['Inquiry','Keyword','produce','본문'],
+ ['Keyword','Category','need','분류 근거'],
+ ['Inquiry','Category','need','본문'],
+ ['Category','Assignment','produce','assign'],
+ ['Inquiry','ReviewItem','produce','① 누락 문의'],
+ ['Category','ReviewItem','produce','② 분류 누락'],
+ ['Category','AutoReply','outedge',''],
+];
+
+const byId=Object.fromEntries(N.map(n=>[n.id,n]));
+const board=document.getElementById('board');
+const svg=document.getElementById('edges');
+const panel=document.getElementById('panel');
+const state={out:false,expandAll:false,sel:null,hover:null};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function validate(){
+  const bad=[],layers=new Set(LAYERS.map(l=>l.id));
+  N.forEach(n=>{
+    if(!layers.has(n.layer))bad.push(`${n.id}: 없는 레이어 ${n.layer}`);
+    (n.checks||[]).forEach(k=>{if(!CHECKS[k])bad.push(`${n.id}: 없는 검사 ${k}`)});
+    if(!n.out&&!E.some(e=>e[0]===n.id||e[1]===n.id))bad.push(`${n.id}: 연결이 없다`);
+  });
+  if(new Set(N.map(n=>n.id)).size!==N.length)bad.push('같은 id가 두 번 있다');
+  E.forEach(e=>{[e[0],e[1]].forEach(x=>{if(!byId[x])bad.push(`연결 ${e[0]}→${e[1]}: 없는 노드 ${x}`)});
+    if(!['need','produce','outedge'].includes(e[2]))bad.push(`연결 ${e[0]}→${e[1]}: 종류 ${e[2]}`);});
+  if(bad.length){const b=document.getElementById('bad');b.style.display='block';b.textContent='데이터 오류\n'+bad.join('\n');}
+  return bad.length===0;
+}
+
+function render(){
+  board.querySelectorAll('.layer').forEach(e=>e.remove());
+  LAYERS.forEach(L=>{
+    const sec=document.createElement('section');
+    sec.className='layer'+(L.sub?' sub':'')+(L.out&&!state.out?' hidden':'');
+    sec.innerHTML=`<div class="lab"><span class="tag" style="background:var(${L.color})">${L.tag||L.id}</span><div class="nm">${esc(L.name)}</div><div class="q">${esc(L.q)}</div></div><div class="cards"></div>`;
+    if(L.sub)sec.querySelector('.lab').style.borderLeftColor=`var(${L.color})`;
+    const wrap=sec.querySelector('.cards');
+    N.filter(n=>n.layer===L.id).forEach(n=>{
+      const c=document.createElement('div');
+      c.className='card'+(n.out?' out':'')+(n.checks?' has-chk':'');
+      c.id='card-'+n.id; c.tabIndex=0;
+      c.style.borderTopColor=`var(${L.color})`;
+      const open=state.expandAll||n._open;
+      c.innerHTML=`<div class="t">${esc(n.ko)}</div><div class="c">${n.out?'범위 밖':n.id}</div>
+        <div class="meta"><span>${n.out?'':`속성 ${n.attrs.length} · 함수 ${n.fns.length}`}</span><span class="chk">${(n.checks||[]).map(k=>`<span title="${esc(CHECKS[k])}">${k}</span>`).join('')}</span></div>
+        ${n.out?'':`<button class="exp" data-id="${n.id}">${open?'접기 ▲':'펼치기 ▼'}</button>`}
+        ${open&&!n.out?`<ul>${n.attrs.length?'<li class="sec">속성</li>':''}${n.attrs.map(a=>`<li>${esc(a[0])}</li>`).join('')}${n.fns.length?'<li class="sec">함수</li>':''}${n.fns.map(f=>`<li class="fn">${esc(f[0])}</li>`).join('')}</ul>`:''}`;
+      c.addEventListener('click',ev=>{
+        if(ev.target.classList.contains('exp')){n._open=!n._open;render();ev.stopPropagation();return;}
+        select(n.id);
+        if(matchMedia('(max-width: 980px)').matches)panel.scrollIntoView({behavior:'smooth'});
+      });
+      c.addEventListener('keydown',ev=>{if(ev.key==='Enter')select(n.id)});
+      c.addEventListener('mouseenter',()=>{state.hover=n.id;highlight()});
+      c.addEventListener('mouseleave',()=>{state.hover=null;highlight()});
+      wrap.appendChild(c);
+    });
+    board.appendChild(sec);
+  });
+  requestAnimationFrame(()=>{drawEdges();highlight();});
+}
+
+function visible(id){const el=document.getElementById('card-'+id);return el&&el.offsetParent!==null;}
+function drawEdges(){
+  const br=board.getBoundingClientRect();
+  svg.setAttribute('width',board.scrollWidth);svg.setAttribute('height',board.scrollHeight);
+  svg.innerHTML=`<defs>${['need','produce','outedge','hot'].map(k=>`<marker id="m-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${k==='produce'||k==='hot'?'var(--accent)':k==='need'?'var(--need)':'var(--out)'}"/></marker>`).join('')}</defs>`;
+  E.forEach((e,i)=>{
+    if(!visible(e[0])||!visible(e[1]))return;
+    const a=document.getElementById('card-'+e[0]).getBoundingClientRect(),b=document.getElementById('card-'+e[1]).getBoundingClientRect();
+    const ax=a.left-br.left+a.width/2,bx=b.left-br.left+b.width/2;
+    let d;
+    if(b.top>a.bottom-4){
+      const ay=a.bottom-br.top,by=b.top-br.top,m=(by-ay)*.5;
+      d=`M${ax},${ay} C${ax},${ay+m} ${bx},${by-m} ${bx},${by}`;
+    }else if(a.top>b.bottom-4){
+      const ay=a.top-br.top,by=b.bottom-br.top,m=(ay-by)*.5;
+      d=`M${ax},${ay} C${ax},${ay-m} ${bx},${by+m} ${bx},${by}`;
+    }else{
+      const ay=a.top-br.top+a.height/2,by=b.top-br.top+b.height/2;
+      const x1=ax<bx?a.right-br.left:a.left-br.left,x2=ax<bx?b.left-br.left:b.right-br.left;
+      d=`M${x1},${ay} C${(x1+x2)/2},${ay-40} ${(x1+x2)/2},${by-40} ${x2},${by}`;
+    }
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d);p.setAttribute('class',e[2]);p.dataset.i=i;
+    p.setAttribute('marker-end',`url(#m-${e[2]})`);
+    svg.appendChild(p);
+  });
+}
+
+function highlight(){
+  const focus=state.hover||state.sel;
+  const rel=new Set();
+  if(focus){rel.add(focus);E.forEach(e=>{if(e[0]===focus)rel.add(e[1]);if(e[1]===focus)rel.add(e[0]);});}
+  N.forEach(n=>{const c=document.getElementById('card-'+n.id);if(!c)return;
+    c.classList.toggle('dim',!!focus&&!rel.has(n.id));c.classList.toggle('sel',state.sel===n.id);});
+  svg.querySelectorAll('path[data-i]').forEach(p=>{const e=E[+p.dataset.i];const hot=!!focus&&(e[0]===focus||e[1]===focus);
+    p.classList.toggle('hot',hot);p.setAttribute('marker-end',`url(#m-${hot&&e[2]!=='need'?'hot':e[2]})`);});
+}
+
+function select(id){
+  state.sel=id;const n=byId[id];const L=LAYERS.find(l=>l.id===n.layer);
+  const ins=E.filter(e=>e[1]===id),outs=E.filter(e=>e[0]===id);
+  const lk=x=>`<span class="link" data-go="${x}">${esc(byId[x].ko)}</span>`;
+  let h=`<div><span class="badge" style="border-color:var(${L.color});color:var(${L.color})">${L.tag||L.id} ${esc(L.name)}</span><span class="badge ${n.out?'outb':'in'}">${n.out?'범위 밖':esc(META.scope)}</span></div>
+  <h2 style="margin-top:8px">${esc(n.ko)}</h2><div class="cls mono">${n.out?'':'class '+n.id}</div><p>${esc(n.desc)}</p>`;
+  if(n.checks)h+=`<h3>누락 검사</h3>${n.checks.map(k=>`<p><b style="color:var(--warn)">${k}</b> ${esc(CHECKS[k])}</p>`).join('')}`;
+  h+=`<h3>필요로 하는 정보 (입력)</h3>${ins.length?`<ul class="flow">${ins.map(e=>`<li>${lk(e[0])} <span class="empty">— ${esc(e[3]||'')} ${e[2]==='produce'?'(이 노드를 산출)':''}</span></li>`).join('')}</ul>`:'<p class="empty">없음 (시작점)</p>'}`;
+  h+=`<h3>판단·산출하는 정보 (출력)</h3>${outs.length?`<ul class="flow">${outs.map(e=>`<li>${lk(e[1])} <span class="empty">— ${esc(e[3]||'')} ${e[2]==='need'?'(다음 노드의 입력)':''}</span></li>`).join('')}</ul>`:'<p class="empty">없음</p>'}`;
+  if(n.attrs.length)h+=`<h3>속성</h3><div class="tblwrap"><table><tr><th>이름</th><th>형식</th><th>메모</th></tr>${n.attrs.map(a=>`<tr><td>${esc(a[0])}</td><td>${esc(a[1])}</td><td>${esc(a[2])}</td></tr>`).join('')}</table></div>`;
+  if(n.fns.length)h+=`<h3>함수</h3>${n.fns.map(f=>`<div class="fnbox"><div class="sig mono">${esc(f[0])}</div><div class="io">입력: ${esc(f[1])}<br>출력: ${esc(f[2])}</div>${f[3]?`<div class="io">${esc(f[3])}</div>`:''}</div>`).join('')}`;
+  if(n.ex)h+=`<h3>${esc(META.exLabel)}</h3><div class="ex tblwrap">${n.ex}</div>`;
+  if(n.fail&&n.fail.length)h+=`<h3>실제 실패 사례</h3>${n.fail.map(f=>`<div class="fail"><b>${esc(f[0])}</b> · ${f[1]}</div>`).join('')}`;
+  panel.innerHTML=h;panel.scrollTop=0;
+  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);document.getElementById('card-'+t).scrollIntoView({block:'nearest',behavior:'smooth'});}));
+  highlight();
+}
+
+function intro(){
+  const chk=Object.entries(CHECKS);
+  panel.innerHTML=META.intro+(chk.length?`<h3>누락 검사 지점</h3>${chk.map(([k,v])=>`<p><b style="color:var(--warn)">${k}</b> ${esc(v)}</p>`).join('')}`:'')+`<p class="empty">${esc(META.introEnd)}</p>`;
+}
+
+function toggleOut(){state.out=!state.out;document.getElementById('tOut').setAttribute('aria-pressed',state.out);render();}
+document.getElementById('tOut').hidden=!N.some(n=>n.out);
+document.getElementById('tChecks').hidden=document.getElementById('lgChk').hidden=!Object.keys(CHECKS).length;
+document.getElementById('tOut').onclick=toggleOut;
+document.getElementById('tEdges').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);document.body.classList.toggle('noedges',!on);};
+document.getElementById('tChecks').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);document.body.classList.toggle('showchecks',on);};
+document.getElementById('tExpand').onclick=e=>{state.expandAll=!state.expandAll;e.currentTarget.setAttribute('aria-pressed',state.expandAll);render();};
+document.getElementById('tTheme').onclick=e=>{const r=document.documentElement;const dark=r.dataset.theme!=='dark';r.dataset.theme=dark?'dark':'light';e.currentTarget.setAttribute('aria-pressed',dark);drawEdges();highlight();};
+new ResizeObserver(()=>{drawEdges();highlight();}).observe(board);
+validate();render();intro();
+</script>
+</body>
+</html>

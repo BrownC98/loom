@@ -30,14 +30,19 @@ enum Kind {
     Unchecked,
 }
 
-const UNCHECKED_DIRS: &[&str] = &["docs/", "web/src/gen/", "skills/design-stack/"];
+const UNCHECKED_PATHS: &[&str] = &[
+    "docs/",
+    "web/src/gen/",
+    "skills/design-stack/",
+    "skills/user-doc/workflow-map/example.html",
+];
 
 const UNCHECKED_NAMES: &[&str] = &["LICENSE", "Cargo.lock", "package-lock.json"];
 
 const UNCHECKED_EXTENSIONS: &[&str] = &["md", "json", "webmanifest", "txt", "png", "ico", "woff2"];
 
 fn kind_of(path: &str) -> Option<Kind> {
-    if UNCHECKED_DIRS.iter().any(|dir| path.starts_with(dir)) {
+    if UNCHECKED_PATHS.iter().any(|p| path.starts_with(p)) {
         return Some(Kind::Unchecked);
     }
     let name = path.rsplit('/').next().unwrap_or(path);

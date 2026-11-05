@@ -145,7 +145,7 @@ loom gives each node six skills. You do not install anything.
 | `ask-human` | How an agent asks you: one line in the inbox. |
 | `o-mode` | How nodes assign work, talk, review, merge and clean up. |
 | `ste-orwell` | Short, simple text. Agents write to you in your language and to each other in English. |
-| `user-doc` | Mockups and reports as one HTML file. |
+| `user-doc` | Mockups, reports and workflow maps as one HTML file. |
 | `raptor-3` | Remove parts that have no requirement, before writing code and before each commit. |
 | `design-stack` | UI/UX work in a fixed order, with the design skills it calls (Impeccable, Hallmark, web-design-guidelines and others) in its folder. |
 

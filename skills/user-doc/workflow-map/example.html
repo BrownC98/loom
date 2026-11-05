@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실시예 분석 정보 구조</title>
+<style>
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --surface2:#f0eee9; --ink:#1d1d1b; --ink2:#55534e; --ink3:#8a877f;
+  --line:#dcd9d1; --accent:#1f5fbf; --accent-soft:#e3ecfa; --need:#8a877f; --warn:#b4540a; --warn-soft:#fbeadb;
+  --out:#a8a59c; --ok:#2f7d4a;
+  --l0:#7a4fb5; --l1:#3f6fb0; --l2:#2e8a8a; --l3:#3d8a46; --l4:#a77a12; --l5:#c0572b; --l6:#b03a62; --lc:#5f5f5f; --lx:#a8a59c;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#151513; --surface:#1f1f1c; --surface2:#2a2a26; --ink:#ecebe6; --ink2:#b9b6ad; --ink3:#87847b;
+  --line:#3a3934; --accent:#7aa7f0; --accent-soft:#22324d; --need:#87847b; --warn:#f0a35e; --warn-soft:#3d2a18;
+  --out:#5d5b55; --ok:#6cc08a; color-scheme: dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#151513; --surface:#1f1f1c; --surface2:#2a2a26; --ink:#ecebe6; --ink2:#b9b6ad; --ink3:#87847b;
+  --line:#3a3934; --accent:#7aa7f0; --accent-soft:#22324d; --need:#87847b; --warn:#f0a35e; --warn-soft:#3d2a18;
+  --out:#5d5b55; --ok:#6cc08a; color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+header{padding:20px 20px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+header h1{margin:0 0 4px;font-size:20px;letter-spacing:-.01em}
+header p{margin:0;color:var(--ink2);max-width:900px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.toolbar button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:5px 10px;border-radius:999px;cursor:pointer}
+.toolbar button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;color:var(--ink2);font-size:12.5px;margin-left:auto}
+.legend svg{vertical-align:middle}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;align-items:start}
+#board{position:relative;padding:16px 16px 40px}
+#edges{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.layer{position:relative;display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.layer:last-child{border-bottom:0}
+.layer.sub{border-top:0;margin-top:-6px}
+.layer.sub .lab{border-left:3px solid var(--l2);padding-left:8px}
+.layer.hidden{display:none}
+.lab{padding-top:4px}
+.lab .tag{display:inline-block;font-weight:700;font-size:12px;color:#fff;padding:1px 7px;border-radius:4px}
+.lab .nm{font-weight:700;margin-top:4px}
+.lab .q{color:var(--ink3);font-size:12px;margin-top:2px}
+.cards{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.card{position:relative;z-index:1;width:210px;background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--lc);border-radius:8px;padding:8px 10px;cursor:pointer;transition:opacity .15s,box-shadow .15s,border-color .15s}
+.card:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.card.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.card.dim{opacity:.28}
+.card.out{border-style:dashed;background:var(--surface2);color:var(--ink2)}
+.card .t{font-weight:700;font-size:14px}
+.card .c{color:var(--ink3);font-size:12px}
+.card .meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;color:var(--ink3);font-size:12px}
+.card .chk{display:inline-flex;gap:3px}
+.card .chk span{display:inline-block;min-width:18px;text-align:center;border-radius:4px;background:var(--warn-soft);color:var(--warn);font-size:11.5px;font-weight:700;padding:0 3px}
+.card .exp{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:0}
+.card ul{margin:6px 0 0;padding:0;list-style:none;font-size:12px;border-top:1px solid var(--line)}
+.card ul li{padding:2px 0;color:var(--ink2)}
+.card ul li.fn{color:var(--accent)}
+.card ul li.sec{color:var(--ink3);font-weight:700;margin-top:4px}
+body.showchecks .card.has-chk{box-shadow:0 0 0 2px var(--warn)}
+body.showchecks .card:not(.has-chk){opacity:.45}
+#edges path{fill:none;stroke-width:1.4;opacity:.16;transition:opacity .15s}
+#edges path.need{stroke:var(--need);stroke-dasharray:4 4}
+#edges path.produce{stroke:var(--accent)}
+#edges path.outedge{stroke:var(--out);stroke-dasharray:2 4}
+#edges path.hot{opacity:.95;stroke-width:2}
+body.noedges #edges path:not(.hot){opacity:0}
+#panel{position:sticky;top:0;height:100vh;overflow:auto;border-left:1px solid var(--line);background:var(--surface);padding:18px 18px 40px}
+#panel h2{margin:0;font-size:19px}
+#panel .cls{color:var(--ink3);font-size:13px}
+#panel h3{font-size:13px;margin:18px 0 6px;color:var(--ink2);text-transform:none;letter-spacing:.02em;border-bottom:1px solid var(--line);padding-bottom:4px}
+#panel p{margin:6px 0}
+#panel table{border-collapse:collapse;width:100%;font-size:12.5px}
+#panel th,#panel td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+#panel th{color:var(--ink3);font-weight:600;background:var(--surface2)}
+.tblwrap{overflow-x:auto}
+.badge{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink2);margin-right:4px}
+.badge.in{border-color:var(--ok);color:var(--ok)}
+.badge.outb{border-color:var(--out);color:var(--ink3)}
+.link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.fnbox{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:6px 0;background:var(--surface2)}
+.fnbox .sig{font-weight:600}
+.fnbox .io{color:var(--ink2);font-size:12.5px}
+.ex{border-left:3px solid var(--accent);background:var(--accent-soft);padding:6px 10px;border-radius:0 6px 6px 0;font-size:13px}
+.ex table{background:var(--surface)}
+.fail{border-left:3px solid var(--warn);background:var(--warn-soft);padding:6px 10px;border-radius:0 6px 6px 0;margin:6px 0;font-size:13px}
+.empty{color:var(--ink3)}
+.flow li{margin:2px 0}
+footer{padding:16px 20px;color:var(--ink3);font-size:12px;border-top:1px solid var(--line)}
+@media (max-width: 980px){
+  .wrap{grid-template-columns:1fr}
+  #panel{position:relative;height:auto;border-left:0;border-top:1px solid var(--line)}
+  .layer{grid-template-columns:1fr}
+  .legend{margin-left:0}
+}
+@media (max-width: 480px){ .card{width:100%} }
+</style>
+</head>
+<body>
+<header>
+  <h1>실시예 분석 정보 구조 <span class="c" style="font-weight:400;color:var(--ink3);font-size:14px">v0.1 · 2026-11-03</span></h1>
+  <p>1차 목표(DEC-2026-1103-002): <b>공보를 식별해 실시예를 누락 없이 추출·분석</b>하고, 안쪽 축 지도 위에서 <b>빈 곳과 그 근거</b>를 도출한다. 빈 곳의 가치 판단은 작업자 몫. 카드를 누르면 오른쪽에 속성·함수·JP7581782 실제 예시·실패 사례가 나온다.</p>
+  <div class="toolbar">
+    <button id="tOut" aria-pressed="false">범위 밖 노드 보기</button>
+    <button id="tEdges" aria-pressed="true">모든 연결 흐리게 보기</button>
+    <button id="tChecks" aria-pressed="false">누락 검사 지점 ①~⑤</button>
+    <button id="tExpand" aria-pressed="false">카드 모두 펼치기</button>
+    <button id="tTheme" aria-pressed="false">다크/라이트</button>
+    <div class="legend">
+      <span><svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="var(--need)" stroke-width="2" stroke-dasharray="4 4"/></svg> 필요 (입력)</span>
+      <span><svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" stroke="var(--accent)" stroke-width="2"/></svg> 산출 (판단 결과)</span>
+      <span><span style="display:inline-block;background:var(--warn-soft);color:var(--warn);font-weight:700;border-radius:4px;padding:0 4px;font-size:11.5px">①</span> 누락 검사</span>
+    </div>
+  </div>
+</header>
+<div class="wrap">
+  <main id="board"><svg id="edges"></svg></main>
+  <aside id="panel"></aside>
+</div>
+<footer>근거 문서: <code>04_specs/실시예추출_정보구조/03_실시예분석_개념정리_v1.md</code> · <code>04_공통정보구조_v0.md</code> · <code>05_축제안방법_v0.md</code> · <code>06_클래스모델_기획_v0.md</code> · 케이스: <code>04_specs/케이스분석_DIC_20261103/</code>. 예시 값 중 표 이미지(【表1】~【表4】)는 미판독 — 납품본 값 인용 또는 「판독 필요」로 표시.</footer>
+
+<script>
+const LAYERS=[
+ {id:'L0',name:'의뢰',q:'무엇을 위해, 어떤 공보를 보나',color:'--l0'},
+ {id:'L1',name:'문헌 식별',q:'받은 공보가 다 있고, 원문 자산은 무엇인가',color:'--l1'},
+ {id:'L2a',tag:'L2-1',name:'명세서 골격',q:'이 공보는 어떤 형식이고, 각 구획이 어디에 있나 (보편 구조)',color:'--l2'},
+ {id:'L2b',tag:'L2-2',name:'구획별 이해',q:'각 구획에 무엇이 쓰여 있고, 이 공보는 어떤 말을 어떻게 쓰나',color:'--l2',sub:true},
+ {id:'L3',name:'실시예 지도',q:'실험이 몇 개·버전이 몇 개, 어디에 있고 어떻게 이어지나',color:'--l3'},
+ {id:'L4',name:'실시예 레코드',q:'버전마다 무엇을·어떻게 만들고·무엇을 쟀나 (근거 포함)',color:'--l4'},
+ {id:'L5',name:'실시예 의의',q:'이 공보에서 어디가 막혔고 어디가 비었나',color:'--l5'},
+ {id:'L6',name:'통합·여백 도출',q:'모든 공보를 같은 지도에 겹치면 어디가 비나',color:'--l6'},
+ {id:'LC',name:'공통',q:'불확실한 것은 어디로 모이나',color:'--lc'},
+ {id:'LX',name:'범위 밖 (추가 목표)',q:'1차 목표 이후에 다룬다',color:'--lx',out:true},
+];
+const CHECKS={'①':'문헌 누락 — 입력 목록 대 결과 목록 대조','②':'실험 묶음 누락 — 実施例 구역 표제·【表n】 전체 목록 대조','③':'예(버전) 누락 — 본문 언급·표 행 수·번호 연속성 교차 계수, 「～15」 범위 표기·「同様」 전개','④':'요소·값 누락 — 조성 합계 100%, 표 이미지 판독 여부, 측정 대상 누락, 빈값 표기','⑤':'정보 출처 — 도면에만 있는 정보, 도면 확인 필요도'};
+
+const N=[
+/* L0 */
+{id:'Request',layer:'L0',ko:'의뢰',desc:'고객이 무엇을 위해 어떤 공보 묶음을 주었는가. 목적 유형이 정해져야 L5·L6에서 무엇을 막힘으로 볼지, 어떤 축을 볼지가 정해진다.',
+ attrs:[['고객','텍스트','예: DIC 이와사키'],['목적유형','선택발명 | 화이트스페이스 | 무효 | FTO','공백조사는 앞의 둘'],['대상특허','공보ID?','선택발명이면 필수'],['관심 제품·과제','텍스트',''],['원하는 효과','텍스트[]','축 평가의 "효과 연결" 기준'],['고객 실험 가능 범위','텍스트','축 평가의 "고객 실행성" 기준'],['모집단 목록','공보번호[]','범위 산정은 별개 — 주어진 것']],
+ fns:[['classifyPurpose()','의뢰서·대화','목적유형','목적에 따라 여백 식이 달라짐: 출원=관심영역−공개, FTO=관심영역−권리'],['proposeAxes(청구항, 의뢰)','ClaimTree, 의뢰 내용','AxisSet (1차 제안)','추출 전 안쪽 축 후보 5~10개 → 고객 확인. 추출 시 놓치면 안 되는 항목 목록 역할도 함']],
+ ex:'<b>IWASAKI 트라이얼 (KS25-06673)</b><br>목적: 아라카와 특허의 <b>선택발명</b> 성립 · 대상특허: JP7581782 · 모집단: DIC 사내 검색 43건 (2025-11-14) · 고객이 준 표 이미지: 모노머 8종 + 물성 5종 + 評価',
+ fail:[['IWASAKI','목적·축을 고객 양식(표 이미지)이 사실상 대신 정함 — 의뢰 분석 문서 없음'],['SATAKE','"공백"의 정의가 어디에도 없었고 3/12 피드백(「特徴 or 組み合わせがない部分」)이 사후에 정의 역할']]},
+/* L1 */
+{id:'Document',layer:'L1',ko:'공보',checks:['①'],desc:'모집단의 공보 1건. 서지와 원문 자산(텍스트 레이어, 표 이미지, 도면)을 갖는다. 이후 모든 레이어는 공보 단위로 반복된다.',
+ attrs:[['번호','공개·등록번호',''],['패밀리','공보ID[]','중복 제거'],['출원인','텍스트',''],['우선일·출원일·공개일','날짜',''],['법적 상태','등록|소멸|심사중…','FTO 시 필요'],['IPC/FI','코드[]',''],['원문 자산','텍스트 레이어·표 이미지·도면 목록','표가 이미지인지가 L3·L4 누락 위험을 정함']],
+ fns:[['verifyCoverage(모집단 목록)','Request.모집단 목록','누락 문헌[] → ReviewItem','① 입력 목록 대 결과 목록 대조']],
+ ex:'JP7581782 B2 (荒川化学, 2024-11-13 발행) · 패밀리: 特開2021-082584 · 원문 자산: 텍스트 레이어 있음, <b>【表1】~【表4】는 이미지</b>',
+ fail:[['IWASAKI','43건 중 No.37(特開2019-057486) 최종본에 행 없음 — 담당자 분배표에는 있었으나 결과에서 빠짐']]},
+/* L2-1 */
+{id:'SpecSkeleton',layer:'L2a',ko:'명세서 골격',desc:'공보 형식(JP·KR·US·WO·CN)별 표준 구획을 찾아 위치를 매기는 보편 구조. 내용은 해석하지 않고 "어디에 무엇이 있나"만 정한다. 아래 L2-2의 모든 노드가 이 위치표를 받아 각자의 구획을 해석한다.',
+ attrs:[['형식','JP | KR | US | WO | CN','구획 표제가 형식마다 다름 (JP는 【】 표제)'],['구획 목록','서지 · 요약 · 청구범위 · 기술분야 · 배경기술 · 과제 · 해결수단 · 효과 · 도면의 간단한 설명 · 실시형태 · 실시예 · 도면',''],['구획별 위치','단락 범위 / 쪽',''],['구획별 텍스트 레이어','있음 | 없음(이미지)','']],
+ fns:[['detectFormat()','Document','형식',''],['segment()','Document 원문','구획 위치표',''],['checkSections()','구획 위치표','빠진 구획 → ReviewItem','예: 실시예 구획 없음 → 실시형태로 대체 (SATAKE 사례)']],
+ ex:'JP7581782 B2 — JP 형식. 【特許請求の範囲】 / 【発明の詳細な説明】 안에 【技術分野】【発明が解決しようとする課題】【課題を解決するための手段】【発明の効果】【発明を実施するための形態】【実施例】 (실시예 【0219】~【0245】)',
+ fail:[['SATAKE','실시예가 없는 공보(特許07382364 등) — 실시형태 기재로 열을 채움. 골격 단계에서 "실시예 구획 없음"이 먼저 표시돼야 함']]},
+/* L2-2 */
+{id:'ClaimTree',layer:'L2b',ko:'청구항 구조',desc:'청구항을 독립/종속 트리로, 각 청구항을 구성요소와 수치한정으로 분해. L5에서 각 실시예가 안/밖인지 판정하는 기준축.',
+ attrs:[['Claim','번호, 독립/종속, 인용 대상',''],['ClaimElement','요소 원문, 상위 개념, 역할','온톨로지와 연결'],['NumericLimit','변수, 하한, 상한, 단위, 기준(질량/몰), 측정 조건','']],
+ fns:[['parseClaims()','SpecSkeleton 청구범위 구획','ClaimTree','']],
+ ex:'청구항1: (a) (메타)아크릴아미드기 함유 화합물 <b>2~60 mol%</b> · (b) 불포화 술폰산(염) <b>10~70 mol%</b> · Mw <b>1万 이상 30万 미만</b> · 용도: LIB 도전성 탄소재료 분산제'},
+{id:'InventionSummary',layer:'L2b',ko:'발명 이해',desc:'기술분야·과제·해결수단·효과의 요지와, 이 발명이 무엇인지에 대한 쉬운 설명. 실시예의 측정값이 "무엇의, 왜 잰 값인지"를 해석하는 기준.',
+ attrs:[['기술분야','요지 + 위치',''],['과제','요지 + 위치',''],['해결수단','요지 + 위치',''],['효과','효과 항목[] + 위치','실시예 측정 항목과 대응'],['쉬운 설명','1~3문장','발명이 무엇이고 무엇을 해결하나'],['핵심 용어 풀이','용어 → 설명','']],
+ fns:[['summarize()','SpecSkeleton 구획','요지·효과 항목',''],['explain()','요지, 핵심 용어','쉬운 설명','']],
+ ex:'<b>쉬운 설명:</b> 배터리 전극 반죽 속 탄소 가루(도전재)가 물에서 뭉치는 문제를, 새 고분자 분산제(수용성 폴리(메타)아크릴아미드)로 고르게 퍼지게 한다.<br><b>효과 항목:</b> 탄소 분산성·분산 안정성, 전해액 내성, 전극 밀착성, 용량 유지',
+ fail:[['이번 논의','이 노드가 없어서 "점도·pH의 대상이 뭔데, 분산제가 뭔데"를 따로 설명해야 했다 — 측정값 해석의 전제']]},
+{id:'LocalDictionary',layer:'L2b',ko:'공보 내 사전',checks:['④'],desc:'이 공보 안에서만 통하는 말의 뜻. 약어·코드, 단위 기본 규칙, 측정 방법, 평가 등급. 같은 "AM"도 공보마다 다를 수 있어 공보 안에서 먼저 푼다.',
+ attrs:[['약어·코드','원문 → 정의, 근거','재료표·합성예·표 주석'],['단위 기본 규칙','텍스트','예: "별도 설명 없으면 질량 기준"'],['측정 방법','항목 → 장비·조건',''],['평가 등급','등급 → 기준','A/B/C의 의미']],
+ fns:[['buildDictionary()','SpecSkeleton 전 구획, 실시예 구역 공통 조건','LocalDictionary',''],['resolveCode(표기)','표기','정의 | 미해소 → ReviewItem','코드 미해소 방지']],
+ ex:'<table><tr><th>항목</th><th>내용</th><th>근거</th></tr><tr><td>단위 규칙</td><td>「特に説明がない限り、部、％等の数値は質量基準」</td><td>【実施例】 서두</td></tr><tr><td>AM</td><td>アクリルアミド (三菱ケミカル「50%アクリルアミド」)</td><td>【表1】 주석</td></tr><tr><td>ATBSNa</td><td>アクリルアミドt-ブチルスルホン酸ナトリウム</td><td>〃</td></tr><tr><td>D50 초기분산</td><td>A: 3.0μm 미만 / B: 이상</td><td>【0232】</td></tr><tr><td>B型粘度</td><td>25℃, TVB-10M, No.2 로터 60rpm</td><td>【0224】</td></tr></table>',
+ fail:[['SATAKE','「樹脂(コード1)」「PP1主体」 코드 미해소 → DIC 피드백에서 지적'],['IWASAKI','원문 "질량 기준" 규칙 vs 납품본 mol% 표기 — 충돌 미확인']]},
+{id:'TextDisclosure',layer:'L2b',ko:'본문 공개',desc:'실시예가 아닌 본문에서 공개된 것: "특히 바람직", 후보 나열, 범위 경계값, 상위 개념. 진보성을 깨는 재료가 된다(P26045 거절).',
+ attrs:[['형태','특히 바람직 | 후보 나열 | 경계값 | 상위 개념',''],['내용','텍스트 / 개념[]',''],['강도','1~4','실시예=5'],['위치','단락','']],
+ fns:[['extractDisclosures()','SpecSkeleton 실시형태·해결수단 구획','TextDisclosure[]','']],
+ ex:'<table><tr><th>강도</th><th>형태</th><th>내용</th><th>위치</th></tr><tr><td>4</td><td>특히 바람직</td><td>「中でも…特にアクリルアミド」</td><td>【0026】</td></tr><tr><td>3</td><td>후보 나열</td><td>DMAA, DEAA, ACMO 등 10여 종</td><td>【0026】</td></tr><tr><td>3</td><td>경계값</td><td>「60、59、55、50、45…2モル％等が例示」</td><td>【0027】</td></tr></table>',
+ fail:[['IWASAKI 본건 P26045','DEAA/ACMO 치환 출원 → 대상특허 【0026】 나열 + AM 대비 효과 비교 부재로 <b>진보성 거절</b>']]},
+{id:'ExampleZone',layer:'L2b',ko:'실시예 구역',desc:'실시예 구획의 경계와 그 안의 실험 표제, 공통 조건 문장. 실시예 지도(L3)가 출발하는 곳.',
+ attrs:[['경계','시작·끝 단락',''],['실험 표제 목록','표제 + 단락','실험 묶음의 후보'],['공통 조건 문장','텍스트 + 단락','단위 규칙 등 → 공보 내 사전에도 반영'],['실시예 없음 여부','예 | 아니오','없으면 실시형태 대체 표시']],
+ fns:[['listHeadings()','SpecSkeleton 실시예 구획','실험 표제 목록','']],
+ ex:'경계 【0219】~【0245】 · 표제: 「水溶性ポリ(メタ)アクリルアミド(A-1)の製造」 【0220】 / 「導電性炭素材料ペーストの評価、樹脂の膨潤率及び耐電解液性評価」 【0230】 / 실시예3·4 슬러리 【0235】~ · 공통 조건: 「部、％等の数値は質量基準」'},
+{id:'FigureTableIndex',layer:'L2b',ko:'표·도면 목록',checks:['②'],desc:'모든 【表n】【図n】의 위치, 텍스트인지 이미지인지, 어느 실험에 속하는지. 실험 묶음 누락(②)을 잡는 기준 목록이자, 실시예의 정보 매체를 정하는 근거.',
+ attrs:[['표','번호, 위치, 텍스트|이미지, 소속 실험',''],['도면','번호, 간단한 설명, 소속 실시형태',''],['판독 상태','미판독 | 판독 | 확인','']],
+ fns:[['index()','SpecSkeleton','표·도면 목록',''],['classifyMedia()','표·도면','텍스트 | 이미지 → 판독 필요 시 ReviewItem','']],
+ ex:'<table><tr><th>번호</th><th>소속 실험</th><th>매체</th></tr><tr><td>【表1】</td><td>실험1 조성·물성</td><td>이미지</td></tr><tr><td>【表2】</td><td>실험2 페이스트 평가</td><td>이미지</td></tr><tr><td>【表3】</td><td>실험3 전극·전지</td><td>이미지</td></tr><tr><td>【表4】</td><td>실험4 전극·전지</td><td>이미지</td></tr></table>',
+ fail:[['IWASAKI','表2~4(효과)가 실험1 표와 함께 목록화되지 않아 실험2~4 통째 누락']]},
+/* L3 */
+{id:'ExperimentGroup',layer:'L3',ko:'실험 묶음',checks:['②'],desc:'실시예 번호 앞자리 = 실험 하나. 무엇을 만들어 무엇을 쟀는지, 그리고 다른 실험과의 연결(재료 실험 → 용도 실험). 효과는 보통 용도 실험에 있다.',
+ attrs:[['무엇을 만들었나','텍스트','재료 / 페이스트 / 전극…'],['측정 대상','개념[]','주어'],['측정 항목','개념[]',''],['위치','단락·표',''],['예 개수','실시 n + 비교 m',''],['상위 묶음','ExperimentGroup?','재료 → 용도 체인']],
+ fns:[['listGroups()','실시예 구역 표제, 표·도면 목록','ExperimentGroup[]','② 표제·【表n】 목록과 대조']],
+ ex:'<table><tr><th>묶음</th><th>만든 것</th><th>개수</th><th>측정</th></tr><tr><td>실험1</td><td>분산제 고분자 합성</td><td>実7+比3</td><td>점도·pH·Mw (재료 특성)</td></tr><tr><td>실험2</td><td>실험1 고분자 + 탄소 → 페이스트</td><td>表2 판독 필요</td><td>D50 분산·24h 안정성 (<b>효과</b>)</td></tr><tr><td>실험3·4</td><td>전극 슬러리 → 시험 전지</td><td>表3·4 판독 필요</td><td>박리 강도·용량 유지율 (<b>효과</b>)</td></tr></table>',
+ fail:[['IWASAKI','납품본은 실험1만 추출 → <b>효과 데이터 0</b>. 고객 표 이미지의 「評価」 행이 빠진 원인']]},
+{id:'Example',layer:'L3',ko:'실시예 (버전)',checks:['③','⑤'],desc:'실험 안의 버전 하나 = 실시예/비교예 하나. 구분·형태·정보 매체를 먼저 정하고, 다른 예의 절차를 이어받았는지 기록한다.',
+ attrs:[['라벨','원문','実施例1-3, S1, B-1…'],['구분','실시 | 비교 | 합성·제조 | 참고 | 실시형태','合成例는 실시예로 전개'],['형태','조성형 | 구조형','구조형은 "문헌×구조 1건" 단위'],['정보 매체','본문 | 표 텍스트 | 표 이미지 | 도면',''],['도면 확인 필요도','고 | 중 | 저','KOIKE 2단계 방식'],['상속 원본','Example?','「実施例1-1と同様」'],['소속 묶음','ExperimentGroup','']],
+ fns:[['enumerate()','ExperimentGroup, 본문, 표','Example[]','범위 표기 「2～15」 분해'],['crossCount()','본문 언급 번호, 표 행 수, 번호 연속성','불일치[] → ReviewItem','③ 세 군데서 센 수가 다르면 확인 필요'],['linkChain()','Step.투입','예 간 연결','実2-1 ← 実1-1 산출물']],
+ ex:'実施例1-1 (기준 예, 【0220】 본문) · 実施例1-2~1-7: 「1-1において組成を下記表で示すものに変更した他は同様」 【0221】 → 상속 원본 = 1-1 · 比較例1-1: 별도 절차 【0222】 · 정보 매체: 조성 = <b>표 이미지</b>, 점도·pH(1-1) = 본문',
+ fail:[['KOIKE','납품 보고서 "170건 전체 도면 확인" ↔ 실제 도면 분석 20건 — 매체·확인 상태 기록 부재'],['TAKAHASHI','같은 例가 평가 맥락별(전극/전지/점도)로 나뉜 「구분」 열이 납품본에서 빠짐']]},
+/* L4 */
+{id:'Element',layer:'L4',ko:'요소',checks:['④'],desc:'무엇이 있나 — 성분·층·부재·모듈. 컬럼은 물질 이름이 아니라 역할로 고정하고, 값 하나 = 1행. 원문 표기·원문 단위를 남기고 통합값을 옆에 붙인다.',
+ attrs:[['역할','개념','원료 단량체 / 도전재 / 바인더 / 부재…'],['원문 표기','텍스트','항상 보존'],['표준 개념','Concept','Ontology'],['상위 개념','Concept',''],['청구항 요소','ClaimElement?','(a)/(b)…'],['양(원문)·단위(원문)·기준','수·텍스트','질량/몰'],['양(통합)·단위(통합)','수','계산값'],['통합 상태','완료 | 불가+이유','예: 나머지 성분 미상']],
+ fns:[['normalize(사전, 온톨로지)','LocalDictionary, Ontology','통합값 | 통합 불가','몰↔질량 환산엔 전 성분 + 분자량 필요'],['checkCompleteness()','같은 예의 Element[]','결함[] → ReviewItem','④ 조성 합계 100%, 빈값 표기']],
+ ex:'<table><tr><th>예</th><th>역할</th><th>원문</th><th>표준 개념</th><th>청구항</th><th>양</th><th>기준</th></tr><tr><td>実1-1</td><td>원료 단량체</td><td>AM</td><td>아크릴아미드</td><td>(a)</td><td>59.9</td><td>mol? ⚠</td></tr><tr><td>実1-1</td><td>원료 단량체</td><td>ATBSNa</td><td>ATBS 나트륨염</td><td>(b)</td><td>36</td><td>mol? ⚠</td></tr><tr><td>実2-1</td><td>도전재</td><td>Super C65</td><td>카본블랙</td><td>—</td><td>60 부</td><td>질량</td></tr></table>',
+ fail:[['IWASAKI','JSR WO15/008626 S2: AM 60 + AA 10 = 70 wt%, 나머지 30%는 양식 밖이라 소실 → <b>몰% 환산 불가</b>'],['IWASAKI','No.18/19 AA=150 (부 단위) → 보고서에 "AA 150 mol%"로 전파']]},
+{id:'Relation',layer:'L4',ko:'관계',desc:'요소끼리 어떻게 놓이고 이어지나 — 적층 순서, 접속, 포함, 광로. 구조형(기계·광학·적층)에서 핵심.',
+ attrs:[['요소A','Element',''],['관계 종류','적층 | 접속 | 포함 | 반사 | 신호 전달…',''],['요소B','Element',''],['속성','텍스트','각도·거리 등']],
+ fns:[['extractRelations()','Example (구조형), 도면 설명','Relation[]','도면에만 있으면 Evidence.매체=도면, 확인 필요']],
+ ex:'(구조형 예 — KOIKE 광학) FIG.2A: 반전 45도 미러면 221 —<i>전반사로 방향 변환</i>→ 면내광 250A → 면외광 250B',
+ fail:[['KOIKE','모식도에 대한 고객 지적: 「吸光されなかった光はどこに向かう」 「コア層は記載漏れ」 — 관계·요소 누락']]},
+{id:'Step',layer:'L4',ko:'단계',desc:'어떤 순서로 무엇을 했나. 투입이 다른 예의 산출이면 예 간 연결(체인)이 된다.',
+ attrs:[['순서','정수',''],['조작','텍스트','중합, 혼련, 도포…'],['투입','Element[] | Example 산출',''],['산출','Element',''],['조건','온도·시간·속도…','']],
+ fns:[['extractSteps()','Example 본문','Step[]','']],
+ ex:'実1-1 단계1: 동시 적하 중합 — 투입: 단량체 용액A + 개시제 용액B — 조건: 80℃, 3시간 【0220】<br>実2-1 단계1: 혼련 — 투입: <b>実1-1 산출 고분자</b> 40부 + Super C65 60부 + 물 — 고형분 13.5% 【0230】'},
+{id:'Measurement',layer:'L4',ko:'측정',checks:['④'],desc:'무엇을 재서 어떤 결과였나. 측정 대상(주어)을 필수로 둔다.',
+ attrs:[['측정 대상','개념','분산제 수용액 / 페이스트 / 전극 / 전지'],['항목','개념','B형 점도, D50…'],['조건','텍스트','25℃, 24h 후'],['값·단위','원문',''],['평가 등급','텍스트?','LocalDictionary로 해석'],['통합값','수?','']],
+ fns:[['extractMeasurements()','Example, 표','Measurement[]',''],['checkCompleteness()','Measurement[]','결함[] → ReviewItem','④ 측정 대상 누락, 단위 혼동']],
+ ex:'実1-1 · 대상: <b>분산제 수용액</b> · B형 점도 350 mPa·s · 25℃ 【0220】 「この分散剤の…B型粘度は350mPa·s、pHは5.2」',
+ fail:[['IWASAKI','比較例1-2 B형 점도 납품본 1.5 ↔ 고객 표 1500 (단위 혼동)'],['IWASAKI','점도·pH·Mw가 무엇을 잰 값인지 납품 표에 없음']]},
+{id:'Evidence',layer:'L4',ko:'근거',checks:['⑤'],desc:'모든 레코드에 붙는 출처. 값이 원문에서 왔는지, 계산했는지, AI가 추론했는지를 구분해야 "신뢰할 수 있는 중간 산출물"이 된다.',
+ attrs:[['위치','단락·표·셀·도면',''],['출처 매체','본문 | 표 텍스트 | 표 이미지 | 도면',''],['원문 인용','텍스트',''],['출처 구분','원문 | 계산 | AI 추론',''],['확인 상태','미확인 | 확인 | 확인 필요','']],
+ fns:[['attach(레코드)','레코드, 원문 위치','Evidence','']],
+ ex:'実1-1 AM 59.9 → 위치 【表1】 · 매체 표 이미지 · 출처 구분 원문(납품본 인용) · 확인 상태 <b>확인 필요</b> (이미지 미판독)',
+ fail:[['TAKAHASHI','「数値はAIにより新たに追加しました」 — AI 생성값이 실험값 표에 혼입'],['SATAKE','ChatGPT 경로 추출에 근거 위치 없음']]},
+/* L5 */
+{id:'ClaimMapping',layer:'L5',ko:'청구항 대응',desc:'각 예가 청구범위 안인지 밖인지, 밖이면 어느 요건을 벗어났는지. 비교예가 왜 비교예인지가 드러난다.',
+ attrs:[['예','Example',''],['청구항','Claim',''],['판정','안 | 밖 | 판정 불가',''],['벗어난 요건','ClaimElement[]','']],
+ fns:[['mapToClaims()','ClaimTree, Element(통합값)','ClaimMapping[]','']],
+ ex:'<table><tr><th>예</th><th>(a)</th><th>(b)</th><th>Mw</th><th>판정</th></tr><tr><td>実1-1</td><td>59.9 ✓</td><td>36 ✓</td><td>13万 ✓</td><td>안</td></tr><tr><td>比1-1</td><td>34.9 ✓</td><td>36 ✓</td><td>62万 ✗</td><td>밖 — Mw 초과</td></tr><tr><td>比1-2</td><td>DMAA 67 ✓</td><td>없음 ✗</td><td>10万 ✓</td><td>밖 — (b) 없음</td></tr><tr><td>比1-3</td><td>없음 ✗</td><td>94.9 ✗</td><td>7万 ✓</td><td>밖 — (a) 없음·(b) 초과</td></tr></table>'},
+{id:'EffectTrend',layer:'L5',ko:'효과 방향',desc:'어떤 값을 바꾸면 효과가 좋아지고 나빠지나. 빈 곳 주변의 "더 좋을 근거" 재료(판단은 작업자).',
+ attrs:[['변수','Concept',''],['효과 항목','Concept',''],['방향','+ | − | 없음 | 불명',''],['근거 예','Example[]','']],
+ fns:[['deriveTrend()','Element, Measurement, 예 간 연결','EffectTrend[]','재료 실험의 조성 ↔ 용도 실험의 효과를 체인으로 연결해야 가능']],
+ ex:'<span class="empty">JP7581782: 실험2~4(表2~4) 미판독 → 현재 산출 불가. 이 칸이 비는 것 자체가 IWASAKI 납품본의 핵심 결함.</span>'},
+{id:'ProtectionMap',layer:'L5',ko:'공보 지도 (4구역)',desc:'공보 하나를 네 구역으로 나눈 지도. 공보마다 "진입 불가 지점과 그 이유"가 확보된다.',
+ attrs:[['실시점','Example[] (통합값)','막힘 — 신규성'],['공개 영역','TextDisclosure[]','어려움 — 진보성, 뚫으려면 효과 비교'],['청구만 된 영역','ClaimTree − 위 둘','선택발명 후보'],['청구 밖','—','']],
+ fns:[['buildProtectionMap()','ClaimMapping, TextDisclosure, ClaimTree','ProtectionMap','']],
+ ex:'실시점: 実1-1~1-7 (ATBSNa 11·36·60.9 부근) · 공개 영역: 【0026】 DEAA/ACMO 나열, 【0027】 경계값 · 청구만 된 영역: ATBSNa 12~35, 37~60 · SMAS 0.1 고정'},
+/* L6 */
+{id:'Ontology',layer:'L6',ko:'공통 사전 (온톨로지)',checks:['④'],desc:'공보를 넘어 "같은 개념"을 알아보는 장치. 표준명·동의 표기·상위/하위·환산 정보. 공보를 처리할수록 쌓이고, 처음 보는 표기는 미등록으로 표시해 사람이 등록한다.',
+ attrs:[['Concept','표준명',''],['동의 표기','텍스트[]',''],['상위·하위','Concept',''],['환산 정보','분자량 등','']],
+ fns:[['lookup(표기)','표기, LocalDictionary 정의','Concept | 미등록 → ReviewItem',''],['register(표기, Concept)','사람 확인','갱신','']],
+ ex:'아크릴아미드 — 동의 표기: AM, アクリルアミド, 50%アクリルアミド · 상위: (메타)아크릴아미드기 함유 화합물 = 청구항1 (a) · 형제: DEAA, ACMO · 분자량 71.08'},
+{id:'AxisSet',layer:'L6',ko:'축',desc:'지도를 그릴 축과 필터. 의뢰 분석에서 우리가 제안하는 값. 1차 제안(추출 전) → 2차 제안(추출 후 데이터로 평가). 1차 목표는 안쪽 축만.',
+ attrs:[['축','Concept + 단위',''],['필터','조건','예: Mw 1万~30万'],['출처','의뢰 | 청구항 | 본문 | 데이터','안쪽 축'],['평가','목적 관련성·데이터 충분성·퍼짐·효과 연결·고객 실행성','']],
+ fns:[['evaluateAxes()','Element·Measurement·EffectTrend (모집단)','추천 축 2~3 + 고정 축·데이터 부재 축 목록','2차 제안']],
+ ex:'<table><tr><th>후보</th><th>판단</th></tr><tr><td>아크릴아미드류 mol%</td><td>추천 (청구항 (a), 3.9~59.9)</td></tr><tr><td>술폰산염 mol%</td><td>추천 (청구항 (b), 11~60.9)</td></tr><tr><td>SMAS mol%</td><td>고정 축 (전부 0.1)</td></tr><tr><td>분자량</td><td>필터</td></tr><tr><td>슬러리·전극 공정</td><td>데이터 부재 축</td></tr></table>'},
+{id:'PopulationMap',layer:'L6',ko:'겹친 지도',desc:'모든 공보의 ProtectionMap을 같은 축 위에 겹친 것. 공개 합집합(점 + 옅은 영역)과 권리 합집합(박스).',
+ attrs:[['공개 합집합','점·영역[]',''],['권리 합집합','박스[]',''],['축','AxisSet','']],
+ fns:[['overlay(ProtectionMap[], AxisSet)','모든 공보','PopulationMap','통합 불가 값은 제외하고 개수 표시']],
+ ex:'__SCATTER__'},
+{id:'Gap',layer:'L6',ko:'여백 (빈 곳)',desc:'1차 목표의 최종 산출물. 빈 곳마다 근거를 붙여 작업자에게 넘긴다. 가치 판단은 하지 않는다.',
+ attrs:[['종류','미개시 구간 | 고정 축 | 데이터 부재 축',''],['위치','축 범위',''],['가장 가까운 실시예','Example','"이것보다 좋아야 한다"'],['걸치는 청구항 박스','Claim[]','누구의 권리 안인가'],['주변 효과 추세','EffectTrend?','있을 때만']],
+ fns:[['findGaps()','PopulationMap, EffectTrend','Gap[]','']],
+ ex:'<table><tr><th>종류</th><th>위치</th><th>가장 가까운 예</th><th>청구항 박스</th></tr><tr><td>미개시 구간</td><td>ATBSNa 12~35 mol%</td><td>実1-6 (11), 実1-1 (36)</td><td>JP7581782 청1</td></tr><tr><td>고정 축</td><td>SMAS ≠ 0.1</td><td>実1-1~1-7 전부 0.1</td><td>JP7581782 청1</td></tr><tr><td>데이터 부재 축</td><td>슬러리·전극 공정 조건</td><td>—</td><td>—</td></tr></table>'},
+/* LC */
+{id:'ReviewItem',layer:'LC',ko:'확인 필요',desc:'모든 레이어의 결함·불일치·미해소가 모이는 곳. 검증자의 작업 범위가 된다.',
+ attrs:[['대상','노드·레코드',''],['문제 종류','누락 | 불일치 | 미판독 | 미해소 | 단위 모호 | AI 추론',''],['위치','근거',''],['해결 방법','텍스트',''],['담당·상태','사람, 미처리|처리','']],
+ fns:[['collect()','모든 검사 함수 결과','ReviewItem[]','']],
+ ex:'<table><tr><th>대상</th><th>문제</th></tr><tr><td>【表1】~【表4】</td><td>텍스트 레이어 없음 — 판독 필요</td></tr><tr><td>실험1 조성</td><td>mol% vs 질량% (단위 규칙 충돌)</td></tr><tr><td>모집단 No.37</td><td>결과 누락</td></tr><tr><td>比1-2 점도</td><td>1.5 vs 1500</td></tr></table>'},
+/* LX */
+{id:'ValueJudgment',layer:'LX',out:true,ko:'여백 가치 판단',desc:'빈 곳이 더 좋을 이유가 있는지, 실제로 만들 수 있는지. 도메인 추론이 필요해 작업자 판단 / 추가 목표.',attrs:[],fns:[]},
+{id:'OuterAxis',layer:'LX',out:true,ko:'바깥 축 탐색',desc:'모집단·청구항에 없는 축 찾기: 개념 계층 확장, 효과 역산, 가치사슬. 사례상 채택안 다수가 여기서 나옴(PDI, 하이퍼브랜치, SATAKE 2차 15안).',attrs:[],fns:[]},
+{id:'ExternalSearch',layer:'LX',out:true,ko:'모집단 밖 검증 검색',desc:'빈 곳을 겨냥한 모집단 밖 검색. P26045 인용1·2(다른 용도의 같은 물건)를 잡는 단계. 목적별 모집단 설정이 가능해지면 재개.',attrs:[],fns:[]},
+{id:'FilingTarget',layer:'LX',out:true,ko:'출원 목표 도출',desc:'청구 골자, 비교 대상, 입증할 효과와 실험 설계, 리스크(서포트 요건).',attrs:[],fns:[]},
+];
+
+const E=[
+ ['Request','Document','need','모집단 목록'],
+ ['Request','ClaimTree','need','대상특허 지정'],
+ ['Request','AxisSet','produce','1차 축 제안'],
+ ['Document','SpecSkeleton','produce','segment'],
+ ['SpecSkeleton','ClaimTree','produce','청구범위 구획'],
+ ['SpecSkeleton','InventionSummary','produce','기술분야·과제·해결수단·효과 구획'],
+ ['SpecSkeleton','LocalDictionary','produce','전 구획'],
+ ['SpecSkeleton','TextDisclosure','produce','실시형태·해결수단 구획'],
+ ['SpecSkeleton','ExampleZone','produce','실시예 구획'],
+ ['SpecSkeleton','FigureTableIndex','produce','표·도면'],
+ ['ExampleZone','LocalDictionary','need','공통 조건 문장'],
+ ['InventionSummary','ExperimentGroup','need','효과 항목 ↔ 측정 항목'],
+ ['ExampleZone','ExperimentGroup','need','실험 표제'],
+ ['FigureTableIndex','ExperimentGroup','need','② 表 목록 대조'],
+ ['FigureTableIndex','Example','need','정보 매체·판독 상태'],
+ ['ExperimentGroup','Example','produce','enumerate'],
+ ['Example','Element','produce','extractRecords'],
+ ['Example','Relation','produce','extractRelations'],
+ ['Example','Step','produce','extractSteps'],
+ ['Example','Measurement','produce','extractMeasurements'],
+ ['Step','Example','need','linkChain (투입=다른 예 산출)'],
+ ['LocalDictionary','Element','need','코드·단위 해석'],
+ ['LocalDictionary','Measurement','need','평가 등급·측정 방법'],
+ ['Ontology','Element','need','normalize'],
+ ['Ontology','Measurement','need','normalize'],
+ ['Element','Evidence','produce','근거 부착'],
+ ['Relation','Evidence','produce','근거 부착'],
+ ['Step','Evidence','produce','근거 부착'],
+ ['Measurement','Evidence','produce','근거 부착'],
+ ['ClaimTree','ClaimMapping','need','청구항 요소·수치한정'],
+ ['Element','ClaimMapping','need','통합값'],
+ ['Element','EffectTrend','need','변수'],
+ ['Measurement','EffectTrend','need','효과'],
+ ['ClaimMapping','ProtectionMap','produce','실시점'],
+ ['TextDisclosure','ProtectionMap','need','공개 영역'],
+ ['ClaimTree','ProtectionMap','need','청구 영역'],
+ ['InventionSummary','AxisSet','need','과제·효과 (목적 관련성)'],
+ ['Ontology','AxisSet','need','축 개념'],
+ ['Element','AxisSet','need','데이터 충분성·퍼짐'],
+ ['EffectTrend','AxisSet','need','효과 연결'],
+ ['ProtectionMap','PopulationMap','need','overlay'],
+ ['AxisSet','PopulationMap','need','축·필터'],
+ ['PopulationMap','Gap','produce','findGaps'],
+ ['EffectTrend','Gap','need','주변 효과 추세'],
+ ['Document','ReviewItem','produce','① 누락 문헌'],
+ ['SpecSkeleton','ReviewItem','produce','빠진 구획'],
+ ['FigureTableIndex','ReviewItem','produce','표 이미지 판독 필요'],
+ ['Example','ReviewItem','produce','③ 계수 불일치'],
+ ['LocalDictionary','ReviewItem','produce','미해소 코드'],
+ ['Element','ReviewItem','produce','④ 결함'],
+ ['Measurement','ReviewItem','produce','④ 결함'],
+ ['Evidence','ReviewItem','produce','⑤ 확인 필요'],
+ ['Ontology','ReviewItem','produce','미등록 표기'],
+ ['Gap','ValueJudgment','outedge',''],
+ ['ValueJudgment','FilingTarget','outedge',''],
+ ['OuterAxis','AxisSet','outedge',''],
+ ['Gap','ExternalSearch','outedge',''],
+];
+
+const byId=Object.fromEntries(N.map(n=>[n.id,n]));
+const board=document.getElementById('board');
+const svg=document.getElementById('edges');
+const panel=document.getElementById('panel');
+const state={out:false,expandAll:false,sel:null,hover:null};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function scatter(){
+  const W=300,H=230,px=x=>36+x*2.4,py=y=>200-y*1.8;
+  const pts=[[36,59.9,'実1-1'],[60.9,35,'実1-2'],[60.9,34.7,'実1-3'],[36,34.9,'実1-4'],[36,3.9,'実1-5'],[11,46.5,'実1-6'],[36,39.9,'実1-7']];
+  const cmp=[[36,34.9,'比1-1 (Mw 밖)'],[0,32.8,'比1-2'],[94.9,0,'比1-3']];
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:340px;background:var(--surface);border:1px solid var(--line);border-radius:6px">`;
+  s+=`<rect x="${px(10)}" y="${py(60)}" width="${px(70)-px(10)}" height="${py(2)-py(60)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>`;
+  s+=`<text x="${px(68)}" y="${py(60)+12}" font-size="9" text-anchor="end" fill="var(--accent)">청구항1 박스</text>`;
+  s+=`<rect x="${px(12)}" y="${py(58)}" width="${px(35)-px(12)}" height="${py(4)-py(58)}" fill="none" stroke="var(--warn)" stroke-dasharray="3 3"/>`;
+  s+=`<text x="${px(13)}" y="${py(8)}" font-size="9" fill="var(--warn)">빈 구간 12~35</text>`;
+  s+=`<line x1="${px(0)}" y1="${py(0)}" x2="${px(100)}" y2="${py(0)}" stroke="var(--ink3)"/><line x1="${px(0)}" y1="${py(0)}" x2="${px(0)}" y2="${py(100)}" stroke="var(--ink3)"/>`;
+  [0,10,36,70,100].forEach(v=>s+=`<text x="${px(v)}" y="${py(0)+12}" font-size="8.5" text-anchor="middle" fill="var(--ink3)">${v}</text>`);
+  [0,2,60,100].forEach(v=>s+=`<text x="${px(0)-4}" y="${py(v)+3}" font-size="8.5" text-anchor="end" fill="var(--ink3)">${v}</text>`);
+  s+=`<text x="${px(50)}" y="${H-4}" font-size="9" text-anchor="middle" fill="var(--ink2)">술폰산염 ATBSNa (mol%?)</text>`;
+  s+=`<text x="10" y="${py(50)}" font-size="9" fill="var(--ink2)" transform="rotate(-90 10 ${py(50)})" text-anchor="middle">아크릴아미드 AM</text>`;
+  pts.forEach(p=>s+=`<circle cx="${px(p[0])}" cy="${py(p[1])}" r="3.6" fill="var(--accent)"><title>${p[2]}</title></circle>`);
+  cmp.forEach(p=>s+=`<circle cx="${px(p[0])}" cy="${py(p[1])}" r="3.6" fill="none" stroke="var(--warn)" stroke-width="1.6"><title>${p[2]}</title></circle>`);
+  s+=`</svg><div style="font-size:12px;color:var(--ink2);margin-top:4px">● 실시예 · ○ 비교예 · 대상특허 JP7581782 1건만 표시(실험1). 단위 기준 확인 전.</div>`;
+  return s;
+}
+
+function render(){
+  board.querySelectorAll('.layer').forEach(e=>e.remove());
+  LAYERS.forEach(L=>{
+    const sec=document.createElement('section');
+    sec.className='layer'+(L.sub?' sub':'')+(L.out&&!state.out?' hidden':'');
+    sec.innerHTML=`<div class="lab"><span class="tag" style="background:var(${L.color})">${L.tag||L.id}</span><div class="nm">${esc(L.name)}</div><div class="q">${esc(L.q)}</div></div><div class="cards"></div>`;
+    const wrap=sec.querySelector('.cards');
+    N.filter(n=>n.layer===L.id).forEach(n=>{
+      const c=document.createElement('div');
+      c.className='card'+(n.out?' out':'')+(n.checks?' has-chk':'');
+      c.id='card-'+n.id; c.tabIndex=0;
+      c.style.borderTopColor=`var(${L.color})`;
+      const open=state.expandAll||n._open;
+      c.innerHTML=`<div class="t">${esc(n.ko)}</div><div class="c">${n.out?'범위 밖':n.id}</div>
+        <div class="meta"><span>${n.out?'':`속성 ${n.attrs.length} · 함수 ${n.fns.length}`}</span><span class="chk">${(n.checks||[]).map(k=>`<span title="${esc(CHECKS[k])}">${k}</span>`).join('')}</span></div>
+        ${n.out?'':`<button class="exp" data-id="${n.id}">${open?'접기 ▲':'펼치기 ▼'}</button>`}
+        ${open&&!n.out?`<ul>${n.attrs.length?'<li class="sec">속성</li>':''}${n.attrs.map(a=>`<li>${esc(a[0])}</li>`).join('')}${n.fns.length?'<li class="sec">함수</li>':''}${n.fns.map(f=>`<li class="fn">${esc(f[0])}</li>`).join('')}</ul>`:''}`;
+      c.addEventListener('click',ev=>{
+        if(ev.target.classList.contains('exp')){n._open=!n._open;render();ev.stopPropagation();return;}
+        select(n.id);
+        if(matchMedia('(max-width: 980px)').matches)panel.scrollIntoView({behavior:'smooth'});
+      });
+      c.addEventListener('keydown',ev=>{if(ev.key==='Enter')select(n.id)});
+      c.addEventListener('mouseenter',()=>{state.hover=n.id;highlight()});
+      c.addEventListener('mouseleave',()=>{state.hover=null;highlight()});
+      wrap.appendChild(c);
+    });
+    board.appendChild(sec);
+  });
+  requestAnimationFrame(()=>{drawEdges();highlight();});
+}
+
+function visible(id){const el=document.getElementById('card-'+id);return el&&el.offsetParent!==null;}
+function drawEdges(){
+  const br=board.getBoundingClientRect();
+  svg.setAttribute('width',board.scrollWidth);svg.setAttribute('height',board.scrollHeight);
+  svg.innerHTML=`<defs>${['need','produce','outedge','hot'].map(k=>`<marker id="m-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${k==='produce'||k==='hot'?'var(--accent)':k==='need'?'var(--need)':'var(--out)'}"/></marker>`).join('')}</defs>`;
+  E.forEach((e,i)=>{
+    if(!visible(e[0])||!visible(e[1]))return;
+    const a=document.getElementById('card-'+e[0]).getBoundingClientRect(),b=document.getElementById('card-'+e[1]).getBoundingClientRect();
+    const ax=a.left-br.left+a.width/2,bx=b.left-br.left+b.width/2;
+    let d;
+    if(b.top>a.bottom-4){
+      const ay=a.bottom-br.top,by=b.top-br.top,m=(by-ay)*.5;
+      d=`M${ax},${ay} C${ax},${ay+m} ${bx},${by-m} ${bx},${by}`;
+    }else if(a.top>b.bottom-4){
+      const ay=a.top-br.top,by=b.bottom-br.top,m=(ay-by)*.5;
+      d=`M${ax},${ay} C${ax},${ay-m} ${bx},${by+m} ${bx},${by}`;
+    }else{
+      const ay=a.top-br.top+a.height/2,by=b.top-br.top+b.height/2;
+      const x1=ax<bx?a.right-br.left:a.left-br.left,x2=ax<bx?b.left-br.left:b.right-br.left;
+      d=`M${x1},${ay} C${(x1+x2)/2},${ay-40} ${(x1+x2)/2},${by-40} ${x2},${by}`;
+    }
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d);p.setAttribute('class',e[2]);p.dataset.i=i;
+    p.setAttribute('marker-end',`url(#m-${e[2]})`);
+    svg.appendChild(p);
+  });
+}
+
+function highlight(){
+  const focus=state.hover||state.sel;
+  const rel=new Set();
+  if(focus){rel.add(focus);E.forEach(e=>{if(e[0]===focus)rel.add(e[1]);if(e[1]===focus)rel.add(e[0]);});}
+  N.forEach(n=>{const c=document.getElementById('card-'+n.id);if(!c)return;
+    c.classList.toggle('dim',!!focus&&!rel.has(n.id));c.classList.toggle('sel',state.sel===n.id);});
+  svg.querySelectorAll('path[data-i]').forEach(p=>{const e=E[+p.dataset.i];const hot=!!focus&&(e[0]===focus||e[1]===focus);
+    p.classList.toggle('hot',hot);p.setAttribute('marker-end',`url(#m-${hot&&e[2]!=='need'?'hot':e[2]})`);});
+}
+
+function select(id){
+  state.sel=id;const n=byId[id];const L=LAYERS.find(l=>l.id===n.layer);
+  const ins=E.filter(e=>e[1]===id),outs=E.filter(e=>e[0]===id);
+  const lk=x=>`<span class="link" data-go="${x}">${esc(byId[x].ko)}</span>`;
+  let h=`<div><span class="badge" style="border-color:var(${L.color});color:var(${L.color})">${L.tag||L.id} ${esc(L.name)}</span><span class="badge ${n.out?'outb':'in'}">${n.out?'범위 밖':'1차 목표'}</span></div>
+  <h2 style="margin-top:8px">${esc(n.ko)}</h2><div class="cls mono">${n.out?'':'class '+n.id}</div><p>${esc(n.desc)}</p>`;
+  if(n.checks)h+=`<h3>누락 검사</h3>${n.checks.map(k=>`<p><b style="color:var(--warn)">${k}</b> ${esc(CHECKS[k])}</p>`).join('')}`;
+  h+=`<h3>필요로 하는 정보 (입력)</h3>${ins.length?`<ul class="flow">${ins.map(e=>`<li>${lk(e[0])} <span class="empty">— ${esc(e[3]||'')} ${e[2]==='produce'?'(이 노드를 산출)':''}</span></li>`).join('')}</ul>`:'<p class="empty">없음 (시작점)</p>'}`;
+  h+=`<h3>판단·산출하는 정보 (출력)</h3>${outs.length?`<ul class="flow">${outs.map(e=>`<li>${lk(e[1])} <span class="empty">— ${esc(e[3]||'')} ${e[2]==='need'?'(다음 노드의 입력)':''}</span></li>`).join('')}</ul>`:'<p class="empty">없음</p>'}`;
+  if(n.attrs.length)h+=`<h3>속성</h3><div class="tblwrap"><table><tr><th>이름</th><th>형식</th><th>메모</th></tr>${n.attrs.map(a=>`<tr><td>${esc(a[0])}</td><td>${esc(a[1])}</td><td>${esc(a[2])}</td></tr>`).join('')}</table></div>`;
+  if(n.fns.length)h+=`<h3>함수</h3>${n.fns.map(f=>`<div class="fnbox"><div class="sig mono">${esc(f[0])}</div><div class="io">입력: ${esc(f[1])}<br>출력: ${esc(f[2])}</div>${f[3]?`<div class="io">${esc(f[3])}</div>`:''}</div>`).join('')}`;
+  if(n.ex)h+=`<h3>예시 — JP7581782 (IWASAKI 대상특허)</h3><div class="ex tblwrap">${n.ex==='__SCATTER__'?scatter():n.ex}</div>`;
+  if(n.fail&&n.fail.length)h+=`<h3>실제 실패 사례</h3>${n.fail.map(f=>`<div class="fail"><b>${esc(f[0])}</b> · ${f[1]}</div>`).join('')}`;
+  panel.innerHTML=h;panel.scrollTop=0;
+  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);document.getElementById('card-'+t).scrollIntoView({block:'nearest',behavior:'smooth'});}));
+  highlight();
+}
+
+function intro(){
+  panel.innerHTML=`<h2>읽는 법</h2>
+  <p>위에서 아래로 <b>작업 레이어</b>(L0 의뢰 → L2-1 골격 → L2-2 구획별 이해 → … → L6 여백 도출). 각 카드는 하나의 <b>클래스</b>: 가진 정보(<b>속성</b>)와 하는 판단(<b>함수</b>).</p>
+  <p><b>점선</b> = 필요(입력), <b>실선</b> = 산출(판단 결과). 카드에 마우스를 올리면 앞뒤 연결만 강조된다.</p>
+  <h3>1차 목표의 흐름</h3>
+  <ol class="flow"><li>의뢰 → 목적 유형·1차 축 제안</li><li>공보 식별 (①)</li><li>명세서 골격(보편 구획 위치) → 구획별 이해: 청구항·<b>발명 이해</b>·<b>공보 내 사전</b>·<b>본문 공개</b>·실시예 구역·표·도면 목록(②)</li><li>실시예 지도: 실험 묶음(②) → 버전(③⑤)</li><li>레코드 5종: 요소·관계·단계·측정 + 근거 (④⑤) — 원문값 + 통합값</li><li>실시예 의의: 청구항 대응·효과 방향·<b>4구역 지도</b></li><li>통합: 온톨로지·축 → 겹친 지도 → <b>여백 + 근거</b></li></ol>
+  <h3>누락 검사 지점</h3>${Object.entries(CHECKS).map(([k,v])=>`<p><b style="color:var(--warn)">${k}</b> ${esc(v)}</p>`).join('')}
+  <p class="empty">카드를 눌러 시작. 「여백 (빈 곳)」이 1차 목표의 최종 산출물.</p>`;
+}
+
+function toggleOut(){state.out=!state.out;document.getElementById('tOut').setAttribute('aria-pressed',state.out);render();}
+document.getElementById('tOut').onclick=toggleOut;
+document.getElementById('tEdges').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);document.body.classList.toggle('noedges',!on);};
+document.getElementById('tChecks').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);document.body.classList.toggle('showchecks',on);};
+document.getElementById('tExpand').onclick=e=>{state.expandAll=!state.expandAll;e.currentTarget.setAttribute('aria-pressed',state.expandAll);render();};
+document.getElementById('tTheme').onclick=()=>{const r=document.documentElement;const cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark';drawEdges();highlight();};
+new ResizeObserver(()=>{drawEdges();highlight();}).observe(board);
+render();intro();
+</script>
+</body>
+</html>

@@ -21,7 +21,7 @@ Read the file of your type before you write. This file gives the rules for all t
 
 ## Form
 
-- One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted. Start from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need.
+- One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted. Start from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need. Exception: a workflow map starts from its own [template.html](workflow-map/template.html), with the style rules in [rules.md](workflow-map/rules.md).
 - Light is the default (`<html style="color-scheme: light">`). Put a dark-mode toggle button (`.theme-toggle`) at the top right.
 - The head line at the top gives `응답할 곳: <role> · <node name>` (the node that receives the human's answer). A mockup also gives `연 담당: <role> · <node name>` and its version (`v2 · <date>`). Run `loom status` just before you ask, to get the node name. If the name changes, change the head line.
 - Document ID: `loom show` adds it at the start of the head line (`문서 ID: M3`) and before the `<title>`. M is for a mockup and R for a report or a workflow map. A path keeps its ID through all versions (table `~/.cache/user-doc/ids.tsv`). The author does not write the ID. When you name a document in chat, give its ID.
@@ -30,6 +30,7 @@ Read the file of your type before you write. This file gives the rules for all t
 
 ## Decisions and IDs
 
+- A workflow map has no decision boxes: ask each decision for the human as a separate `loom ask` question. The rules below apply to mockups and reports.
 - Put each open decision in its own decision box. The box is amber, the color of the loom question notice. Explanation callouts stay red. Do not put a decision, an option or a recommendation in a callout or a note.
 - Copy the markup and the `.decision` styles from [style.html](style.html):
   `<section class="decision" id="D1" data-for="2 3"><h3><span class="did">D1</span>question</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">option<span class="mark">권장</span><span class="sub">now → after · cost · risk · undo</span></span></div>…</div><ul class="why"><li>reason</li></ul></section>`.

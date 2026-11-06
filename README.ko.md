@@ -75,7 +75,7 @@ loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom �
 | 릴리스 파일 | `loom_<판>_x64-setup.exe`, `loom_<판>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
 | 창 | 웹뷰(Tauri) | 네이티브(GPUI) | 내 브라우저 |
 | 운영체제 | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
-| 업데이트 | 화면의 업데이트 카드 | 다시 설치 | 다시 설치 |
+| 업데이트 | 화면의 업데이트 카드 | 다시 설치 | 화면의 업데이트 카드 |
 
 **한 줄로 설치(권장).** 위 Windows·macOS 한 줄은 릴리스에 loom desktop이 있으면 그것을 설치합니다. Windows는 `%LOCALAPPDATA%\loom\bin\loom-desktop.exe`와 바탕 화면의 **loom** 아이콘, macOS는 응용 프로그램 폴더의 `loom-desktop.app`입니다.
 

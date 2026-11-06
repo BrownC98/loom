@@ -75,7 +75,7 @@ loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead o
 | Release files | `loom_<version>_x64-setup.exe`, `loom_<version>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
 | Window | Web view (Tauri) | Native (GPUI) | Your browser |
 | Systems | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
-| Update | Update card in the screen | Install again | Install again |
+| Update | Update card in the screen | Install again | Update card in the screen |
 
 **Install with one line (recommended).** The Windows and macOS lines above install loom desktop when the release has it. Windows: `%LOCALAPPDATA%\loom\bin\loom-desktop.exe` and a **loom** icon on the desktop. macOS: `loom-desktop.app` in the Applications folder.
 

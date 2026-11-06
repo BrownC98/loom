@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use api::graph::GraphEvent;
 use api::graph::events::{Entry, EventLog, EventRecord, SwitchCause};
@@ -10,9 +11,9 @@ use api::settings::accounts::{AccountView, PlaceUsage};
 use api::settings::usage::Limits;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, Div, Entity, FocusHandle, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
-    Window, canvas, div, px,
+    AnyElement, App, AppContext, Bounds, Context, Div, Entity, FocusHandle, FontFeatures,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 
 use crate::fonts;
@@ -461,7 +462,7 @@ fn inline_marks(limits: &Limits, c: &Colors, cx: &App) -> Vec<Div> {
                 .flex()
                 .items_center()
                 .gap(px(5.0))
-                .font_family(fonts::TERMINAL_FAMILY)
+                .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
                 .child(div().w(px(METER_W)).flex().child(usage::meter(used, c)))
                 .child(text(format!("{label} {used}%")))
         })

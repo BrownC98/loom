@@ -194,12 +194,31 @@ The right panel also has the commit graph of all branches, the event log of all 
 
 Design and decisions (Korean): [docs/design.md](docs/design.md).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)
+
+**Status:** Windows files are not signed yet. Signing starts after SignPath Foundation approves the project.
+
+- loom signs only the Windows files that GitHub Actions builds from the source in this repository ([.github/workflows/release.yml](.github/workflows/release.yml)).
+- An approver approves each signing request by hand.
+- loom has one maintainer. [@BrownC98](https://github.com/BrownC98) holds all three roles:
+
+| Role | Member |
+|---|---|
+| Authors (commit to this repository) | [@BrownC98](https://github.com/BrownC98) |
+| Reviewers (review outside contributions) | [@BrownC98](https://github.com/BrownC98) |
+| Approvers (approve each signing request) | [@BrownC98](https://github.com/BrownC98) |
+
 ## Privacy policy
 
-loom sends no data to a place that you did not choose. These are the only requests that go out:
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. These are the only requests that go out:
 
-- **Update check:** loom reads `latest.json` from the releases of this repository on GitHub. It sends no personal data.
-- **Usage display:** for a Claude account that you signed in to in loom settings, loom asks Anthropic (`api.anthropic.com`) for the usage of that account, with the token of that account. It sends this to no other place.
+- **Update check and update:** the app, the browser version and the Android app read the latest version from the releases of this repository on GitHub, and download the new files from there when you update. They send no personal data.
+- **Usage display:** for an account that you signed in to, loom asks the provider for the usage of that account, with the login of that account: Claude at Anthropic (`api.anthropic.com`), Cursor at `cursor.com`. For Codex, loom asks the `codex` CLI that you installed. loom sends this data to no other place.
+- **Phone:** when you connect a phone, loom runs your installed `tailscale` command to share loom in your tailnet. The Android app connects only to your PC's loom through Tailscale.
+- **SSH hosts:** when you add an SSH host, loom connects to it with your `ssh` and keys. On a Mac host, the host downloads loom from the releases of this repository.
+- **Git:** the merge gate pushes to the remote of your repository.
 - **Agent CLIs:** the agents that you install and choose (Claude Code, Codex and others) communicate under the policy of each provider. loom adds no data to that communication.
 
 ## License

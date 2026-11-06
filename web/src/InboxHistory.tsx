@@ -12,13 +12,16 @@ import type { NodeView } from './gen/NodeView';
 import { dateAndTime } from './i18n';
 import { InboxPanel, Instruction, Published, waitCount } from './Inbox';
 import { ICON, showsId } from './notice';
+import { openMatches, TYPE_PAUSE_MS } from './waitSearch';
 
 type InboxTab = 'new' | 'history';
 
 export function InboxTabs(props: { waiting: NodeView[]; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<InboxTab>('new');
+  const [query, setQuery] = useState('');
   const n = waitCount(props.waiting);
+  const shown = openMatches(props.waiting, query);
   const open = props.waiting.flatMap((v) => v.waits.map((w) => w.id)).join(',');
   return (
     <>
@@ -32,39 +35,58 @@ export function InboxTabs(props: { waiting: NodeView[]; onSelect: (id: NodeId) =
             {t('inbox.history')}
           </button>
         </div>
+        <input type="search" name="inbox-search" aria-label={t('inbox.search')} placeholder={t('inbox.searchPlaceholder')} autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      {tab === 'new' ? <InboxPanel waiting={props.waiting} onSelect={props.onSelect} onFocus={props.onFocus} /> : <History open={open} onSelect={props.onSelect} />}
+      {tab === 'history' ? (
+        <History open={open} query={query.trim()} onSelect={props.onSelect} />
+      ) : query.trim() && shown.length === 0 ? (
+        <p className="inbox-empty">{t('inbox.noMatch')}</p>
+      ) : (
+        <InboxPanel waiting={shown} onSelect={props.onSelect} onFocus={props.onFocus} />
+      )}
     </>
   );
 }
 
-function History(props: { open: string; onSelect: (id: NodeId) => void }) {
+function History(props: { open: string; query: string; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   const [list, setList] = useState<ClosedWait[] | null>(null);
   const [more, setMore] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const loaded = useRef(false);
+  const shownQuery = useRef<string | null>(null);
   useEffect(() => {
     let live = true;
-    getClosedWaits().then(
-      (page) => {
-        if (!live) return;
-        setList((now) => [...page.waits.filter((w) => w.seq > (now?.[0]?.seq ?? 0)), ...(now ?? [])]);
-        if (!loaded.current) setMore(page.more);
-        loaded.current = true;
-      },
-      (err: Error) => live && setRefusal(err.message),
+    const query = props.query;
+    const fresh = shownQuery.current !== query;
+    const timer = setTimeout(
+      () =>
+        getClosedWaits(query).then(
+          (page) => {
+            if (!live) return;
+            if (fresh) {
+              shownQuery.current = query;
+              setList(page.waits);
+              setMore(page.more);
+              setRefusal(null);
+            } else setList((now) => [...page.waits.filter((w) => w.seq > (now?.[0]?.seq ?? 0)), ...(now ?? [])]);
+          },
+          (err: Error) => live && setRefusal(err.message),
+        ),
+      fresh && shownQuery.current !== null ? TYPE_PAUSE_MS : 0,
     );
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, [props.open]);
+  }, [props.open, props.query]);
   const loadMore = () => {
     const last = list?.at(-1);
-    if (!last) return;
-    getClosedWaits(last.seq).then(
+    const query = shownQuery.current;
+    if (!last || query === null) return;
+    getClosedWaits(query, last.seq).then(
       (page) => {
+        if (shownQuery.current !== query) return;
         setList((now) => [...(now ?? []), ...page.waits.filter((w) => w.seq < last.seq)]);
         setMore(page.more);
       },
@@ -79,7 +101,7 @@ function History(props: { open: string; onSelect: (id: NodeId) => void }) {
   latestGo.current = go;
   const onGo = useCallback((id: NodeId) => latestGo.current(id), []);
   if (list === null) return refusal ? <p className="inbox-empty refusal">{refusal}</p> : null;
-  if (list.length === 0) return <p className="inbox-empty">{t('inbox.historyEmpty')}</p>;
+  if (list.length === 0) return <p className="inbox-empty">{t(shownQuery.current ? 'inbox.noMatch' : 'inbox.historyEmpty')}</p>;
   return (
     <ul className="wait-list history">
       {list.map((w) => (

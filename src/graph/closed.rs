@@ -4,10 +4,11 @@ use api::graph::waits::{Closed, ClosedPage, ClosedWait, HumanWait};
 
 use super::{Graph, from_json, name_of, to_json};
 use api::graph::events::Who;
+use api::graph::search::WaitSearch;
 use api::ids::{NodeId, WaitId};
 
 const KEEP_SECS: i64 = 30 * 24 * 60 * 60;
-const PAGE: u32 = 100;
+const PAGE: usize = 100;
 
 #[derive(Clone, Copy)]
 pub(super) enum Open {
@@ -85,22 +86,30 @@ fn prune(db: &Connection) -> rusqlite::Result<()> {
 }
 
 impl Graph {
-    pub fn closed_waits(&self, before: Option<u32>) -> rusqlite::Result<ClosedPage> {
+    pub fn closed_waits(
+        &self,
+        before: Option<u32>,
+        search: Option<&WaitSearch>,
+    ) -> rusqlite::Result<ClosedPage> {
         let db = self.lock();
         prune(&db)?;
-        let mut waits = db
-            .prepare(
-                "SELECT c.seq, c.node, c.name, c.wait, c.closed_at, c.how,
-                    EXISTS(SELECT 1 FROM nodes n WHERE n.id = c.node)
-                 FROM closed_waits c WHERE c.seq < ?1 ORDER BY c.seq DESC LIMIT ?2",
-            )?
-            .query_map(
-                params![before.map_or(i64::MAX, i64::from), PAGE + 1],
-                closed_row,
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let more = waits.len() > PAGE as usize;
-        waits.truncate(PAGE as usize);
+        let mut stmt = db.prepare(
+            "SELECT c.seq, c.node, c.name, c.wait, c.closed_at, c.how,
+                EXISTS(SELECT 1 FROM nodes n WHERE n.id = c.node)
+             FROM closed_waits c WHERE c.seq < ?1 ORDER BY c.seq DESC",
+        )?;
+        let mut waits = Vec::new();
+        for wait in stmt.query_map([before.map_or(i64::MAX, i64::from)], closed_row)? {
+            let wait = wait?;
+            if search.is_none_or(|s| s.finds_closed(&wait)) {
+                waits.push(wait);
+            }
+            if waits.len() > PAGE {
+                break;
+            }
+        }
+        let more = waits.len() > PAGE;
+        waits.truncate(PAGE);
         Ok(ClosedPage { waits, more })
     }
 }

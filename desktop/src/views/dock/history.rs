@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use api::graph::events::ClosedBy;
 use api::graph::waits::{Closed, ClosedWait, WaitKind, WaitTone};
 use gpui::prelude::FluentBuilder;
@@ -6,14 +8,15 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, px,
 };
 
-use super::Dock;
 use super::body;
 use super::entry::{self, Choice, Look};
 use super::questions::kind_label;
 use super::ui::{self, GAP, SMALL};
+use super::{Dock, Inbox};
 use crate::strings::Str;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
+const TYPE_PAUSE: Duration = Duration::from_millis(250);
 
 fn closed_label(how: &Closed) -> Str {
     match how {
@@ -31,24 +34,53 @@ fn closed_label(how: &Closed) -> Str {
 }
 
 impl Dock {
+    pub(super) fn search_text(&self, cx: &Context<Self>) -> String {
+        self.search.read(cx).text().trim().to_owned()
+    }
+
+    pub(super) fn search_changed(&mut self, cx: &mut Context<Self>) {
+        let query = self.search_text(cx);
+        cx.notify();
+        if self.inbox != Inbox::History || query == self.history.query {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(TYPE_PAUSE).await;
+            let _ = this.update(cx, |dock, cx| {
+                if dock.search_text(cx) == query {
+                    dock.load_history(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn load_history(&mut self, cx: &mut Context<Self>) {
+        let query = self.search_text(cx);
+        let wanted = query.clone();
         let task = self
             .store
-            .update(cx, |store, cx| store.closed_waits(None, cx));
+            .update(cx, |store, cx| store.closed_waits(wanted, None, cx));
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |dock, cx| {
+                if dock.search_text(cx) != query {
+                    return;
+                }
                 match result {
+                    Ok(page) if !dock.history.loaded || dock.history.query != query => {
+                        dock.history.rows = page.waits;
+                        dock.history.more = page.more;
+                        dock.history.query = query;
+                        dock.history.loaded = true;
+                        dock.history.error = None;
+                    }
                     Ok(page) => {
                         let newest = dock.history.rows.first().map_or(0, |row| row.seq);
                         let mut fresh: Vec<_> =
                             page.waits.into_iter().filter(|w| w.seq > newest).collect();
                         fresh.append(&mut dock.history.rows);
                         dock.history.rows = fresh;
-                        if !dock.history.loaded {
-                            dock.history.more = page.more;
-                        }
-                        dock.history.loaded = true;
                         dock.history.error = None;
                     }
                     Err(error) => dock.history.error = Some(error),
@@ -63,12 +95,17 @@ impl Dock {
         let Some(last) = self.history.rows.last().map(|row| row.seq) else {
             return;
         };
+        let query = self.history.query.clone();
+        let wanted = query.clone();
         let task = self
             .store
-            .update(cx, |store, cx| store.closed_waits(Some(last), cx));
+            .update(cx, |store, cx| store.closed_waits(wanted, Some(last), cx));
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |dock, cx| {
+                if dock.history.query != query {
+                    return;
+                }
                 match result {
                     Ok(page) => {
                         dock.history
@@ -90,7 +127,11 @@ impl Dock {
             return ui::empty(error.clone(), true, cx);
         }
         if self.history.loaded && self.history.rows.is_empty() {
-            return ui::empty(ui::say(cx, Str::InboxHistoryEmpty).to_owned(), false, cx);
+            let empty = match self.history.query.is_empty() {
+                true => Str::InboxHistoryEmpty,
+                false => Str::InboxNoMatch,
+            };
+            return ui::empty(ui::say(cx, empty).to_owned(), false, cx);
         }
         let mut list =
             div()

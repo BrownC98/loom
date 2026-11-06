@@ -12,7 +12,7 @@ use gpui::{
 
 use self::answers::Answers;
 use super::anchor::Anchors;
-use super::field::{self, Field};
+use super::field::{self, Field, FieldEvent};
 use super::icons::Lucide;
 use super::scrollbar::Bar;
 use super::terminal::TerminalView;
@@ -109,6 +109,7 @@ struct History {
     more: bool,
     loaded: bool,
     error: Option<String>,
+    query: String,
 }
 
 struct Docs {
@@ -140,6 +141,7 @@ pub struct Dock {
     inputs: Entity<Inputs>,
     shared: Entity<Inputs>,
     history: History,
+    search: Entity<Field>,
     docs: Docs,
     commits: commits::Commits,
     commit_bar: Bar<UniformListScrollHandle>,
@@ -158,6 +160,7 @@ pub fn dock(
 ) -> Entity<Dock> {
     cx.new(|cx| {
         let query = field::new(Str::DocsFilterPlaceholder, cx);
+        let search = field::new(Str::InboxSearchPlaceholder, cx);
         let mut dock = Dock {
             store: store.clone(),
             tab: Tab::Questions,
@@ -178,6 +181,7 @@ pub fn dock(
             inputs: cx.new(|_| Inputs::default()),
             shared,
             history: History::default(),
+            search: search.clone(),
             docs: Docs {
                 order: 0,
                 loaded: 0,
@@ -204,6 +208,14 @@ pub fn dock(
         dock.subscriptions
             .push(cx.observe(dock.events.query(), |dock, _, cx| dock.query_changed(cx)));
         dock.subscriptions
+            .push(cx.observe(&search, |dock, _, cx| dock.search_changed(cx)));
+        dock.subscriptions
+            .push(cx.subscribe(&search, |_, field, event, cx| {
+                if matches!(event, FieldEvent::Escape) {
+                    field.update(cx, |field, cx| field.clear(cx));
+                }
+            }));
+        dock.subscriptions
             .push(cx.subscribe(&store, |dock, _, event, cx| dock.feed(event, cx)));
         dock.sync(cx);
         dock
@@ -216,6 +228,7 @@ impl Dock {
         self.fault = None;
         self.arrange_menu = None;
         self.inbox = Inbox::New;
+        self.search.update(cx, |field, cx| field.clear(cx));
         self.panel_bar.reset();
         if tab != Tab::Events {
             self.store

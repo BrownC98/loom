@@ -2792,6 +2792,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "open",
+ "percent-encoding",
  "polling",
  "serde",
  "serde_json",

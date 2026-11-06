@@ -724,13 +724,25 @@ impl Store {
 
     pub fn closed_waits(
         &self,
+        query: String,
         before: Option<u32>,
         cx: &mut Context<Self>,
     ) -> Task<Result<ClosedPage, String>> {
         self.call(cx, move |base| {
-            let path = match before {
-                Some(seq) => format!("/api/waits/closed?before={seq}"),
-                None => "/api/waits/closed".to_owned(),
+            let mut at = Vec::new();
+            if let Some(seq) = before {
+                at.push(format!("before={seq}"));
+            }
+            if !query.is_empty() {
+                let query = percent_encoding::utf8_percent_encode(
+                    &query,
+                    percent_encoding::NON_ALPHANUMERIC,
+                );
+                at.push(format!("q={query}"));
+            }
+            let path = match at.is_empty() {
+                true => "/api/waits/closed".to_owned(),
+                false => format!("/api/waits/closed?{}", at.join("&")),
             };
             link::read(base, &path)
         })

@@ -552,7 +552,10 @@ a { color: var(--accent); }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
-.inbox-tabs { flex: none; display: grid; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.inbox-tabs { flex: none; display: grid; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.inbox-tabs input { height: 28px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font: inherit; font-size: 13px; color: var(--ink); }
+.inbox-tabs input::placeholder { color: var(--ink-3); }
+.inbox-tabs input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .inbox-tabs .choice { display: flex; justify-self: stretch; }
 .inbox-tabs .choice button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 14px; border: 0; border-right: 1px solid var(--line); background: none; color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .inbox-tabs .choice button:last-child { border-right: 0; }

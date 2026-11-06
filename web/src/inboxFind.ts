@@ -35,6 +35,17 @@ function findRanges(root: HTMLElement, query: string): Range[] {
   return ranges;
 }
 
+function reveal(range: Range) {
+  const start = range.startContainer;
+  let box = start instanceof Element ? start : start.parentElement;
+  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  if (!box) return;
+  const spot = range.getBoundingClientRect();
+  const view = box.getBoundingClientRect();
+  if (spot.top < view.top) box.scrollTop -= view.top - spot.top + view.height / 3;
+  else if (spot.bottom > view.bottom) box.scrollTop += spot.bottom - view.bottom + view.height / 3;
+}
+
 export function useInboxFind(root: RefObject<HTMLElement | null>, query: string): InboxFind {
   const [total, setTotal] = useState(0);
   const [at, setAt] = useState(0);
@@ -45,10 +56,12 @@ export function useInboxFind(root: RefObject<HTMLElement | null>, query: string)
     let found: Range[] = [];
     let now = 0;
     const paint = () => {
-      CSS.highlights?.set(ALL, new Highlight(...found));
-      const current = new Highlight(...found.slice(now, now + 1));
-      current.priority = 1;
-      CSS.highlights?.set(NOW, current);
+      if ('highlights' in CSS) {
+        CSS.highlights.set(ALL, new Highlight(...found));
+        const current = new Highlight(...found.slice(now, now + 1));
+        current.priority = 1;
+        CSS.highlights.set(NOW, current);
+      }
       setTotal(found.length);
       setAt(now);
     };
@@ -61,16 +74,17 @@ export function useInboxFind(root: RefObject<HTMLElement | null>, query: string)
       if (found.length === 0) return;
       now = (now + by + found.length) % found.length;
       paint();
-      const target = found[now].startContainer;
-      (target instanceof Element ? target : target.parentElement)?.scrollIntoView({ block: 'nearest' });
+      reveal(found[now]);
     };
     scan();
     const watch = new MutationObserver(scan);
     watch.observe(el, { childList: true, subtree: true, characterData: true });
     return () => {
       watch.disconnect();
-      CSS.highlights?.delete(ALL);
-      CSS.highlights?.delete(NOW);
+      if ('highlights' in CSS) {
+        CSS.highlights.delete(ALL);
+        CSS.highlights.delete(NOW);
+      }
     };
   }, [root, query]);
   return { total, at, step: (by) => move.current(by) };

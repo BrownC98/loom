@@ -11,7 +11,11 @@ impl WaitSearch {
         if words.is_empty() {
             return None;
         }
-        let id = words.strip_prefix('q').unwrap_or(&words).parse().ok();
+        let digits = words.strip_prefix('q').unwrap_or(&words);
+        let id = match digits.bytes().all(|b| b.is_ascii_digit()) {
+            true => digits.parse().ok(),
+            false => None,
+        };
         Some(WaitSearch { words, id })
     }
 

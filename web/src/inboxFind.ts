@@ -37,13 +37,13 @@ function findRanges(root: HTMLElement, query: string): Range[] {
 
 function reveal(range: Range) {
   const start = range.startContainer;
-  let box = start instanceof Element ? start : start.parentElement;
-  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
-  if (!box) return;
-  const spot = range.getBoundingClientRect();
-  const view = box.getBoundingClientRect();
-  if (spot.top < view.top) box.scrollTop -= view.top - spot.top + view.height / 3;
-  else if (spot.bottom > view.bottom) box.scrollTop += spot.bottom - view.bottom + view.height / 3;
+  for (let box = start instanceof Element ? start : start.parentElement; box; box = box.parentElement) {
+    if (box.scrollHeight <= box.clientHeight || !/auto|scroll/.test(getComputedStyle(box).overflowY)) continue;
+    const spot = range.getBoundingClientRect();
+    const view = box.getBoundingClientRect();
+    if (spot.top < view.top) box.scrollTop -= view.top - spot.top + view.height / 3;
+    else if (spot.bottom > view.bottom) box.scrollTop += spot.bottom - view.bottom + view.height / 3;
+  }
 }
 
 export function useInboxFind(root: RefObject<HTMLElement | null>, query: string): InboxFind {

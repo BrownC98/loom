@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
 import { BaseEdge, type Edge, type EdgeProps } from '@xyflow/react';
 import type { HopRoute } from './hopLanes';
+import { roundedPath } from './edgePath';
 
 const HOP_LIFT_MIN = 40;
-const CORNER = 5;
 const HIT_WIDTH = 6;
 const LABEL_FONT = '600 12px';
 const LABEL_PAD = { x: 8, y: 2 };
@@ -19,27 +19,11 @@ export function hopLabelSize(text: string): { width: number; height: number } {
 
 export type HopEdgeType = Edge<{ route: HopRoute | null; title: string; color: string }, 'hop'>;
 
-function lanePath(points: HopRoute['points']): string {
-  const toward = (from: number, to: number) => Math.sign(to - from) * Math.min(CORNER, Math.abs(to - from) / 2);
-  const [first, ...rest] = points;
-  let d = `M ${first.x} ${first.y}`;
-  rest.forEach((p, i) => {
-    const prev = points[i];
-    const next = rest[i + 1];
-    if (!next) {
-      d += ` L ${p.x} ${p.y}`;
-      return;
-    }
-    d += ` L ${p.x - toward(prev.x, p.x)} ${p.y - toward(prev.y, p.y)} Q ${p.x} ${p.y} ${p.x + toward(p.x, next.x)} ${p.y + toward(p.y, next.y)}`;
-  });
-  return d;
-}
-
 export function HopEdge(props: EdgeProps<HopEdgeType>) {
   const route = props.data?.route ?? null;
   const { sourceX, sourceY, targetX, targetY } = props;
   const top = Math.min(sourceY, targetY) - Math.max(HOP_LIFT_MIN, Math.abs(targetX - sourceX) / 4);
-  const path = route ? lanePath(route.points) : `M ${sourceX} ${sourceY} C ${sourceX} ${top}, ${targetX} ${top}, ${targetX} ${targetY}`;
+  const path = route ? roundedPath(route.points) : `M ${sourceX} ${sourceY} C ${sourceX} ${top}, ${targetX} ${top}, ${targetX} ${targetY}`;
   const turned = route?.turned && route.label && typeof props.label === 'string' ? { at: route.label.at, text: props.label, size: hopLabelSize(props.label) } : null;
   return (
     <g style={{ '--hop': props.data?.color } as CSSProperties}>

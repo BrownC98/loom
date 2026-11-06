@@ -322,7 +322,9 @@ export function stepAt(parent: Box, child: Box, direction: ArrangeDirection, ben
   return Math.min(bend, gap / 2);
 }
 
-export function bendCenter(parent: Box, bend: number, direction: ArrangeDirection): { x?: number; y?: number } {
+export type BendCenter = { x: number } | { y: number };
+
+export function bendCenter(parent: Box, bend: number, direction: ArrangeDirection): BendCenter {
   switch (direction) {
     case 'down':
       return { y: parent.at.y + parent.size.height + bend };

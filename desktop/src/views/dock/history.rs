@@ -123,7 +123,7 @@ impl Dock {
 
     pub(super) fn history_list(&self, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
-        if let (false, Some(error)) = (self.history.loaded, &self.history.error) {
+        if let (true, Some(error)) = (self.history.rows.is_empty(), &self.history.error) {
             return ui::empty(error.clone(), true, cx);
         }
         if self.history.loaded && self.history.rows.is_empty() {

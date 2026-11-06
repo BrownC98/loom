@@ -101,7 +101,14 @@ function History(props: { open: string; query: string; onSelect: (id: NodeId) =>
   latestGo.current = go;
   const onGo = useCallback((id: NodeId) => latestGo.current(id), []);
   if (list === null) return refusal ? <p className="inbox-empty refusal">{refusal}</p> : null;
-  if (list.length === 0) return <p className="inbox-empty">{t(shownQuery.current ? 'inbox.noMatch' : 'inbox.historyEmpty')}</p>;
+  if (list.length === 0)
+    return refusal ? (
+      <p className="inbox-empty refusal" role="alert">
+        {refusal}
+      </p>
+    ) : (
+      <p className="inbox-empty">{t(shownQuery.current ? 'inbox.noMatch' : 'inbox.historyEmpty')}</p>
+    );
   return (
     <ul className="wait-list history">
       {list.map((w) => (

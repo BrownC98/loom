@@ -3,6 +3,7 @@ pub mod errors;
 pub mod events;
 pub mod messages;
 pub mod pty;
+pub mod search;
 pub mod text;
 pub mod waits;
 

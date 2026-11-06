@@ -19,6 +19,7 @@ tungstenite = { version = "0.29", default-features = false, features = ["handsha
 ureq = { version = "3", default-features = false }
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
 open = "5"
+percent-encoding = "2.3.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [build-dependencies]

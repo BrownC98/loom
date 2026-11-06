@@ -7,6 +7,7 @@ use super::runtime::bearer;
 use super::*;
 use crate::protocol::ChoiceRequest;
 use api::graph::docs::DocQuestion;
+use api::graph::search::WaitSearch;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
@@ -28,16 +29,20 @@ pub(super) fn routes() -> Router<Arc<App>> {
 }
 
 #[derive(Deserialize)]
-struct ClosedBefore {
+struct ClosedQuery {
     before: Option<u32>,
+    q: Option<String>,
 }
 
 async fn closed_waits(
     State(app): State<Arc<App>>,
-    Query(at): Query<ClosedBefore>,
+    Query(at): Query<ClosedQuery>,
 ) -> Result<Json<ClosedPage>, Problem> {
     app.graph
-        .closed_waits(at.before)
+        .closed_waits(
+            at.before,
+            at.q.as_deref().and_then(WaitSearch::new).as_ref(),
+        )
         .map(Json)
         .map_err(internal)
 }

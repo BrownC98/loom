@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use api::graph::NodeState;
+use api::graph::search::WaitSearch;
 use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::NodeId;
 use gpui::{
@@ -145,8 +146,17 @@ impl Dock {
 
     pub(super) fn questions(&self, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
-        let groups = self.groups(cx);
+        let mut groups = self.groups(cx);
         let count: usize = groups.iter().map(|g| g.waits.len()).sum();
+        let search = WaitSearch::new(&self.search_text(cx));
+        if let Some(search) = &search {
+            for group in &mut groups {
+                group
+                    .waits
+                    .retain(|w| search.finds_open(&group.name, &w.wait));
+            }
+            groups.retain(|g| !g.waits.is_empty());
+        }
         let items = vec![
             (
                 Inbox::New,
@@ -160,6 +170,9 @@ impl Dock {
         let owner = cx.entity();
         let switch = div()
             .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
             .px(px(12.0))
             .py(px(8.0))
             .border_b_1()
@@ -178,11 +191,16 @@ impl Dock {
                     })
                 },
                 cx,
-            ));
+            ))
+            .child(ui::search(&self.search, cx).w_full());
         let list = match self.inbox {
             Inbox::History => ui::scroller(&self.panel_bar, self.history_list(cx)),
             Inbox::New if groups.is_empty() => {
-                ui::empty(ui::say(cx, Str::InboxEmpty).to_owned(), false, cx)
+                let empty = match search {
+                    Some(_) => Str::InboxNoMatch,
+                    None => Str::InboxEmpty,
+                };
+                ui::empty(ui::say(cx, empty).to_owned(), false, cx)
             }
             Inbox::New => {
                 let (store, inputs) = (self.store.clone(), self.shared.clone());

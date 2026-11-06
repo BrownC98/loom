@@ -89,7 +89,13 @@ export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 export const setCardView = (id: NodeId, view: CardView) => call<null>('PUT', `/api/nodes/${id}/card-view`, view);
 export const clearCardView = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/card-view`);
-export const getClosedWaits = (before?: number) => call<ClosedPage>('GET', `/api/waits/closed${before === undefined ? '' : `?before=${before}`}`);
+export const getClosedWaits = (query: string, before?: number) => {
+  const at = new URLSearchParams();
+  if (before !== undefined) at.set('before', String(before));
+  if (query) at.set('q', query);
+  const tail = at.toString();
+  return call<ClosedPage>('GET', `/api/waits/closed${tail ? `?${tail}` : ''}`);
+};
 export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);
 export const answerWait = (wait: WaitId, text: string, images: string[]) =>
   call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);

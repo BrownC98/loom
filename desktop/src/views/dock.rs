@@ -29,6 +29,7 @@ mod commits;
 mod docs;
 pub(crate) mod entry;
 pub mod events;
+pub(crate) mod find;
 mod history;
 mod lanes;
 pub(crate) mod questions;
@@ -142,6 +143,7 @@ pub struct Dock {
     shared: Entity<Inputs>,
     history: History,
     search: Entity<Field>,
+    find: find::State,
     docs: Docs,
     commits: commits::Commits,
     commit_bar: Bar<UniformListScrollHandle>,
@@ -182,6 +184,7 @@ pub fn dock(
             shared,
             history: History::default(),
             search: search.clone(),
+            find: find::State::default(),
             docs: Docs {
                 order: 0,
                 loaded: 0,
@@ -210,10 +213,11 @@ pub fn dock(
         dock.subscriptions
             .push(cx.observe(&search, |dock, _, cx| dock.search_changed(cx)));
         dock.subscriptions
-            .push(cx.subscribe(&search, |_, field, event, cx| {
-                if matches!(event, FieldEvent::Escape) {
-                    field.update(cx, |field, cx| field.clear(cx));
-                }
+            .push(cx.subscribe(&search, |dock, field, event, cx| match event {
+                FieldEvent::Escape => field.update(cx, |field, cx| field.clear(cx)),
+                FieldEvent::Enter => dock.find_step(1, cx),
+                FieldEvent::Step(delta) => dock.find_step(delta.signum(), cx),
+                FieldEvent::Changed => {}
             }));
         dock.subscriptions
             .push(cx.subscribe(&store, |dock, _, event, cx| dock.feed(event, cx)));

@@ -2,6 +2,7 @@ use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
+use api::graph::search::WaitSearch;
 use gpui::{
     AnyElement, Bounds, Context, Div, ElementId, HighlightStyle, InteractiveElement, IntoElement,
     ParentElement, Pixels, Rgba, ScrollHandle, StatefulInteractiveElement, Styled, Window, canvas,
@@ -55,10 +56,10 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn follow(&mut self, query: &str) {
-        let words = query.trim().to_lowercase();
+    pub(super) fn follow(&mut self, search: Option<&WaitSearch>) {
+        let words = search.map_or("", WaitSearch::words);
         if words != self.words {
-            self.words = words;
+            self.words = words.to_owned();
             self.restart();
         }
     }
@@ -68,19 +69,16 @@ impl State {
         self.jump.set(!self.words.is_empty());
     }
 
-    pub(super) fn begin(&self, query: &str, colors: &Colors, view: &ScrollHandle) -> Option<Find> {
-        let words = query.trim().to_lowercase();
-        if words.is_empty() {
-            return None;
-        }
-        let digits = words.strip_prefix('q').unwrap_or(&words);
-        let id = match digits.bytes().all(|b| b.is_ascii_digit()) {
-            true => digits.parse().ok(),
-            false => None,
-        };
+    pub(super) fn begin(
+        &self,
+        search: Option<&WaitSearch>,
+        colors: &Colors,
+        view: &ScrollHandle,
+    ) -> Option<Find> {
+        let search = search?;
         Some(Find {
-            words,
-            id,
+            words: search.words().to_owned(),
+            id: search.id(),
             current: self.current.get(),
             seen: Rc::default(),
             any: colors.find,

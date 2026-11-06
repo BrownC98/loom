@@ -19,6 +19,14 @@ impl WaitSearch {
         Some(WaitSearch { words, id })
     }
 
+    pub fn words(&self) -> &str {
+        &self.words
+    }
+
+    pub fn id(&self) -> Option<u32> {
+        self.id
+    }
+
     pub fn finds_open(&self, node: &str, wait: &HumanWait) -> bool {
         self.finds(node, wait, None)
     }

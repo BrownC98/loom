@@ -667,7 +667,7 @@ fn wait_body(
                 answers.shown.insert(id, prompt.clone());
             }
         });
-        body = body.child(prompt_body(answers, id, wait.tone, prompt, z, cx));
+        body = body.child(prompt_body(answers, id, wait.tone, prompt, z, find, cx));
     } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
         let owner = answers.clone();
         body = body.child(
@@ -900,6 +900,7 @@ fn prompt_body(
     tone: WaitTone,
     prompt: &Prompt,
     z: f32,
+    find: Option<&Find>,
     cx: &mut App,
 ) -> AnyElement {
     let c = ui::colors(cx);
@@ -908,7 +909,11 @@ fn prompt_body(
         .flex()
         .flex_col()
         .gap(px(GAP * z))
-        .child(entry::prompt_box(prompt.body.join("\n"), z, &c));
+        .child(entry::prompt_box(
+            find::line(find, "", &prompt.body.join("\n"), ""),
+            z,
+            &c,
+        ));
     let options =
         div()
             .flex()

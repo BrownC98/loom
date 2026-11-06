@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use api::graph::events::ClosedBy;
+use api::graph::search::WaitSearch;
 use api::graph::waits::{Closed, ClosedWait, WaitKind, WaitTone};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -41,7 +42,7 @@ impl Dock {
 
     pub(super) fn search_changed(&mut self, cx: &mut Context<Self>) {
         let query = self.search_text(cx);
-        self.find.follow(&query);
+        self.find.follow(WaitSearch::new(&query).as_ref());
         cx.notify();
         if self.inbox != Inbox::History || (self.history.loaded && query == self.history.query) {
             return;

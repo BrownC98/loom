@@ -166,7 +166,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
         <li key={v.id} className="wait-node" data-tone={oldestWait(v).tone}>
           <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
             <span className={`dot ${stateClass(v)}`} aria-hidden="true" />
-            <b>{v.name}</b>
+            <b data-find>{v.name}</b>
             <NoticeBadges waits={v.waits} />
           </button>
           <ul className="wait-rows">
@@ -204,7 +204,11 @@ function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) 
       <div className="top">
         <Icon className="kind-mark" aria-hidden="true" />
         <span className="kind">{t(`wait.${wait.kind}`)}</span>
-        {showsId(wait.kind) && <span className="qid">Q{wait.id}</span>}
+        {showsId(wait.kind) && (
+          <span className="qid" data-find-id={wait.id}>
+            Q{wait.id}
+          </span>
+        )}
         <Published wait={wait} />
         {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
       </div>
@@ -222,7 +226,7 @@ export function Published(props: { wait: ScreenWait }) {
 
 export function Instruction(props: { text: string }) {
   const { t } = useTranslation();
-  return <p className="instruction">{t('inbox.instruction', { text: props.text })}</p>;
+  return <p className="instruction" data-find>{t('inbox.instruction', { text: props.text })}</p>;
 }
 
 function ConfirmButton(props: { wait: WaitId }) {
@@ -306,7 +310,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
         />
       )}
       {!prompt && (wait.text || wait.doc) && (
-        <p className="full">
+        <p className="full" data-find>
           <DocText parts={wait.parts ?? []} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
         </p>
       )}

@@ -5,7 +5,7 @@ export const TYPE_PAUSE_MS = 250;
 
 type WaitSearch = { words: string; id: number | null };
 
-function waitSearch(query: string): WaitSearch | null {
+export function waitSearch(query: string): WaitSearch | null {
   const words = query.trim().toLowerCase();
   if (!words) return null;
   const digits = words.startsWith('q') ? words.slice(1) : words;

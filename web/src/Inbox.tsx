@@ -226,7 +226,14 @@ export function Published(props: { wait: ScreenWait }) {
 
 export function Instruction(props: { text: string }) {
   const { t } = useTranslation();
-  return <p className="instruction" data-find>{t('inbox.instruction', { text: props.text })}</p>;
+  const [before, after] = t('inbox.instruction', { text: '\u0000' }).split('\u0000');
+  return (
+    <p className="instruction">
+      {before}
+      <span data-find>{props.text}</span>
+      {after}
+    </p>
+  );
 }
 
 function ConfirmButton(props: { wait: WaitId }) {

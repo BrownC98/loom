@@ -89,9 +89,13 @@ loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom �
 
 **처음 쓰기.** 창이 loom 데몬을 띄우고 그래프를 보여 줍니다. 도는 loom 데몬이 있으면 그 데몬에 붙습니다. 그 데몬이 옛 판이면 새 `loom`이 바꾸고, 에이전트는 계속 돕니다. 그 뒤 앱과 같이 저장소를 더하고 에이전트를 띄웁니다.
 
-**닫기와 끄기.** 창을 닫아도 데몬과 에이전트는 계속 돕니다. 데몬을 끄려면 `loom stop`을 실행합니다.
+**닫기와 끄기.** 창을 닫아도 데몬과 에이전트는 계속 돕니다. 데몬을 끄려면 `loom-desktop` 옆의 `loom`으로 `stop`을 실행합니다. 설치는 이 `loom`을 `PATH`에 넣지 않습니다:
 
-**업데이트.** loom desktop에는 업데이트 카드가 없습니다. 설치 한 줄을 다시 실행하거나, 새 릴리스를 옛 폴더 위에 풉니다.
+- Windows(한 줄 설치): `%LOCALAPPDATA%\loom\bin\loom.exe stop`
+- macOS(한 줄 설치): `/Applications/loom-desktop.app/Contents/MacOS/loom stop`(또는 `~/Applications/…`)
+- 손으로 설치: `<폴더>/loom stop`
+
+**업데이트.** loom desktop에는 업데이트 카드가 없습니다. 설치 한 줄을 다시 실행합니다. 손으로 설치했으면 새 릴리스를 새 폴더에 풀고 그 `loom-desktop`을 실행합니다. 새 `loom`이 도는 데몬을 바꿉니다. 옛 폴더 위에 풀지 않습니다: Windows에서는 도는 `loom.exe`를 바꿀 수 없습니다.
 
 **한계.** 릴리스에는 Windows x64와 macOS Apple Silicon용 loom desktop만 있습니다. Linux는 브라우저 판을 씁니다. v0.1.2825보다 옛 릴리스에는 없습니다. 그때 설치 한 줄은 브라우저 판(Windows) 또는 앱만(macOS) 설치합니다.
 

@@ -89,9 +89,13 @@ loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead o
 
 **First use.** The window starts the loom daemon and shows the graph. If a loom daemon already runs, the window joins it. If that daemon is older, the newer `loom` replaces it, and the agents continue. Then add a repository and start an agent, as in the app.
 
-**Close and stop.** When you close the window, the daemon and the agents continue. To stop the daemon, run `loom stop`.
+**Close and stop.** When you close the window, the daemon and the agents continue. To stop the daemon, run `stop` with the `loom` next to `loom-desktop`. The install does not put it on `PATH`:
 
-**Update.** loom desktop shows no update card. Run the install line again, or unpack the new release over the old folder.
+- Windows (one line): `%LOCALAPPDATA%\loom\bin\loom.exe stop`
+- macOS (one line): `/Applications/loom-desktop.app/Contents/MacOS/loom stop` (or `~/Applications/…`)
+- Hand install: `<folder>/loom stop`
+
+**Update.** loom desktop shows no update card. Run the install line again. With a hand install, unpack the new release into a new folder and run its `loom-desktop`. The newer `loom` replaces the running daemon. Do not unpack over the old folder: on Windows, the running `loom.exe` cannot be replaced.
 
 **Limits.** The release has loom desktop only for Windows x64 and macOS Apple Silicon. On Linux, use the browser version. Releases before v0.1.2825 do not have it; for those, the install lines install the browser version (Windows) or only the app (macOS).
 

@@ -554,7 +554,7 @@ a { color: var(--accent); }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
-.inbox-tabs { flex: none; display: grid; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.inbox-tabs { flex: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .inbox-search { display: flex; align-items: center; gap: 2px; height: 28px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding-right: 3px; }
 .inbox-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
 .inbox-search input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; padding: 0 9px; font: inherit; font-size: 13px; color: var(--ink); outline: none; }

@@ -194,12 +194,31 @@ loom은 노드마다 스킬 여섯 개를 줍니다. 따로 설치할 것은 없
 
 설계와 결정은 [docs/design.md](docs/design.md)에 있습니다.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/)
+
+**상태:** Windows 파일은 아직 서명하지 않았습니다. SignPath Foundation이 이 프로젝트를 승인한 뒤 서명을 시작합니다.
+
+- 서명하는 파일은 이 저장소의 소스에서 GitHub Actions([.github/workflows/release.yml](.github/workflows/release.yml))가 빌드한 Windows 파일뿐입니다.
+- 서명 요청마다 승인 담당이 손으로 승인합니다.
+- loom은 관리자가 한 명입니다. [@BrownC98](https://github.com/BrownC98)이 세 역할을 모두 맡습니다.
+
+| 역할 | 담당 |
+|---|---|
+| Authors(이 저장소에 커밋) | [@BrownC98](https://github.com/BrownC98) |
+| Reviewers(외부 기여 리뷰) | [@BrownC98](https://github.com/BrownC98) |
+| Approvers(서명 요청마다 승인) | [@BrownC98](https://github.com/BrownC98) |
+
 ## Privacy policy
 
-loom은 사람이 정하지 않은 곳에 데이터를 보내지 않습니다. 밖으로 나가는 요청은 아래뿐입니다.
+loom은 사용자나 설치·운영하는 사람이 요청하지 않으면 다른 네트워크 시스템에 정보를 보내지 않습니다. 밖으로 나가는 요청은 아래뿐입니다.
 
-- **업데이트 확인:** GitHub의 이 저장소 릴리스에서 `latest.json`을 읽습니다. 보내는 개인 데이터는 없습니다.
-- **사용량 표시:** 사람이 loom 설정에서 로그인한 Claude 계정의 사용량을 그 계정의 토큰으로 Anthropic(`api.anthropic.com`)에 묻습니다. 다른 곳에는 보내지 않습니다.
+- **업데이트 확인과 업데이트:** 앱, 브라우저 판, Android 앱은 GitHub의 이 저장소 릴리스에서 최신 판을 읽고, 업데이트할 때 새 파일을 거기서 받습니다. 보내는 개인 데이터는 없습니다.
+- **사용량 표시:** 로그인한 계정의 사용량을 그 계정의 로그인 정보로 제공자에게 묻습니다. Claude는 Anthropic(`api.anthropic.com`), Cursor는 `cursor.com`에 묻습니다. Codex는 사람이 설치한 `codex` CLI에 묻습니다. 다른 곳에는 보내지 않습니다.
+- **휴대폰:** 휴대폰을 연결하면 loom은 설치된 `tailscale` 명령으로 loom을 사람의 tailnet에 엽니다. Android 앱은 Tailscale을 거쳐 사람의 PC loom에만 연결합니다.
+- **SSH 호스트:** SSH 호스트를 더하면 loom은 사람의 `ssh`와 키로 그 호스트에 연결합니다. Mac 호스트는 이 저장소 릴리스에서 loom을 받습니다.
+- **Git:** URL로 저장소를 더하면 loom이 그 저장소를 clone합니다. 병합 관문은 사람 저장소의 원격에서 fetch하고 원격에 push합니다.
 - **에이전트 CLI:** 사람이 설치하고 고른 에이전트(Claude Code, Codex 등)는 각 제공자의 정책에 따라 통신합니다. loom은 그 통신에 데이터를 더하지 않습니다.
 
 ## 라이선스

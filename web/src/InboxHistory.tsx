@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +12,7 @@ import type { NodeView } from './gen/NodeView';
 import { dateAndTime } from './i18n';
 import { InboxPanel, Instruction, Published, waitCount } from './Inbox';
 import { ICON, showsId } from './notice';
+import { useInboxFind } from './inboxFind';
 import { openMatches, TYPE_PAUSE_MS } from './waitSearch';
 
 type InboxTab = 'new' | 'history';
@@ -23,6 +24,8 @@ export function InboxTabs(props: { waiting: NodeView[]; onSelect: (id: NodeId) =
   const n = waitCount(props.waiting);
   const shown = openMatches(props.waiting, query);
   const open = props.waiting.flatMap((v) => v.waits.map((w) => w.id)).join(',');
+  const results = useRef<HTMLDivElement>(null);
+  const find = useInboxFind(results, query);
   return (
     <>
       <div className="inbox-tabs">
@@ -35,8 +38,38 @@ export function InboxTabs(props: { waiting: NodeView[]; onSelect: (id: NodeId) =
             {t('inbox.history')}
           </button>
         </div>
-        <input type="search" name="inbox-search" aria-label={t('inbox.search')} placeholder={t('inbox.searchPlaceholder')} autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="inbox-search">
+          <input
+            type="search"
+            name="inbox-search"
+            aria-label={t('inbox.search')}
+            placeholder={t('inbox.searchPlaceholder')}
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              find.step(e.shiftKey ? -1 : 1);
+            }}
+          />
+          {query.trim() && (
+            <>
+              <span className="find-count" aria-live="polite">
+                {find.total === 0 ? 0 : find.at + 1} / {find.total}
+              </span>
+              <button type="button" className="find-step" aria-label={t('inbox.findPrev')} title={t('inbox.findPrev')} disabled={find.total === 0} onClick={() => find.step(-1)}>
+                <ChevronUp aria-hidden="true" />
+              </button>
+              <button type="button" className="find-step" aria-label={t('inbox.findNext')} title={t('inbox.findNext')} disabled={find.total === 0} onClick={() => find.step(1)}>
+                <ChevronDown aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
+      <div className="inbox-results" ref={results}>
       {tab === 'history' ? (
         <History open={open} query={query.trim()} onSelect={props.onSelect} />
       ) : query.trim() && shown.length === 0 ? (
@@ -44,6 +77,7 @@ export function InboxTabs(props: { waiting: NodeView[]; onSelect: (id: NodeId) =
       ) : (
         <InboxPanel waiting={shown} onSelect={props.onSelect} onFocus={props.onFocus} />
       )}
+      </div>
     </>
   );
 }
@@ -151,20 +185,26 @@ const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (
         <div className="top">
           <Icon className="kind-mark" aria-hidden="true" />
           <span className="kind">{t(`wait.${wait.kind}`)}</span>
-          {showsId(wait.kind) && <span className="qid">Q{wait.id}</span>}
+          {showsId(wait.kind) && (
+            <span className="qid" data-find-id={wait.id}>
+              Q{wait.id}
+            </span>
+          )}
           {node.id !== null ? (
-            <button type="button" className="node" aria-label={t('inbox.jumpLabel', { name: node.name })} onClick={() => node.id !== null && props.onGo(node.id)}>
+            <button type="button" className="node" aria-label={t('inbox.jumpLabel', { name: node.name })} onClick={() => node.id !== null && props.onGo(node.id)} data-find>
               {node.name}
             </button>
           ) : (
-            <span className="node gone">{node.name}</span>
+            <span className="node gone" data-find>
+              {node.name}
+            </span>
           )}
           <Published wait={wait} />
         </div>
         {wait.instruction && <Instruction text={wait.instruction} />}
         <div className="wait-body" data-tone={wait.tone}>
           {(wait.text || wait.doc) && (
-            <p className="full">
+            <p className="full" data-find>
               <DocText parts={wait.parts ?? []} doc={wait.doc} node={node.id} onRefusal={props.onRefusal} />
             </p>
           )}
@@ -201,7 +241,11 @@ function ClosedLine(props: { closed: ClosedWait; t: TFunction }) {
   return (
     <p className="closed">
       <b>{t(closedLabel(how))}</b> <time dateTime={new Date(closedAt * 1000).toISOString()}>{dateAndTime(closedAt * 1000)}</time>
-      {said && <span className="said">{said}</span>}
+      {said && (
+        <span className="said" data-find>
+          {said}
+        </span>
+      )}
     </p>
   );
 }

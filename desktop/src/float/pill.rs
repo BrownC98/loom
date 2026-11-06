@@ -318,6 +318,7 @@ impl Pill {
                     oldest_node(groups),
                     first,
                     z,
+                    None,
                     cx,
                 ))
                 .into_any_element()
@@ -364,7 +365,7 @@ impl Pill {
             store.update(cx, |store, cx| store.go(node.0, cx));
             inputs.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
         });
-        let list = wait_list(&self.answers, groups, z, go.clone(), go, cx);
+        let list = wait_list(&self.answers, groups, z, go.clone(), go, None, cx);
         let scroller = div()
             .id("pill-list")
             .overflow_y_scroll()

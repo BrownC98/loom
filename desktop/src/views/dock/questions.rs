@@ -12,6 +12,7 @@ use gpui::{
 use super::answers::{self, Answers};
 use super::body::{self, Target};
 use super::entry;
+use super::find::{self, Find};
 use super::ui::{self, GAP};
 use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
@@ -157,6 +158,33 @@ impl Dock {
             }
             groups.retain(|g| !g.waits.is_empty());
         }
+        let find = self
+            .find
+            .begin(search.as_ref(), &c, self.panel_bar.handle());
+        let find = find.as_ref();
+        let list = match self.inbox {
+            Inbox::History => ui::scroller(&self.panel_bar, self.history_list(find, cx)),
+            Inbox::New if groups.is_empty() => {
+                let empty = match search {
+                    Some(_) => Str::InboxNoMatch,
+                    None => Str::InboxEmpty,
+                };
+                ui::empty(ui::say(cx, empty).to_owned(), false, cx)
+            }
+            Inbox::New => {
+                let (store, inputs) = (self.store.clone(), self.shared.clone());
+                let go: Visit =
+                    Rc::new(move |node, _, cx| store.update(cx, |store, cx| store.go(node.0, cx)));
+                let (store, focus) = (self.store.clone(), inputs);
+                let jump: Visit = Rc::new(move |node, window, cx| {
+                    store.update(cx, |store, cx| store.go(node.0, cx));
+                    focus.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
+                });
+                let list = wait_list(&self.answers, &groups, 1.0, go, jump, find, cx);
+                ui::scroller(&self.panel_bar, div().p(px(6.0)).child(list))
+            }
+        };
+        let hits = self.find.finish(find, cx);
         let items = vec![
             (
                 Inbox::New,
@@ -184,6 +212,7 @@ impl Dock {
                 move |value, _, cx| {
                     owner.update(cx, |dock, cx| {
                         dock.inbox = value;
+                        dock.find.restart();
                         if value == Inbox::History {
                             dock.load_history(cx);
                         }
@@ -192,29 +221,7 @@ impl Dock {
                 },
                 cx,
             ))
-            .child(ui::search(&self.search, cx).w_full());
-        let list = match self.inbox {
-            Inbox::History => ui::scroller(&self.panel_bar, self.history_list(cx)),
-            Inbox::New if groups.is_empty() => {
-                let empty = match search {
-                    Some(_) => Str::InboxNoMatch,
-                    None => Str::InboxEmpty,
-                };
-                ui::empty(ui::say(cx, empty).to_owned(), false, cx)
-            }
-            Inbox::New => {
-                let (store, inputs) = (self.store.clone(), self.shared.clone());
-                let go: Visit =
-                    Rc::new(move |node, _, cx| store.update(cx, |store, cx| store.go(node.0, cx)));
-                let (store, focus) = (self.store.clone(), inputs);
-                let jump: Visit = Rc::new(move |node, window, cx| {
-                    store.update(cx, |store, cx| store.go(node.0, cx));
-                    focus.update(cx, |inputs, cx| inputs.focus(node.0, window, cx));
-                });
-                let list = wait_list(&self.answers, &groups, 1.0, go, jump, cx);
-                ui::scroller(&self.panel_bar, div().p(px(6.0)).child(list))
-            }
-        };
+            .child(self.search_bar(hits, cx));
         div()
             .size_full()
             .flex()
@@ -230,6 +237,7 @@ pub(crate) fn wait_list(
     z: f32,
     go: Visit,
     focus: Visit,
+    find: Option<&Find>,
     cx: &mut App,
 ) -> Div {
     let c = ui::colors(cx);
@@ -267,7 +275,7 @@ pub(crate) fn wait_list(
                     .text_size(px(ui::TEXT * z))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c.ink)
-                    .child(group.name.clone()),
+                    .child(find::line(find, "", &group.name, "")),
             )
             .children({
                 let asks = group
@@ -296,7 +304,7 @@ pub(crate) fn wait_list(
             if row > 0 {
                 item = item.border_t_1().border_dashed().border_color(c.line);
             }
-            item.child(answers::entry(answers, node, w, z, cx))
+            item.child(answers::entry(answers, node, w, z, find, cx))
         });
         let mut item = div()
             .flex()

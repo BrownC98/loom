@@ -41,6 +41,8 @@
   --warn: light-dark(var(--warn-light), var(--warn-dark));
   --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
   --ask: var(--warn);
+  --find: light-dark(oklch(91% 0.11 95), oklch(42% 0.08 95));
+  --find-now: light-dark(oklch(76% 0.16 60), oklch(68% 0.16 60));
   --ask-ink: var(--warn-ink);
   --err-light: oklch(55% 0.22 28);
   --err-dark: oklch(70.4% 0.188 22);
@@ -552,10 +554,19 @@ a { color: var(--accent); }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
-.inbox-tabs { flex: none; display: grid; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
-.inbox-tabs input { height: 28px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font: inherit; font-size: 13px; color: var(--ink); }
-.inbox-tabs input::placeholder { color: var(--ink-3); }
-.inbox-tabs input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
+.inbox-tabs { flex: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.inbox-search { display: flex; align-items: center; gap: 2px; height: 28px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding-right: 3px; }
+.inbox-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.inbox-search input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; padding: 0 9px; font: inherit; font-size: 13px; color: var(--ink); outline: none; }
+.inbox-search input::placeholder { color: var(--ink-3); }
+.inbox-search .find-count { flex: none; padding: 0 4px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inbox-search .find-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-2); cursor: pointer; }
+.inbox-search .find-step:hover:not(:disabled) { background: var(--surface-hover); color: var(--ink); }
+.inbox-search .find-step:disabled { opacity: 0.4; cursor: default; }
+.inbox-search .find-step svg { width: 14px; height: 14px; }
+.inbox-results { display: contents; }
+::highlight(inbox-find) { background-color: var(--find); color: var(--ink); }
+::highlight(inbox-find-now) { background-color: var(--find-now); color: oklch(20.5% 0 0); }
 .inbox-tabs .choice { display: flex; justify-self: stretch; }
 .inbox-tabs .choice button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 14px; border: 0; border-right: 1px solid var(--line); background: none; color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .inbox-tabs .choice button:last-child { border-right: 0; }

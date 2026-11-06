@@ -449,6 +449,8 @@ const en = {
     search: 'Search notifications',
     searchPlaceholder: 'Node, text, Q number',
     noMatch: 'No matching notifications',
+    findPrev: 'Previous match (Shift+Enter)',
+    findNext: 'Next match (Enter)',
     historyEmpty: 'No history',
     historyMore: 'Show more',
     chosen: 'Chosen',

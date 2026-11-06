@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M69 알림 기록 검색 목업</title>
+<title>M71 알림 기록 검색 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -203,24 +203,34 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .page .search .q { flex: 1; color: var(--ink); }
 .page .search .q.ph { color: var(--ink-3); }
 .page .search .clear { border: 0; background: none; padding: 2px; display: flex; cursor: pointer; }
-.page mark { background: var(--warn-wash, #fdf0c8); color: inherit; border-radius: 2px; padding: 0 1px; }
+.page { --find: light-dark(oklch(91% 0.11 95), oklch(42% 0.08 95)); --find-now: light-dark(oklch(76% 0.16 60), oklch(68% 0.16 60)); }
+.page mark { background: var(--find); color: var(--ink); border-radius: 2px; padding: 0 1px; }
+.page mark.now { background: var(--find-now); color: oklch(20.5% 0 0); }
+.page .qid.hit { background: var(--find); }
+.page .qid.hit.now { background: var(--find-now); color: oklch(20.5% 0 0); }
+.page .search .hits { display: inline-flex; align-items: center; gap: 2px; }
+.page .search .count { padding: 0 4px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.page .search .count.none { color: var(--ink-3); }
+.page .search .step { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-2); }
+.page .search .step:disabled { color: var(--ink-3); opacity: 0.5; }
+.page .search .sep { width: 1px; height: 16px; background: var(--line-strong); margin: 0 2px; }
 .page .inbox-empty { margin: 14px 12px; color: var(--ink-2); font-size: 13px; }
 </style></head>
-<body data-ui=".tabs button, .choice label, .clear">
+<body data-ui=".tabs button, .choice label, .clear, .step">
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M69</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 알림기록검색</b></span><span>v2 · 2026-11-06 · Q2462 승인</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M71</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 알림검색강조</b></span><span>v3 · 2026-11-06</span></div>
   <h1>알림 기록 검색</h1>
-  <p class="lead">사람 요청: 「알림 기록에 검색기능 추가」. 지금 「기록」 탭은 닫힌 질문·완료를 새것부터 100줄씩 보이고, [더 보기]로만 옛 줄을 읽습니다. 사람 PC에는 9일 동안 953줄(질문 380, 완료 573)이 쌓였고, 30일을 두면 약 3,200줄입니다. 찾는 줄에 가려면 [더 보기]를 여러 번 눌러야 합니다.</p>
-  <ol class="flow"><li>알림 탭을 엶</li><li>검색 칸에 낱말을 씀</li><li>새 알림은 열린 알림, 기록은 30일 기록 전체에서 맞는 줄만 보임</li><li>[×]·Esc로 지우면 전체 기록으로 돌아옴</li></ol>
+  <p class="lead">사람 요청: 「알림 검색기능에 키워드 매칭 하이라이팅 보여주고 검색결과 이전/다음 점프 기능도 만들어」. v2(Q2462 승인)의 검색 칸은 맞는 알림만 남기지만, 줄 안에서 어디가 맞았는지 보이지 않고, 긴 목록에서 맞는 자리로 바로 갈 수 없습니다. v3은 맞는 글자를 칠하고, 검색 칸 오른쪽에 이전·다음 단추와 수를 둡니다. 웹 화면과 GPUI 데스크톱이 같습니다.</p>
+  <ol class="flow"><li>검색 칸에 낱말을 씀</li><li>맞는 글자마다 노란색, 고른 맞는 글자는 주황색</li><li>[∨]·Enter, [∧]·Shift+Enter로 맞는 글자를 옮겨 감</li><li>목록이 그 자리로 굴러감</li></ol>
 
   <div class="fig">
-    <h2>① 새 알림에서 찾기</h2>
+    <h2>① 새 알림: 맞는 글자에 색을 칠함</h2>
     <div class="page">
       <div class="app">
         <div class="titlebar"><b>loom</b><span>총괄</span></div>
         <div class="main">
           <div class="graph">
-            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 기록 검색 구현 중</div></div>
+            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 검색 강조 구현 중</div></div>
           </div>
           <aside class="dock">
             <div class="dock-tools"><div class="dock-tools-head"><h3>보기</h3><span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span></div>
@@ -232,31 +242,34 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
               <button><svg viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></svg>커밋 그래프</button>
             </div>
             <div class="panel">
-              <div class="subtabs"><span class="choice" role="tablist"><label class="on">새 알림<span class="n">2</span></label><label>기록</label></span></div>
-              <div class="search-row"><span class="search mk new" data-n="1"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">배포</span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
-              <ul class="history">
-                <li class="h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q2470</span><span class="node">코디 배포</span><time>알림 11월 6일 14:02</time></div>
-                  <p class="full">배포 창을 지금 열까요?</p>
-                  <div class="choices"><span class="opt-btn rec"><span class="key">A</span>지금<span class="mark">권장</span></span><span class="opt-btn"><span class="key">B</span>내일</span></div></div></li>
+              <div class="subtabs"><span class="choice" role="tablist"><label class="on">새 알림<span class="n">3</span></label><label >기록</label></span></div>
+              <div class="search-row"><span class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">배포</span><span class="hits mk new" data-n="2"><span class="count">1 / 3</span><button class="step"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button><button class="step"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span><span class="sep"></span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
+              <ul class="wait-list">
+                <li class="wait-node"><span class="go"><b class="mk new" data-n="3">코디 <mark class="now">배포</mark></b></span>
+                  <div class="wait-row h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q2470</span><time>알림 11월 6일 14:02</time></div>
+                    <p class="full"><mark class="mk new" data-n="1">배포</mark> 창을 지금 열까요?</p>
+                    <div class="choices"><span class="opt-btn rec"><span class="key">A</span>지금<span class="mark">권장</span></span><span class="opt-btn"><span class="key">B</span>내일</span></div></div></div></li>
+                <li class="wait-node"><span class="go"><b>총괄</b></span>
+                  <div class="wait-row h-row" data-tone="done"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span class="kind">완료</span><time>알림 11월 6일 13:40</time></div>
+                    <p class="instruction">지시: <mark>배포</mark> 스크립트의 버전 표시를 고쳐 줘</p>
+                    <p class="full b">버전 표시 수정 끝. 관문 통과.</p></div></div></li>
               </ul>
             </div>
           </aside>
         </div>
       </div>
     </div>
-    <div class="calls">
-      <div><b>1</b><span>검색 칸 하나가 고른 하위 탭을 찾습니다. 「새 알림」에서는 열린 알림 중 맞는 줄만 보이고, 「새 알림」 옆 수는 그대로 모든 열린 알림 수입니다.</span></div>
-    </div>
+    <div class="calls"><div><b>1</b><span>검색어와 맞는 글자마다 노란색을 칠합니다. 노드 이름, 글, 지시, 보낸 답(기록만)에서 칠합니다. 대소문자는 가리지 않습니다.</span></div><div><b>2</b><span>「지금 / 모두」 수와 [∧]·[∨] 단추입니다. 모두는 보이는 목록의 맞는 글자 수입니다. 검색 칸에서 Enter는 다음, Shift+Enter는 이전입니다.</span></div><div><b>3</b><span>노드 이름의 「배포」가 지금 고른 맞는 글자라 주황색입니다. 검색어를 쓰면 첫 맞는 글자를 고릅니다.</span></div></div>
   </div>
 
   <div class="fig">
-    <h2>② 기록에서 맞는 줄이 있을 때</h2>
+    <h2>② 기록: [∨]로 다음 맞는 글자에 감</h2>
     <div class="page">
       <div class="app">
         <div class="titlebar"><b>loom</b><span>총괄</span></div>
         <div class="main">
           <div class="graph">
-            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 기록 검색 구현 중</div></div>
+            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 검색 강조 구현 중</div></div>
           </div>
           <aside class="dock">
             <div class="dock-tools"><div class="dock-tools-head"><h3>보기</h3><span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span></div>
@@ -268,36 +281,45 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
               <button><svg viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></svg>커밋 그래프</button>
             </div>
             <div class="panel">
-              <div class="subtabs"><span class="choice" role="tablist"><label>새 알림</label><label class="on">기록</label></span></div>
-              <div class="search-row"><span class="search mk new" data-n="2"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">알림</span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
+              <div class="subtabs"><span class="choice" role="tablist"><label >새 알림<span class="n">3</span></label><label class="on">기록</label></span></div>
+              <div class="search-row"><span class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">알림</span><span class="hits mk new" data-n="4"><span class="count">4 / 9</span><button class="step"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button><button class="step"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span><span class="sep"></span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
               <ul class="history">
-                <li class="h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q1440</span><span class="node">코디 알림하위탭</span><time>알림 10월 28일 10:31</time></div>
-                  <p class="full">사이드바 <mark>알림</mark> 하위 탭 목업 v1을 승인할까요?</p>
-                  <p class="closed"><span class="how"><b>답함</b> 10월 28일 10:42 · A</span></p></div></li>
-                <li class="h-row" data-tone="done"><div class="entry mk new" data-n="3"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span class="kind">완료</span><span class="node gone">코디 알림하위탭</span><time>알림 10월 29일 15:02</time></div>
-                  <p class="instruction">지시: 사이드바 <mark>알림</mark>탭에 새 알림, 기록 하위 탭을 만들어 줘</p>
+                <li class="h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q1452</span><span class="node">코디 <mark>알림</mark>하위탭</span><time>알림 10월 28일 11:05</time></div>
+                  <p class="full"><mark>알림</mark> 하위 탭 목업 v2를 승인할까요?</p>
+                  <p class="closed"><span class="how"><b>답함</b> 10월 28일 11:20 · A</span></p></div></li>
+                <li class="h-row" data-tone="done"><div class="entry mk new" data-n="5"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span class="kind">완료</span><span class="node gone">코디 <mark class="now">알림</mark>하위탭</span><time>알림 10월 29일 15:02</time></div>
+                  <p class="instruction">지시: 사이드바 <mark>알림</mark>탭에 새 <mark>알림</mark>, 기록 하위 탭을 만들어 줘</p>
                   <p class="full b">하위 탭 구현 끝. 관문 통과, main에 병합.</p>
                   <p class="closed"><span class="how"><b>확인함</b> 10월 29일 15:10</span></p></div></li>
+                <li class="h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q1440</span><span class="node">코디 <mark>알림</mark>하위탭</span><time>알림 10월 28일 10:31</time></div>
+                  <p class="full">사이드바 <mark>알림</mark> 하위 탭 목업 v1을 승인할까요?</p>
+                  <p class="closed"><span class="how"><b>답함</b> 10월 28일 10:42 · A</span></p></div></li>
               </ul>
             </div>
           </aside>
         </div>
       </div>
     </div>
-    <div class="calls">
-      <div><b>2</b><span>같은 검색 칸. 쓰기를 멈추면 바로 찾습니다. 노드 이름, 질문·완료 글, 지시, 선택지, 보낸 답, Q 번호(「Q1440」 또는 「1440」)에서 찾습니다. 대소문자는 가리지 않습니다.</span></div>
-      <div><b>3</b><span>[더 보기]로 읽지 않은 옛 줄과 지운 노드의 줄도 찾습니다. 맞는 줄만 새것부터 보이고, 맞는 줄이 100줄을 넘으면 [더 보기]가 나옵니다.</span></div>
-    </div>
+    <div class="calls"><div><b>4</b><span>[∨]·Enter는 다음, [∧]·Shift+Enter는 이전입니다. 마지막에서 [∨]를 누르면 처음으로, 처음에서 [∧]를 누르면 마지막으로 갑니다. 기록은 읽은 줄(100줄씩)에서만 셉니다. [더 보기]로 줄을 더 읽으면 모두 수가 늘어납니다.</span></div><div><b>5</b><span>이 줄의 「알림」이 지금 고른 맞는 글자(주황)입니다. 고른 맞는 글자가 화면 밖이면 목록을 굴려 보이게 합니다. 지운 노드의 흐린 이름에도 칠합니다.</span></div></div>
   </div>
 
+  <section class="decision" id="D3" data-for="2 4">
+    <h3><span class="did">D3</span>[∧]·[∨] 한 번에 얼마나 가는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">맞는 글자 하나씩<span class="mark">권장</span><span class="sub">브라우저의 찾기(Ctrl+F)와 같음 · 한 알림에 맞는 글자가 셋이면 [∨]를 세 번 눌러야 다음 알림으로 감 · 수는 「4 / 9」처럼 맞는 글자 수</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">알림 한 줄씩<span class="sub">[∨] 한 번에 다음 알림으로 감 · 수는 「2 / 3」처럼 맞는 알림 수 · 고른 줄 안의 맞는 글자는 모두 주황색</span></span></div>
+    </div>
+    <ul class="why"><li>사람 말 「키워드 매칭 하이라이팅」과 「이전/다음 점프」에서 점프의 대상을 맞는 글자로 읽었습니다.</li><li>A는 긴 글 안에서도 맞는 자리를 하나씩 보여 줍니다.</li></ul>
+  </section>
+
   <div class="fig">
-    <h2>③ 맞는 줄이 없을 때</h2>
+    <h2>③ Q 번호로 찾을 때</h2>
     <div class="page">
       <div class="app">
         <div class="titlebar"><b>loom</b><span>총괄</span></div>
         <div class="main">
           <div class="graph">
-            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 기록 검색 구현 중</div></div>
+            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 검색 강조 구현 중</div></div>
           </div>
           <aside class="dock">
             <div class="dock-tools"><div class="dock-tools-head"><h3>보기</h3><span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span></div>
@@ -309,76 +331,50 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
               <button><svg viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></svg>커밋 그래프</button>
             </div>
             <div class="panel">
-              <div class="subtabs"><span class="choice" role="tablist"><label>새 알림</label><label class="on">기록</label></span></div>
-              <div class="search-row"><span class="search mk new" data-n="4"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">배포 취소</span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
-              <p class="inbox-empty mk new" data-n="5">찾는 알림이 없습니다</p>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </div>
-    <div class="calls">
-      <div><b>4</b><span>[×]를 누르거나 Esc를 누르면 검색어를 지웁니다. GPUI 데스크톱은 다른 검색 칸처럼 Esc로 지웁니다.</span></div>
-      <div><b>5</b><span>맞는 줄이 없으면 이 한 줄만 보입니다. 두 하위 탭이 같습니다. 알림이 아예 없을 때는 지금처럼 「알림 없음」·「기록 없음」입니다.</span></div>
-    </div>
-  </div>
-
-  <div class="fig">
-    <h2>④ 검색어를 지운 뒤</h2>
-    <div class="page">
-      <div class="app">
-        <div class="titlebar"><b>loom</b><span>총괄</span></div>
-        <div class="main">
-          <div class="graph">
-            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 기록 검색 구현 중</div></div>
-          </div>
-          <aside class="dock">
-            <div class="dock-tools"><div class="dock-tools-head"><h3>보기</h3><span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span></div>
-              <div class="choice wide"><label><input type="radio" checked>간단히</label><label><input type="radio">터미널</label></div></div>
-            <div class="tabs">
-              <button aria-selected="true"><svg viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>알림</button>
-              <button><svg viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>문서</button>
-              <button><svg viewBox="0 0 24 24"><path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/></svg>이벤트</button>
-              <button><svg viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></svg>커밋 그래프</button>
-            </div>
-            <div class="panel">
-              <div class="subtabs"><span class="choice" role="tablist"><label>새 알림</label><label class="on">기록</label></span></div>
-              <div class="search-row"><span class="search mk new" data-n="6"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q ph">노드 이름·글·Q 번호</span></span></div>
+              <div class="subtabs"><span class="choice" role="tablist"><label >새 알림<span class="n">3</span></label><label class="on">기록</label></span></div>
+              <div class="search-row"><span class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">1440</span><span class="hits"><span class="count">1 / 1</span><button class="step"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button><button class="step"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span><span class="sep"></span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
               <ul class="history">
-                <li class="h-row" data-tone="ask"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid">Q2051</span><span class="node">총괄</span><time>알림 11월 6일 09:12</time></div>
-                  <p class="full">배포를 지금 할까요?</p>
-                  <p class="closed"><span class="how"><b>답함</b> 11월 6일 09:15 · A</span></p></div></li>
-                <li class="h-row" data-tone="done"><div class="entry"><div class="top"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span class="kind">완료</span><span class="node">shell-2</span><time>알림 11월 6일 08:40</time></div>
-                  <p class="full b">커밋 그래프 접기 구현 끝.</p>
-                  <p class="closed"><span class="how"><b>확인함</b> 11월 6일 08:41</span></p></div></li>
+                <li class="h-row" data-tone="ask"><div class="entry"><div class="top mk new" data-n="6"><svg class="kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="kind">질문</span><span class="qid hit now">Q1440</span><span class="node">코디 알림하위탭</span><time>알림 10월 28일 10:31</time></div>
+                  <p class="full">사이드바 알림 하위 탭 목업 v1을 승인할까요?</p>
+                  <p class="closed"><span class="how"><b>답함</b> 10월 28일 10:42 · A</span></p></div></li>
               </ul>
             </div>
           </aside>
         </div>
       </div>
     </div>
-    <div class="calls">
-      <div><b>6</b><span>검색어가 비면 지금과 같은 전체 기록(새것부터 100줄, [더 보기])으로 돌아옵니다. 다른 탭에 갔다 와도 검색어는 남지 않습니다.</span></div>
-    </div>
+    <div class="calls"><div><b>6</b><span>검색어가 질문 번호(「Q1440」 또는 「1440」)와 같으면 번호 칩 전체를 맞는 글자 하나로 칠하고 셉니다.</span></div></div>
   </div>
 
-  <section class="decision" id="D1" data-for="3">
-    <h3><span class="did">D1</span>기록 검색을 어디서 하는가 (Q2462: A)</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">데몬이 30일 기록 전체에서 찾는다<span class="mark">권장</span><span class="sub">지금: [더 보기]를 눌러 찾음 → 바뀐 뒤: 3주 전 질문도 한 번에 찾음 · 비용: 기존 기록 API에 검색어 하나를 더함(기존 화면은 그대로) · 위험 작음: 약 3,200줄이라 찾기가 빠름 · 되돌리기: 검색어 인자를 지움</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">화면이 이미 읽은 줄에서만 찾는다<span class="sub">처음 100줄(사람 PC 기준 약 하루)만 찾음 · 옛 줄은 [더 보기]를 누른 뒤에만 찾음 · 데몬은 바꾸지 않음</span></span></div>
+  <div class="fig">
+    <h2>④ 맞는 줄이 없을 때</h2>
+    <div class="page">
+      <div class="app">
+        <div class="titlebar"><b>loom</b><span>총괄</span></div>
+        <div class="main">
+          <div class="graph">
+            <div class="card"><div class="ch"><b>shell-1</b><span class="st"><i class="dot running"></i>일하는 중</span></div><div class="cb">알림 검색 강조 구현 중</div></div>
+          </div>
+          <aside class="dock">
+            <div class="dock-tools"><div class="dock-tools-head"><h3>보기</h3><span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span></div>
+              <div class="choice wide"><label><input type="radio" checked>간단히</label><label><input type="radio">터미널</label></div></div>
+            <div class="tabs">
+              <button aria-selected="true"><svg viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>알림</button>
+              <button><svg viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>문서</button>
+              <button><svg viewBox="0 0 24 24"><path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/></svg>이벤트</button>
+              <button><svg viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></svg>커밋 그래프</button>
+            </div>
+            <div class="panel">
+              <div class="subtabs"><span class="choice" role="tablist"><label >새 알림<span class="n">3</span></label><label class="on">기록</label></span></div>
+              <div class="search-row"><span class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="q">배포 취소</span><span class="hits mk new" data-n="7"><span class="count none">0 / 0</span><button class="step" disabled><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button><button class="step" disabled><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span><span class="sep"></span><button class="clear"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span></div>
+              <p class="inbox-empty">찾는 알림이 없습니다</p>
+            </div>
+          </aside>
+        </div>
+      </div>
     </div>
-    <ul class="why"><li>사람 PC의 100줄은 약 하루치입니다. B는 어제보다 옛 줄을 찾지 못합니다.</li><li>A는 같은 API에 인자 하나를 더할 뿐이라 다른 화면에 영향이 없습니다.</li></ul>
-  </section>
-
-  <section class="decision" id="D2" data-for="1 2">
-    <h3><span class="did">D2</span>어느 화면에 검색 칸을 두는가 (Q2462: B)</h3>
-    <div class="opts">
-      <div class="opt"><span class="key">A</span><span class="label">웹 화면만(Windows 앱, 브라우저)<span class="sub">지금 쓰는 loom 창의 「기록」에 검색 칸이 생김 · GPUI 데스크톱(시험 판)의 「기록」은 지금처럼 검색 칸 없음 · 되돌리기 쉬움</span></span></div>
-      <div class="opt" data-recommended><span class="key">B</span><span class="label">웹 화면과 GPUI 데스크톱 둘 다<span class="mark">권장</span><span class="sub">사람이 고름(Q2462) · 두 앱이 같아짐 · 데스크톱에 입력 칸과 문구를 따로 만들어 일이 약 두 배</span></span></div>
-    </div>
-    <ul class="why"><li>Android 앱은 웹 화면의 휴대폰 꼴을 보이고, 휴대폰 알림 화면에는 「기록」 탭이 없습니다. 그래서 Android는 대상이 아닙니다.</li><li>D1 A를 고르면 데스크톱은 뒤에 같은 API로 쉽게 더할 수 있습니다.</li></ul>
-  </section>
+    <div class="calls"><div><b>7</b><span>맞는 글자가 없으면 「0 / 0」이고 [∧]·[∨]는 누를 수 없습니다. 검색어가 비면 수와 단추가 사라집니다.</span></div></div>
+  </div>
 
 </main>
 <button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>

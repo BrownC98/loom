@@ -10,7 +10,7 @@ export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean
   const id = useId();
   return (
     <>
-      <pre className="prompt">{prompt.body.join('\n')}</pre>
+      <pre className="prompt" data-find>{prompt.body.join('\n')}</pre>
       {prompt.options.length > 0 && (
         <div className="choices prompt-options">
           {prompt.options.map((o, index) =>

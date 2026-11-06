@@ -451,6 +451,8 @@ const ko: typeof en = {
     search: '알림 검색',
     searchPlaceholder: '노드 이름·글·Q 번호',
     noMatch: '찾는 알림이 없습니다',
+    findPrev: '이전 맞는 글자 (Shift+Enter)',
+    findNext: '다음 맞는 글자 (Enter)',
     historyEmpty: '기록 없음',
     historyMore: '더 보기',
     chosen: '고름',

@@ -10,6 +10,7 @@ use gpui::{
 
 use super::body;
 use super::entry::{self, Choice, Look};
+use super::find::{self, Find};
 use super::questions::kind_label;
 use super::ui::{self, GAP, SMALL};
 use super::{Dock, Inbox};
@@ -40,6 +41,7 @@ impl Dock {
 
     pub(super) fn search_changed(&mut self, cx: &mut Context<Self>) {
         let query = self.search_text(cx);
+        self.find.follow(&query);
         cx.notify();
         if self.inbox != Inbox::History || (self.history.loaded && query == self.history.query) {
             return;
@@ -75,6 +77,7 @@ impl Dock {
                         dock.history.query = query;
                         dock.history.loaded = true;
                         dock.history.error = None;
+                        dock.find.restart();
                     }
                     Ok(page) => {
                         let newest = dock.history.rows.first().map_or(0, |row| row.seq);
@@ -129,7 +132,7 @@ impl Dock {
         .detach();
     }
 
-    pub(super) fn history_list(&self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn history_list(&self, find: Option<&Find>, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
         if let (true, Some(error)) = (self.history.rows.is_empty(), &self.history.error) {
             return ui::empty(error.clone(), true, cx);
@@ -147,7 +150,7 @@ impl Dock {
                 .flex_col()
                 .p(px(6.0))
                 .children(self.history.rows.iter().enumerate().map(|(at, row)| {
-                    let mut item = self.closed_row(row, cx);
+                    let mut item = self.closed_row(row, find, cx);
                     if at > 0 {
                         item = item.border_t_1().border_color(c.line);
                     }
@@ -187,12 +190,19 @@ impl Dock {
         list.text_color(c.ink)
     }
 
-    fn closed_row(&self, closed: &ClosedWait, cx: &mut Context<Self>) -> Div {
+    fn closed_row(&self, closed: &ClosedWait, find: Option<&Find>, cx: &mut Context<Self>) -> Div {
         let c = ui::colors(cx);
         let screen = &closed.wait;
         let wait = &screen.wait;
         let tone = screen.tone;
         let seq = closed.seq as usize;
+        let chip = (wait.kind == WaitKind::Question).then(|| {
+            find::chip(
+                find,
+                wait.id.0,
+                entry::qid(wait.id.to_string(), tone, 20.0, 1.0, &c),
+            )
+        });
         let name = match closed.node.id {
             Some(node) => {
                 let (line, ink) = (c.line_strong, c.ink);
@@ -207,7 +217,7 @@ impl Dock {
                     .text_decoration_color(line)
                     .cursor_pointer()
                     .hover(move |style| style.text_decoration_color(ink))
-                    .child(closed.node.name.clone())
+                    .child(find::line(find, "", &closed.node.name, ""))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |dock, _, _, cx| dock.jump(node, cx)))
                     .into_any_element()
@@ -217,7 +227,7 @@ impl Dock {
                 .truncate()
                 .text_size(px(ui::TEXT))
                 .text_color(c.ink_3)
-                .child(closed.node.name.clone())
+                .child(find::line(find, "", &closed.node.name, ""))
                 .into_any_element(),
         };
         let top = div()
@@ -234,10 +244,7 @@ impl Dock {
                     .text_color(c.ink_3)
                     .child(ui::say(cx, kind_label(wait.kind))),
             )
-            .children(
-                (wait.kind == WaitKind::Question)
-                    .then(|| entry::qid(wait.id.to_string(), tone, 20.0, 1.0, &c)),
-            )
+            .children(chip)
             .child(name)
             .child(entry::published(wait.since, 1.0, cx));
         let mut row = div()
@@ -253,7 +260,7 @@ impl Dock {
                 div()
                     .text_size(px(SMALL))
                     .text_color(c.ink)
-                    .child(ui::say_with(cx, Str::InboxInstruction, &[("text", text)])),
+                    .child(find::instruction(find, cx, text)),
             );
         }
         if !wait.text.is_empty() || wait.doc.is_some() {
@@ -269,6 +276,7 @@ impl Dock {
                         &wait.text,
                         wait.doc.as_ref(),
                         entry::tone_of(tone, &c),
+                        find,
                         cx,
                     )),
             );
@@ -326,7 +334,7 @@ impl Dock {
                         .child(ui::say(cx, closed_label(&closed.how)).to_owned()),
                 )
                 .child(format!(" {}", ui::clock(closed.closed_at, TIME)))
-                .children(said.map(|text| format!(" \u{00b7} {text}"))),
+                .children(said.map(|text| find::line(find, " \u{00b7} ", &text, ""))),
         )
     }
 }

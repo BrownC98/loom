@@ -12,6 +12,7 @@ use gpui::{
 
 use super::body::{self, Target};
 use super::entry::{self, Choice, Look};
+use super::find::{self, Find};
 use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, SMALL};
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
@@ -526,6 +527,7 @@ pub(crate) fn entry(
     node: NodeId,
     wait: &ScreenWait,
     z: f32,
+    find: Option<&Find>,
     cx: &mut App,
 ) -> Div {
     let c = ui::colors(cx);
@@ -557,10 +559,13 @@ pub(crate) fn entry(
         .min_w_0()
         .child(entry::mark(wait.tone, z, &c))
         .child(entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c))
-        .children(
-            (wait.wait.kind == WaitKind::Question)
-                .then(|| entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c)),
-        )
+        .children((wait.wait.kind == WaitKind::Question).then(|| {
+            find::chip(
+                find,
+                id,
+                entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c),
+            )
+        }))
         .child(entry::published(wait.wait.since, z, cx))
         .child(close);
     let mut entry = div()
@@ -574,10 +579,10 @@ pub(crate) fn entry(
             div()
                 .text_size(px(SMALL * z))
                 .text_color(c.ink)
-                .child(ui::say_with(cx, Str::InboxInstruction, &[("text", text)])),
+                .child(find::instruction(find, cx, text)),
         );
     }
-    entry = entry.child(wait_body(answers, node, wait, z, cx));
+    entry = entry.child(wait_body(answers, node, wait, z, find, cx));
     let viewer = {
         let state = answers.read(cx);
         (state.zoomed == Some(id) && state.viewer.read(cx).is_open()).then(|| state.viewer.clone())
@@ -594,6 +599,7 @@ fn wait_body(
     node: NodeId,
     wait: &ScreenWait,
     z: f32,
+    find: Option<&Find>,
     cx: &mut App,
 ) -> Div {
     let c = ui::colors(cx);
@@ -675,6 +681,7 @@ fn wait_body(
                     &wait.wait.text,
                     wait.wait.doc.as_ref(),
                     entry::tone_of(wait.tone, &c),
+                    find,
                     cx,
                     move |target, cx| {
                         owner.update(cx, |answers, cx| answers.follow(id, target, cx))

@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use super::Dock;
+use super::find::Find;
 use super::ui;
 use crate::store::Store;
 use crate::strings::Str;
@@ -45,10 +46,11 @@ pub fn text(
     plain: &str,
     doc: Option<&WaitDoc>,
     color: Rgba,
+    find: Option<&Find>,
     cx: &mut Context<Dock>,
 ) -> AnyElement {
     let owner = cx.entity();
-    render(id, parts, plain, doc, color, cx, move |target, cx| {
+    render(id, parts, plain, doc, color, find, cx, move |target, cx| {
         owner.update(cx, |dock, cx| dock.follow(target, cx));
     })
 }
@@ -63,12 +65,14 @@ pub fn open(store: &Entity<Store>, target: Target, cx: &mut App) -> Task<Result<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     id: impl Into<ElementId>,
     parts: &[TextPart],
     plain: &str,
     doc: Option<&WaitDoc>,
     color: Rgba,
+    find: Option<&Find>,
     cx: &App,
     follow: impl Fn(Target, &mut App) + 'static,
 ) -> AnyElement {
@@ -123,7 +127,11 @@ pub fn render(
     let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
     let text = (!shown.is_empty()).then(|| {
         let follow = follow.clone();
-        prose(shown).with_highlights(marks).on_click(
+        let base = match find {
+            Some(find) => find.apply(find.scan(&shown, 0, marks), prose(shown)),
+            None => prose(shown).with_highlights(marks),
+        };
+        base.on_click(
             ElementId::NamedChild(Arc::new(id), "text".into()),
             ranges,
             move |index, _, cx| follow(targets[index].clone(), cx),

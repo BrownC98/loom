@@ -41,6 +41,8 @@
   --warn: light-dark(var(--warn-light), var(--warn-dark));
   --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
   --ask: var(--warn);
+  --find: light-dark(oklch(91% 0.11 95), oklch(42% 0.08 95));
+  --find-now: light-dark(oklch(76% 0.16 60), oklch(68% 0.16 60));
   --ask-ink: var(--warn-ink);
   --err-light: oklch(55% 0.22 28);
   --err-dark: oklch(70.4% 0.188 22);

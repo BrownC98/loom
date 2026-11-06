@@ -460,6 +460,7 @@ impl Dock {
                     "",
                     doc,
                     link,
+                    None,
                     cx,
                 );
                 details = details.child(div().text_color(c.ink_2).child(text));
@@ -473,6 +474,7 @@ impl Dock {
                 "",
                 None,
                 link,
+                None,
                 cx,
             );
             details = details.child(line(
@@ -481,7 +483,7 @@ impl Dock {
             ));
         }
         if let Some(parts) = body_parts {
-            let text = body::text(("event-body", key), &parts, "", None, link, cx);
+            let text = body::text(("event-body", key), &parts, "", None, link, None, cx);
             let mut value = div()
                 .flex()
                 .flex_col()

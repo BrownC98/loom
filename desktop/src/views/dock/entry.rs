@@ -1,6 +1,7 @@
 use api::graph::waits::WaitTone;
 use gpui::{
-    Div, FontWeight, InteractiveElement, ParentElement, Rgba, Stateful, Styled, Svg, div, px, svg,
+    Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, Styled, Svg,
+    div, px, svg,
 };
 
 use super::ui::{self, SMALL};
@@ -201,7 +202,7 @@ pub(crate) fn chosen_mark(z: f32, cx: &gpui::App) -> Div {
         .child(ui::say(cx, Str::InboxChosen))
 }
 
-pub(crate) fn prompt_box(text: String, z: f32, c: &Colors) -> Div {
+pub(crate) fn prompt_box(text: impl IntoElement, z: f32, c: &Colors) -> Div {
     div()
         .px(px(8.0 * z))
         .py(px(6.0 * z))

@@ -160,7 +160,7 @@ impl Dock {
         }
         let find = self
             .find
-            .begin(&self.search_text(cx), &c, self.panel_bar.handle());
+            .begin(search.as_ref(), &c, self.panel_bar.handle());
         let find = find.as_ref();
         let list = match self.inbox {
             Inbox::History => ui::scroller(&self.panel_bar, self.history_list(find, cx)),

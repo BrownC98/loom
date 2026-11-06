@@ -218,7 +218,7 @@ loom은 사용자나 설치·운영하는 사람이 요청하지 않으면 다�
 - **사용량 표시:** 로그인한 계정의 사용량을 그 계정의 로그인 정보로 제공자에게 묻습니다. Claude는 Anthropic(`api.anthropic.com`), Cursor는 `cursor.com`에 묻습니다. Codex는 사람이 설치한 `codex` CLI에 묻습니다. 다른 곳에는 보내지 않습니다.
 - **휴대폰:** 휴대폰을 연결하면 loom은 설치된 `tailscale` 명령으로 loom을 사람의 tailnet에 엽니다. Android 앱은 Tailscale을 거쳐 사람의 PC loom에만 연결합니다.
 - **SSH 호스트:** SSH 호스트를 더하면 loom은 사람의 `ssh`와 키로 그 호스트에 연결합니다. Mac 호스트는 이 저장소 릴리스에서 loom을 받습니다.
-- **Git:** 병합 관문은 사람 저장소의 원격에 push합니다.
+- **Git:** URL로 저장소를 더하면 loom이 그 저장소를 clone합니다. 병합 관문은 사람 저장소의 원격에서 fetch하고 원격에 push합니다.
 - **에이전트 CLI:** 사람이 설치하고 고른 에이전트(Claude Code, Codex 등)는 각 제공자의 정책에 따라 통신합니다. loom은 그 통신에 데이터를 더하지 않습니다.
 
 ## 라이선스

@@ -218,7 +218,7 @@ This program will not transfer any information to other networked systems unless
 - **Usage display:** for an account that you signed in to, loom asks the provider for the usage of that account, with the login of that account: Claude at Anthropic (`api.anthropic.com`), Cursor at `cursor.com`. For Codex, loom asks the `codex` CLI that you installed. loom sends this data to no other place.
 - **Phone:** when you connect a phone, loom runs your installed `tailscale` command to share loom in your tailnet. The Android app connects only to your PC's loom through Tailscale.
 - **SSH hosts:** when you add an SSH host, loom connects to it with your `ssh` and keys. On a Mac host, the host downloads loom from the releases of this repository.
-- **Git:** the merge gate pushes to the remote of your repository.
+- **Git:** when you add a repository from a URL, loom clones it. The merge gate fetches from and pushes to the remote of your repository.
 - **Agent CLIs:** the agents that you install and choose (Claude Code, Codex and others) communicate under the policy of each provider. loom adds no data to that communication.
 
 ## License

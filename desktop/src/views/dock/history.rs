@@ -41,7 +41,7 @@ impl Dock {
     pub(super) fn search_changed(&mut self, cx: &mut Context<Self>) {
         let query = self.search_text(cx);
         cx.notify();
-        if self.inbox != Inbox::History || query == self.history.query {
+        if self.inbox != Inbox::History || (self.history.loaded && query == self.history.query) {
             return;
         }
         cx.spawn(async move |this, cx| {
@@ -88,6 +88,7 @@ impl Dock {
                         if fresh {
                             dock.history.rows.clear();
                             dock.history.more = false;
+                            dock.history.loaded = false;
                         }
                         dock.history.error = Some(error);
                     }

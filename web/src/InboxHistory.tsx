@@ -69,11 +69,17 @@ function History(props: { open: string; query: string; onSelect: (id: NodeId) =>
               setList(page.waits);
               setMore(page.more);
               setRefusal(null);
-            } else setList((now) => [...page.waits.filter((w) => w.seq > (now?.[0]?.seq ?? 0)), ...(now ?? [])]);
+            } else {
+              setList((now) => [...page.waits.filter((w) => w.seq > (now?.[0]?.seq ?? 0)), ...(now ?? [])]);
+              setRefusal(null);
+            }
           },
           (err: Error) => {
             if (!live) return;
-            if (fresh) setList(null);
+            if (fresh) {
+              shownQuery.current = null;
+              setList(null);
+            }
             setRefusal(err.message);
           },
         ),

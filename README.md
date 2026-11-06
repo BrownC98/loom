@@ -66,6 +66,39 @@ Run the Linux line above in a WSL terminal. In WSL, it runs the Windows line abo
 
 One Windows loom runs agents on Windows and in WSL. To work on a repository in WSL, add its folder from `\\wsl.localhost\<distro>\…`. The nodes of that repository run in that distro, with the agent CLIs and the git of that distro. The Windows app does the same.
 
+### loom desktop (native window)
+
+loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead of a web view. It shows the same screen as the loom app and the browser version. Its goal is a faster screen. It is a viewer, like the app: it starts or joins the loom daemon, and the daemon runs the agents. So the app, the browser tab and loom desktop can show the same loom at the same time.
+
+| | loom app | loom desktop | Browser version |
+|---|---|---|---|
+| Release files | `loom_<version>_x64-setup.exe`, `loom_<version>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
+| Window | Web view (Tauri) | Native (GPUI) | Your browser |
+| Systems | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
+| Update | Update card in the screen | Install again | Update card in the screen |
+
+**Install with one line (recommended).** The Windows and macOS lines above install loom desktop when the release has it. Windows: `%LOCALAPPDATA%\loom\bin\loom-desktop.exe` and a **loom** icon on the desktop. macOS: `loom-desktop.app` in the Applications folder.
+
+**Install by hand:**
+
+1. Download the file for your system from the release.
+2. Unpack it. You get one folder with `loom-desktop` and `loom` of the same release. Keep the two files together: `loom-desktop` starts the `loom` next to it (else the `loom` on `PATH`).
+3. Run `loom-desktop`.
+   - Windows: double-click `loom-desktop.exe`. If SmartScreen stops it, click **More info › Run anyway**.
+   - macOS: the files have no Apple signature. First run `xattr -cr <folder>` in Terminal, then `<folder>/loom-desktop`.
+
+**First use.** The window starts the loom daemon and shows the graph. If a loom daemon already runs, the window joins it. If that daemon is older, the newer `loom` replaces it, and the agents continue. Then add a repository and start an agent, as in the app.
+
+**Close and stop.** When you close the window, the daemon and the agents continue. To stop the daemon, run `stop` with the `loom` next to `loom-desktop`. The install does not put it on `PATH`:
+
+- Windows (one line): `%LOCALAPPDATA%\loom\bin\loom.exe stop`
+- macOS (one line): `/Applications/loom-desktop.app/Contents/MacOS/loom stop` (or `~/Applications/…`)
+- Hand install: `<folder>/loom stop`
+
+**Update.** loom desktop shows no update card. Run the install line again. With a hand install, unpack the new release into a new folder and run its `loom-desktop`. The newer `loom` replaces the running daemon. Do not unpack over the old folder: on Windows, the running `loom.exe` cannot be replaced.
+
+**Limits.** The release has loom desktop only for Windows x64 and macOS Apple Silicon. On Linux, use the browser version. Releases before v0.1.2825 do not have it; for those, the install lines install the browser version (Windows) or only the app (macOS).
+
 ### Android
 
 Install `loom_<version>.apk` from the release on your phone. The app shows the loom of your computer: notifications, questions and node terminals.

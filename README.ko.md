@@ -66,6 +66,39 @@ curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.
 
 Windows loom 하나가 Windows와 WSL의 에이전트를 함께 돌립니다. WSL의 저장소는 `\\wsl.localhost\<배포판>\…`에서 폴더를 더합니다. 그 저장소의 노드는 그 배포판의 에이전트 CLI와 git으로 그 배포판에서 돕니다. Windows 앱도 같습니다.
 
+### loom desktop (네이티브 창)
+
+loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom 창입니다. loom 앱, 브라우저 판과 같은 화면을 보여 줍니다. 목표는 더 빠른 화면입니다. 앱처럼 보기만 하는 창입니다: loom 데몬을 띄우거나 도는 데몬에 붙고, 에이전트는 데몬이 돌립니다. 그래서 앱, 브라우저 탭, loom desktop이 같은 loom을 함께 보여 줄 수 있습니다.
+
+| | loom 앱 | loom desktop | 브라우저 판 |
+|---|---|---|---|
+| 릴리스 파일 | `loom_<판>_x64-setup.exe`, `loom_<판>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
+| 창 | 웹뷰(Tauri) | 네이티브(GPUI) | 내 브라우저 |
+| 운영체제 | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
+| 업데이트 | 화면의 업데이트 카드 | 다시 설치 | 화면의 업데이트 카드 |
+
+**한 줄로 설치(권장).** 위 Windows·macOS 한 줄은 릴리스에 loom desktop이 있으면 그것을 설치합니다. Windows는 `%LOCALAPPDATA%\loom\bin\loom-desktop.exe`와 바탕 화면의 **loom** 아이콘, macOS는 응용 프로그램 폴더의 `loom-desktop.app`입니다.
+
+**손으로 설치:**
+
+1. 릴리스에서 내 운영체제의 파일을 받습니다.
+2. 압축을 풉니다. 같은 릴리스의 `loom-desktop`과 `loom`이 든 폴더 하나가 나옵니다. 두 파일을 함께 둡니다: `loom-desktop`은 옆의 `loom`(없으면 `PATH`의 `loom`)을 띄웁니다.
+3. `loom-desktop`을 실행합니다.
+   - Windows: `loom-desktop.exe`를 두 번 누릅니다. SmartScreen이 막으면 **추가 정보 › 실행**을 누릅니다.
+   - macOS: Apple 서명이 없는 파일입니다. 먼저 터미널에서 `xattr -cr <폴더>`를 실행하고, `<폴더>/loom-desktop`을 실행합니다.
+
+**처음 쓰기.** 창이 loom 데몬을 띄우고 그래프를 보여 줍니다. 도는 loom 데몬이 있으면 그 데몬에 붙습니다. 그 데몬이 옛 판이면 새 `loom`이 바꾸고, 에이전트는 계속 돕니다. 그 뒤 앱과 같이 저장소를 더하고 에이전트를 띄웁니다.
+
+**닫기와 끄기.** 창을 닫아도 데몬과 에이전트는 계속 돕니다. 데몬을 끄려면 `loom-desktop` 옆의 `loom`으로 `stop`을 실행합니다. 설치는 이 `loom`을 `PATH`에 넣지 않습니다:
+
+- Windows(한 줄 설치): `%LOCALAPPDATA%\loom\bin\loom.exe stop`
+- macOS(한 줄 설치): `/Applications/loom-desktop.app/Contents/MacOS/loom stop`(또는 `~/Applications/…`)
+- 손으로 설치: `<폴더>/loom stop`
+
+**업데이트.** loom desktop에는 업데이트 카드가 없습니다. 설치 한 줄을 다시 실행합니다. 손으로 설치했으면 새 릴리스를 새 폴더에 풀고 그 `loom-desktop`을 실행합니다. 새 `loom`이 도는 데몬을 바꿉니다. 옛 폴더 위에 풀지 않습니다: Windows에서는 도는 `loom.exe`를 바꿀 수 없습니다.
+
+**한계.** 릴리스에는 Windows x64와 macOS Apple Silicon용 loom desktop만 있습니다. Linux는 브라우저 판을 씁니다. v0.1.2825보다 옛 릴리스에는 없습니다. 그때 설치 한 줄은 브라우저 판(Windows) 또는 앱만(macOS) 설치합니다.
+
 ### Android
 
 폰에서 릴리스의 `loom_<판>.apk`를 설치합니다. 앱은 컴퓨터의 loom을 보여 줍니다: 알림, 질문, 노드 터미널.

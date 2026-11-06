@@ -67,8 +67,9 @@ impl Dock {
                 if dock.search_text(cx) != query {
                     return;
                 }
+                let fresh = !dock.history.loaded || dock.history.query != query;
                 match result {
-                    Ok(page) if !dock.history.loaded || dock.history.query != query => {
+                    Ok(page) if fresh => {
                         dock.history.rows = page.waits;
                         dock.history.more = page.more;
                         dock.history.query = query;
@@ -83,7 +84,13 @@ impl Dock {
                         dock.history.rows = fresh;
                         dock.history.error = None;
                     }
-                    Err(error) => dock.history.error = Some(error),
+                    Err(error) => {
+                        if fresh {
+                            dock.history.rows.clear();
+                            dock.history.more = false;
+                        }
+                        dock.history.error = Some(error);
+                    }
                 }
                 cx.notify();
             });

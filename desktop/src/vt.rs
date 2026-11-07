@@ -246,6 +246,17 @@ impl Vt {
 
 impl Vt {
     pub fn encode_key_as(&self, key: &Key, kind: KeyKind) -> Option<Vec<u8>> {
+        let delete_word;
+        let key = if key.ctrl && key.name == "backspace" {
+            delete_word = Key {
+                name: "w",
+                text: None,
+                ..*key
+            };
+            &delete_word
+        } else {
+            key
+        };
         let mode = *self.term.mode();
         let mods = 1 + u8::from(key.shift) + 2 * u8::from(key.alt) + 4 * u8::from(key.ctrl);
         let kitty =
@@ -477,7 +488,6 @@ fn legacy_key(app_cursor: bool, key: &Key, mods: u8) -> Option<Vec<u8>> {
         "enter" if key.shift && !key.ctrl => return Some(alt(b"\n".to_vec())),
         "enter" if key.ctrl => return Some(alt(b"\n".to_vec())),
         "enter" => return Some(alt(b"\r".to_vec())),
-        "backspace" if key.ctrl => return Some(alt(vec![0x17])),
         "backspace" => return Some(alt(vec![0x7f])),
         "escape" => return Some(alt(vec![0x1b])),
         "tab" if key.shift => return Some(alt(b"\x1b[Z".to_vec())),

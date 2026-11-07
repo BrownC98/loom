@@ -48,8 +48,7 @@ fn main() {
                 let dock =
                     views::dock::dock(store.clone(), shelf.clone(), inputs.clone(), window, cx);
                 let zoom = views::shell::zoom(store.clone(), window, cx);
-                let pill = float::pill::pill(store.clone(), shelf, inputs.clone(), window, cx);
-                let composer = float::composer::composer(store.clone(), inputs, window, cx);
+                let composer = float::composer::composer(store.clone(), inputs, shelf, window, cx);
                 cx.new(|cx| {
                     views::shell::Shell::new(
                         store,
@@ -57,7 +56,7 @@ fn main() {
                         canvas.into(),
                         Some(sidebar.into()),
                         Some(dock.into()),
-                        vec![pill.into(), composer.into()],
+                        vec![composer.into()],
                         cx,
                     )
                 })

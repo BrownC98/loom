@@ -566,64 +566,6 @@ pub fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
     }
 }
 
-pub struct Pickable {
-    pub id: u32,
-    pub name: String,
-    pub place: String,
-    pub dot: Dot,
-}
-
-pub fn pickables(
-    snapshot: &crate::link::Snapshot,
-    lang: Lang,
-    query: &str,
-) -> (Vec<Pickable>, Vec<Pickable>) {
-    let built = tree::build(snapshot, &[], lang, &HashSet::new(), query, 0);
-    let views: Vec<&api::graph::NodeView> = snapshot.nodes.iter().collect();
-    let needle = query.trim().to_lowercase();
-    let place = |id: u32| {
-        views
-            .iter()
-            .find(|v| v.id.0 == id)
-            .map(|v| crate::canvas::repos::place_name(&snapshot.repos, &views, v))
-            .unwrap_or_default()
-    };
-    let marks = built
-        .marks
-        .iter()
-        .filter_map(|row| match &row.body {
-            Body::Mark {
-                id,
-                name,
-                place,
-                dot,
-            } if name.to_lowercase().contains(&needle) => Some(Pickable {
-                id: *id,
-                name: name.clone(),
-                place: place.clone(),
-                dot: *dot,
-            }),
-            _ => None,
-        })
-        .collect();
-    let all = built
-        .tree
-        .iter()
-        .filter_map(|row| match &row.body {
-            Body::Node { id, name, dot, .. } if row.found != Some(Found::Context) => {
-                Some(Pickable {
-                    id: *id,
-                    name: name.clone(),
-                    place: place(*id),
-                    dot: *dot,
-                })
-            }
-            _ => None,
-        })
-        .collect();
-    (marks, all)
-}
-
 fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
     let (fill, ink, edge) = match tag.tone {
         Tone::Ask => (Some(c.warn), c.warn_ink, c.warn),

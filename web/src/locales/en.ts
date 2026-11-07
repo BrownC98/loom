@@ -672,6 +672,7 @@ const en = {
     keyMore: 'Shift+Enter new line · Esc to terminal · Alt+↑↓ within this node · Alt+L list',
     alertCount: 'This node {{index}} / {{count}} · All alerts {{total}}',
     notAnswer: 'Open · this text is not an answer',
+    targetClosed: 'The notice you chose has closed, so the text is not sent. Check the target, then press Enter again.',
     listHint: '↑↓ move · Enter choose (also picks the node) · type to search · Esc close',
     chipAll: 'All {{count}}',
     chipQuestion: 'Questions {{count}}',

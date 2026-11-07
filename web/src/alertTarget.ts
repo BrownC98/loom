@@ -18,6 +18,7 @@ export type Target = {
   key: TargetKey;
   card: ScreenWait | null;
   collapsed: boolean;
+  lost: boolean;
   route: Route;
   index: number;
   total: number;
@@ -28,12 +29,14 @@ function routeOf(wait: ScreenWait | null): Route {
   return { kind: wait.tone === 'done' ? 'continue' : 'answer', wait };
 }
 
-export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null): Target | null {
-  const view = selected === null ? waiting[0] : nodes.get(selected);
+export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Chosen | null): Target | null {
+  const held = pinned && nodes.has(pinned.node) ? pinned : null;
+  const view = held ? nodes.get(held.node) : selected === null ? waiting[0] : nodes.get(selected);
   if (!view) return null;
   const waits = [...view.waits].sort(bySince);
+  const open = (wanted: TargetKey) => wanted === PROMPT || waits.some((w) => w.id === wanted);
   const wanted = chosen?.node === view.id ? chosen.key : null;
-  const key: TargetKey = wanted !== null && (wanted === PROMPT || waits.some((w) => w.id === wanted)) ? wanted : (waits[0]?.id ?? PROMPT);
+  const key: TargetKey = held ? held.key : wanted !== null && open(wanted) ? wanted : (waits[0]?.id ?? PROMPT);
   const card = key === PROMPT ? (waits[0] ?? null) : (waits.find((w) => w.id === key) ?? null);
   return {
     view,
@@ -41,6 +44,7 @@ export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: rea
     key,
     card,
     collapsed: key === PROMPT && card !== null,
+    lost: held !== null && !open(held.key),
     route: routeOf(key === PROMPT ? null : card),
     index: card ? waits.indexOf(card) + 1 : 0,
     total: waiting.reduce((n, v) => n + v.waits.length, 0),

@@ -5,7 +5,6 @@ import type { DefaultCardView } from './gen/DefaultCardView';
 import type { EdgeStyle } from './gen/EdgeStyle';
 import type { GraphScope } from './gen/GraphScope';
 import type { Language } from './gen/Language';
-import type { QuestionPill } from './gen/QuestionPill';
 import type { SettingsView } from './gen/SettingsView';
 import type { TerminalFont } from './gen/TerminalFont';
 import type { TerminalTheme } from './gen/TerminalTheme';
@@ -18,7 +17,7 @@ import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
 import { FLOAT_SIZES } from './floatPlace';
 import type { FloatSize } from './gen/FloatSize';
-import { ComposerPreview, PillPreview, type SizePreview } from './SizePreview';
+import { ComposerPreview, type SizePreview } from './SizePreview';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -32,7 +31,6 @@ const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 const CARD_VIEWS = ['simple', 'rootTerminal', 'standard'] as const satisfies readonly DefaultCardView[];
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
 const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
-const QUESTION_PILLS = ['line', 'answer', 'off'] as const satisfies readonly QuestionPill[];
 
 export function CardViewSwitch(props: { value: DefaultCardView; onChange: (value: DefaultCardView) => void }) {
   const { t } = useTranslation();
@@ -160,29 +158,6 @@ export function GraphTab({ settings, onSettings }: TabProps) {
       </section>
       <section>
         <h4>
-          <span id="t-pill">{t('questionPill.heading')}</span>
-          <FieldReset path={['questionPill']} />
-        </h4>
-        <div className="choice" role="radiogroup" aria-labelledby="t-pill">
-          {QUESTION_PILLS.map((v) => (
-            <label key={v}>
-              <input type="radio" name="questionPill" checked={settings.questionPill === v} onChange={() => onSettings({ ...settings, questionPill: v, closedPill: null })} />
-              {t(`questionPill.${v}`)}
-            </label>
-          ))}
-        </div>
-        <span className="hint">{t('questionPill.hint')}</span>
-      </section>
-      <SizeChoice id="t-pill-size" field="pillSize" Preview={PillPreview} settings={settings} onSettings={onSettings} />
-      <section>
-        <h4>
-          {t('questionPill.place')}
-          <FieldReset path={['pillPlace']} />
-        </h4>
-        <span className="hint">{t('questionPill.placeHint')}</span>
-      </section>
-      <section>
-        <h4>
           {t('composer.heading')}
           <FieldReset path={['composerOff']} />
         </h4>
@@ -204,7 +179,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
   );
 }
 
-function SizeChoice({ id, field, Preview, settings, onSettings }: TabProps & { id: string; field: 'pillSize' | 'composerSize'; Preview: SizePreview }) {
+function SizeChoice({ id, field, Preview, settings, onSettings }: TabProps & { id: string; field: 'composerSize'; Preview: SizePreview }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState<FloatSize | null>(null);
   return (

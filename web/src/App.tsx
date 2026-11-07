@@ -41,7 +41,7 @@ import type { ArrangeDirection } from './layout';
 import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
 import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
-import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
+import { InboxPanel, OsNotifier, waitCount, waitingNodes } from './Inbox';
 import { InboxTabs } from './InboxHistory';
 import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
@@ -55,8 +55,9 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
-import { CanvasComposer, deskKeys } from './Composer';
-import type { Rect } from './floatPlace';
+import { deskKeys } from './Composer';
+import { DeskComposer } from './DeskComposer';
+import { resolveTarget, type Chosen } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -161,7 +162,7 @@ export function App() {
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [chosenBox, setChosenBox] = useState<string | null>(null);
   const [graphCorner, setGraphCorner] = useState(0);
-  const [composerBox, setComposerBox] = useState<Rect | null>(null);
+  const [chosen, setChosen] = useState<Chosen | null>(null);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -185,6 +186,7 @@ export function App() {
   const dockedView = simpleNode(selected);
   const tabs: readonly DockTab[] = dockedView ? ['questions', 'docs', 'events', 'commits', 'terminal'] : ['questions', 'docs', 'events', 'commits'];
   const waiting = waitingNodes(nodes);
+  const target = resolveTarget(nodes, waiting, selected, chosen);
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
@@ -302,7 +304,6 @@ export function App() {
     if (key !== null) setSelected(null);
   };
   const [focusAsk, setFocusAsk] = useState(0);
-  const composerView = selected === null ? undefined : nodes.get(selected);
   const focusNode = (id: NodeId) => {
     selectNode(id);
     setFocusAsk((n) => n + 1);
@@ -551,7 +552,7 @@ export function App() {
                 <DownLine place={shown[0].place} />
               </div>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} composer={composerBox} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
+            <OsNotifier waiting={waiting} enabled={settings.osNotify} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -574,7 +575,21 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} onBox={setComposerBox} views={nodes} repos={repos} onPick={selectNode} />}
+            {target && (!settings.composerOff || target.total > 0) && (
+              <DeskComposer
+                key={target.view.id}
+                target={target}
+                waiting={waiting}
+                keys={deskKeys(() => focusNode(target.view.id))}
+                place={settings.composerPlace}
+                size={settings.composerSize}
+                corner={graphCorner}
+                onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))}
+                onTarget={(node, key) => setChosen({ node, key })}
+                onSelect={selectNode}
+                onTerminal={() => focusNode(target.view.id)}
+              />
+            )}
           </main>
           {dockOpen ? (
             <Dock

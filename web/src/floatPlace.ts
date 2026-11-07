@@ -4,9 +4,8 @@ import type { FloatSize } from './gen/FloatSize';
 
 export const FLOAT_MARGIN = 12;
 const DRAG_SLOP = 4;
-const NO_DRAG = 'input, textarea, a, label, .float-reset, .pill-close';
+const NO_DRAG = 'input, textarea, a, label, .float-reset';
 
-export const PILL_HOME: FloatPlace = { x: 0.5, y: 0 };
 export const COMPOSER_HOME: FloatPlace = { x: 0.5, y: 1 };
 
 export const FLOAT_SIZES = ['small', 'normal', 'large', 'huge'] as const satisfies readonly FloatSize[];
@@ -15,7 +14,6 @@ export const floatZoom = (size: FloatSize) => ZOOM[size];
 
 export type Size = { w: number; h: number };
 export type At = { left: number; top: number };
-export type Rect = At & Size;
 
 const unit = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -96,21 +94,11 @@ export function useFloatDrag(float: RefObject<HTMLElement | null>, pane: Size | 
   return { at, start, swallowClick };
 }
 
-export function popLeft(pillLeft: number, pillWidth: number, popWidth: number, paneWidth: number): number {
-  const centred = pillLeft + (pillWidth - popWidth) / 2;
-  const clamped = Math.max(FLOAT_MARGIN, Math.min(centred, paneWidth - FLOAT_MARGIN - popWidth));
-  return clamped - pillLeft;
-}
-
 const POP_GAP = 6;
 
-export function popSpace(top: number, box: Size, pane: Size, cover: Rect | null): { above: boolean; room: number } {
-  const ceiling = cover && cover.top < top ? Math.min(top, cover.top + cover.h) : 0;
-  const floor = cover && cover.top + cover.h > top + box.h ? Math.max(top + box.h, cover.top) : pane.h;
-  const above = top - ceiling - FLOAT_MARGIN;
-  const below = floor - (top + box.h) - FLOAT_MARGIN;
+export function popSpace(top: number, box: Size, pane: Size): { above: boolean; room: number } {
+  const above = top - FLOAT_MARGIN;
+  const below = pane.h - (top + box.h) - FLOAT_MARGIN;
   const useAbove = above > below;
-  const room = (useAbove ? above : below) - POP_GAP;
-  if (room <= 0 && cover) return popSpace(top, box, pane, null);
-  return { above: useAbove, room: Math.max(0, room) };
+  return { above: useAbove, room: Math.max(0, (useAbove ? above : below) - POP_GAP) };
 }

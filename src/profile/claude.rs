@@ -41,6 +41,8 @@ const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const GUARD: &str = "loom guard";
+const TURN_END_VERBS: [&str; 3] = ["done", "ask", "verdict"];
+const TURN_ENDED: &str = "loom";
 const HOOK: &str = "loom hook claude";
 const LEAN_ENV: [(&str, &str); 3] = [
     ("BUN_JSC_useDFGJIT", "0"),
@@ -507,22 +509,31 @@ impl HookEvent for Hook {
         let wait = self.event.human_wait();
         let wait = ((main && self.event.clears_wait()) || wait.is_some())
             .then(|| Report::HumanWait(wait.map(|(kind, text)| (kind, text, None))));
+        let last = self.event.ends_turn() && std::env::var_os(WAKE_ENV).is_some();
         Signals {
             step: self.event.name().to_owned(),
             take: match std::env::var_os(WAKE_ENV) {
+                Some(_) if last => Some(Take::Last),
                 Some(_) => self.event.take(),
                 None => self.event.take_without_wake(),
             }
             .filter(|_| main),
             session: self.transcript_path.clone().map(Session),
-            prompt_id: self.prompt_id.clone().filter(|_| self.event.marks_prompt()),
+            prompt_id: self
+                .prompt_id
+                .clone()
+                .filter(|_| last || self.event.marks_prompt()),
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
-            turn_end: matches!(self.event, Event::Stop).then(|| {
-                self.last_assistant_message
-                    .clone()
-                    .filter(|text| text.trim() != SILENT_END)
-            }),
+            turn_end: match &self.event {
+                Event::Stop => Some(
+                    self.last_assistant_message
+                        .clone()
+                        .filter(|text| text.trim() != SILENT_END),
+                ),
+                _ if last => Some(None),
+                _ => None,
+            },
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
             reports: reported_model(&self.event, self.transcript_path.as_deref())
@@ -566,8 +577,16 @@ impl Hook {
                 out: Some(deny(SUBAGENT_INTERRUPTED.into()).to_string()),
                 ..Shown::default()
             },
+            Handed::Mail(messages) if messages.is_empty() && self.event.ends_turn() => Shown {
+                out: Some(json!({ "continue": false, "stopReason": TURN_ENDED }).to_string()),
+                ..Shown::default()
+            },
             Handed::Mail(messages) if messages.is_empty() => Shown::default(),
             Handed::Mail(messages) => to_model(super::message_text(messages)),
+            Handed::Nudge(text) if self.event.ends_turn() => Shown {
+                out: Some(context("PostToolUse", text.clone()).to_string()),
+                ..Shown::default()
+            },
             Handed::Nudge(text) => to_model(text.clone()),
         }
     }
@@ -606,7 +625,12 @@ pub enum Event {
         tool_name: String,
         tool_input: Value,
     },
-    PostToolUse,
+    PostToolUse {
+        #[serde(default)]
+        tool_name: String,
+        #[serde(default)]
+        tool_input: Value,
+    },
     PostToolUseFailure,
     Stop,
     StopFailure {
@@ -635,7 +659,7 @@ impl Event {
             Event::SessionStart { .. } => "SessionStart",
             Event::UserPromptSubmit { .. } => "UserPromptSubmit",
             Event::PreToolUse { .. } => "PreToolUse",
-            Event::PostToolUse => "PostToolUse",
+            Event::PostToolUse { .. } => "PostToolUse",
             Event::PostToolUseFailure => "PostToolUseFailure",
             Event::Stop => "Stop",
             Event::StopFailure { .. } => "StopFailure",
@@ -655,6 +679,22 @@ impl Event {
         )
     }
 
+    fn ends_turn(&self) -> bool {
+        match self {
+            Event::PostToolUse {
+                tool_name,
+                tool_input,
+            } => {
+                tool_name == "Bash"
+                    && tool_input["run_in_background"] != true
+                    && tool_input["command"]
+                        .as_str()
+                        .is_some_and(calls_turn_end_verb)
+            }
+            _ => false,
+        }
+    }
+
     fn clears_wait(&self) -> bool {
         !matches!(
             self,
@@ -667,7 +707,7 @@ impl Event {
             Event::SessionStart { .. } => Take::ListenStart,
             Event::Stop | Event::StopFailure { .. } => Take::ListenEnd,
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
-            Event::PostToolUse => Take::Now(Kind::ALL),
+            Event::PostToolUse { .. } => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::FileChanged { file_path } if is_wake_file(file_path) => Take::Woken,
             Event::FileChanged { .. } | Event::Notification { .. } | Event::CwdChanged => {
@@ -749,7 +789,7 @@ impl Event {
             | Event::CwdChanged => None,
             Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
-            Event::PostToolUse => Some(context("PostToolUse", text)),
+            Event::PostToolUse { .. } => Some(context("PostToolUse", text)),
             Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
         }
     }
@@ -831,6 +871,19 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     let mut input = input.clone();
     input["command"] = format!("{GUARD}\n{command}").into();
     Some(input)
+}
+
+fn calls_turn_end_verb(command: &str) -> bool {
+    let command = command
+        .strip_prefix(GUARD)
+        .map_or(command, |rest| rest.trim_start_matches('\n'));
+    let first = command.lines().next().unwrap_or_default();
+    let last = first.rsplit([';', '&', '|']).next().unwrap_or_default();
+    let mut words = last.split_whitespace();
+    words.next() == Some("loom")
+        && words
+            .next()
+            .is_some_and(|verb| TURN_END_VERBS.contains(&verb))
 }
 
 fn turn_shown(screen: &str) -> bool {

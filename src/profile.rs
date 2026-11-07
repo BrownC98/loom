@@ -49,6 +49,7 @@ pub enum Take {
     WhenIdle,
     ListenStart,
     ListenEnd,
+    Last,
     Woken,
 }
 

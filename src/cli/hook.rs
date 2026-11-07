@@ -160,6 +160,7 @@ enum Step {
     Take(TakeRequest),
     Idle(IdleRequest),
     Listen(ListenRequest),
+    Last(TakeRequest, ListenRequest),
     Woken(TakeRequest),
 }
 
@@ -171,6 +172,15 @@ fn step(signals: &mut Signals) -> Step {
         Some(Take::ListenEnd) => {
             let prompt_id = signals.prompt_id.clone();
             Step::Listen(listen_request(signals, ListenAt::End { prompt_id }))
+        }
+        Some(Take::Last) => {
+            let prompt_id = signals.prompt_id.take();
+            let end = ListenRequest {
+                idle: idle_request(signals),
+                at: ListenAt::End { prompt_id },
+                reports: Vec::new(),
+            };
+            Step::Last(take_request(signals, Kind::ALL), end)
         }
         Some(Take::Now(kinds)) => Step::Take(take_request(signals, kinds)),
         Some(Take::Woken) => Step::Woken(take_request(signals, Kind::ALL)),
@@ -285,6 +295,20 @@ fn run(
         Step::Take(request) => {
             let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
             (Handed::Taken { messages, note }, Some(CALL_LIMIT))
+        }
+        Step::Last(request, end) => {
+            let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
+            let handed = match messages.is_empty() && note.is_none() {
+                true => match call("listen", &end, Some(CALL_LIMIT)) {
+                    Ok(reply) => handed(reply),
+                    Err(e) => {
+                        eprintln!("loom: could not report the turn end to loom: {e}");
+                        Handed::Taken { messages, note }
+                    }
+                },
+                false => Handed::Taken { messages, note },
+            };
+            (handed, Some(CALL_LIMIT))
         }
     };
     let shown = event.show(&handed);

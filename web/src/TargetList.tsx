@@ -103,6 +103,7 @@ export function TargetList(props: {
                 e.preventDefault();
               }}
             />
+            <span className="tl-hint">{t('composer.listHint')}</span>
           </label>
           {KINDS.map((k) => {
             const name = k ?? 'all';
@@ -113,7 +114,6 @@ export function TargetList(props: {
             );
           })}
         </div>
-        <p className="tl-hint">{t('composer.listHint')}</p>
       </div>
     </div>
   );

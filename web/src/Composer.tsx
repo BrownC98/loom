@@ -124,8 +124,19 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
   useLayoutEffect(() => {
     const el = area.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    const fit = () => {
+      el.style.height = 'auto';
+      if (el.value !== '') el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    let width = el.clientWidth;
+    const resized = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    resized.observe(el);
+    return () => resized.disconnect();
   }, [text]);
   const filing = uploads.use(DRAFT_KEY).length;
   const sending = sendings.use(DRAFT_KEY);

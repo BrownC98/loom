@@ -17,7 +17,6 @@ export type Target = {
   waits: readonly ScreenWait[];
   key: TargetKey;
   card: ScreenWait | null;
-  collapsed: boolean;
   lost: boolean;
   route: Route;
   index: number;
@@ -43,7 +42,6 @@ export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: rea
     waits,
     key,
     card,
-    collapsed: key === PROMPT && card !== null,
     lost: pinned !== null && (held === null || !open(held.key)),
     route: routeOf(key === PROMPT ? null : card),
     index: card ? waits.indexOf(card) + 1 : 0,

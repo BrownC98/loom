@@ -90,7 +90,7 @@ function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) 
   );
 }
 
-export function WaitTitle(props: { wait: ScreenWait }) {
+function WaitTitle(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
   const { wait } = props;
   const Icon = ICON[wait.tone];

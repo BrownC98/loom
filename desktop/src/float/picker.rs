@@ -26,6 +26,7 @@ use crate::views::scrollbar::Bar;
 const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
 const TIME: &str = "%H:%M";
+const HINT_ROOM: f32 = 480.0;
 
 pub enum PickerEvent {
     Pick(NodeId, Aim),
@@ -484,7 +485,15 @@ impl Render for Picker {
                     .bg(c.surface)
                     .text_size(px(13.0 * z))
                     .child(icon(Lucide::Search, 14.0 * z, c.ink_3))
-                    .child(self.query.clone()),
+                    .child(self.query.clone())
+                    .children((self.width >= HINT_ROOM * z).then(|| {
+                        div()
+                            .flex_none()
+                            .text_size(px(11.0 * z))
+                            .text_color(c.ink_3)
+                            .whitespace_nowrap()
+                            .child(ui::say(cx, Str::ComposerListHint))
+                    })),
             )
             .child(chips);
         let foot = div()
@@ -497,13 +506,7 @@ impl Render for Picker {
             .border_color(c.line)
             .when(self.above, |d| d.border_t_1())
             .when(!self.above, |d| d.border_b_1())
-            .child(find)
-            .child(
-                div()
-                    .text_size(px(11.0 * z))
-                    .text_color(c.ink_3)
-                    .child(ui::say(cx, Str::ComposerListHint)),
-            );
+            .child(find);
         let body = div()
             .id("composer-pick")
             .w(px(self.width))

@@ -426,6 +426,15 @@ fn set_work(db: &Connection, id: NodeId, work: &Work) -> rusqlite::Result<()> {
     note_state(db, id, from)
 }
 
+fn finish_work(db: &Connection, id: NodeId) -> rusqlite::Result<()> {
+    let kept = db.query_row(
+        "SELECT state ->> 'kept' FROM nodes WHERE id = ?1",
+        [id.0],
+        |row| row.get(0),
+    )?;
+    set_work(db, id, &Work::Done { kept })
+}
+
 fn note_state(db: &Connection, id: NodeId, from: NodeState) -> rusqlite::Result<()> {
     let to = state_of(db, id)?;
     if to == from {

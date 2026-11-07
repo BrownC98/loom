@@ -760,6 +760,7 @@ const ko: typeof en = {
       notGate: '{{branch}}: 관문 {{gate}}만 이 브랜치를 다룹니다. 판정은 관문이나 loom이 관문 아래 띄운 검토자가, 멈춤은 관문만 부를 수 있습니다.',
       noRound: '{{value}}: 관문 차례가 없는 브랜치입니다. 담당이 먼저 `loom ready`를 부릅니다.',
       notOwner: '{{branch}}: 워크트리가 이 브랜치에 있는 담당만 `loom ready`를 부릅니다.',
+      noResult: '{{branch}}: {{path}}이 없거나 비어 있습니다. 검토자가 이 파일을 읽습니다.',
       uncommitted: '{{value}}: 커밋하지 않은 변경이 있습니다.',
       sameAsTarget: '{{value}}: 대상 브랜치와 같은 브랜치입니다.',
       staleHead: '{{branch}}: 열린 차례의 커밋은 {{head}}입니다. 준 커밋이 아닙니다.',

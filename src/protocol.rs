@@ -160,7 +160,11 @@ pub const REVIEW_RULES: &str = "# Review rules
 
 Look first for the defects that the repository's AGENTS.md lists for review, in its order.
 
-Read the owner's check log (result.md and logs/ in $LOOM_TASK_DIR). Do not run the full checks: the owner ran them, and the merge queue runs scripts/gate/check.sh if the repository has it. You can run one targeted test that shows a defect. The owner's brief, with its done-when, is brief.md in $LOOM_TASK_DIR.";
+Read the owner's check log (result.md and logs/ in $LOOM_TASK_DIR). Do not run the full checks: the owner ran them, and the merge queue runs scripts/gate/check.sh if the repository has it. You can run one targeted test that shows a defect. The owner's brief, with its done-when, is brief.md in $LOOM_TASK_DIR.
+
+Reviewers of one branch share their work. When you find a defect, send it at once to the other reviewer with `loom note <reviewer> --steer`. Do not check again a defect that the other reviewer sent or wrote. Answer a disagreement or a rejection with evidence: evidence decides, not authority. loom does not deliver a note to a reviewer that already judged this round: write evidence against its finding in your findings file.
+
+On `kind: withdrawn`, write your findings to your findings file, then stop that review.";
 
 #[macro_export]
 macro_rules! message_usage {

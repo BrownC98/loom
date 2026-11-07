@@ -1,5 +1,6 @@
 ---
 name: ask-human
+disable-model-invocation: true
 description: The standard for how an agent asks the human. Use it for each question, choice, approval or permission. It tells you whom to ask and in which form. loom gives it to every node.
 ---
 

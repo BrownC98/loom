@@ -116,11 +116,29 @@ pub(super) async fn spawn(
         fresh.keep();
     }
     if let (Ok(id), Some(_)) = (&spawned, review)
-        && let Err(e) = app.graph.introduce_reviewer(*id)
+        && let Err(e) = introduce(app, *id, place.repo).await
     {
         crate::log::logln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
     }
     spawned
+}
+
+async fn introduce(app: &App, reviewer: NodeId, repo: RepoId) -> Result<(), Refusal> {
+    let dir = app
+        .repos
+        .path(repo)
+        .map_err(|e| Refusal::Git(e.to_string()))?;
+    let target = match app.graph.reviewed_owner(reviewer)? {
+        Some(owner) => match app.gate_of(owner, &dir).await {
+            Ok((_, target)) => Some(target),
+            Err(e) => {
+                crate::log::logln!("loom: 검토자 {reviewer}의 대상 브랜치를 찾지 못했다: {e}");
+                None
+            }
+        },
+        None => None,
+    };
+    Ok(app.graph.introduce_reviewer(reviewer, target.as_deref())?)
 }
 
 pub(super) fn role_refusal(e: RoleProblem) -> Refusal {
@@ -286,6 +304,9 @@ pub(super) fn traced<T>(
                 Some(via),
             )
             .map_err(|e| for_agent(Refusal::from(e)))?;
+    }
+    if result.is_ok() {
+        app.turn_ends.called(from);
     }
     result.map(Json).map_err(for_agent)
 }

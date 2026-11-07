@@ -758,6 +758,7 @@ const en = {
       notGate: '{{branch}}: only its gate {{gate}} handles it. The gate or a reviewer that loom spawned under it gives the verdict, and only the gate stops it.',
       noRound: '{{value}}: this branch has no gate round. Its owner calls `loom ready` first.',
       notOwner: '{{branch}}: only the node whose worktree is on this branch calls `loom ready`.',
+      noResult: '{{branch}}: {{path}} is missing or empty. Reviewers read it.',
       uncommitted: '{{value}}: there are uncommitted changes.',
       sameAsTarget: '{{value}}: this is the target branch itself.',
       staleHead: '{{branch}}: the open round is head {{head}}, not the head that was given.',

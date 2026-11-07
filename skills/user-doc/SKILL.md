@@ -1,6 +1,6 @@
 ---
 name: user-doc
-description: Make a document for the human (a mockup, a report or a workflow map) as one HTML file, check it against the set form and style, and attach it as a link to an inbox question. Use it to show the human a mockup, a research, design, comparison or result report, or a workflow analysis or design document, when the human asks for "목업", "보고서", "브라우저에 띄워", "워크플로우 분석", "워크플로우 설계" or "정보 구조", and for mockup approvals and reports in o-mode. Do not use it for briefs or notes that only agents read.
+description: A mockup, report or workflow map for the human as one checked HTML file on an inbox question. Use for "목업", "보고서", "브라우저에 띄워", "워크플로우 분석", "워크플로우 설계", "정보 구조".
 ---
 
 # Documents for the human

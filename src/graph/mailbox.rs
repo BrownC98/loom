@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::events;
 use super::{
-    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, from_json, optional_json, parent_of, set_work,
-    state_of, to_json,
+    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json,
+    parent_of, set_work, state_of, to_json,
 };
 use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
@@ -23,12 +23,8 @@ use api::ids::{AgentId, NodeId};
 
 const NOTICE: &str = "what ->> 'kind' IN ('exited', 'removed', 'adopted')";
 
-fn rests() -> String {
-    format!("(quiet = 1 OR coalesce({NOTICE}, 0))")
-}
-
 fn wakes() -> String {
-    format!(r#"(kind != '"queue"' OR NOT {})"#, rests())
+    format!(r#"(kind != '"queue"' OR what IS NULL OR NOT {NOTICE})"#)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -81,7 +77,7 @@ impl Graph {
                 body,
                 via,
             },
-            |db, to, id| hush_judged_peer(db, from, to, id),
+            |db, to, id| record_judged_peer(db, from, to, id),
         )
     }
 
@@ -390,7 +386,7 @@ impl Graph {
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let steered = steer(&tx, node, &rests())?;
+        let steered = steer(&tx, node, NOTICE)?;
         let resumed = resume(&tx, node)?;
         tx.commit()?;
         if resumed || steered > 0 {
@@ -529,12 +525,7 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        let kept = tx.query_row(
-            "SELECT state ->> 'kept' FROM nodes WHERE id = ?1",
-            [node.0],
-            |row| row.get(0),
-        )?;
-        set_work(&tx, node, &Work::Done { kept })?;
+        finish_work(&tx, node)?;
         let mut unkept = Vec::new();
         for kept in report.keep {
             let done = tx
@@ -576,7 +567,7 @@ impl Graph {
                     |row| row.get(0),
                 )?;
                 if reviewer {
-                    hush(&tx, id)?;
+                    record_only(&tx, id)?;
                 }
             }
         }
@@ -618,7 +609,7 @@ impl Graph {
         let what = MessageKind::HumanInput {
             node: super::name_of(&tx, node)?,
         };
-        let id = enqueue(
+        enqueue(
             &tx,
             node,
             Some(parent),
@@ -627,7 +618,6 @@ impl Graph {
             text,
             Stamp::default(),
         )?;
-        hush(&tx, id)?;
         tx.commit()?;
         self.publish_sent(&db, node, parent)?;
         Ok(())
@@ -864,34 +854,27 @@ pub(super) fn enqueue(
     Ok(id)
 }
 
-pub(super) fn hush(db: &Connection, id: MessageId) -> rusqlite::Result<()> {
-    db.execute("UPDATE messages SET quiet = 1 WHERE id = ?1", [id.0])?;
-    Ok(())
-}
-
-fn hush_judged_peer(
+fn record_judged_peer(
     db: &Connection,
     from: NodeId,
     to: NodeId,
     id: MessageId,
 ) -> rusqlite::Result<()> {
-    db.execute(
-        "UPDATE messages SET quiet = 1, kind = ?4 WHERE id = ?1 AND kind IN (?4, ?5) AND EXISTS(
+    let judged: bool = db.query_row(
+        "SELECT EXISTS(
              SELECT 1 FROM nodes s JOIN nodes r ON r.parent = s.parent AND r.review = s.review
              JOIN gate_votes v ON v.reviewer = r.id AND v.branch = r.review AND v.vote IS NOT NULL
-             WHERE s.id = ?2 AND r.id = ?3)",
-        params![
-            id.0,
-            from.0,
-            to.0,
-            to_json(&Kind::Queue),
-            to_json(&Kind::Steer)
-        ],
+             WHERE s.id = ?1 AND r.id = ?2)",
+        params![from.0, to.0],
+        |row| row.get(0),
     )?;
+    if judged {
+        record_only(db, id)?;
+    }
     Ok(())
 }
 
-pub(super) fn file_read(db: &Connection, id: MessageId) -> rusqlite::Result<()> {
+pub(super) fn record_only(db: &Connection, id: MessageId) -> rusqlite::Result<()> {
     db.execute(
         "UPDATE messages SET delivered = 1, printed = 1 WHERE id = ?1",
         [id.0],

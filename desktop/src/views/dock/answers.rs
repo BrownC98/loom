@@ -34,6 +34,7 @@ struct Draft {
 }
 
 struct Attach {
+    node: NodeId,
     pictures: Entity<Pictures>,
     _sub: Subscription,
 }
@@ -234,6 +235,7 @@ impl Answers {
             self.attached.insert(
                 id,
                 Attach {
+                    node,
                     pictures,
                     _sub: sub,
                 },
@@ -449,7 +451,11 @@ impl Answers {
     }
 
     fn send(&mut self, wait: u32, text: Text, done: Option<Done>, cx: &mut Context<Self>) {
-        let pictures = self.attached.get(&wait).map(|a| a.pictures.clone());
+        let pictures = self.attached.get(&wait).map(|a| {
+            a.pictures
+                .update(cx, |pictures, cx| pictures.retarget(a.node, cx));
+            a.pictures.clone()
+        });
         if pictures.as_ref().is_some_and(|p| p.read(cx).busy()) {
             self.store
                 .update(cx, |store, cx| store.set_busy(wait, true, cx));

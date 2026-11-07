@@ -172,10 +172,15 @@ pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
 #[derive(Default)]
 pub(super) struct Held {
     pub(super) reviewers: Vec<String>,
+    pub(super) stopped: bool,
     pub(super) seats: Vec<&'static str>,
 }
 
 impl Held {
+    pub(super) fn needs_gate(&self) -> bool {
+        self.stopped || !self.seats.is_empty()
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.reviewers.is_empty() && self.seats.is_empty()
     }

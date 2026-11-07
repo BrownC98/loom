@@ -521,6 +521,7 @@ impl Graph {
         )];
         let held = Held {
             reviewers: Vec::new(),
+            stopped: false,
             seats: empty_seats(&tx, &row, branch)?,
         };
         if !held.is_empty() {
@@ -918,7 +919,7 @@ impl Graph {
                     Some(_) => policy::Lineage::Child,
                     None => policy::Lineage::Root,
                 };
-                if !policy::wakes(call, *receiver, target, lineage) {
+                if !held.needs_gate() && !policy::wakes(call, *receiver, target, lineage) {
                     mailbox::hush(&tx, id)?;
                 }
                 sent.push(to_node);
@@ -1176,7 +1177,7 @@ fn pending(
     let base = row.target_kind() == Target::Base;
     let reviewers = tx
         .prepare(&format!(
-            "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
+            "SELECT n.name, {REACHABLE} FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
              AND ({REACHABLE} OR (?6 AND n.role IN ({}))) ORDER BY n.id",
             of_round("?1", "?2", "?3"),
             voted("?5", "?3"),
@@ -1191,11 +1192,12 @@ fn pending(
                 repo.0,
                 base
             ],
-            |r| r.get(0),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)),
         )?
-        .collect::<rusqlite::Result<_>>()?;
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Held {
-        reviewers,
+        stopped: reviewers.iter().any(|(_, reachable)| !reachable),
+        reviewers: reviewers.into_iter().map(|(name, _)| name).collect(),
         seats: empty_seats(tx, row, branch)?,
     })
 }

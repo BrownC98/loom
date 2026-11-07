@@ -773,7 +773,22 @@ impl Graph {
         Ok(seated(&self.lock(), gate, branch, role)?.is_some())
     }
 
-    pub fn introduce_reviewer(&self, node: NodeId, target: &str) -> rusqlite::Result<()> {
+    pub fn reviewed_owner(&self, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
+        let db = self.lock();
+        let Some((gate, branch)) = db
+            .query_row(
+                "SELECT parent, review FROM nodes WHERE id = ?1 AND review IS NOT NULL",
+                [node.0],
+                |r| Ok((NodeId(r.get(0)?), r.get::<_, String>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        Ok(load(&db, place_of(&db, gate)?.repo, &branch)?.map(|row| row.owner))
+    }
+
+    pub fn introduce_reviewer(&self, node: NodeId, target: Option<&str>) -> rusqlite::Result<()> {
         let db = self.lock();
         let Some((gate, branch)) = db
             .query_row(
@@ -813,7 +828,7 @@ impl Graph {
                 ),
             };
             let mut body = Vec::new();
-            if let (true, Some(head)) = (*id == node, &head) {
+            if let (true, Some(head), Some(target)) = (*id == node, &head, target) {
                 body.push(policy::first_round_step(&branch, head, target));
             }
             if !peers.is_empty() {

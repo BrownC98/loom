@@ -128,8 +128,17 @@ async fn introduce(app: &App, reviewer: NodeId, repo: RepoId) -> Result<(), Refu
         .repos
         .path(repo)
         .map_err(|e| Refusal::Git(e.to_string()))?;
-    let target = crate::worktree::merge::base_branch(app.files(), &dir).await?;
-    Ok(app.graph.introduce_reviewer(reviewer, &target)?)
+    let target = match app.graph.reviewed_owner(reviewer)? {
+        Some(owner) => match app.gate_of(owner, &dir).await {
+            Ok((_, target)) => Some(target),
+            Err(e) => {
+                crate::log::logln!("loom: 검토자 {reviewer}의 대상 브랜치를 찾지 못했다: {e}");
+                None
+            }
+        },
+        None => None,
+    };
+    Ok(app.graph.introduce_reviewer(reviewer, target.as_deref())?)
 }
 
 pub(super) fn role_refusal(e: RoleProblem) -> Refusal {
@@ -295,6 +304,9 @@ pub(super) fn traced<T>(
                 Some(via),
             )
             .map_err(|e| for_agent(Refusal::from(e)))?;
+    }
+    if result.is_ok() {
+        app.turn_ends.called(from);
     }
     result.map(Json).map_err(for_agent)
 }

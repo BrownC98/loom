@@ -196,7 +196,12 @@ impl Graph {
             None
         };
         let reported = match reply.as_deref() {
-            Some(reply) if check.is_none() && has(Bit::Human) && unreported_root(&tx, node)? => {
+            Some(reply)
+                if check.is_none()
+                    && has(Bit::Human)
+                    && !has(Bit::Called)
+                    && unreported_root(&tx, node)? =>
+            {
                 put_done(
                     &tx,
                     node,

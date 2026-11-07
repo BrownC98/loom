@@ -63,7 +63,7 @@ pub fn resettable() -> Vec<&'static str> {
         .collect()
 }
 
-pub const OWNERS: [(&str, Option<Tab>); 32] = [
+pub const OWNERS: [(&str, Option<Tab>); 28] = [
     ("workspaceDir", Some(Tab::General)),
     ("wslWorkspaceDirs", Some(Tab::General)),
     ("osNotify", Some(Tab::General)),
@@ -80,11 +80,8 @@ pub const OWNERS: [(&str, Option<Tab>); 32] = [
     ("cardView", Some(Tab::Graph)),
     ("graphScope", Some(Tab::Graph)),
     ("edgeStyle", Some(Tab::Graph)),
-    ("questionPill", None),
     ("composerOff", Some(Tab::Graph)),
-    ("pillPlace", None),
     ("composerPlace", Some(Tab::Graph)),
-    ("pillSize", None),
     ("composerSize", Some(Tab::Graph)),
     ("terminalTheme", Some(Tab::Terminal)),
     ("terminalFont", Some(Tab::Terminal)),
@@ -95,7 +92,6 @@ pub const OWNERS: [(&str, Option<Tab>); 32] = [
     ("paneWidths", None),
     ("closedPanes", None),
     ("closedSwitchNotice", None),
-    ("closedPill", None),
 ];
 
 pub(super) fn column(

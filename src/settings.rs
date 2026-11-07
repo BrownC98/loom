@@ -101,12 +101,10 @@ fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> 
 
 fn checked(value: &serde_json::Value, check: ChoiceCheck) -> Result<SettingsView, String> {
     let view: SettingsView = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
-    let problem = roles::launch_problem(&view.roles, check)
-        .or_else(|| view.pill_place.and_then(|p| place_problem(p, "pillPlace")))
-        .or_else(|| {
-            view.composer_place
-                .and_then(|p| place_problem(p, "composerPlace"))
-        });
+    let problem = roles::launch_problem(&view.roles, check).or_else(|| {
+        view.composer_place
+            .and_then(|p| place_problem(p, "composerPlace"))
+    });
     match problem {
         Some(problem) => Err(problem),
         None => Ok(view),

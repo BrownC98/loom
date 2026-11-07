@@ -5,11 +5,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::events;
+use super::token::{NodeLaunch, current_in};
+use super::{Db, hosts, waits};
 use super::{
     Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json,
     parent_of, set_work, state_of, to_json,
 };
-use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::process_tree::Identity;
@@ -244,11 +245,12 @@ impl Graph {
 
     pub async fn wait(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         reply_to: Option<MessageId>,
     ) -> Result<Delivery, Refusal> {
+        let node = launch.node;
         let Some(request) = reply_to else {
-            let mut taken = self.next(node, Kind::ALL, 0).await?;
+            let mut taken = self.next(launch, Kind::ALL, 0).await?;
             return Ok(taken.remove(0));
         };
         let owns: bool = self.lock().query_row(
@@ -262,39 +264,50 @@ impl Graph {
         loop {
             let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
-            let delivery = self
-                .lock()
-                .query_row(
-                    "SELECT id, sender_name, kind, body, what FROM messages
-                     WHERE recipient = ?1 AND what ->> 'kind' = 'answer'
-                     AND what ->> '$.question.in' = 'message' AND what ->> '$.question.id' = ?2
-                     ORDER BY id LIMIT 1",
-                    params![node.0, request.0],
-                    read_delivery,
-                )
-                .optional()?;
-            if let Some(delivery) = delivery {
-                self.lock().execute(
-                    "UPDATE messages SET sent_at = unixepoch()
-                     WHERE id = ?1 AND delivered = 0 AND sent_at IS NULL",
-                    [delivery.id.0],
-                )?;
+            if let Some(delivery) = self.answer_to(launch, request)? {
                 return Ok(delivery);
             }
             notified.await;
         }
     }
 
+    fn answer_to(
+        &self,
+        launch: NodeLaunch<'_>,
+        request: MessageId,
+    ) -> Result<Option<Delivery>, Refusal> {
+        let db = self.lock();
+        current_in(&db, launch)?;
+        let delivery = db
+            .query_row(
+                "SELECT id, sender_name, kind, body, what FROM messages
+                 WHERE recipient = ?1 AND what ->> 'kind' = 'answer'
+                 AND what ->> '$.question.in' = 'message' AND what ->> '$.question.id' = ?2
+                 ORDER BY id LIMIT 1",
+                params![launch.node.0, request.0],
+                read_delivery,
+            )
+            .optional()?;
+        if let Some(delivery) = &delivery {
+            db.execute(
+                "UPDATE messages SET sent_at = unixepoch()
+                 WHERE id = ?1 AND delivered = 0 AND sent_at IS NULL",
+                [delivery.id.0],
+            )?;
+        }
+        Ok(delivery)
+    }
+
     pub async fn next(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
         loop {
             let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
-            let taken = self.take(node, kinds, limit_bytes, Hold::Started)?;
+            let taken = self.take(launch, kinds, limit_bytes, Hold::Started)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -313,22 +326,22 @@ impl Graph {
 
     pub fn take(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
         limit_bytes: usize,
         hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, hold, |_| true)
+        self.take_if(launch, kinds, limit_bytes, hold, |_| true)
     }
 
     pub fn take_waking(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
         limit_bytes: usize,
         hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, hold, |wakes| {
+        self.take_if(launch, kinds, limit_bytes, hold, |wakes| {
             wakes.contains(&true)
         })
     }
@@ -340,14 +353,16 @@ impl Graph {
 
     fn take_if(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
         limit_bytes: usize,
         hold: Hold,
         wanted: impl FnOnce(&[bool]) -> bool,
     ) -> Result<Vec<Delivery>, Refusal> {
+        let node = launch.node;
         let mut db = self.lock();
         let tx = db.transaction()?;
+        current_in(&tx, launch)?;
         let (queued, wakes) = takeable(&tx, node, kinds, hold)?;
         if !wanted(&wakes) {
             return Ok(Vec::new());
@@ -413,11 +428,10 @@ impl Graph {
                 ))?
                 .query_map([node.0], |row| Ok(MessageId(row.get(0)?)))?
                 .collect::<rusqlite::Result<_>>()?;
-            drop(db);
             if notices.is_empty() {
                 return Ok(());
             }
-            return self.ack(node, &notices);
+            return self.ack_in(db, node, &notices);
         }
         steer(&db, node, "1")?;
         drop(db);
@@ -425,8 +439,13 @@ impl Graph {
         Ok(())
     }
 
-    pub fn ack(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
-        let mut db = self.lock();
+    pub fn ack(&self, launch: NodeLaunch<'_>, ids: &[MessageId]) -> Result<(), Refusal> {
+        let db = self.lock();
+        current_in(&db, launch)?;
+        self.ack_in(db, launch.node, ids)
+    }
+
+    fn ack_in(&self, mut db: Db<'_>, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
         let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
             .expect("숫자 목록은 늘 직렬화된다");
         let agent: Option<AgentId> = db

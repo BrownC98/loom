@@ -170,6 +170,7 @@ impl App {
             Left::Clean { own, .. } => Some(self.leaving(&own.path)),
             Left::Nothing | Left::Work(_) => None,
         };
+        let leftovers = self.leftovers(child);
         let Some(moved) = self
             .graph
             .remove_spent_child(parent, child, name, parent_work, limits)
@@ -177,7 +178,7 @@ impl App {
         else {
             return Ok(false);
         };
-        self.host.kill(child);
+        self.removed(child, leftovers);
         let moved: Vec<NodeId> = moved.into_iter().map(|(id, _)| id).collect();
         self.parent_changed(&moved);
         if let Left::Clean {

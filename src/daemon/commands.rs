@@ -1,5 +1,6 @@
-use super::runtime::bearer;
+use super::runtime::ThisLaunch;
 use super::*;
+use crate::graph::NodeLaunch;
 use crate::process_tree::Identity;
 use crate::user_doc::{self, DocStep};
 
@@ -277,27 +278,25 @@ async fn agent_question(
 
 pub(super) async fn agent_take(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<TakeRequest>,
+    at: ThisLaunch<Json<TakeRequest>>,
 ) -> Result<Json<Taken>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.take_now(node, bearer(&headers)?, req)
+    let Json(req) = at.body;
+    app.take_now(at.node, &at.token, req)
         .map(Json)
         .map_err(for_agent)
 }
 
 pub(super) async fn agent_idle(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
     arrival: Option<axum::Extension<arrival::Arrival>>,
-    Json(req): Json<Option<IdleRequest>>,
+    at: ThisLaunch<Json<Option<IdleRequest>>>,
 ) -> Result<Json<IdleReply>, AgentError> {
-    let node = app.caller(&headers)?;
-    let current = || app.caller(&headers).is_ok();
+    let current = || app.is_current(&at.token);
     let arrival = arrival.map(|axum::Extension(arrival)| arrival);
+    let Json(req) = at.body;
     app.wait_idle(
-        node,
-        bearer(&headers)?,
+        at.node,
+        &at.token,
         req.unwrap_or_default(),
         arrival,
         current,
@@ -308,32 +307,29 @@ pub(super) async fn agent_idle(
 
 async fn agent_listen(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<crate::protocol::ListenRequest>,
+    at: ThisLaunch<Json<crate::protocol::ListenRequest>>,
 ) -> Result<Json<IdleReply>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.listen_open(node, bearer(&headers)?, req)
+    let Json(req) = at.body;
+    app.listen_open(at.node, &at.token, req)
         .map(Json)
         .map_err(for_agent)
 }
 
 async fn agent_wake(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<TakeRequest>,
+    at: ThisLaunch<Json<TakeRequest>>,
 ) -> Result<Json<crate::protocol::WakeReply>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.take_woken(node, bearer(&headers)?, req)
+    let Json(req) = at.body;
+    app.take_woken(at.node, &at.token, req)
         .map(Json)
         .map_err(for_agent)
 }
 
 async fn agent_interrupt(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    at: ThisLaunch,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.take_in_turn(node, &[Kind::Interrupt])
+    app.take_in_turn(at.launch(), &[Kind::Interrupt])
         .await
         .map_err(for_agent)?;
     Ok(Json(()))
@@ -341,29 +337,45 @@ async fn agent_interrupt(
 
 pub(super) async fn agent_interrupt_pending(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    at: ThisLaunch,
 ) -> Result<Json<bool>, AgentError> {
-    let node = app.caller(&headers)?;
-    let pending = app.graph.interrupt_pending(node);
+    let pending = app.graph.interrupt_pending(at.node);
     Ok(Json(pending.map_err(|e| for_agent(Refusal::from(e)))?))
 }
 
 async fn agent_ack(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<AckRequest>,
+    at: ThisLaunch<Json<AckRequest>>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.ack(node, req).map_err(for_agent)?;
+    let ThisLaunch {
+        node,
+        token,
+        body: Json(req),
+    } = at;
+    app.ack(
+        NodeLaunch {
+            node,
+            token: &token,
+        },
+        req,
+    )
+    .map_err(for_agent)?;
     Ok(Json(()))
 }
 
 pub(super) async fn agent_guard(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<GuardRequest>,
+    at: ThisLaunch<Json<GuardRequest>>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
+    let ThisLaunch {
+        node,
+        token,
+        body: Json(req),
+    } = at;
+    let launch = NodeLaunch {
+        node,
+        token: &token,
+    };
     let host = app.node_machine(Some(node)).map_err(for_agent)?.host();
     let shell = match (req, host) {
         (GuardRequest::Pc { caller }, None) => app.host.guarded_shell(node, caller),
@@ -372,7 +384,7 @@ pub(super) async fn agent_guard(
     };
     if let Some(shell) = shell {
         app.graph
-            .guard(node, shell)
+            .guard(launch, shell)
             .map_err(|e| for_agent(Refusal::from(e)))?;
     }
     Ok(Json(()))
@@ -380,23 +392,20 @@ pub(super) async fn agent_guard(
 
 async fn agent_model(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(model): Json<Model>,
+    at: ThisLaunch<Json<Model>>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
     app.graph
-        .set_model(node, &model)
+        .set_model(at.launch(), &at.body.0)
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
 }
 
 async fn agent_wait(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<WaitRequest>,
+    at: ThisLaunch<Json<WaitRequest>>,
 ) -> Result<Json<Delivery>, AgentError> {
-    let node = app.caller(&headers)?;
-    let wait = app.graph.wait(node, req.reply_to);
+    let req = &at.body.0;
+    let wait = app.graph.wait(at.launch(), req.reply_to);
     let result = match req.timeout_secs {
         Some(secs) => tokio::time::timeout(std::time::Duration::from_secs(secs), wait)
             .await
@@ -413,38 +422,35 @@ async fn agent_wait(
 
 async fn agent_said(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<SaidRequest>,
+    at: ThisLaunch<Json<SaidRequest>>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.turn_ends.said(node, &req.text, req.turn.as_deref());
+    let req = &at.body.0;
+    app.turn_ends.said(at.node, &req.text, req.turn.as_deref());
     Ok(Json(()))
 }
 
 async fn agent_question_box(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    at: ThisLaunch,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.turn_ends.question_box(node);
+    app.turn_ends.question_box(at.node);
     Ok(Json(()))
 }
 
 async fn agent_report(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(report): Json<crate::protocol::Report>,
+    at: ThisLaunch<Json<crate::protocol::Report>>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    app.report(node, bearer(&headers)?, report);
+    let Json(report) = at.body;
+    app.report(at.node, &at.token, report);
     Ok(Json(()))
 }
 
 pub(super) async fn agent_turn_end(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    at: ThisLaunch,
 ) -> Result<Json<Option<String>>, AgentError> {
-    let node = app.caller(&headers)?;
+    let node = at.node;
     app.feed(node, AgentEvent::TurnEnded);
     let nudge = app
         .turn_ended(node, EndedTurn::default())

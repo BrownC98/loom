@@ -461,11 +461,11 @@ pub fn done(
         },
         None,
     )?;
-    println!("Reported. Do not write the report again in the terminal.");
-    if let Some(warning) = reported.warning {
-        println!(
-            "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
-        );
+    match reported.warning {
+        None => println!("Reported. {END_TURN_NOW} Do not write the report again in the terminal."),
+        Some(warning) => println!(
+            "Reported. Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
+        ),
     }
     if !reported.removed.is_empty() {
         println!(
@@ -524,7 +524,9 @@ pub fn verdict(
         },
         None,
     )?;
-    println!("Recorded the verdict. {branch} is now {state:?}. loom told the receivers.");
+    println!(
+        "Recorded the verdict. {branch} is now {state:?}. loom told the receivers. {END_TURN_NOW}"
+    );
     Ok(())
 }
 

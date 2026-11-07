@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::future::Future;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -43,6 +44,10 @@ use protocol::{
     TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
+const LEAN_ENV: (&str, &str) = (
+    "_RJEM_MALLOC_CONF",
+    "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0",
+);
 const LOGIN_TEXT: &str = "에이전트에 로그인하지 않았습니다. 노드 터미널에서 로그인하십시오.";
 
 pub const PROMPT: Grammar = Grammar {
@@ -160,7 +165,13 @@ impl super::adapter::Adapter for Codex {
             if let Self::OpenAi = self {
                 make_home(at.env).map_err(helper)?;
             }
-            let server = CodexServer::start(*self, at.cwd, at.inside, at.env, &config, task)
+            let env: Vec<(&'static str, OsString)> = at
+                .env
+                .iter()
+                .cloned()
+                .chain([(LEAN_ENV.0, LEAN_ENV.1.into())])
+                .collect();
+            let server = CodexServer::start(*self, at.cwd, at.inside, &env, &config, task)
                 .await
                 .map_err(helper)?;
             let call = |method, params| server.call(method, params);
@@ -168,6 +179,7 @@ impl super::adapter::Adapter for Codex {
                 crate::log::logln!("loom: app-server에 내장 스킬을 더하지 못했다: {e}");
             }
             server.address().tui(cmd);
+            cmd.env(LEAN_ENV.0, LEAN_ENV.1);
             cmd.args(trust);
             let record = server.process().record(server.address().clone());
             let server = Arc::new(server);

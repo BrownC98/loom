@@ -61,7 +61,7 @@ async fn answer_wait(
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
     let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
-    app.turn_ends.human(node);
+    app.turn_ends.human(node, Some(&req.text));
     Ok(Json(()))
 }
 

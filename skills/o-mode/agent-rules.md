@@ -4,24 +4,23 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 
 ## Start
 
-- Read the repository AGENTS.md and the brief. Keep facts that you examined apart from hypotheses.
-- For roles, communication, mockup approval and cleanup, use the procedures in this skill. Do not use rules from a different orchestration skill.
-- Before you edit, make the raptor-3 parts list. The final result is a three-line summary and the path of the result file in the task folder. That file is `result.md`, or `<your node name>.md` if you do part of your parent's task.
+- Read the repository AGENTS.md and the brief.
+- For roles, communication, mockup approval and cleanup, use the procedures in this skill, not rules from a different orchestration skill.
+- The final result is a three-line summary and the path of the result file in the task folder: `result.md`, or `<your node name>.md` if you do part of your parent's task.
 
 ## Work and contact
 
 - A worker implements and examines its piece to the end. A coordinator designs, assigns and reviews, and implements as [o-mode "Roles and assignment"](SKILL.md#roles-and-assignment) tells.
 - Read-only research into a cause can go outside your edit scope. You select the implementation method in the scope and the contract.
 - Ask your parent before you enlarge the edit scope or change done-when, product behavior or a shared contract. Continue the work that the question does not affect.
-- Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits). Write reports in English and text for the human in the human's language.
-- Apply a steer message to your current work. On an interrupt message, stop the current work and do what it tells.
-- loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. If one changes the scope or a contract, wait for your parent's answer before you edit. A coordinator sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
+- Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits).
+- Apply a steer message to your current work.
+- loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. loom does not wake your parent for it. If one changes the scope or a contract, ask your parent with `loom ask` and wait for the answer before you edit. A coordinator sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
 - Do not use `git stash`. All worktrees share it. Keep existing changes.
 - Examine the real behavior and the done-when conditions. Do not make a test or an assertion weaker to pass.
 - Do not accept review findings without examination.
-  - The branch owner accepts each finding or rejects it with evidence. Evidence is `path:line`, a failing or passing test, or steps to see the problem.
-  - The gate (the owner) carries rejections and answers between the owner and the reviewers. A branch made from the parent's branch has no reviewer: that parent accepts it against the done-when conditions. The lead does not review or argue.
-  - A reviewer follows the review rules in its brief: the defect checklist in its order, and the owner's check log instead of full check runs.
+  - The branch owner accepts each finding or rejects it with evidence: `path:line`, a failing or passing test, or steps to see the problem.
+  - The gate (the owner) carries rejections and answers between the owner and the reviewers. The lead does not review or argue.
   - A reviewer answers each rejection with evidence. Evidence decides, not authority.
   - Reviewers of one branch share their work. When you find a defect, send it at once to the other reviewer with `loom note <reviewer> --steer`. Do not check again a defect that the other reviewer sent or wrote. Answer a disagreement with evidence.
   - A block is temporary until the argument ends. It becomes final when the owner accepts it or the gate decides.
@@ -32,9 +31,9 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 
 - Look at `git status --short` and the diff. Do all checks that the repository requires.
 - The report gives the cause, changed files, check commands and results, evidence paths, branch and commit SHA. If something is not committed, say so.
-- Keep remaining risks apart from candidates outside the scope. Fix each defect that you can fix now. Add the `Raptor-3:` line.
-- Write an HTML report only if your parent says that the human asked for one. Use the form in [reference "Reports to the human"](reference.md#reports-to-the-human). Write long results for agents to a file.
+- Keep remaining risks apart from candidates outside the scope. Fix each defect that you can fix now.
+- Write an HTML report only if your parent says that the human asked for one, in the form of [reference "Reports to the human"](reference.md#reports-to-the-human). Write long results for agents to a file.
 - A branch owner (the node whose own worktree is on the branch) follows [o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup) for `loom ready` and rework. A node that spawns workers follows [o-mode "Roles and assignment"](SKILL.md#roles-and-assignment).
 - Report feedback and rework after completion with the procedure above. Do not delete your worktree before your parent examines the result.
-- Before `loom done`, stop or delete the test daemons, background processes and temporary folders that you started. Keep only evidence files. A node's PTY host (`loom pty-host`) stays alive after its daemon stops. Thus stop all loom processes that have your test `HOME` in their environment, also the installed `loom`. Clean up your children as [reference "Cleanup"](reference.md#cleanup) tells.
+- Before `loom done`, stop or delete the test daemons, background processes and temporary folders that you started. Keep only evidence files. A node's PTY host (`loom pty-host`) stays alive after its daemon stops: stop all loom processes that have your test `HOME` in their environment, also the installed `loom`. Clean up your children as [reference "Cleanup"](reference.md#cleanup) tells.
 - In the result, write your worktree path and if follow-up work is necessary.

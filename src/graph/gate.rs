@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use super::events;
 use super::mailbox::{self, Stamp};
 use super::{Graph, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
-use crate::protocol::{self, Deploy};
+use crate::protocol::{self, Deploy, MessageId};
 use crate::task;
 use api::graph::errors::Refusal;
 use api::graph::events::{Entry, GateTrace, Via};
@@ -521,6 +521,7 @@ impl Graph {
         )];
         let held = Held {
             reviewers: Vec::new(),
+            stopped: false,
             seats: empty_seats(&tx, &row, branch)?,
         };
         if !held.is_empty() {
@@ -904,7 +905,7 @@ impl Graph {
                     true => policy::next_step(call, *receiver, target, branch, &row.head),
                     false => policy::held_step(*receiver, branch, &held),
                 });
-                post(
+                let id = post(
                     &tx,
                     caller,
                     to_node,
@@ -914,21 +915,27 @@ impl Graph {
                     via,
                     &trace,
                 )?;
+                let lineage = match parent_of(&tx, to_node)? {
+                    Some(_) => policy::Lineage::Child,
+                    None => policy::Lineage::Root,
+                };
+                if !held.needs_gate() && !policy::wakes(call, *receiver, target, lineage) {
+                    mailbox::hush(&tx, id)?;
+                }
                 sent.push(to_node);
             }
             if let (true, Caller::Node(me)) = (sent.is_empty(), caller) {
-                let mut body = lines;
-                body.push(policy::KEPT_FOR_CALLER.to_owned());
-                post(
+                let id = post(
                     &tx,
                     caller,
                     me,
                     Kind::Queue,
                     &what,
-                    &body.join("\n"),
+                    &lines.join("\n"),
                     via,
                     &trace,
                 )?;
+                mailbox::file_read(&tx, id)?;
                 sent.push(me);
             }
             if call == GateCall::Ready {
@@ -1170,7 +1177,7 @@ fn pending(
     let base = row.target_kind() == Target::Base;
     let reviewers = tx
         .prepare(&format!(
-            "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
+            "SELECT n.name, {REACHABLE} FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
              AND ({REACHABLE} OR (?6 AND n.role IN ({}))) ORDER BY n.id",
             of_round("?1", "?2", "?3"),
             voted("?5", "?3"),
@@ -1185,11 +1192,12 @@ fn pending(
                 repo.0,
                 base
             ],
-            |r| r.get(0),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)),
         )?
-        .collect::<rusqlite::Result<_>>()?;
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Held {
-        reviewers,
+        stopped: reviewers.iter().any(|(_, reachable)| !reachable),
+        reviewers: reviewers.into_iter().map(|(name, _)| name).collect(),
         seats: empty_seats(tx, row, branch)?,
     })
 }
@@ -1432,20 +1440,17 @@ fn post(
     body: &str,
     via: Option<&Via>,
     trace: &GateTrace,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<MessageId> {
     match caller {
         Caller::Node(me) => {
             let stamp = Stamp {
                 via: via.cloned(),
                 gate: Some(trace.clone()),
             };
-            mailbox::enqueue(tx, me, Some(to), kind, what, body, stamp)?;
+            mailbox::enqueue(tx, me, Some(to), kind, what, body, stamp)
         }
-        Caller::Loom => {
-            mailbox::enqueue_from_loom(tx, to, kind, what, body, Some(trace.clone()))?;
-        }
+        Caller::Loom => mailbox::enqueue_from_loom(tx, to, kind, what, body, Some(trace.clone())),
     }
-    Ok(())
 }
 
 pub(super) fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {

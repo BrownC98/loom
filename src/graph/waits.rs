@@ -471,7 +471,7 @@ pub(super) fn put_done(
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
     let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc.clone())?;
-    wait.instruction = Some(instruction.clone());
+    wait.instruction = (!instruction.is_empty()).then(|| instruction.clone());
     wait.images = images
         .iter()
         .map(|p| p.to_string_lossy().into_owned())

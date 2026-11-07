@@ -465,9 +465,7 @@ pub fn done(
         },
         None,
     )?;
-    println!(
-        "Reported to your parent, or to the human's inbox if you have no parent. Do not write the report again in the terminal."
-    );
+    println!("Reported. Do not write the report again in the terminal.");
     if let Some(warning) = reported.warning {
         println!(
             "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
@@ -498,7 +496,7 @@ pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), Stri
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom spawns one reviewer per reviewer role as children of the gate, and sends each next round to them. On pass, loom queues, checks and merges the branch and sends the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again: the new round replaces this one.",
+        "Sent {branch} to its gate {} (target {}). loom sends you the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again.",
         readied.gate, readied.target
     );
     for problem in &readied.unseated {

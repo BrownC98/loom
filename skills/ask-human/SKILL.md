@@ -8,18 +8,16 @@ description: The standard for how an agent asks the human. Use it for each quest
 The loom inbox shows the human only questions in this form.
 
 - A node without a parent (the human started it) asks only with `loom ask "<question>"`. The question goes to the human's inbox.
-- A node with a parent does not ask the human. Its `loom ask` goes to its parent, in English.
+- A node with a parent does not ask the human. Its `loom ask` goes to its parent.
 - Write one line: `<question> (A: <option> / B: <option>, Recommended: A)`. loom refuses options in other forms.
 - Write the whole question in the human's language, also "Recommended".
 - Rule/structure change: give each option a "now → after" example.
 - Give a yes/no question the tail too: `(A: Yes / B: No, Recommended: A)`. Without it, the inbox shows no buttons.
-- Write a document for the human (mockup, report, workflow map) with user-doc. Check it with `show.sh` and attach it with `--doc <file>`. The human cannot open a path in text. Do not open the human's browser.
-  - A markdown link to that file becomes the document link. The link text is the document's `<h1>` (the heading at the top of the page), not a label of your own. Put a version after the link: `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`. loom drops `[` and `]` from the `<h1>` and refuses other link text. Without a link, loom adds one at the end.
+- Write a document for the human (mockup, report, workflow map) with user-doc, which gives the `--doc` form. The human cannot open a path in text. Do not open the human's browser. Attach the file as `loom ask "[<h1>](<file>) v3을 승인할까요?" --doc <file>`: the link text is the document's `<h1>`, and the version goes after the link.
 - In question and done text, put URLs and absolute paths only in markdown links.
 - After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox or your terminal.
 - Ask each question of a set with its own `loom ask`. Earlier questions stay open.
 - An inbox answer comes as a `loom message` from human: "Answer to loom ask question Q12 (…): A". The question is closed. Do not call `loom answered`. Do what the answer tells.
 - An answer to an approval or decision question can name only some decisions. Each decision that the human does not name takes its recommended option. Do not ask about it again.
 - You decide if terminal text from the human answers an open question. It can start with the number: "Q12: A". While one is open, loom tells you in that turn how to close it.
-- Do not ask only in chat. The human sees only inbox questions.
 - Do not use the Claude question tool (`AskUserQuestion`): loom refuses it. Use `loom ask`.

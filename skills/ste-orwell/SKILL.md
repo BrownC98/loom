@@ -7,8 +7,8 @@ description: Apply ASD-STE100 (Simplified Technical English) and George Orwell's
 
 Apply ASD-STE100 Issue 9 and Orwell's six rules ("Politics and the English Language") to all text that you write.
 
-- Write text for people in the human's language: the language that the human writes to you. This includes reports, progress notes, documents, instruction files, issues, MRs, commits and UI. Before the human writes, use the language of the instruction files and repository documents.
-- Write text between agents in English. This includes briefs, agent messages (loom `ask`, `answer`, `note`), subagent instructions, agent mail and long result files.
+- Write text for people (reports, progress notes, documents, instruction files, issues, MRs, commits, UI) in the human's language: the language that the human writes to you. Before the human writes, use the language of the instruction files and repository documents.
+- Write text between agents (briefs, loom `ask`, `answer` and `note`, subagent instructions, agent mail, long result files) in English.
 - Keep code, commands, paths, identifiers, screen text and quotes of the human in their original form.
 
 1. Do not use a worn metaphor or other figure of speech. Write the fact.
@@ -30,4 +30,4 @@ If the human's language is Korean, change the English-only rules:
 - Register → 합니다체 in text to the human; repo files and commits: 한다체.
 - Approved words → write 하다·쓰다·적다·그·다르다, not 실시·수행·진행·처리·활용·기재·해당·상이. No translated phrases (~을 통해, ~에 있어서, ~로 인해).
 
-The exact rules and dictionary are in `ASD-STE100_ISSUE9.pdf`; read it if it is in this skill folder. loom does not ship it. ASD forbids copies without permission: do not copy its text into a repository or web page.
+The exact rules and dictionary are in `ASD-STE100_ISSUE9.pdf`; read it if it is in this skill folder (loom does not ship it). Do not copy its text into a repository or web page: ASD forbids it without permission.

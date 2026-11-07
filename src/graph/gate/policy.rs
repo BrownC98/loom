@@ -123,8 +123,29 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-pub(super) const KEPT_FOR_CALLER: &str =
-    "No other node receives this. loom keeps it in your inbox as the gate record.";
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Lineage {
+    Root,
+    Child,
+}
+
+pub(super) fn wakes(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> bool {
+    !matches!(
+        (call, to, target, lineage),
+        (GateCall::Verdict(Judgment::Pass), ..)
+            | (
+                GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
+                Receiver::Gate | Receiver::Root,
+                ..
+            )
+            | (
+                GateCall::End(MergeEnd::Merged),
+                Receiver::Owner,
+                Target::Base,
+                Lineage::Child
+            )
+    )
+}
 
 pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
     let mut lines = Vec::new();
@@ -151,10 +172,15 @@ pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
 #[derive(Default)]
 pub(super) struct Held {
     pub(super) reviewers: Vec<String>,
+    pub(super) stopped: bool,
     pub(super) seats: Vec<&'static str>,
 }
 
 impl Held {
+    pub(super) fn needs_gate(&self) -> bool {
+        self.stopped || !self.seats.is_empty()
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.reviewers.is_empty() && self.seats.is_empty()
     }
@@ -231,7 +257,7 @@ pub(super) fn peers_step(branch: &str, peers: &[Peer]) -> String {
         .map(|p| format!("{} ({})", p.name, p.findings))
         .collect();
     format!(
-        "Other reviewers of {branch} and their findings files: {}. When you find a defect, send it to them at once: `loom note <reviewer> --steer \"<defect>\"`. Do not check again or report a defect that another reviewer sent you or wrote in its file.",
+        "Other reviewers of {branch} and their findings files: {}.",
         listed.join(", ")
     )
 }

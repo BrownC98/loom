@@ -44,7 +44,7 @@ pub struct Prompt {
     pub rows: Vec<String>,
     /// 창 본문(도구, 명령, 이유) 줄들. 명령 줄은 앞 공백까지 터미널 글 그대로다.
     pub body: Vec<String>,
-    /// 무엇을 승인하는지 한 줄(명령). 알약 미리 보기가 쓴다.
+    /// 무엇을 승인하는지 한 줄(명령). 입력 창 대상 목록 줄과 시스템 알림이 쓴다.
     pub summary: String,
     pub options: Vec<PromptOption>,
     /// 셸 입력 물음(비밀번호, 이름)만: 글을 쳐서 답하는 칸. 데몬은 보낸 글과 Enter를 치고 그 글을 어디에도 두지 않는다.

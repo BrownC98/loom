@@ -674,6 +674,7 @@ const ko: typeof en = {
     keyMore: 'Shift+Enter 줄바꿈 · Esc 터미널로 · Alt+↑↓ 이 노드 안 · Alt+L 목록',
     alertCount: '이 노드 {{index}} / {{count}} · 전체 알림 {{total}}',
     notAnswer: '열림 · 이 글은 답이 아닙니다',
+    targetClosed: '고른 알림이 닫혀 글을 보내지 않습니다. 대상을 확인하고 다시 Enter를 누르십시오.',
     listHint: '↑↓ 움직이기 · Enter 고르기(그 노드도 고름) · 글자를 치면 찾기 · Esc 닫기',
     chipAll: '전체 {{count}}',
     chipQuestion: '질문 {{count}}',

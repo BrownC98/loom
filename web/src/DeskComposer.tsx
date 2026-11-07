@@ -5,7 +5,7 @@ import { answerWait } from './api';
 import { AlertCard } from './AlertCard';
 import { stepKey, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
-import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys } from './Composer';
+import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
@@ -33,11 +33,13 @@ type DeskProps = {
   corner: number;
   onPlace: (place: FloatPlace | null) => void;
   onTarget: (node: NodeId, key: TargetKey) => void;
+  onReaim: () => void;
   onSelect: (id: NodeId) => void;
   onTerminal: () => void;
 };
 
 export function DeskComposer(props: DeskProps) {
+  const { t } = useTranslation();
   const { target } = props;
   const node = target.view.id;
   const input = useNodeInput(node);
@@ -52,7 +54,14 @@ export function DeskComposer(props: DeskProps) {
   const drag = useFloatDrag(float, pane, fullBox, props.onPlace);
   const show = useShowNodes();
   const home = props.place === null;
-  const composer = useComposer({ node, keys: props.keys, deliver: target.route.kind === 'prompt' ? typeInto(node) : answerWith(target.route.wait.id) });
+  const deliver: Delivery = (text, paths) => {
+    if (target.lost) {
+      props.onReaim();
+      throw new Error(t('composer.targetClosed'));
+    }
+    return target.route.kind === 'prompt' ? typeInto(node)(text, paths) : answerWith(target.route.wait.id)(text, paths);
+  };
+  const composer = useComposer({ node, keys: props.keys, deliver });
   const focusField = () => float.current?.querySelector('textarea')?.focus();
   const closeList = () => {
     setListing(false);
@@ -120,6 +129,11 @@ export function DeskComposer(props: DeskProps) {
         >
           <AlertCard target={target} onChoose={choose} onGo={props.onTerminal} />
           <ComposerNotes composer={composer} />
+          {target.lost && (
+            <p className="refusal" role="alert">
+              {t('composer.targetClosed')}
+            </p>
+          )}
         </DeskFace>
         {listing && space && (
           <div className="target-list-at" data-above={space.above || undefined}>

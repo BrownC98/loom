@@ -151,7 +151,7 @@ loom hands each message to the agent between its steps, and wakes an agent that 
 
 ### One inbox for questions and results
 
-When an agent asks you a question or reports a result, a notice shows in the question pill at the top of the graph and in the **Notifications** tab of the right panel.
+When an agent asks you a question or reports a result, a notice shows in the input bar below the graph and in the **Notifications** tab of the right panel.
 
 - Answer in the notice: click an option button, or type an answer and paste images.
 - An agent can attach a document (a mockup or a report). It opens in the browser, and you answer its question in the document.

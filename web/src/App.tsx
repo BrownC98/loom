@@ -55,7 +55,7 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
-import { deskKeys } from './Composer';
+import { deskKeys, useDraftFilled } from './Composer';
 import { DeskComposer } from './DeskComposer';
 import { resolveTarget, type Chosen } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
@@ -133,6 +133,7 @@ export function App() {
   };
   const clearFocus = () => {
     setSelected(null);
+    setPinned(null);
     setChosenBox(null);
     setRepoFocused(false);
   };
@@ -182,7 +183,14 @@ export function App() {
   const dockedView = simpleNode(selected);
   const tabs: readonly DockTab[] = dockedView ? ['questions', 'docs', 'events', 'commits', 'terminal'] : ['questions', 'docs', 'events', 'commits'];
   const waiting = waitingNodes(nodes);
-  const target = resolveTarget(nodes, waiting, selected, chosen);
+  const [pinned, setPinned] = useState<Chosen | null>(null);
+  const draftFilled = useDraftFilled();
+  const target = resolveTarget(nodes, waiting, selected, chosen, pinned);
+  useEffect(() => {
+    if (!draftFilled) {
+      if (pinned) setPinned(null);
+    } else if (target && (!pinned || !nodes.has(pinned.node))) setPinned({ node: target.view.id, key: target.key });
+  }, [draftFilled, pinned, target?.view.id, target?.key]);
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
@@ -297,6 +305,7 @@ export function App() {
   const usage: Usage = { accounts, cursor, loading, refresh: refreshUsage };
   const chooseBox = (key: string | null) => {
     setChosenBox(key);
+    setPinned(null);
     if (key !== null) setSelected(null);
   };
   const [focusAsk, setFocusAsk] = useState(0);
@@ -306,6 +315,7 @@ export function App() {
   };
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
+    setPinned(null);
     if (id !== null) setChosenBox(null);
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place) selectRepo(place.repo);
@@ -581,7 +591,11 @@ export function App() {
                 size={settings.composerSize}
                 corner={graphCorner}
                 onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))}
-                onTarget={(node, key) => setChosen({ node, key })}
+                onTarget={(node, key) => {
+                  setChosen({ node, key });
+                  setPinned(null);
+                }}
+                onReaim={() => setPinned(null)}
                 onSelect={selectNode}
                 onTerminal={() => focusNode(target.view.id)}
               />

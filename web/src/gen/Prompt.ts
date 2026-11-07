@@ -16,7 +16,7 @@ rows: Array<string>,
  */
 body: Array<string>, 
 /**
- * 무엇을 승인하는지 한 줄(명령). 알약 미리 보기가 쓴다.
+ * 무엇을 승인하는지 한 줄(명령). 입력 창 대상 목록 줄과 시스템 알림이 쓴다.
  */
 summary: string, options: Array<PromptOption>, 
 /**

@@ -62,6 +62,8 @@ function keyed<T>(none: T) {
 
 const DRAFT_KEY = 'composer';
 
+export const useDraftFilled = () => useDraft(DRAFT_KEY)[0].trim() !== '';
+
 const NO_UPLOADS: readonly Promise<unknown>[] = [];
 const uploads = keyed(NO_UPLOADS);
 const sendings = keyed(false);

@@ -75,6 +75,7 @@ pub(crate) struct Answers {
     waiting: HashMap<u32, (Text, Option<Done>)>,
     viewer: Entity<Viewer>,
     zoomed: Option<u32>,
+    shared: Option<Entity<Pictures>>,
     _subs: Vec<Subscription>,
 }
 
@@ -105,6 +106,7 @@ impl Answers {
             waiting: HashMap::new(),
             viewer: cx.new(Viewer::new),
             zoomed: None,
+            shared: None,
             _subs: Vec::new(),
         };
         answers
@@ -128,6 +130,10 @@ impl Answers {
             .push(cx.subscribe(&store, |_, _, _: &BusyChanged, cx| cx.notify()));
         answers.sync(cx);
         answers
+    }
+
+    pub(crate) fn share(&mut self, pictures: Entity<Pictures>) {
+        self.shared = Some(pictures);
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
@@ -203,14 +209,17 @@ impl Answers {
         }
         if !self.attached.contains_key(&id) {
             let store = self.store.clone();
-            let pictures = self
-                .shelf
-                .update(cx, |shelf, cx| shelf.pictures(&store, node, id, cx));
+            let shared = self.shared.clone();
+            let pictures = shared.clone().unwrap_or_else(|| {
+                self.shelf
+                    .update(cx, |shelf, cx| shelf.pictures(&store, node, id, cx))
+            });
             let sub =
                 cx.subscribe(
                     &pictures,
                     move |answers, _, event: &PicturesEvent, cx| match event {
                         PicturesEvent::Settled => answers.settled(id, cx),
+                        _ if shared.is_some() => {}
                         PicturesEvent::Refused(text) => {
                             answers.notes.insert(id, text.clone());
                             cx.notify();

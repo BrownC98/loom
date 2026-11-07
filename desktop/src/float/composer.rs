@@ -67,6 +67,8 @@ pub struct Composer {
     viewer: Entity<Viewer>,
     answers: Entity<Answers>,
     chosen: Option<(u32, Aim)>,
+    pinned: Option<(u32, Aim)>,
+    seen_selected: Option<u32>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
@@ -85,6 +87,7 @@ struct Aimed {
     total: usize,
     aim: Aim,
     kind: Kind,
+    lost: bool,
 }
 
 pub fn composer(
@@ -115,7 +118,8 @@ pub fn composer(
                         registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
                     }
                 }
-                FieldEvent::Changed | FieldEvent::Step(_) => {}
+                FieldEvent::Changed => composer.repin(cx),
+                FieldEvent::Step(_) => {}
             },
         );
         let heard = cx.subscribe_in(
@@ -129,6 +133,7 @@ pub fn composer(
                 }
             },
         );
+        let shared = pictures.clone();
         let mut composer = Composer {
             store: store.clone(),
             inputs: registry.clone(),
@@ -146,8 +151,14 @@ pub fn composer(
             aborted: false,
             files: Vec::new(),
             viewer: cx.new(Viewer::new),
-            answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
+            answers: cx.new(|cx| {
+                let mut answers = Answers::new(store.clone(), shelf, cx);
+                answers.share(shared);
+                answers
+            }),
             chosen: None,
+            pinned: None,
+            seen_selected: None,
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
             subscriptions: vec![typed, heard],
@@ -192,9 +203,11 @@ impl Composer {
         let snapshot = store.snapshot()?;
         let groups = groups_of(snapshot);
         let total = groups.iter().map(|g| g.waits.len()).sum();
-        let node = store
-            .selected()
-            .filter(|id| snapshot.nodes.iter().any(|n| n.id.0 == *id))
+        let exists = |id: &u32| snapshot.nodes.iter().any(|n| n.id.0 == *id);
+        let pinned = self.pinned.filter(|(held, _)| exists(held));
+        let node = pinned
+            .map(|(held, _)| held)
+            .or_else(|| store.selected().filter(exists))
             .or_else(|| groups.first().map(|g| g.node.0))?;
         let name = snapshot.nodes.iter().find(|n| n.id.0 == node)?.name.clone();
         let waits = groups
@@ -206,7 +219,11 @@ impl Composer {
             .chosen
             .filter(|(held, _)| *held == node)
             .map(|(_, a)| a);
-        let aim = aim::resolve(chosen, &waits);
+        let aim = match pinned {
+            Some((_, pin)) => pin,
+            None => aim::resolve(chosen, &waits),
+        };
+        let lost = matches!(aim, Aim::Alert(id) if !waits.iter().any(|w| w.wait.id == id));
         let kind = aim::kind_of(aim, &waits);
         Some(Aimed {
             node,
@@ -215,7 +232,22 @@ impl Composer {
             total,
             aim,
             kind,
+            lost,
         })
+    }
+
+    fn repin(&mut self, cx: &mut Context<Self>) {
+        if self.field.read(cx).is_blank() {
+            self.pinned = None;
+        } else if self.pinned.is_none() {
+            self.pinned = self.aimed(cx).map(|a| (a.node, a.aim));
+        }
+        cx.notify();
+    }
+
+    fn reaim(&mut self, cx: &mut Context<Self>) {
+        self.pinned = None;
+        self.repin(cx);
     }
 
     fn node(&self, cx: &App) -> Option<u32> {
@@ -223,6 +255,11 @@ impl Composer {
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
+        let selected = self.store.read(cx).selected();
+        if selected != self.seen_selected {
+            self.seen_selected = selected;
+            self.reaim(cx);
+        }
         let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {
             self.seen_place = place;
@@ -442,6 +479,12 @@ impl Composer {
         let Some(aimed) = self.aimed(cx) else {
             return;
         };
+        if aimed.lost {
+            let text = ui::say(cx, Str::ComposerTargetClosed).to_owned();
+            self.reaim(cx);
+            self.refuse(text, cx);
+            return;
+        }
         let sending = Sending {
             node: aimed.node,
             kind: aimed.kind,
@@ -597,7 +640,7 @@ impl Composer {
         };
         let next = aim::cycle(aimed.aim, &aimed.waits, by);
         self.chosen = Some((aimed.node, next));
-        cx.notify();
+        self.reaim(cx);
     }
 
     fn keys(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -623,6 +666,7 @@ impl Composer {
     fn pick(&mut self, node: NodeId, aim: Aim, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.node(cx);
         self.chosen = Some((node.0, aim));
+        self.reaim(cx);
         self.store.update(cx, |store, cx| {
             store.show_node(node.0, cx);
             store.select(node.0, cx);
@@ -858,7 +902,11 @@ impl Composer {
                     &[("count", &self.filing.to_string())],
                 )
             }),
-            note: self.note.clone(),
+            note: self.note.clone().or_else(|| {
+                aimed
+                    .lost
+                    .then(|| ui::say(cx, Str::ComposerTargetClosed).to_owned())
+            }),
         };
         let field = self.field.clone().into_any_element();
         let live = Live {

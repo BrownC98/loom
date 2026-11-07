@@ -123,35 +123,21 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Lineage {
-    Root,
-    Child,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Arrival {
-    Wakes,
-    Quiet,
-    Finishes,
-}
-
-pub(super) fn arrival(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> Arrival {
-    match (call, to, target, lineage) {
-        (GateCall::End(MergeEnd::Merged), Receiver::Owner, Target::Coordinator, _) => {
-            Arrival::Finishes
-        }
+pub(super) fn wakes(call: GateCall, to: Receiver, target: Target) -> bool {
+    !matches!(
+        (call, to, target),
         (GateCall::Verdict(Judgment::Pass), ..)
-        | (
-            GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
-            Receiver::Gate | Receiver::Root,
-            ..,
-        )
-        | (GateCall::End(MergeEnd::Merged), Receiver::Owner, Target::Base, Lineage::Child) => {
-            Arrival::Quiet
-        }
-        _ => Arrival::Wakes,
-    }
+            | (
+                GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
+                Receiver::Gate | Receiver::Root,
+                _,
+            )
+            | (
+                GateCall::End(MergeEnd::Merged),
+                Receiver::Owner,
+                Target::Coordinator
+            )
+    )
 }
 
 pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {

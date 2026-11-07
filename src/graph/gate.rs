@@ -12,7 +12,7 @@ use api::graph::events::{Entry, GateTrace, Via};
 use api::graph::messages::{Finding, GateState, GateVerb, Judgment, Kind, MessageKind};
 use api::ids::{AgentId, NodeId, RepoId};
 use api::settings::roles::REVIEWER_ROLES;
-use policy::{Arrival, GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
+use policy::{GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
 
@@ -915,17 +915,9 @@ impl Graph {
                     via,
                     &trace,
                 )?;
-                let lineage = match parent_of(&tx, to_node)? {
-                    Some(_) => policy::Lineage::Child,
-                    None => policy::Lineage::Root,
-                };
-                match policy::arrival(call, *receiver, target, lineage) {
-                    Arrival::Wakes => {}
-                    Arrival::Quiet if held.needs_gate() => {}
-                    Arrival::Quiet => mailbox::hush(&tx, id)?,
-                    Arrival::Finishes => {
-                        mailbox::file_read(&tx, id)?;
-                        mailbox::file_quiet_round(&tx, to_node, branch)?;
+                if !held.needs_gate() && !policy::wakes(call, *receiver, target) {
+                    mailbox::record_only(&tx, id)?;
+                    if *receiver == Receiver::Owner && call == GateCall::End(MergeEnd::Merged) {
                         finish_work(&tx, to_node)?;
                     }
                 }
@@ -942,7 +934,7 @@ impl Graph {
                     via,
                     &trace,
                 )?;
-                mailbox::file_read(&tx, id)?;
+                mailbox::record_only(&tx, id)?;
                 sent.push(me);
             }
             if call == GateCall::Ready {

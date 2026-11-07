@@ -802,10 +802,6 @@ impl Store {
 }
 
 impl Store {
-    pub fn composer_box(&self) -> Option<Bounds<Pixels>> {
-        self.composer.map(|(bounds, _)| bounds)
-    }
-
     pub fn composer_room(&self) -> f32 {
         self.composer
             .filter(|(_, home)| *home)

@@ -6,7 +6,7 @@ use api::ids::{NodeId, WaitId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, FontWeight, Image,
-    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement,
+    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Stateful,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Window, div, img, px,
 };
 
@@ -530,6 +530,34 @@ pub(crate) fn entry(
     find: Option<&Find>,
     cx: &mut App,
 ) -> Div {
+    let body = wait_body(answers, node, wait, z, find, cx);
+    framed(answers, wait, z, find, body, None, cx)
+}
+
+pub(crate) fn card(
+    answers: &Entity<Answers>,
+    node: NodeId,
+    wait: &ScreenWait,
+    z: f32,
+    tail: String,
+    cx: &mut App,
+) -> Div {
+    let mut body = wait_content(answers, wait, z, None, cx);
+    if !wait.wait.answerable && wait.wait.prompt.is_none() {
+        body = body.child(terminal_link(answers, node, wait.wait.id.0, z, cx));
+    }
+    framed(answers, wait, z, None, body, Some(tail), cx)
+}
+
+fn framed(
+    answers: &Entity<Answers>,
+    wait: &ScreenWait,
+    z: f32,
+    find: Option<&Find>,
+    body: Div,
+    tail: Option<String>,
+    cx: &mut App,
+) -> Div {
     let c = ui::colors(cx);
     let id = wait.wait.id.0;
     let done = matches!(wait.tone, WaitTone::Done);
@@ -558,7 +586,7 @@ pub(crate) fn entry(
         .gap(px(GAP * z))
         .min_w_0()
         .child(entry::mark(wait.tone, z, &c))
-        .child(entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c))
+        .child(entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c).flex_none())
         .children((wait.wait.kind == WaitKind::Question).then(|| {
             find::chip(
                 find,
@@ -567,6 +595,13 @@ pub(crate) fn entry(
             )
         }))
         .child(entry::published(wait.wait.since, z, cx))
+        .children(tail.map(|text| {
+            div()
+                .flex_none()
+                .text_size(px(SMALL * z))
+                .text_color(c.ink_3)
+                .child(text)
+        }))
         .child(close);
     let mut entry = div()
         .flex()
@@ -582,7 +617,7 @@ pub(crate) fn entry(
                 .child(find::instruction(find, cx, text)),
         );
     }
-    entry = entry.child(wait_body(answers, node, wait, z, find, cx));
+    entry = entry.child(body);
     let viewer = {
         let state = answers.read(cx);
         (state.zoomed == Some(id) && state.viewer.read(cx).is_open()).then(|| state.viewer.clone())
@@ -594,9 +629,8 @@ pub(crate) fn entry(
     entry
 }
 
-fn wait_body(
+fn wait_content(
     answers: &Entity<Answers>,
-    node: NodeId,
     wait: &ScreenWait,
     z: f32,
     find: Option<&Find>,
@@ -689,48 +723,63 @@ fn wait_body(
                 )),
         );
     }
+    if wait.wait.answerable && !done && !wait.wait.choices.is_empty() {
+        body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
+            wait.wait.choices.iter().map(|choice| {
+                let key = choice.key;
+                let owner = answers.clone();
+                let look = if choice.recommended {
+                    Look::Recommended
+                } else {
+                    Look::Plain
+                };
+                let button = div()
+                    .id(("choice", id as usize * 256 + key as usize % 256))
+                    .cursor_pointer()
+                    .hover({
+                        let hover = c.surface_hover;
+                        move |style| style.bg(hover)
+                    });
+                entry::choice_face(
+                    button,
+                    Choice {
+                        key: key.to_string(),
+                        label: &choice.label,
+                        recommended: choice.recommended,
+                        look,
+                        tone: wait.tone,
+                    },
+                    z,
+                    cx,
+                )
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, _, cx| {
+                    owner.update(cx, |answers, cx| answers.reply(id, key.to_string(), cx))
+                })
+            }),
+        ));
+    }
+    body
+}
+
+fn wait_body(
+    answers: &Entity<Answers>,
+    node: NodeId,
+    wait: &ScreenWait,
+    z: f32,
+    find: Option<&Find>,
+    cx: &mut App,
+) -> Div {
+    let c = ui::colors(cx);
+    let id = wait.wait.id.0;
+    let group = format!("wait-{id}");
     let qid = if wait.wait.kind == WaitKind::Question {
         wait.wait.id.to_string()
     } else {
         ui::say(cx, kind_label(wait.wait.kind)).to_owned()
     };
+    let mut body = wait_content(answers, wait, z, find, cx);
     if wait.wait.answerable {
-        if !done && !wait.wait.choices.is_empty() {
-            body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
-                wait.wait.choices.iter().map(|choice| {
-                    let key = choice.key;
-                    let owner = answers.clone();
-                    let look = if choice.recommended {
-                        Look::Recommended
-                    } else {
-                        Look::Plain
-                    };
-                    let button = div()
-                        .id(("choice", id as usize * 256 + key as usize % 256))
-                        .cursor_pointer()
-                        .hover({
-                            let hover = c.surface_hover;
-                            move |style| style.bg(hover)
-                        });
-                    entry::choice_face(
-                        button,
-                        Choice {
-                            key: key.to_string(),
-                            label: &choice.label,
-                            recommended: choice.recommended,
-                            look,
-                            tone: wait.tone,
-                        },
-                        z,
-                        cx,
-                    )
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(move |_, _, cx| {
-                        owner.update(cx, |answers, cx| answers.reply(id, key.to_string(), cx))
-                    })
-                }),
-            ));
-        }
         let pictures = answers
             .read(cx)
             .attached
@@ -806,36 +855,45 @@ fn wait_body(
                 });
         }
     } else if wait.wait.prompt.is_none() {
-        let store = answers.read(cx).store.clone();
-        let hover = c.surface_hover;
-        let ink = c.ink;
-        body = body.child(
-            div()
-                .id(("terminal", id as usize))
-                .self_start()
-                .flex()
-                .items_center()
-                .gap(px(GAP * z))
-                .max_w_full()
-                .min_w_0()
-                .h(px(28.0 * z))
-                .ml(px(-8.0 * z))
-                .px(px(8.0 * z))
-                .rounded(px(6.0 * z))
-                .text_size(px(SMALL * z))
-                .text_color(c.ink_2)
-                .underline()
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover).text_color(ink))
-                .child(ui::say(cx, Str::InboxToTerminal))
-                .child(icon(Lucide::ArrowRight, 12.0 * z, c.ink_2))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(move |_, _, cx| {
-                    store.update(cx, |store, cx| store.go(node.0, cx));
-                }),
-        );
+        body = body.child(terminal_link(answers, node, id, z, cx));
     }
     body
+}
+
+fn terminal_link(
+    answers: &Entity<Answers>,
+    node: NodeId,
+    id: u32,
+    z: f32,
+    cx: &mut App,
+) -> Stateful<Div> {
+    let c = ui::colors(cx);
+    let store = answers.read(cx).store.clone();
+    let hover = c.surface_hover;
+    let ink = c.ink;
+    div()
+        .id(("terminal", id as usize))
+        .self_start()
+        .flex()
+        .items_center()
+        .gap(px(GAP * z))
+        .max_w_full()
+        .min_w_0()
+        .h(px(28.0 * z))
+        .ml(px(-8.0 * z))
+        .px(px(8.0 * z))
+        .rounded(px(6.0 * z))
+        .text_size(px(SMALL * z))
+        .text_color(c.ink_2)
+        .underline()
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover).text_color(ink))
+        .child(ui::say(cx, Str::InboxToTerminal))
+        .child(icon(Lucide::ArrowRight, 12.0 * z, c.ink_2))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, _, cx| {
+            store.update(cx, |store, cx| store.go(node.0, cx));
+        })
 }
 
 fn send_row(

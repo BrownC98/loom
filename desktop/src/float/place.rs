@@ -55,12 +55,6 @@ pub fn place_from(at: Point<Pixels>, pane: Size<Pixels>, boxed: Size<Pixels>) ->
     }
 }
 
-pub fn popup_left(float_left: f32, float_width: f32, popup_width: f32, pane_width: f32) -> f32 {
-    let centred = float_left + (float_width - popup_width) / 2.0;
-    let upper = (pane_width - MARGIN - popup_width).max(MARGIN);
-    centred.clamp(MARGIN, upper) - float_left
-}
-
 pub struct Grab {
     from: Point<Pixels>,
     origin: Point<Pixels>,

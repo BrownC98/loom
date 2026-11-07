@@ -477,7 +477,7 @@ fn legacy_key(app_cursor: bool, key: &Key, mods: u8) -> Option<Vec<u8>> {
         "enter" if key.shift && !key.ctrl => return Some(alt(b"\n".to_vec())),
         "enter" if key.ctrl => return Some(alt(b"\n".to_vec())),
         "enter" => return Some(alt(b"\r".to_vec())),
-        "backspace" if key.ctrl => return Some(alt(vec![0x08])),
+        "backspace" if key.ctrl => return Some(alt(vec![0x17])),
         "backspace" => return Some(alt(vec![0x7f])),
         "escape" => return Some(alt(vec![0x1b])),
         "tab" if key.shift => return Some(alt(b"\x1b[Z".to_vec())),

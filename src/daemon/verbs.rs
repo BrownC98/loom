@@ -1,4 +1,5 @@
 use super::*;
+use crate::graph::NodeToken;
 use api::ids::AgentId;
 use api::start::ModelChoice;
 
@@ -216,8 +217,9 @@ async fn spawn_child(
     dir: &task::TaskDir,
     brief: &str,
 ) -> Result<NodeId, Problem> {
+    let token = NodeToken::fresh().map_err(internal)?;
     let mut prepared = app
-        .prepare(start, None, cwd, Position::Child, Some(dir))
+        .prepare(start, None, cwd, Position::Child, Some(dir), token)
         .await?;
     if child.worktree.is_some() {
         prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
@@ -623,8 +625,13 @@ pub(super) async fn agent_remove(
     let caller = app.caller(&headers)?;
     let via = gate::via(&headers, "/api/agent/rm");
     let removed = app.tree_limits().and_then(|limits| {
+        let leftovers = app
+            .graph
+            .any_node(caller, &req.name)
+            .ok()
+            .and_then(|node| app.leftovers(node));
         let (removed, moved) = app.graph.remove_child(caller, &req.name, limits)?;
-        app.host.kill(removed);
+        app.removed(removed, leftovers);
         let (ids, names): (Vec<NodeId>, Vec<String>) = moved.into_iter().unzip();
         app.parent_changed(&ids);
         Ok(names)

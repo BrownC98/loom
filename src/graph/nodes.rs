@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::agent_state;
 use super::events;
 use super::relaunch_plans::resume_at_turn_end;
+use super::token::NodeToken;
 use super::{
     Db, Graph, ProcessOutcome, REACHABLE, Work, from_json, hosts, mailbox, name_of, node_state,
     note_state, optional_json, parent_of, place_label, place_of, process_of, state_of, to_json,
@@ -36,7 +37,7 @@ const SHELL_NAME: &str = "shell";
 const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
-    pub token: String,
+    pub token: NodeToken,
     pub adapter: Option<AdapterRecord>,
     pub session: Option<Session>,
     pub account: Option<AccountId>,
@@ -51,7 +52,7 @@ pub struct Active {
     pub account: Option<AccountId>,
     pub session: Option<Session>,
     pub model: Model,
-    pub token: String,
+    pub token: NodeToken,
     pub role: Option<String>,
     pub rules: Option<StartDigests>,
 }
@@ -595,7 +596,31 @@ impl Graph {
     }
 
     pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
+        let node = super::token::node_part(token);
+        if node.is_empty() {
+            return Ok(None);
+        }
+        self.lock()
+            .query_row(
+                "SELECT id FROM nodes WHERE token = ?1 OR substr(token, 1, length(?2)) = ?2",
+                params![node, super::token::launch_prefix(node)],
+                |row| Ok(NodeId(row.get(0)?)),
+            )
+            .optional()
+    }
+
+    pub fn current_caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
         caller_in(&self.lock(), token)
+    }
+
+    pub fn token_of(&self, node: NodeId) -> rusqlite::Result<Option<NodeToken>> {
+        let token: Option<Option<String>> = self
+            .lock()
+            .query_row("SELECT token FROM nodes WHERE id = ?1", [node.0], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        Ok(token.flatten().map(NodeToken::stored))
     }
 
     pub fn agent_of(&self, id: NodeId) -> rusqlite::Result<Option<AgentId>> {
@@ -1224,7 +1249,7 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
             model: row.get(6)?,
             effort: row.get(7)?,
         },
-        token: row.get(8)?,
+        token: NodeToken::stored(row.get(8)?),
         role: row.get(9)?,
         rules: optional_json(row, 10)?,
     })
@@ -1243,7 +1268,7 @@ fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()
          session = coalesce(?6, session) WHERE id = ?1",
         params![
             id.0,
-            launched.token,
+            launched.token.as_str(),
             launched.adapter.as_ref().map(to_json),
             launched.account.as_ref().map(to_json),
             launched.rules.as_ref().map(to_json),

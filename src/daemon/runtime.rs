@@ -1,7 +1,7 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::{Distro, Host};
-use crate::graph::Active;
+use crate::graph::{Active, NodeToken};
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
@@ -10,6 +10,7 @@ use crate::tunnel::ENDPOINT_ENV;
 use api::graph::events::Entry;
 
 const LINUX_LOOM_MISSING: &str = "loom-linux is not next to loom.exe";
+const EARLIER_LAUNCH: &str = "This process is from an earlier launch of this node. loom gives mail and agent state only to the current launch. Verbs such as loom note and loom done still work.";
 
 impl App {
     pub(super) fn tree_limits(&self) -> Result<TreeLimits, Problem> {
@@ -32,7 +33,10 @@ impl App {
             None => None,
         };
         let dir = made.as_ref().map(|(dir, _)| dir);
-        let prepared = self.prepare(start, None, cwd, Position::Root, dir).await?;
+        let token = NodeToken::fresh().map_err(internal)?;
+        let prepared = self
+            .prepare(start, None, cwd, Position::Root, dir, token)
+            .await?;
         let discard = prepared.discarder();
         let id = self
             .graph
@@ -137,8 +141,9 @@ impl App {
             return Ok(());
         };
         let start = Start::Command { line };
+        let token = NodeToken::fresh().map_err(internal)?;
         let prepared = self
-            .prepare(&start, None, cwd, Position::Root, None)
+            .prepare(&start, None, cwd, Position::Root, None, token)
             .await?;
         let discard = prepared.discarder();
         self.graph
@@ -148,10 +153,62 @@ impl App {
     }
 
     pub(super) fn remove(self: &Arc<Self>, node: NodeId) -> Result<Vec<NodeId>, Refusal> {
+        let left = self.leftovers(node);
         let children = self.graph.remove(node)?;
-        self.host.kill(node);
+        self.removed(node, left);
         self.parent_changed(&children);
         Ok(children)
+    }
+
+    pub(super) fn leftovers(&self, node: NodeId) -> Option<Leftovers> {
+        let token = self
+            .graph
+            .token_of(node)
+            .inspect_err(|e| crate::log::logln!("loom: 노드 {}의 토큰을 읽지 못했다: {e}", node.0))
+            .ok()??;
+        let at = match self.machine_at(node).ok()?.host() {
+            None => None,
+            Some(host) => Some(self.host(host).ok()?),
+        };
+        Some(Leftovers { node, token, at })
+    }
+
+    pub(super) fn removed(&self, node: NodeId, left: Option<Leftovers>) {
+        self.host.kill(node);
+        let Some(left) = left.filter(|left| left.node == node) else {
+            return;
+        };
+        tokio::spawn(async move {
+            let names: Vec<&str> = std::iter::once(open::NODE_TOKEN_ENV)
+                .chain(profile::SHELL_TOKEN_ENVS)
+                .collect();
+            let launch_prefix = left.token.launch_prefix();
+            let held = wsl::Held {
+                node: left.token.node(),
+                launch_prefix: &launch_prefix,
+            };
+            let ended = match &left.at {
+                Some(distro) => wsl::end_token(distro, &held, &names).await,
+                None => wsl::end_token_here(&held, &names).await,
+            };
+            match ended {
+                Ok(ended) => {
+                    for end in ended {
+                        crate::log::logln!(
+                            "loom: 지운 노드 {}의 토큰을 쥔 프로세스 {}에 {} 신호를 보냈다: {}",
+                            node.0,
+                            end.pid,
+                            end.signal,
+                            end.command
+                        );
+                    }
+                }
+                Err(e) => crate::log::logln!(
+                    "loom: 지운 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}",
+                    node.0
+                ),
+            }
+        });
     }
 
     pub(super) fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
@@ -172,8 +229,7 @@ impl App {
         if first_input && let Err(e) = self.graph.first_input_sent(id) {
             crate::log::logln!("loom: 노드 {}의 첫 입력 표시를 쓰지 못했다: {e}", id.0);
         }
-        let distro = inside.as_ref().map(|inside| inside.distro.clone());
-        let on_exit = self.on_exit(id, distro, &token, port.clone());
+        let on_exit = self.on_exit(id, port.clone());
         let at = match &inside {
             Some(inside) => {
                 let loom = inside
@@ -190,7 +246,7 @@ impl App {
         }
         match self.host.resume(id, &at, on_exit) {
             Ok(()) => {
-                self.follow_screen(id, profile, &token);
+                self.follow_screen(id, profile, token.as_str());
                 port.bind(id);
                 self.ptys_changed.notify_waiters();
                 self.give_kept_keys(id);
@@ -232,9 +288,8 @@ impl App {
         }
         let place_host = self.place_host(node.id);
         let profile = node.agent.as_ref().and_then(profile::profile_of);
-        let distro = place_host.clone().and_then(|host| self.host(host).ok());
-        let port = AgentPort::new(self.clone(), node.token.clone());
-        let on_exit = self.on_exit(node.id, distro.clone(), &node.token, port.clone());
+        let port = AgentPort::new(self.clone(), node.token.as_str().to_owned());
+        let on_exit = self.on_exit(node.id, port.clone());
         let app = self.clone();
         let id = node.id;
         let address = self.graph.host_of(id)?;
@@ -263,14 +318,6 @@ impl App {
             }
             self.sweep_above(node.id);
             self.sweep_later(node.id);
-            if gone && let Some(distro) = distro {
-                end_leftovers(
-                    &tokio::runtime::Handle::current(),
-                    node.id,
-                    distro,
-                    node.token,
-                );
-            }
             return Ok(());
         }
         if !self.graph.active()?.iter().any(|n| n.id == node.id) {
@@ -280,7 +327,7 @@ impl App {
             self.attach(&node, profile, port).await;
             return Ok(());
         }
-        self.follow_screen(node.id, profile, &node.token);
+        self.follow_screen(node.id, profile, node.token.as_str());
         port.bind(node.id);
         self.attach(&node, profile, port).await;
         self.ptys_changed.notify_waiters();
@@ -391,24 +438,12 @@ impl App {
         }
     }
 
-    fn on_exit(
-        self: &Arc<Self>,
-        id: NodeId,
-        distro: Option<Distro>,
-        token: &str,
-        port: Arc<AgentPort>,
-    ) -> impl FnOnce(Exit) + use<> {
+    fn on_exit(self: &Arc<Self>, id: NodeId, port: Arc<AgentPort>) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let runtime = tokio::runtime::Handle::current();
-        let token = token.to_owned();
         move |exit| {
             let _entered = runtime.enter();
             app.wakes.forget(id);
-            if exit != Exit::Lost
-                && let Some(distro) = distro
-            {
-                end_leftovers(&runtime, id, distro, token);
-            }
             if app.graph.stop_exited(id).unwrap_or_else(|e| {
                 crate::log::logln!("loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}", id.0);
                 false
@@ -420,11 +455,13 @@ impl App {
             app.sessions.exited(id);
             if exit == Exit::Command(0)
                 && (app.graph.is_setup(id).unwrap_or(false) || !app.host.has_output(id))
-                && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
-                port.end();
-                app.host.kill(id);
-                return;
+                let left = app.leftovers(id);
+                if app.graph.discard_finished_shell(id).unwrap_or(false) {
+                    port.end();
+                    app.removed(id, left);
+                    return;
+                }
             }
             let slept = matches!(exit, Exit::Command(_) | Exit::Gone)
                 && app.graph.slept(id).unwrap_or(false);
@@ -502,6 +539,13 @@ impl App {
         });
     }
 
+    pub(super) fn this_launch(&self, headers: &HeaderMap) -> bool {
+        bearer(headers)
+            .ok()
+            .and_then(|token| self.graph.current_caller(token).ok().flatten())
+            .is_some()
+    }
+
     pub(super) fn caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
         let token = bearer(headers)?;
         let node = self
@@ -510,15 +554,17 @@ impl App {
             .map_err(|e| for_agent(Refusal::from(e)))?
             .ok_or_else(unauthorized)?;
         if let Some(spoken) = unserved_protocol(headers) {
-            let app = self.clone();
-            tokio::spawn(async move {
-                if let Err(e) = app.relaunch_unserved(node).await {
-                    crate::log::logln!(
-                        "loom: 판이 맞지 않는 노드 {}를 다시 띄우지 못했다: {e:?}",
-                        node.0
-                    );
-                }
-            });
+            if self.this_launch(headers) {
+                let app = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = app.relaunch_unserved(node).await {
+                        crate::log::logln!(
+                            "loom: 판이 맞지 않는 노드 {}를 다시 띄우지 못했다: {e:?}",
+                            node.0
+                        );
+                    }
+                });
+            }
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
                 format!(
@@ -538,6 +584,7 @@ impl App {
         cwd: &std::path::Path,
         position: Position,
         task: Option<&task::TaskDir>,
+        token: NodeToken,
     ) -> Result<Prepared, Problem> {
         let profile = profile::start_profile(start);
         let accounted = profile.and_then(profile::accounts);
@@ -546,8 +593,7 @@ impl App {
             position,
             skills: settings.always_on,
         };
-        let token = new_token().map_err(internal)?;
-        let mut env = self.node_env(&token)?.to_vec();
+        let mut env = self.node_env(token.as_str())?.to_vec();
         let plugin_here = self.plugin.dir(launch.skills);
         let machine = place::of(cwd);
         let (site, mirror) = match &machine {
@@ -577,7 +623,7 @@ impl App {
                 (site, Some(PathBuf::from(at.url(&plugin))))
             }
         };
-        let endpoint = self.endpoint(&token, site.inside());
+        let endpoint = self.endpoint(token.node(), site.inside());
         if let Some(at) = &endpoint {
             env.push((ENDPOINT_ENV, at.into()));
         }
@@ -630,7 +676,7 @@ impl App {
                     .map_err(|e| internal(format!("{}: {e}", to.display())))?;
             }
         }
-        let port = AgentPort::new(self.clone(), token.clone());
+        let port = AgentPort::new(self.clone(), token.as_str().to_owned());
         let launched =
             profile::command(start, resume, &at, &settings.bypass_off, port.clone()).await;
         let (mut cmd, started) = launched.inspect_err(|_| port.end())?;
@@ -699,7 +745,7 @@ impl App {
         };
         let app = self.clone();
         tokio::spawn(async move {
-            match wsl::end_shells(&distro, &token, &shells).await {
+            match wsl::end_shells(&distro, token.as_str(), &shells).await {
                 Ok(()) => app.release_guarded(node, &shells),
                 Err(e) => crate::log::logln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0),
             }
@@ -723,9 +769,9 @@ impl App {
         self.node_machine(Some(node)).ok()?.host()
     }
 
-    fn endpoint(&self, token: &str, inside: Option<&wsl::Inside>) -> Option<String> {
+    fn endpoint(&self, node_token: &str, inside: Option<&wsl::Inside>) -> Option<String> {
         use sha2::Digest;
-        let hash: String = sha2::Sha256::digest(token.as_bytes())[..6]
+        let hash: String = sha2::Sha256::digest(node_token.as_bytes())[..6]
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
@@ -760,7 +806,7 @@ pub(super) struct Prepared {
     pub(super) cmd: portable_pty::CommandBuilder,
     pub(super) inside: Option<wsl::Inside>,
     pub(super) setup: Option<portable_pty::CommandBuilder>,
-    pub(super) token: String,
+    pub(super) token: NodeToken,
     pub(super) account: Option<AccountId>,
     pub(super) rules: Option<crate::protocol::StartDigests>,
     pub(super) profile: Option<Profile>,
@@ -801,15 +847,10 @@ impl Prepared {
     }
 }
 
-fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: Distro, token: String) {
-    runtime.spawn(async move {
-        let names: Vec<&str> = std::iter::once(open::NODE_TOKEN_ENV)
-            .chain(profile::SHELL_TOKEN_ENVS)
-            .collect();
-        if let Err(e) = wsl::end_token(&distro, &token, &names).await {
-            crate::log::logln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
-        }
-    });
+pub(super) struct Leftovers {
+    node: NodeId,
+    token: NodeToken,
+    at: Option<Distro>,
 }
 
 fn unserved_protocol(headers: &HeaderMap) -> Option<String> {
@@ -857,6 +898,20 @@ impl
     }
 }
 
+pub(super) async fn from_this_launch(
+    State(app): State<Arc<App>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let earlier = bearer(request.headers()).ok().is_some_and(|token| {
+        !app.this_launch(request.headers()) && app.graph.caller(token).ok().flatten().is_some()
+    });
+    match earlier {
+        true => (StatusCode::UNAUTHORIZED, EARLIER_LAUNCH).into_response(),
+        false => next.run(request).await,
+    }
+}
+
 pub(super) fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
     headers
         .get(header::AUTHORIZATION)
@@ -870,10 +925,4 @@ fn unauthorized() -> AgentError {
         StatusCode::UNAUTHORIZED,
         "Run this only inside a loom node.".into(),
     )
-}
-
-fn new_token() -> Result<String, String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }

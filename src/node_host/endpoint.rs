@@ -1,12 +1,16 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::net::TcpStream;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use super::wire::{self, Frame};
 use crate::tunnel::{self, Mux};
+
+const OLD_HOLDER_WAIT: Duration = Duration::from_secs(5);
+const BIND_AGAIN_AFTER: Duration = Duration::from_millis(50);
 
 pub struct Endpoint {
     links: mpsc::UnboundedSender<TcpStream>,
@@ -23,7 +27,7 @@ impl Endpoint {
             .build()?;
         let listener = {
             let _entered = runtime.enter();
-            Listener::bind(at)?
+            bind_after_old(at)?
         };
         #[cfg(unix)]
         let bound = listener.bound()?;
@@ -38,6 +42,23 @@ impl Endpoint {
 
     pub fn carry(&self, link: TcpStream) {
         let _ = self.links.send(link);
+    }
+}
+
+fn bind_after_old(at: &OsStr) -> io::Result<Listener> {
+    let deadline = Instant::now() + OLD_HOLDER_WAIT;
+    loop {
+        match Listener::bind(at) {
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied
+                ) && Instant::now() < deadline =>
+            {
+                std::thread::sleep(BIND_AGAIN_AFTER);
+            }
+            bound => return bound,
+        }
     }
 }
 

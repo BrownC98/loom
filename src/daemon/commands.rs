@@ -3,13 +3,9 @@ use super::*;
 use crate::process_tree::Identity;
 use crate::user_doc::{self, DocStep};
 
-pub(super) fn node_routes() -> Router<Arc<App>> {
-    Router::new()
-        .route("/api/agent/note", post(agent_note))
+pub(super) fn node_routes(app: &Arc<App>) -> Router<Arc<App>> {
+    let this_launch = Router::new()
         .route("/api/agent/wait", post(agent_wait))
-        .route("/api/agent/answer", post(agent_answer))
-        .route("/api/agent/status", post(agent_status))
-        .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/take", post(agent_take))
         .route(IDLE_PATH, post(agent_idle))
         .route("/api/agent/listen", post(agent_listen))
@@ -23,27 +19,37 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         )
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
+        .route("/api/agent/said", post(agent_said))
+        .route("/api/agent/question-box", post(agent_question_box))
+        .route("/api/agent/report", post(agent_report))
+        .route("/api/agent/turn-end", post(agent_turn_end))
+        .route(
+            "/api/agent/relaunch-unserved",
+            post(relaunch::agent_relaunch_unserved),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            super::runtime::from_this_launch,
+        ));
+    Router::new()
+        .route("/api/agent/note", post(agent_note))
+        .route("/api/agent/answer", post(agent_answer))
+        .route("/api/agent/status", post(agent_status))
+        .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/roles", post(agent_roles))
         .route("/api/agent/roles/set", post(agent_set_role))
         .route("/api/agent/question", post(agent_question))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))
         .route("/api/agent/answered", post(agent_answered))
-        .route("/api/agent/said", post(agent_said))
-        .route("/api/agent/question-box", post(agent_question_box))
-        .route("/api/agent/report", post(agent_report))
-        .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/detach", post(agent_detach))
         .route("/api/agent/rm", post(agent_remove))
         .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
-        .route(
-            "/api/agent/relaunch-unserved",
-            post(relaunch::agent_relaunch_unserved),
-        )
         .route("/api/agent/ready", post(gate::agent_ready))
         .route("/api/agent/verdict", post(gate::agent_verdict))
         .route("/api/agent/task", post(agent_task))
+        .merge(this_launch)
 }
 
 pub(super) const IDLE_PATH: &str = "/api/agent/idle";
@@ -293,7 +299,7 @@ pub(super) async fn agent_idle(
     Json(req): Json<Option<IdleRequest>>,
 ) -> Result<Json<IdleReply>, AgentError> {
     let node = app.caller(&headers)?;
-    let current = || app.caller(&headers).is_ok();
+    let current = || app.this_launch(&headers);
     let arrival = arrival.map(|axum::Extension(arrival)| arrival);
     app.wait_idle(
         node,

@@ -8,6 +8,7 @@ mod idle;
 mod mailbox;
 mod nodes;
 mod relaunch_plans;
+mod token;
 mod turns;
 mod waits;
 
@@ -31,6 +32,7 @@ pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, ParentWork, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
+pub use token::NodeToken;
 pub use turns::TurnMark;
 pub use waits::{HUMAN, WaitSource};
 

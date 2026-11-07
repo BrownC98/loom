@@ -646,7 +646,7 @@ impl App {
             brief: handoff(from, node.role.as_deref(), record.as_deref()),
             choice: to.choice.clone(),
         };
-        self.prepare_start(node.id, &start, None).await
+        self.prepare_start(node, &start, None).await
     }
 
     async fn old_record(&self, node: &Active) -> Option<String> {
@@ -779,24 +779,27 @@ impl App {
                 ModelRule::Fixed | ModelRule::EffortNeedsModel => ModelChoice::default(),
             },
         };
-        self.prepare_start(node.id, &start, Some(resume)).await
+        self.prepare_start(node, &start, Some(resume)).await
     }
 
     async fn prepare_start(
         self: &Arc<Self>,
-        id: NodeId,
+        node: &Active,
         start: &Start,
         resume: Option<&Session>,
     ) -> Result<super::Prepared, String> {
+        let id = node.id;
         let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
         let position = self.position_of(id).map_err(|e| e.to_string())?;
         let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
+        let token = node.token.next_launch()?;
         self.prepare(
             start,
             resume,
             Path::new(&place.worktree),
             position,
             Some(&task),
+            token,
         )
         .await
         .map_err(|e| format!("{e:?}"))

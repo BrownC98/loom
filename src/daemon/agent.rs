@@ -552,7 +552,8 @@ impl AgentPort {
     }
 
     fn current(&self, node: NodeId) -> bool {
-        !*self.ended.borrow() && self.app.graph.caller(&self.token).ok().flatten() == Some(node)
+        !*self.ended.borrow()
+            && self.app.graph.current_caller(&self.token).ok().flatten() == Some(node)
     }
 
     fn apply(&self, node: NodeId, report: Report) {

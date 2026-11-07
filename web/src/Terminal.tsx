@@ -20,10 +20,15 @@ import { paintSnapshot } from './terminalSnapshot';
 import { attachTouchGestures, type TouchSelection } from './touchTerminal';
 
 const SHIFT_ENTER_INPUT = '\n';
+const DELETE_WORD_INPUT = '\x17';
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
   return e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+}
+
+function isCtrlBackspace(e: KeyboardEvent): boolean {
+  return e.key === 'Backspace' && e.ctrlKey && !e.altKey && !e.metaKey;
 }
 
 function isPlainEnter(e: KeyboardEvent): boolean {
@@ -291,6 +296,11 @@ export function SizingTerminal(props: TerminalProps) {
         }
         if (isShiftEnter(e) && !e.isComposing) {
           if (e.type === 'keydown') setTimeout(() => link.sendInput(SHIFT_ENTER_INPUT));
+          e.preventDefault();
+          return false;
+        }
+        if (isCtrlBackspace(e)) {
+          if (e.type === 'keydown') link.sendInput(DELETE_WORD_INPUT);
           e.preventDefault();
           return false;
         }

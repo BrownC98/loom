@@ -38,8 +38,8 @@ These are Musk's five design steps. This order is the only source for the order 
 
 Do steps 1 to 3 (question the requirement, delete, simplify) at these three times. Do not keep them for an audit at the end.
 
-1. Before you write code, make a parts list. Write each new part with its requirement in one line. Do not make a part without a requirement. Also write the existing parts and libraries that do the same work. Write the parts that this change lets you delete.
-2. Before you add a part that is not on the list, do steps 1 to 3 for it. Then add it to the list.
+1. Before you write code, make a parts list: each new part with its requirement in one line (no part without a requirement), the existing parts and libraries that do the same work, and the parts that this change lets you delete.
+2. Before you add a part that is not on the list, do steps 1 to 3 for it, then add it to the list.
 3. Before you commit, read `git diff --cached` again. Delete new parts without a requirement and old parts that the change made unused.
 
 The completion report has one `Raptor-3:` line. It gives the deleted parts, reused parts and libraries, why new code was necessary, and changes from the first list.

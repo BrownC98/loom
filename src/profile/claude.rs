@@ -54,7 +54,19 @@ const CLI_WAIT: Duration = Duration::from_secs(20);
 const NO_RECORD: &str = "이어 갈 세션 기록이 없다";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
+macro_rules! silent_end {
+    () => {
+        "."
+    };
+}
+
+const SILENT_END: &str = silent_end!();
+
+pub(super) const WAITING: &str = concat!(
+    "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it. Claude Code makes you continue a turn that ends with no visible text. So where these rules tell you to write no text, write only \"",
+    silent_end!(),
+    "\" at the end of the turn."
+);
 
 fn usage(launch: Launch) -> String {
     format!(
@@ -506,8 +518,11 @@ impl HookEvent for Hook {
             prompt_id: self.prompt_id.clone().filter(|_| self.event.marks_prompt()),
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
-            turn_end: matches!(self.event, Event::Stop)
-                .then(|| self.last_assistant_message.clone()),
+            turn_end: matches!(self.event, Event::Stop).then(|| {
+                self.last_assistant_message
+                    .clone()
+                    .filter(|text| text.trim() != SILENT_END)
+            }),
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
             reports: reported_model(&self.event, self.transcript_path.as_deref())

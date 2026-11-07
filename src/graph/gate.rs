@@ -915,12 +915,8 @@ impl Graph {
                     via,
                     &trace,
                 )?;
-                let lineage = match parent_of(&tx, to_node)? {
-                    Some(_) => policy::Lineage::Child,
-                    None => policy::Lineage::Root,
-                };
-                if !held.needs_gate() && !policy::wakes(call, *receiver, target, lineage) {
-                    mailbox::hush(&tx, id)?;
+                if !held.needs_gate() && !policy::wakes(call, *receiver) {
+                    mailbox::record_only(&tx, id)?;
                 }
                 sent.push(to_node);
             }
@@ -935,7 +931,7 @@ impl Graph {
                     via,
                     &trace,
                 )?;
-                mailbox::file_read(&tx, id)?;
+                mailbox::record_only(&tx, id)?;
                 sent.push(me);
             }
             if call == GateCall::Ready {

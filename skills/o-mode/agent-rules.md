@@ -15,7 +15,7 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 - Ask your parent before you enlarge the edit scope or change done-when, product behavior or a shared contract. Continue the work that the question does not affect.
 - Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits).
 - Apply a steer message to your current work.
-- loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. loom does not wake your parent for it. If one changes the scope or a contract, ask your parent with `loom ask` and wait for the answer before you edit. A coordinator sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
+- loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. If one changes the scope or a contract, wait for your parent's answer before you edit. A coordinator sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
 - Do not use `git stash`. All worktrees share it. Keep existing changes.
 - Examine the real behavior and the done-when conditions. Do not make a test or an assertion weaker to pass.
 - Do not accept review findings without examination.

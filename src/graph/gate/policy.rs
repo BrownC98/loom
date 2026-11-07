@@ -123,26 +123,13 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Lineage {
-    Root,
-    Child,
-}
-
-pub(super) fn wakes(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> bool {
+pub(super) fn wakes(call: GateCall, to: Receiver) -> bool {
     !matches!(
-        (call, to, target, lineage),
-        (GateCall::Verdict(Judgment::Pass), ..)
+        (call, to),
+        (GateCall::Verdict(Judgment::Pass), _)
             | (
                 GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
                 Receiver::Gate | Receiver::Root,
-                ..
-            )
-            | (
-                GateCall::End(MergeEnd::Merged),
-                Receiver::Owner,
-                Target::Base,
-                Lineage::Child
             )
     )
 }

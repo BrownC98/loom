@@ -1,10 +1,6 @@
-import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, RotateCcw, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from 'react';
+import { ArrowRight, ArrowUp, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FloatPlace } from './gen/FloatPlace';
-import type { FloatSize } from './gen/FloatSize';
-import type { QuestionPill } from './gen/QuestionPill';
-import { FLOAT_MARGIN, floatZoom, PILL_HOME, placeOf, popLeft, popSpace, useFloatDrag, useSize, type Rect, type Size } from './floatPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
 import { ImageList, MB, useImages, ZoomImage } from './attachments';
 import { DocText } from './DocText';
@@ -18,126 +14,14 @@ import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
-import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId } from './notice';
+import { bySince, ICON, NoticeBadges, oldestWait, showsId } from './notice';
 import { PromptBody } from './PromptBody';
-import { useDismiss } from './popover';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
   return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => bySince(oldestWait(a), oldestWait(b)));
 }
 
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
-
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: FloatPlace | null; size: FloatSize; onPlace: (place: FloatPlace | null) => void; composer: Rect | null; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const show = useShowNodes();
-  const go = (id: NodeId) => {
-    show([id]);
-    props.onSelect(id);
-  };
-  useOsNotify(props.waiting, props.notify, go);
-  const pill = useRef<HTMLDivElement>(null);
-  const waits = props.waiting.flatMap((v) => v.waits);
-  const n = waits.length;
-  const shown = props.pill !== 'off' && !pillClosed(props.closed, waits);
-  const first = props.waiting[0];
-  const firstWait = first && oldestWait(first);
-  const toList = () => setOpen(!open);
-  const paneRef = useRef<HTMLDivElement>(null);
-  const pane = useSize(paneRef);
-  const group = useRef<HTMLDivElement>(null);
-  const box = useSize(pill);
-  const drag = useFloatDrag(group, pane, box, props.onPlace);
-
-  useEffect(() => {
-    if (n === 0 || !shown) setOpen(false);
-  }, [n, shown]);
-
-  const at = drag.at ?? (pane && box ? placeOf(props.place ?? PILL_HOME, pane, box) : null);
-  const zoom = floatZoom(props.size);
-  const width = pane ? popWidth(pane, zoom) : 0;
-  const left = at && pane && box ? popLeft(at.left, box.w, width, pane.w) : 0;
-  const bar = props.composer;
-  const cover = bar && at && bar.left < at.left + left + width && at.left + left < bar.left + bar.w ? bar : null;
-  return (
-    <div className="inbox" ref={paneRef}>
-      {first && shown && (
-        <div ref={group} className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
-          <PillFace ref={pill} size={props.size} view={props.pill} name={first.name} wait={firstWait} waits={waits} open={open} dragging={drag.at !== null} onClickCapture={drag.swallowClick} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))}>
-            <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
-          </PillFace>
-          {open && n > 0 && at && pane && box && (
-            <InboxPop label={t('inbox.title', { count: n })} pill={pill} zoom={zoom} left={left} width={width} {...popSpace(at.top, box, pane, cover)} onClose={() => setOpen(false)}>
-              <WaitList
-                waiting={props.waiting}
-                onGo={go}
-                onFocus={(id) => {
-                  show([id]);
-                  props.onFocus(id);
-                }}
-              />
-            </InboxPop>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const POP_WIDTH = 520;
-const popWidth = (pane: Size, zoom: number) => Math.min(POP_WIDTH * zoom, Math.max(0, pane.w - 2 * FLOAT_MARGIN));
-
-function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; zoom: number; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
-  const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
-  return (
-    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ zoom: props.zoom, left: props.left / props.zoom, width: props.width / props.zoom, maxHeight: props.room / props.zoom }} role="dialog" aria-label={props.label}>
-      <h2>{props.label}</h2>
-      {props.children}
-    </div>
-  );
-}
-
-export function PillFace(props: {
-  ref?: Ref<HTMLDivElement>;
-  size: FloatSize;
-  view: QuestionPill;
-  name: string;
-  wait: ScreenWait;
-  waits: readonly ScreenWait[];
-  open: boolean;
-  dragging: boolean;
-  onClickCapture: (e: ReactMouseEvent) => void;
-  onToggle: () => void;
-  onDragStart: (e: ReactPointerEvent<HTMLElement>) => void;
-  onReset: (() => void) | null;
-  onClose: () => void;
-  children?: ReactNode;
-}) {
-  const { t } = useTranslation();
-  const { wait, open } = props;
-  const line = props.view === 'line';
-  return (
-    <div ref={props.ref} className="inbox-pill" style={{ zoom: floatZoom(props.size) }} data-view={props.view} data-tone={wait.tone} data-dragging={props.dragging || undefined} onClickCapture={props.onClickCapture}>
-      <div className="head" aria-live="polite" onPointerDown={props.onDragStart}>
-        <button type="button" className="pill-close" aria-label={t('inbox.closePill')} title={t('inbox.closePill')} onClick={props.onClose}>
-          <X aria-hidden="true" />
-        </button>
-        <NoticeLead wait={wait} waits={props.waits} />
-        <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
-          {line ? <NodeText name={props.name} wait={wait} /> : <b>{props.name}</b>}
-          {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
-        </button>
-        {props.onReset && (
-          <button type="button" className="float-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
-            <RotateCcw aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      {!line && <div className="pill-row">{props.children}</div>}
-    </div>
-  );
-}
 
 export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
@@ -196,24 +80,41 @@ function WaitRow(props: { node: NodeId; wait: ScreenWait; onGo: () => void; onFo
 }
 
 function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
+  const { wait } = props;
+  return (
+    <div className="entry" data-tone={wait.tone}>
+      <WaitHead wait={wait} />
+      {wait.instruction && <Instruction text={wait.instruction} />}
+      <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
+    </div>
+  );
+}
+
+export function WaitTitle(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
   const { wait } = props;
   const Icon = ICON[wait.tone];
   return (
-    <div className="entry" data-tone={wait.tone}>
-      <div className="top">
-        <Icon className="kind-mark" aria-hidden="true" />
-        <span className="kind">{t(`wait.${wait.kind}`)}</span>
-        {showsId(wait.kind) && (
-          <span className="qid" data-find-id={wait.id}>
-            Q{wait.id}
-          </span>
-        )}
-        <Published wait={wait} />
-        {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
-      </div>
-      {wait.instruction && <Instruction text={wait.instruction} />}
-      <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
+    <>
+      <Icon className="kind-mark" aria-hidden="true" />
+      <span className="kind">{t(`wait.${wait.kind}`)}</span>
+      {showsId(wait.kind) && (
+        <span className="qid" data-find-id={wait.id}>
+          Q{wait.id}
+        </span>
+      )}
+    </>
+  );
+}
+
+export function WaitHead(props: { wait: ScreenWait; children?: ReactNode }) {
+  const { wait } = props;
+  return (
+    <div className="top">
+      <WaitTitle wait={wait} />
+      <Published wait={wait} />
+      {props.children}
+      {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
     </div>
   );
 }
@@ -255,49 +156,19 @@ function ConfirmButton(props: { wait: WaitId }) {
   );
 }
 
-function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
-  const { t } = useTranslation();
+export function WaitContent(props: { node: NodeId; wait: ScreenWait }) {
   const { wait } = props;
   const { prompt } = wait;
-  const done = wait.tone === 'done';
-  const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const images = useImages(`wait:${wait.id}`, props.node, setRefusal);
-  const [dragging, setDragging] = useState(false);
-  const send = (text: string) => {
-    setRefusal(null);
-    const sent = images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids)));
-    sent.catch((err: Error) => setRefusal(err.message));
-    return sent.then(() => null);
-  };
   const answerPrompt = (sent: Promise<null>) => {
     setRefusal(null);
     setChoosing(true);
     sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
     return sent;
   };
-  const drop: DOMAttributes<HTMLDivElement> = wait.answerable
-    ? {
-        onDragOver: (e) => {
-          if (!e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'copy';
-          setDragging(true);
-        },
-        onDragLeave: (e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
-        },
-        onDrop: (e) => {
-          if (!e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-          setDragging(false);
-          images.attach([...e.dataTransfer.files]);
-        },
-      }
-    : {};
   return (
-    <div className="wait-body" data-tone={wait.tone} data-dragging={dragging || undefined} {...drop}>
+    <>
       {wait.images.length > 0 && (
         <ul className="answer-images">
           {wait.images.map((path, index) => (
@@ -321,6 +192,61 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
           <DocText parts={wait.parts ?? []} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
         </p>
       )}
+      {refusal && (
+        <p className="refusal" role="alert">
+          {refusal}
+        </p>
+      )}
+    </>
+  );
+}
+
+export function ToTerminal(props: { onGo: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button type="button" className="to-terminal" onClick={props.onGo}>
+      {t('inbox.toTerminal')}
+      <ArrowRight aria-hidden="true" />
+    </button>
+  );
+}
+
+function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
+  const { t } = useTranslation();
+  const { wait } = props;
+  const done = wait.tone === 'done';
+  const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const images = useImages(`wait:${wait.id}`, props.node, setRefusal);
+  const [dragging, setDragging] = useState(false);
+  const send = (text: string) => {
+    setRefusal(null);
+    const sent = images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids)));
+    sent.catch((err: Error) => setRefusal(err.message));
+    return sent.then(() => null);
+  };
+  const drop: DOMAttributes<HTMLDivElement> = wait.answerable
+    ? {
+        onDragOver: (e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragging(true);
+        },
+        onDragLeave: (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        },
+        onDrop: (e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragging(false);
+          images.attach([...e.dataTransfer.files]);
+        },
+      }
+    : {};
+  return (
+    <div className="wait-body" data-tone={wait.tone} data-dragging={dragging || undefined} {...drop}>
+      <WaitContent node={props.node} wait={wait} />
       {wait.answerable ? (
         <>
           {!done && <Choices list={wait.choices ?? []} onPick={send} />}
@@ -335,10 +261,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
           />
         </>
       ) : (
-        <button type="button" className="to-terminal" onClick={props.onGo}>
-          {t('inbox.toTerminal')}
-          <ArrowRight aria-hidden="true" />
-        </button>
+        <ToTerminal onGo={props.onGo} />
       )}
       {refusal && (
         <p className="refusal" role="alert">
@@ -356,7 +279,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   );
 }
 
-function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
+export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
   const { t } = useTranslation();
   const { list } = props;
   if (list.length === 0) return null;
@@ -464,21 +387,26 @@ function DismissButton(props: { wait: WaitId }) {
   );
 }
 
-function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeId) => void) {
+export function OsNotifier(props: { waiting: NodeView[]; enabled: boolean; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
+  const show = useShowNodes();
   const seen = useRef<Set<WaitId> | null>(null);
-  const select = useRef(onSelect);
-  select.current = onSelect;
+  const select = useRef(props.onSelect);
+  select.current = (id) => {
+    show([id]);
+    props.onSelect(id);
+  };
   useEffect(() => {
-    const keys = new Set(waiting.flatMap((v) => v.waits.map((w) => w.id)));
+    const keys = new Set(props.waiting.flatMap((v) => v.waits.map((w) => w.id)));
     const before = seen.current;
     seen.current = keys;
-    if (before === null || !enabled || !notifyAllowed()) return;
-    const fresh = waiting.flatMap((v) => v.waits.filter((w) => !before.has(w.id)).map((w) => ({ v, w })));
+    if (before === null || !props.enabled || !notifyAllowed()) return;
+    const fresh = props.waiting.flatMap((v) => v.waits.filter((w) => !before.has(w.id)).map((w) => ({ v, w })));
     if (fresh.length === 0) return;
     windowHidden().then((hidden) => {
       if (!hidden) return;
       for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, w.summary, `loom-wait-${w.id}`, () => select.current(v.id));
     });
-  }, [waiting, enabled]);
+  }, [props.waiting, props.enabled]);
+  return null;
 }

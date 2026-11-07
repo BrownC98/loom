@@ -41,7 +41,7 @@ import type { ArrangeDirection } from './layout';
 import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
 import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
-import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
+import { InboxPanel, OsNotifier, waitCount, waitingNodes } from './Inbox';
 import { InboxTabs } from './InboxHistory';
 import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
@@ -55,8 +55,9 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
-import { CanvasComposer, deskKeys } from './Composer';
-import type { Rect } from './floatPlace';
+import { deskKeys, useDraftFilled } from './Composer';
+import { DeskComposer } from './DeskComposer';
+import { resolveTarget, type Chosen } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -81,7 +82,6 @@ const EMPTY_SETTINGS: SettingsView = {
   cardView: 'standard',
   graphScope: 'repo',
   edgeStyle: 'step',
-  questionPill: 'line',
   composerOff: false,
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
@@ -96,13 +96,10 @@ const EMPTY_SETTINGS: SettingsView = {
   minimapFolded: false,
   repo: null,
   paneWidths: { side: null, dock: null },
-  pillPlace: null,
   composerPlace: null,
-  pillSize: 'normal',
   composerSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
-  closedPill: null,
   colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';
@@ -136,6 +133,7 @@ export function App() {
   };
   const clearFocus = () => {
     setSelected(null);
+    setPinned(null);
     setChosenBox(null);
     setRepoFocused(false);
   };
@@ -161,7 +159,7 @@ export function App() {
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [chosenBox, setChosenBox] = useState<string | null>(null);
   const [graphCorner, setGraphCorner] = useState(0);
-  const [composerBox, setComposerBox] = useState<Rect | null>(null);
+  const [chosen, setChosen] = useState<Chosen | null>(null);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -185,6 +183,14 @@ export function App() {
   const dockedView = simpleNode(selected);
   const tabs: readonly DockTab[] = dockedView ? ['questions', 'docs', 'events', 'commits', 'terminal'] : ['questions', 'docs', 'events', 'commits'];
   const waiting = waitingNodes(nodes);
+  const [pinned, setPinned] = useState<Chosen | null>(null);
+  const draftFilled = useDraftFilled();
+  const target = resolveTarget(nodes, waiting, selected, chosen, pinned);
+  useEffect(() => {
+    if (!draftFilled) {
+      if (pinned) setPinned(null);
+    } else if (target && !pinned) setPinned({ node: target.view.id, key: target.key });
+  }, [draftFilled, pinned, target?.view.id, target?.key]);
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
@@ -299,16 +305,17 @@ export function App() {
   const usage: Usage = { accounts, cursor, loading, refresh: refreshUsage };
   const chooseBox = (key: string | null) => {
     setChosenBox(key);
+    setPinned(null);
     if (key !== null) setSelected(null);
   };
   const [focusAsk, setFocusAsk] = useState(0);
-  const composerView = selected === null ? undefined : nodes.get(selected);
   const focusNode = (id: NodeId) => {
     selectNode(id);
     setFocusAsk((n) => n + 1);
   };
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
+    setPinned(null);
     if (id !== null) setChosenBox(null);
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place) selectRepo(place.repo);
@@ -551,7 +558,7 @@ export function App() {
                 <DownLine place={shown[0].place} />
               </div>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} size={settings.pillSize} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} composer={composerBox} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
+            <OsNotifier waiting={waiting} enabled={settings.osNotify} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -574,7 +581,25 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {!settings.composerOff && composerView && <CanvasComposer key={composerView.id} node={composerView.id} name={composerView.name} keys={deskKeys(() => focusNode(composerView.id))} place={settings.composerPlace} size={settings.composerSize} corner={graphCorner} onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))} onBox={setComposerBox} views={nodes} repos={repos} onPick={selectNode} />}
+            {target && (!settings.composerOff || target.total > 0) && (
+              <DeskComposer
+                key={target.view.id}
+                target={target}
+                waiting={waiting}
+                keys={deskKeys(() => focusNode(target.view.id))}
+                place={settings.composerPlace}
+                size={settings.composerSize}
+                corner={graphCorner}
+                onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))}
+                onTarget={(node, key) => {
+                  setChosen({ node, key });
+                  setPinned(null);
+                }}
+                onReaim={() => setPinned(null)}
+                onSelect={selectNode}
+                onTerminal={() => focusNode(target.view.id)}
+              />
+            )}
           </main>
           {dockOpen ? (
             <Dock

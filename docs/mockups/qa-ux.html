@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M73 loom 질의응답 입력 창 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(#fff, oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; padding-bottom: 64px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.flow span { padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.page { position: relative; width: 1360px; height: 660px; display: grid; grid-template-rows: 32px 1fr 26px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; font-weight: 600; }
+.main { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 14px); border-radius: 6px; white-space: nowrap; }
+.row.on { background: var(--accent-wash); }
+.row .b { font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.canvas { position: relative; flex: 1; min-width: 0; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.group { position: absolute; border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13px; }
+.card { position: absolute; width: 440px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { border-radius: var(--radius) var(--radius) 0 0; display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.card-head .model { font: 12px var(--mono); color: var(--ink-3); }
+.state { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 9px; background: var(--accent-wash); }
+.term { padding: 8px 10px; font: 11.5px/1.45 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--term); }
+.term .dim { color: var(--ink-3); }
+.term .box { display: inline-block; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px; }
+.cursor { display: inline-block; width: 7px; height: 13px; vertical-align: -2px; background: var(--ink); }
+.card-foot { border-radius: 0 0 var(--radius) var(--radius); font-size: 12px; color: var(--ink-3); padding: 4px 10px; border-top: 1px solid var(--line); background: var(--surface); }
+.card[data-selected] .card-foot { color: var(--accent); }
+.dock { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font-size: 13px; white-space: nowrap; }
+.tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.dock .empty { padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--panel); font: 11px var(--mono); color: var(--ink-2); }
+
+.composer { position: absolute; left: 50%; bottom: 14px; width: 600px; transform: translateX(-50%); display: grid; gap: 6px; padding: 8px 8px 8px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.composer:focus-within, .composer.focus { border-color: var(--accent); }
+.composer .to { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.composer .to b { color: var(--ink); font-weight: 600; }
+.composer .to .keys { margin-left: auto; }
+.composer .line { display: flex; align-items: flex-end; gap: 4px; }
+.composer .text { flex: 1; min-width: 0; min-height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer .text .ph { color: var(--ink-3); }
+.composer .text code { font: 12px var(--mono); }
+.icon-btn { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-2); }
+.send { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+.send[disabled] { opacity: 0.4; }
+.thumbs { justify-self: start; list-style: none; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.thumbs li { position: relative; width: 64px; height: 44px; }
+.thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
+.thumbs .rm { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); }
+.thumbs .rm svg.i { width: 11px; height: 11px; }
+.thumbs .busy { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 6px; background: oklch(0% 0 0 / 0.45); color: #fff; font-size: 11px; }
+.thumbs li.bad img { opacity: 0.35; border-color: var(--err); }
+.thumbs li.bad .busy { background: none; color: var(--err); font-weight: 600; }
+.refusal { color: var(--err); font-size: 12px; }
+
+.scrim { position: absolute; inset: 0; background: oklch(0% 0 0 / 0.7); }
+.image-view { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 640px; border-radius: 8px; background: var(--panel); }
+.image-view img { display: block; width: 100%; border-radius: 8px; }
+.composer .text code { display: inline-block; margin-top: 6px; }
+.slot { position: absolute; left: 50%; bottom: 14px; width: 600px; height: 92px; transform: translateX(-50%); background: var(--bg); box-shadow: 0 0 0 12px var(--bg); }
+
+.zoomed { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--term); }
+.zoomed .term { flex: 1; font-size: 12.5px; }
+.zoomed .room { flex: none; height: 104px; border-top: 1px dashed var(--line-strong); background: var(--bg); }
+
+.phones { position: absolute; inset: 0; display: flex; gap: 110px; justify-content: flex-start; padding: 20px 40px; background: var(--bg); }
+.phone { width: 390px; height: 556px; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--bg); flex: none; }
+.phone-top { border-radius: 18px 18px 0 0; }
+.phone-dock { border-radius: 0 0 18px 18px; }
+.phone-top { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); font-weight: 600; }
+.phone-top .grow { flex: 1; }
+.phone-term { flex: 1; min-height: 0; background: var(--term); }
+.phone-dock { display: grid; gap: 6px; padding: 6px 8px 10px; background: var(--panel); border-top: 1px solid var(--line); }
+.phone-keys { display: flex; gap: 4px; }
+.phone-keys span { flex: 1; height: 36px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); font: 600 12px var(--mono); }
+.phone-keys span.paste { flex: 1.7; font-family: var(--font); }
+.phone-input { display: flex; gap: 6px; align-items: flex-end; }
+.phone-input .field { flex: 1; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); font-size: 15px; line-height: 22px; white-space: pre-wrap; }
+.phone-input .field .ph { color: var(--ink-3); }
+.phone-input .send, .phone-input .icon-btn { width: 44px; height: 44px; border-radius: 10px; }
+.phone-label { position: absolute; top: 4px; font-size: 12px; color: var(--ink-3); }
+.phone .thumbs li { width: 56px; height: 56px; }
+
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+.inbox-pill { position: absolute; top: 12px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 6px; border: 1px solid var(--warn); border-radius: 17px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; white-space: nowrap; }
+.inbox-pill .qicon { width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
+.notice-count { display: inline-flex; align-items: center; gap: 2px; height: 18px; padding: 0 6px 0 4px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; }
+.notice-count svg { width: 12px; height: 12px; }
+.qid { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font: 600 11px/18px var(--mono); }
+.inbox-pill .go { padding: 2px 4px; border: 0; border-radius: 5px; background: none; font-size: 12px; }
+.inbox-pill .go b { font-size: 13px; }
+.pill-close { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 12px; background: none; color: var(--ink-3); }
+
+.backdrop { position: absolute; inset: 40px 0 0 0; background: rgb(0 0 0 / 0.35); }
+.dialog { position: absolute; left: 190px; top: 70px; width: 980px; height: 420px; display: grid; grid-template-columns: 200px 1fr; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 8px 30px var(--shadow); overflow: hidden; }
+.dialog nav { display: grid; align-content: start; gap: 2px; padding: 14px 10px; border-right: 1px solid var(--line); }
+.dialog nav h2 { font-size: 15px; padding: 0 8px 8px; }
+.dialog nav .tab { height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 13px; color: var(--ink-2); }
+.dialog nav .tab.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.pane { display: grid; align-content: start; gap: 18px; padding: 14px 22px; }
+.pane-head { display: flex; align-items: center; font-size: 15px; font-weight: 600; }
+.pane section { display: grid; gap: 12px; }
+.pane h4 { font-size: 13px; }
+.choice { justify-self: start; display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); }
+.choice label:first-child { border-radius: 5px 0 0 5px; }
+.choice label:last-child { border-radius: 0 5px 5px 0; }
+.choice label { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; font-size: 13px; border-left: 1px solid var(--line-strong); }
+.choice label:first-child { border-left: 0; }
+.choice label.on { background: var(--surface); font-weight: 600; }
+.choice input { margin: 0; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.inbox-pill { position: absolute; }
+.inbox-pill .qid { display: inline-flex; }
+.composer.moved { transform: none; bottom: auto; box-shadow: 0 4px 14px var(--shadow); }
+.composer .to { cursor: grab; }
+.composer .to .pill-close { margin-left: 2px; }
+.backdrop { inset: 0; }
+.dialog { left: 90px; top: 20px; height: 560px; width: 1000px; }
+.pane { gap: 14px; }
+.pane section { gap: 8px; }
+.pane h4 { justify-self: start; display: flex; align-items: center; gap: 6px; }
+.pane h4 svg.reset { color: var(--ink-3); width: 13px; height: 13px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.sizes { display: block; height: auto; padding: 24px 32px; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.sizegrid { display: grid; grid-template-columns: 80px 460px 1fr; gap: 44px 24px; align-items: center; }
+.lbl { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.cell { position: relative; }
+.cell .inbox-pill, .cell .composer { position: static; transform: none; width: auto; display: inline-flex; }
+.cell .composer { display: grid; width: 440px; box-shadow: 0 4px 14px var(--shadow); }
+.page.tall { height: 740px; }
+.dock.wide { width: 430px; }
+.card.big { width: 590px; }
+.card .seg { margin-left: auto; display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.card .seg span { padding: 0 9px; font-size: 12px; line-height: 22px; color: var(--ink-2); }
+.card .seg span.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.convo { display: flex; flex-direction: column; gap: 9px; padding: 10px 12px; background: var(--panel); font-size: 12.5px; line-height: 1.5; }
+.dock .convo { flex: 1; min-height: 0; overflow: hidden; }
+.msg { max-width: 92%; }
+.msg .meta { display: block; font-size: 11px; color: var(--ink-3); }
+.msg.me { align-self: flex-end; max-width: 78%; padding: 5px 10px; border-radius: 12px 12px 3px 12px; background: var(--accent-wash); border: 1px solid var(--line); }
+.msg.me .meta { text-align: right; }
+.item { display: grid; gap: 6px; padding: 7px 10px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: 8px; background: var(--surface); }
+.item.done { border-left-color: var(--ok); }
+.item.closed { border-left-color: var(--line-strong); background: none; }
+.item .ih { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.item .ih b { color: var(--ink); }
+.item .ih .grow { flex: 1; }
+.ok-ico { color: var(--ok); }
+.q-ico { color: var(--warn); }
+.ob-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ob { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.ob .k { font-weight: 700; }
+.ob.rec { border-color: var(--warn); }
+.ob .rm { font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: color-mix(in oklch, var(--warn) 18%, transparent); color: var(--ink); }
+.reply { display: flex; gap: 6px; align-items: center; }
+.reply .f { flex: 1; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; line-height: 24px; color: var(--ink-3); background: var(--bg); }
+.reply .send { width: 26px; height: 26px; }
+.sbtn { height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.ans { font-size: 12px; color: var(--ink-2); }
+.dlink { text-decoration: underline; color: var(--run); }
+.tool { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: var(--bg); font: 11.5px var(--mono); color: var(--ink-2); }
+.tool .okm { color: var(--ok); }
+.notsup { margin: 10px; padding: 10px; border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 12.5px; color: var(--ink-2); background: var(--panel); }
+.refuse { font-size: 12px; color: var(--err); }
+.filter { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.filter .who2 { font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.filter .chip { height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 11px; line-height: 20px; color: var(--ink-2); }
+.filter .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.dock-in { border-top: 1px solid var(--line); padding: 8px 10px; display: grid; gap: 6px; background: var(--panel); }
+.dock-in .to { font-size: 12px; color: var(--ink-3); } .dock-in .to b { color: var(--ink); }
+.dock-in .line { display: flex; gap: 4px; align-items: flex-end; }
+.dock-in .text { flex: 1; min-height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); font-size: 12.5px; color: var(--ink-3); }
+.lrow { display: grid; gap: 2px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.lrow .ih { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.lrow .go2 { justify-self: start; font-size: 12px; color: var(--run); }
+.cmp-item { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); font-size: 12.5px; }
+.cmp-item .ih { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); } .cmp-item .ih b { color: var(--ink); }
+.cmp-item .ih .grow { flex: 1; }
+.dock .tabs button.newtab { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+table.cmp td, table.cmp th { vertical-align: top; }
+table.cmp td:first-child { white-space: nowrap; font-weight: 600; }
+.card .seg { overflow: visible; }
+.card .seg span:first-child { border-radius: 5px 0 0 5px; } .card .seg span:last-child { border-radius: 0 5px 5px 0; }
+.lrow { margin: 8px 10px 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.dock-in { margin: 8px 10px 10px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.tool { align-self: flex-start; }
+table.cmp { table-layout: fixed; width: 100%; }
+.popup { position: absolute; width: 440px; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px var(--shadow); font-size: 12.5px; }
+.popup > .ih { font-size: 12px; color: var(--ink-3); }
+.targets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+.tchip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: 12px; }
+.tchip.on.q { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); font-weight: 600; }
+.tchip.on.d { background: var(--ok); border-color: var(--ok); color: var(--warn-ink); font-weight: 600; }
+.tchip.on.p { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.targets .keys { margin-left: auto; }
+.composer.qmode .text { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.composer.dmode .text { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.composer .text.typed { color: var(--ink); }
+.sendw { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.sendw.q { background: var(--warn); color: var(--warn-ink); }
+.sendw.d { background: var(--ok); color: var(--warn-ink); }
+.sendw.p { background: var(--accent); color: var(--accent-ink); }
+.cmp-item.mini { padding: 4px 10px; border-color: var(--line-strong); }
+.cmp-item.done { border-color: var(--ok); }
+.composer.wide2 { width: 640px; }
+table.recv td code { white-space: pre-wrap; font-size: 12px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; } .note li { margin-left: 18px; }
+.tbtn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 10px; border-radius: 13px; border: 1px solid var(--warn); background: var(--warn); color: var(--warn-ink); font-size: 12px; font-weight: 600; }
+.tbtn.p { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tbtn .nm { font-weight: 400; opacity: .9; }
+.cbtn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--surface); font-size: 12px; color: var(--ink-2); }
+.cbtn b { color: var(--ink); }
+.picker { position: absolute; left: 50%; transform: translateX(-50%); bottom: 150px; width: 640px; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px var(--shadow); font-size: 12.5px; }
+.picker .ph2 { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.picker .search { flex: 1; height: 28px; padding: 0 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); line-height: 26px; color: var(--ink-3); }
+.picker .list { height: 300px; overflow: hidden; position: relative; padding: 4px 0; }
+.picker .list::after { content: ""; position: absolute; right: 3px; top: 6px; width: 4px; height: 120px; border-radius: 2px; background: var(--line-strong); }
+.picker .grp { display: flex; align-items: center; gap: 6px; padding: 5px 12px 3px; font-size: 12px; color: var(--ink-3); }
+.picker .grp b { color: var(--ink); }
+.picker .it { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px 0 22px; white-space: nowrap; overflow: hidden; }
+.picker .it .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.picker .it .tm { color: var(--ink-3); font-size: 11px; }
+.picker .it.cur { background: var(--accent-wash); }
+.picker .it.prompt { padding-left: 12px; color: var(--ink-2); }
+.picker .pf { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-3); }
+.donechip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; background: color-mix(in oklch, var(--ok) 18%, transparent); font-size: 11px; color: var(--ink); }
+.tcount { font-size: 11px; padding: 0 6px; border-radius: 9px; }
+.tcount.q { background: var(--warn); color: var(--warn-ink); } .tcount.d { background: var(--ok); color: var(--warn-ink); }
+.tbtn { margin: 6px 16px 2px 0; }
+.picker .search { margin-right: 16px; }
+.picker .list { height: auto; overflow: visible; }
+.picker .list::after { display: none; }
+.picker .sb { position: absolute; right: 4px; top: 60px; width: 4px; height: 110px; border-radius: 2px; background: var(--line-strong); }
+.picker .it { overflow: visible; padding: 0 12px; margin-left: 10px; margin-right: 8px; }
+.picker .it.prompt { margin-left: 0; }
+.picker .grp > span { display: inline-flex; align-items: center; gap: 6px; }
+.picker.left { left: 24px; transform: none; width: 560px; bottom: 140px; }
+.composer.left { left: 24px; transform: none; width: 560px; }
+.picker .it { height: 24px; }
+.targets.top { margin-top: 10px; }
+.picker .grp { padding-top: 8px; padding-left: 14px; }
+.tbtn { padding-right: 16px; margin-bottom: 8px; }
+.tbtn { padding-left: 15px; }
+.cbtn { margin-left: 14px; } .targets.top { margin-top: 14px; }
+.composer .line { align-items: center; gap: 6px; }
+.composer .line .tbtn { margin: 0; flex: none; height: 30px; border-radius: 8px; padding: 0 8px 0 10px; }
+.cnt { flex: none; margin-left: -4px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.composer.wide2 { width: 680px; }
+.picker.left, .composer.left { width: 600px; }
+.tbtn .cnt { margin: 0 0 0 4px; padding: 0 6px; border-radius: 9px; background: color-mix(in oklch, var(--panel) 85%, transparent); color: var(--ink); font-weight: 600; }
+.picker .pbot { border-top: 1px solid var(--line); }
+.picker .pbot .ph2 { border-bottom: 0; padding-bottom: 2px; }
+.picker .pbot .pf { border-top: 0; padding-top: 0; font-size: 11px; }
+.picker .list { max-height: none; }
+.pos { font-size: 11.5px; color: var(--ink-3); }
+.composer .text.infield { display: flex; align-items: center; gap: 4px; padding: 2px 8px 2px 2px; }
+.composer .icon-btn.in { width: 26px; height: 26px; }
+.inw { display: inline-flex; align-items: center; gap: 4px; }
+
+</style>
+</head>
+<body data-ui=".card, .composer .send, .send, .icon-btn, .tabs button, .pill-close, .ob, .sbtn, .seg, .chip">
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+  <symbol id="img" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></symbol>
+  <symbol id="clip" viewBox="0 0 24 24"><path d="m16 6-8.4 8.6a2 2 0 0 0 2.8 2.8l8.4-8.6a4 4 0 0 0-5.7-5.6l-8.4 8.6a6 6 0 1 0 8.5 8.4L21 12"/></symbol>
+  <symbol id="term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="ask" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+</svg>
+
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M73</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 질의응답UX</b></span><span>v5 · 2026-11-08</span></div>
+  <h1>질의응답 UX 시안</h1>
+  <p class="lead">v5(Q2582): 「이미지 첨부버튼은 텍스트 입력창 안쪽 좌측에 넣어」. 나머지는 v4 그대로입니다. v4 결정(Q2579): v3과 D4·D5를 A로 정했습니다. 고칠 것 넷: ① 보낼 곳 글 「Q2561에 답」을 「claude-1에게」로. ② 알림 수를 입력 줄에서 뺌. ③ 같은 보낼 곳을 두 번 보이지 않음(보내기 단추의 글을 뺌). ④ 목록의 찾기 칸을 맨 아래로, 키 안내는 그 아래 작은 글로. 화면은 노드 6개에 알림 20개(질문 15, 완료 5)가 있는 상태입니다.</p>
+  <div class="flow"><span>노드를 고른다</span>→<span>입력 창 위에 그 노드의 가장 오래된 알림이 붙는다</span>→<span>보낼 곳 단추를 확인한다. 이 노드 안은 Alt+↑↓, 다른 노드는 Alt+L 목록</span>→<span>Enter</span>→<span>답이면 알림이 닫히고, 지시면 터미널에 쳐진다</span></div>
+
+  <div class="fig"><h2>① 알림 20개, claude-1을 고름 <span class="tag">알약 없음</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="mk row on" data-n="4" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">3</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>codex-2<span style="margin-left:auto"><span class="tcount q">3</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-3<span style="margin-left:auto"><span class="tcount q">4</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>cursor-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>opencode-1<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-4<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card big" data-selected style="left:24px; top:24px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
+<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
+
+<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
+  ⎿ Q2561
+
+● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
+
+<span class="box">&gt; <span class="cursor"></span></span>
+<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div><div class="composer wide2 qmode" style="bottom:14px"><div class="cmp-item"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>claude-1 · 21:40</span><span class="grow"></span><span class="mk new pos" data-n="3">이 노드 1 / 3 · 전체 알림 20</span><button class="pill-close" style="margin-left:6px" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div></div><div class="line"><span class="mk new tbtn" data-n="1"><svg class="i"><use href="#ask"/></svg>claude-1에게<svg class="i"><use href="#more"/></svg></span><div class="text typed infield"><span class="mk new inw" data-n="2"><button class="icon-btn in" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><span>고침. 안마다 비용 표도 붙여 줘</span></span></div><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: Q2561 답으로 보내기 · Shift+Enter 줄바꿈 · Esc 터미널로 · Alt+↑↓ 이 노드 안 · Alt+L 목록</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 15개 · 완료 5개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>1</b><span>보낼 곳 단추. 색이 종류: 답 노랑, 완료 초록, 지시 검정.</span></div><div><b>2</b><span>입력칸. 그림 붙이기 단추는 입력칸 안쪽 왼쪽에 있습니다.</span></div><div><b>3</b><span>알림 수는 알림 머리에 둡니다. 보내기 단추는 화살표만. 키 줄이 「Q2561 답으로」를 알립니다.</span></div><div><b>4</b><span>사이드바 노드 줄의 질문·완료 수는 지금 그대로입니다.</span></div></div></div>
+  
+
+  
+
+  
+
+  
+
+  <div class="fig"><h2>② 보낼 곳 목록 <span class="tag">보낼 곳 단추를 누르거나 Alt+L</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row on" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">3</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>codex-2<span style="margin-left:auto"><span class="tcount q">3</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-3<span style="margin-left:auto"><span class="tcount q">4</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>cursor-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>opencode-1<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-4<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="mk new picker left" data-n="5"><div class="list"><div class="grp"><span><b>claude-1</b><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="it cur"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2561</span><span class="tx">질의응답 UX 시안 v1을 승인할까요?</span><span class="tm">21:40</span></div><div class="it"><svg class="i ok-ico"><use href="#check"/></svg><span class="donechip">완료</span><span class="tx">목업 v1을 만들었습니다.</span><span class="tm">21:39</span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2566</span><span class="tx">배포 전에 릴리스 노트를 쓸까요?</span><span class="tm">21:45</span></div><div class="it prompt"><svg class="i"><use href="#term"/></svg>claude-1에 지시</div><div class="grp"><span><b>codex-2</b><span class="tcount q">3</span> <span class="tcount d">2</span></span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2540</span><span class="tx">GitHub Actions 캐시를 지울까요?</span><span class="tm">20:12</span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2548</span><span class="tx">관문 실패 3건을 다시 돌릴까요?</span><span class="tm">20:31</span></div><div class="it"><svg class="i ok-ico"><use href="#check"/></svg><span class="donechip">완료</span><span class="tx">Windows 빌드 고침을 병합했습니다.</span><span class="tm">20:40</span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2552</span><span class="tx">memcap 예약량을 4G로 올릴까요?</span><span class="tm">20:58</span></div><div class="it"><svg class="i ok-ico"><use href="#check"/></svg><span class="donechip">완료</span><span class="tx">시험 데몬을 정리했습니다.</span><span class="tm">21:01</span></div><div class="grp"><span><b>claude-3</b><span class="tcount q">2</span></span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2555</span><span class="tx">카드 크기 기본값을 바꿀까요?</span><span class="tm">21:05</span></div><div class="it"><svg class="i q-ico"><use href="#ask"/></svg><span class="qid">Q2557</span><span class="tx">다크 테마 대비를 높일까요?</span><span class="tm">21:10</span></div><div class="it" style="color:var(--ink-3)">claude-3 알림 2개 더 · 아래로 넘김</div><div class="grp"><span><b>cursor-1</b><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></div><div class="mk new pbot" data-n="6"><div class="ph2"><span class="search">알림 검색: 노드 이름·글·Q 번호</span><span class="cbtn">전체 20</span><span class="cbtn">질문 15</span><span class="cbtn">완료 5</span></div><div class="pf">↑↓ 움직이기 · Enter 고르기(그 노드도 고름) · 글자를 치면 찾기 · Esc 닫기</div></div></div><div class="composer wide2 qmode left" style="bottom:14px"><div class="line"><span class="tbtn"><svg class="i"><use href="#ask"/></svg>claude-1에게<svg class="i"><use href="#more"/></svg></span><div class="text typed infield"><span class="inw"><button class="icon-btn in" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><span></span></span></div><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: Q2561 답으로 보내기 · Shift+Enter 줄바꿈 · Esc 터미널로 · Alt+↑↓ 이 노드 안 · Alt+L 목록</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 15개 · 완료 5개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>5</b><span>목록: 노드마다 묶고 질문·완료 수를 보입니다. 오래된 순. 지금 보낼 곳은 칠하고, 노드마다 「지시」 줄이 있습니다.</span></div><div><b>6</b><span>찾기 칸은 목록 맨 아래, 입력 창 바로 위. 열면 초점이 갑니다. 그 아래 작은 글이 키를 알립니다.</span></div></div></div>
+  <div class="fig"><h2>③ 노드에 지시 <span class="tag">Alt+↑↓로 「지시」를 고름</span></h2>
+<div class="page"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row on" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">3</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>codex-2<span style="margin-left:auto"><span class="tcount q">3</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-3<span style="margin-left:auto"><span class="tcount q">4</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>cursor-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>opencode-1<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:0"><span class="dot waiting" style="background:var(--warn)"></span>claude-4<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card big" data-selected style="left:24px; top:24px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
+<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
+
+<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
+  ⎿ Q2561
+
+● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
+
+<span class="box">&gt; <span class="cursor"></span></span>
+<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div><div class="composer wide2 " style="bottom:14px"><div class="cmp-item mini"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>열림 · 이 글은 답이 아닙니다</span><span class="grow"></span><span>이 노드 1 / 3 · 전체 알림 20</span></div></div><div class="line"><span class="mk new tbtn p" data-n="7"><svg class="i"><use href="#term"/></svg>claude-1에게<svg class="i"><use href="#more"/></svg></span><div class="text typed infield"><span class="inw"><button class="icon-btn in" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><span>설계 문서도 같이 읽어 줘</span></span></div><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: 지시로 터미널에 치기 · Shift+Enter 줄바꿈 · Esc 터미널로 · Alt+↑↓ 이 노드 안 · Alt+L 목록</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 15개 · 완료 5개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>7</b><span>보낼 곳 단추가 검정·터미널 아이콘으로 바뀝니다. 키 줄은 「지시로 터미널에 치기」. 글은 지금처럼 터미널에 쳐지고 질문은 열린 채 남습니다.</span></div></div></div>
+
+  
+
+  <h2>노드가 받는 글</h2>
+  <table class="recv">
+    <thead><tr><th>보낼 곳</th><th>가는 길</th><th>노드가 받는 글</th><th>보낸 뒤 알림</th></tr></thead>
+    <tbody>
+      <tr><td>Q2561에 답</td><td>사람이 보낸 큐 메시지(지금 알림 답과 같은 <code>POST /api/waits/Q2561/answer</code>). 일하는 노드는 다음 도구 호출 사이에, 쉬는 노드는 새 턴으로 받음</td><td><code>Answer to loom ask question Q2561 (질의응답 UX 시안 v1을 승인할까요? …): 고침. 안마다 비용 표도 붙여 줘
+The human answered from the loom inbox. The question is closed: do not call loom answered.</code></td><td>Q2561 닫힘, 「기록」으로 감</td></tr>
+      <tr><td>완료에 이어서 맡김</td><td>같은 큐 메시지 길(지금 완료 입력칸과 같음)</td><td><code>New instruction from the human in the loom inbox, after your done report: 좋아. 이제 안 D를 v2로 다듬어 줘</code></td><td>완료 닫힘</td></tr>
+      <tr><td>claude-1에 지시</td><td>지금 입력 창과 같음: 터미널에 붙여넣고 Enter</td><td>친 글 그대로(사람 입력). 열린 질문이 있으면 데몬이 그 턴에 한 줄을 더함: <code>Open loom ask questions: Q2561: … If this input answers some of these questions, first call loom answered with their IDs …</code></td><td>Q2561 열린 채 남음</td></tr>
+    </tbody>
+  </table>
+  <ul class="note"><li>그림: 답과 이어서 맡김은 지금처럼 <code>Images: '&lt;경로&gt;'</code> 줄이 붙고, 지시는 지금 입력 창처럼 경로를 붙여넣습니다.</li><li>터미널에 바로 친 글은 언제나 지시입니다.</li><li>지우는 것: 위의 알약, 알림 목록 팝업, 설정 › 그래프의 「질문 알약」·「알약 크기」·「알약 자리」. 오른쪽 칸의 「알림」 탭(기록 포함)과 시스템 알림은 그대로입니다.</li><li>정한 것: 질문이 열리면 처음 보낼 곳은 답, 완료면 이어서 맡김, 이 노드 안에서 바꾸기는 Alt+↑↓(Q2569). 목록은 Alt+L이나 보낼 곳 단추로 엶. 알림이 하나라도 있으면 노드를 고르지 않아도 입력 창이 뜸(Q2579).</li><li>데몬 변경 없음: 세 길 모두 지금 있는 API입니다. 화면(입력 창)만 바꿉니다. 토큰 0.</li></ul>
+
+  <h2>고르지 않은 안(v1)</h2>
+  <ul class="note"><li>A 카드 안 대화 보기: 터미널을 가려 턴 중간 진행을 놓침.</li><li>B TUI 없앰: 에이전트마다 권한 창·명령을 다시 만들고, 구조 API가 없는 에이전트를 못 씀.</li><li>C 터미널 옆 대화 칸: 사람이 D를 골랐음.</li></ul>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

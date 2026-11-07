@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::ids::{AccountId, AgentId, RepoId, WaitId};
+use crate::ids::{AccountId, AgentId, RepoId};
 use crate::limits::TreeLimits;
 use crate::profile::Provider;
 use roles::Roles;
@@ -41,9 +41,6 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
     #[serde(default)]
     pub edge_style: EdgeStyle,
-    /// 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
-    #[serde(default)]
-    pub question_pill: QuestionPill,
     pub composer_off: bool,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
@@ -83,20 +80,13 @@ pub struct SettingsView {
     /// 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
     pub repo: Option<RepoId>,
     pub pane_widths: PaneWidths,
-    /// 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
-    pub pill_place: Option<FloatPlace>,
     /// 사람이 끌어 옮긴 입력 창의 자리. 없으면 그래프 칸 아래 가운데다. 근거: 목업 docs/mockups/composer-place.html M50 v1, 2026-10-30 사람 승인 Q1861.
     pub composer_place: Option<FloatPlace>,
-    /// 질문 알약과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
-    pub pill_size: FloatSize,
     /// 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
     pub composer_size: FloatSize,
     pub closed_panes: ClosedPanes,
     /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
     pub closed_switch_notice: Option<u32>,
-    /// 사람이 알약의 [×]를 눌렀을 때 있던 가장 큰 대기 번호. 이보다 큰 대기가 오면 알약이 다시 뜬다.
-    /// 근거: 목업 docs/mockups/pill-close.html M19 ②·③.
-    pub closed_pill: Option<WaitId>,
 }
 
 /// 한 위치에서 공급자마다 쓰는 계정. 없으면 시스템 기본이다.
@@ -142,8 +132,8 @@ pub struct PaneWidths {
     pub dock: Option<u16>,
 }
 
-/// 그래프 칸에 떠 있는 판(질문 알약, 입력 창)의 자리. 판이 그래프 칸 안에서 움직일 수 있는 폭·높이 중 얼마만큼 왔는지(0~1)다.
-/// 창이나 칸 크기가 바뀌어도 판은 칸 안에 남는다.
+/// 그래프 칸에 떠 있는 입력 창의 자리. 입력 창이 그래프 칸 안에서 움직일 수 있는 폭·높이 중 얼마만큼 왔는지(0~1)다.
+/// 창이나 칸 크기가 바뀌어도 입력 창은 칸 안에 남는다.
 #[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]
@@ -241,18 +231,6 @@ pub enum EdgeStyle {
     #[default]
     Step,
     Curve,
-}
-
-/// 그래프 위 질문 알약의 꼴. `Line`은 한 줄이고 목록을 펼쳐 답한다. `Answer`는 가장 오래된 질문 하나와 답 칸을 펼쳐 보인다(목업 M31 ②). `Off`는 알약을 보이지 않는다(목업 M19 ④).
-/// 근거: 2026-10-22 사람 지시 "질문 다시 알약으로 바꿔", "알약으로 할지 펼칠지는 설정에 옵션으로 제공", 2026-10-24 "알림 알약 끄는 기능 추가".
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum QuestionPill {
-    #[default]
-    Line,
-    Answer,
-    Off,
 }
 
 /// 뜻마다 사람이 고른 색. 라이트·다크를 따로 고른다(목업 docs/mockups/color-themes.html v3). 테마마다 쓸 색은 화면이 고른 색에서 만든다(`web/src/uiColors.ts`).

@@ -1,27 +1,31 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::ids::NodeId;
+use api::graph::waits::ScreenWait;
+use api::ids::{NodeId, WaitId};
 use api::settings::{FloatPlace, FloatSize};
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement,
-    Pixels, Point, Render, ScrollEvent, Size, Stateful, StatefulInteractiveElement, Styled,
-    Subscription, Window, canvas, div, point, px,
+    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent, Size, Stateful,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, point, px,
 };
 
+use super::aim::{self, Aim, Kind};
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::mix;
+use crate::views::dock::answers::{self, Answers};
+use crate::views::dock::entry;
+use crate::views::dock::questions::{groups_of, kind_label};
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
 use crate::views::inputs::Inputs;
-use crate::views::pictures::{self, Pictures, PicturesEvent};
+use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
@@ -33,7 +37,8 @@ const SHADOW_DROP: f32 = 4.0;
 const BUTTON: f32 = 30.0;
 const DISABLED_ALPHA: f32 = 0.4;
 const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
-const PICK_WIDTH: f32 = 380.0;
+const LEAD: f32 = 22.0;
+const CARD_ROOM: f32 = 280.0;
 
 struct Filed {
     node: NodeId,
@@ -56,18 +61,39 @@ pub struct Composer {
     pictures: Entity<Pictures>,
     note: Option<String>,
     filing: usize,
-    sending: Option<u32>,
+    sending: Option<Sending>,
     aborted: bool,
     files: Vec<Filed>,
     viewer: Entity<Viewer>,
-    chevron: Rc<Cell<Bounds<Pixels>>>,
+    answers: Entity<Answers>,
+    chosen: Option<(u32, Aim)>,
+    pinned: Option<(u32, Aim)>,
+    seen_selected: Option<u32>,
+    anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
+}
+
+#[derive(Clone, Copy)]
+struct Sending {
+    node: u32,
+    kind: Kind,
+}
+
+struct Aimed {
+    node: u32,
+    name: String,
+    waits: Vec<ScreenWait>,
+    total: usize,
+    aim: Aim,
+    kind: Kind,
+    lost: bool,
 }
 
 pub fn composer(
     store: Entity<Store>,
     registry: Entity<Inputs>,
+    shelf: Entity<Shelf>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Composer> {
@@ -87,12 +113,13 @@ pub fn composer(
             |composer: &mut Composer, _, event: &FieldEvent, window, cx| match event {
                 FieldEvent::Enter => composer.send(cx),
                 FieldEvent::Escape => {
-                    if let Some(node) = composer.target(cx) {
+                    if let Some(node) = composer.node(cx) {
                         let registry = composer.inputs.clone();
                         registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
                     }
                 }
-                FieldEvent::Changed | FieldEvent::Step(_) => {}
+                FieldEvent::Changed => composer.repin(cx),
+                FieldEvent::Step(_) => {}
             },
         );
         let heard = cx.subscribe_in(
@@ -106,6 +133,7 @@ pub fn composer(
                 }
             },
         );
+        let shared = pictures.clone();
         let mut composer = Composer {
             store: store.clone(),
             inputs: registry.clone(),
@@ -123,7 +151,15 @@ pub fn composer(
             aborted: false,
             files: Vec::new(),
             viewer: cx.new(Viewer::new),
-            chevron: Rc::new(Cell::new(Bounds::default())),
+            answers: cx.new(|cx| {
+                let mut answers = Answers::new(store.clone(), shelf, cx);
+                answers.share(shared);
+                answers
+            }),
+            chosen: None,
+            pinned: None,
+            seen_selected: None,
+            anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
             subscriptions: vec![typed, heard],
         };
@@ -133,6 +169,9 @@ pub fn composer(
         composer
             .subscriptions
             .push(cx.observe(&registry, |_, _, cx| cx.notify()));
+        composer
+            .subscriptions
+            .push(cx.observe(&composer.answers, |_, _, cx| cx.notify()));
         composer.sync(cx);
         composer
     })
@@ -159,24 +198,84 @@ struct Look {
 }
 
 impl Composer {
-    fn target(&self, cx: &App) -> Option<u32> {
+    fn aimed(&self, cx: &App) -> Option<Aimed> {
         let store = self.store.read(cx);
-        let id = store.selected()?;
-        store
-            .snapshot()?
-            .nodes
-            .iter()
-            .any(|n| n.id.0 == id)
-            .then_some(id)
+        let snapshot = store.snapshot()?;
+        let groups = groups_of(snapshot);
+        let total = groups.iter().map(|g| g.waits.len()).sum();
+        let exists = |id: &u32| snapshot.nodes.iter().any(|n| n.id.0 == *id);
+        let held = self.pinned.filter(|(held, _)| exists(held));
+        let node = held
+            .map(|(held, _)| held)
+            .or_else(|| store.selected().filter(exists))
+            .or_else(|| groups.first().map(|g| g.node.0))?;
+        let name = snapshot.nodes.iter().find(|n| n.id.0 == node)?.name.clone();
+        let waits = groups
+            .into_iter()
+            .find(|g| g.node.0 == node)
+            .map(|g| g.waits)
+            .unwrap_or_default();
+        let chosen = self
+            .chosen
+            .filter(|(held, _)| *held == node)
+            .map(|(_, a)| a);
+        let aim = match held {
+            Some((_, pin)) => pin,
+            None => aim::resolve(chosen, &waits),
+        };
+        let lost = (self.pinned.is_some() && held.is_none())
+            || matches!(aim, Aim::Alert(id) if !waits.iter().any(|w| w.wait.id == id));
+        let kind = aim::kind_of(aim, &waits);
+        Some(Aimed {
+            node,
+            name,
+            waits,
+            total,
+            aim,
+            kind,
+            lost,
+        })
+    }
+
+    fn repin(&mut self, cx: &mut Context<Self>) {
+        if self.field.read(cx).is_blank() {
+            self.pinned = None;
+        } else if self.pinned.is_none() {
+            self.pinned = self.aimed(cx).map(|a| (a.node, a.aim));
+        }
+        cx.notify();
+    }
+
+    fn reaim(&mut self, cx: &mut Context<Self>) {
+        self.pinned = None;
+        self.repin(cx);
+    }
+
+    fn node(&self, cx: &App) -> Option<u32> {
+        self.aimed(cx).map(|a| a.node)
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
+        let selected = self.store.read(cx).selected();
+        if selected != self.seen_selected {
+            self.seen_selected = selected;
+            let gone = self.pinned.is_some_and(|(held, _)| {
+                !self
+                    .store
+                    .read(cx)
+                    .snapshot()
+                    .is_some_and(|s| s.nodes.iter().any(|n| n.id.0 == held))
+            });
+            if !gone {
+                self.reaim(cx);
+            }
+        }
         let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {
             self.seen_place = place;
             self.kept = None;
         }
-        if let Some(node) = self.target(cx) {
+        if let Some(node) = self.node(cx) {
             self.pictures
                 .update(cx, |pictures, _| pictures.aim(NodeId(node)));
         }
@@ -273,7 +372,7 @@ impl Composer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(node) = self.target(cx).map(NodeId) else {
+        let Some(node) = self.node(cx).map(NodeId) else {
             return;
         };
         self.note = None;
@@ -387,16 +486,26 @@ impl Composer {
         if self.sending.is_some() {
             return;
         }
-        let Some(target) = self.target(cx) else {
+        let Some(aimed) = self.aimed(cx) else {
             return;
         };
-        self.set_sending(Some(target), cx);
+        if aimed.lost {
+            let text = ui::say(cx, Str::ComposerTargetClosed).to_owned();
+            self.reaim(cx);
+            self.refuse(text, cx);
+            return;
+        }
+        let sending = Sending {
+            node: aimed.node,
+            kind: aimed.kind,
+        };
+        self.set_sending(Some(sending), cx);
         self.flush(cx);
     }
 
-    fn set_sending(&mut self, target: Option<u32>, cx: &mut Context<Self>) {
-        self.sending = target;
-        let locked = target.is_some();
+    fn set_sending(&mut self, sending: Option<Sending>, cx: &mut Context<Self>) {
+        self.sending = sending;
+        let locked = sending.is_some();
         self.field
             .update(cx, |field, cx| field.set_locked(locked, cx));
         self.pictures
@@ -405,32 +514,46 @@ impl Composer {
     }
 
     fn flush(&mut self, cx: &mut Context<Self>) {
-        let Some(target) = self.sending else {
+        let Some(Sending { node, kind }) = self.sending else {
             return;
         };
         if !self.aborted {
-            self.move_files(target, cx);
+            self.move_files(node, cx);
             self.pictures
-                .update(cx, |pictures, cx| pictures.retarget(NodeId(target), cx));
+                .update(cx, |pictures, cx| pictures.retarget(NodeId(node), cx));
         }
         let pictures = self.pictures.clone();
         if self.filing > 0 || pictures.read(cx).busy() {
             return;
         }
-        self.set_sending(None, cx);
-        if std::mem::take(&mut self.aborted) {
-            return;
-        }
+        let aborted = std::mem::take(&mut self.aborted);
         let body = self.field.read(cx).text().trim_end().to_owned();
         let saved = pictures.read(cx).saved();
         let attached = !pictures.read(cx).is_empty();
-        if body.trim().is_empty() && saved.is_empty() {
-            if attached {
+        if aborted || (body.trim().is_empty() && saved.is_empty()) {
+            self.set_sending(None, cx);
+            if !aborted && attached {
                 let text = ui::say(cx, Str::ComposerNothingSaved).to_owned();
                 self.refuse(text, cx);
             }
             return;
         }
+        match kind {
+            Kind::Prompt => {
+                self.set_sending(None, cx);
+                self.type_in(node, body, saved, cx);
+            }
+            Kind::Answer(wait) | Kind::Continue(wait) => self.answer(wait, body, saved, cx),
+        }
+    }
+
+    fn type_in(
+        &mut self,
+        node: u32,
+        body: String,
+        saved: Vec<(u32, String)>,
+        cx: &mut Context<Self>,
+    ) {
         let paths: Vec<String> = saved.iter().map(|(_, path)| quote(path)).collect();
         let text = [body, paths.join(" ")]
             .into_iter()
@@ -439,13 +562,11 @@ impl Composer {
             .join("\n");
         let state = self
             .inputs
-            .update(cx, |inputs, cx| inputs.deliver(target, &text, cx));
+            .update(cx, |inputs, cx| inputs.deliver(node, &text, cx));
         match state {
             Some(InputState::Open) => {
                 let ids: Vec<u32> = saved.iter().map(|(id, _)| *id).collect();
-                pictures.update(cx, |pictures, cx| pictures.forget(&ids, cx));
-                self.files.clear();
-                self.field.update(cx, |field, cx| field.clear(cx));
+                self.sent(&ids, cx);
             }
             Some(InputState::Offline) => {
                 let text = ui::say(cx, Str::ComposerOffline).to_owned();
@@ -459,19 +580,60 @@ impl Composer {
         cx.notify();
     }
 
-    fn toggle_list(&mut self, node: u32, window: &mut Window, cx: &mut Context<Self>) {
+    fn answer(
+        &mut self,
+        wait: WaitId,
+        body: String,
+        saved: Vec<(u32, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        let (ids, paths): (Vec<u32>, Vec<String>) = saved.into_iter().unzip();
+        let task = self
+            .store
+            .update(cx, |store, cx| store.answer_wait(wait, body, paths, cx));
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |composer, cx| {
+                composer.set_sending(None, cx);
+                match result {
+                    Ok(()) => composer.sent(&ids, cx),
+                    Err(error) => composer.refuse(error, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn sent(&mut self, ids: &[u32], cx: &mut Context<Self>) {
+        self.pictures
+            .update(cx, |pictures, cx| pictures.forget(ids, cx));
+        self.files.clear();
+        self.field.update(cx, |field, cx| field.clear(cx));
+        cx.notify();
+    }
+
+    fn toggle_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.listing.take().is_some() {
             cx.notify();
             return;
         }
-        let list = picker(self.store.clone(), node, self.chevron.clone(), window, cx);
+        let Some(aimed) = self.aimed(cx) else {
+            return;
+        };
+        let list = picker(
+            self.store.clone(),
+            (NodeId(aimed.node), aimed.aim),
+            self.anchor.clone(),
+            window,
+            cx,
+        );
         let sub = cx.subscribe_in(
             &list,
             window,
             move |composer, _, event: &PickerEvent, window, cx| {
                 composer.listing = None;
                 match event {
-                    PickerEvent::Pick(id) => composer.pick(node, *id, window, cx),
+                    PickerEvent::Pick(node, aim) => composer.pick(*node, *aim, window, cx),
                     PickerEvent::Escape => composer.focus_field(window, cx),
                     PickerEvent::Close => {}
                 }
@@ -482,17 +644,44 @@ impl Composer {
         cx.notify();
     }
 
+    fn cycle(&mut self, by: isize, cx: &mut Context<Self>) {
+        let Some(aimed) = self.aimed(cx) else {
+            return;
+        };
+        let next = aim::cycle(aimed.aim, &aimed.waits, by);
+        self.chosen = Some((aimed.node, next));
+        self.reaim(cx);
+    }
+
+    fn keys(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let keys = &event.keystroke;
+        let modifiers = keys.modifiers;
+        if !modifiers.alt || modifiers.control || modifiers.platform || modifiers.shift {
+            return;
+        }
+        match keys.key.as_str() {
+            "up" if self.listing.is_none() => self.cycle(-1, cx),
+            "down" if self.listing.is_none() => self.cycle(1, cx),
+            "l" => self.toggle_list(window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+
     fn focus_field(&self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = self.field.read(cx).handle();
         window.focus(&handle, cx);
     }
 
-    fn pick(&mut self, current: u32, id: u32, window: &mut Window, cx: &mut Context<Self>) {
+    fn pick(&mut self, node: NodeId, aim: Aim, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.node(cx);
+        self.chosen = Some((node.0, aim));
+        self.reaim(cx);
         self.store.update(cx, |store, cx| {
-            store.show_node(id, cx);
-            store.select(id, cx);
+            store.show_node(node.0, cx);
+            store.select(node.0, cx);
         });
-        if id == current {
+        if current == Some(node.0) {
             self.focus_field(window, cx);
             return;
         }
@@ -513,17 +702,14 @@ impl Render for Composer {
             .left_0()
             .size_full()
             .child(place::measure(self.pane.clone(), owner));
-        let store = self.store.read(cx);
-        let node = store.selected().and_then(|id| {
-            let view = store.snapshot()?.nodes.iter().find(|n| n.id.0 == id)?;
-            Some((id, view.name.clone()))
-        });
-        let shown = node.filter(|(id, _)| {
-            !store.settings().composer_off && self.inputs.read(cx).state(*id, cx).is_some()
-        });
-        let Some((node, name)) = shown else {
+        let off = self.store.read(cx).settings().composer_off;
+        let shown = self
+            .aimed(cx)
+            .filter(|a| a.total > 0 || (!off && self.inputs.read(cx).state(a.node, cx).is_some()));
+        let Some(aimed) = shown else {
             self.grab = None;
             self.at = None;
+            self.listing = None;
             self.store
                 .update(cx, |store, cx| store.set_composer(None, cx));
             return root;
@@ -562,27 +748,26 @@ impl Render for Composer {
             self.store
                 .update(cx, |store, cx| store.set_composer(shown, cx));
         }
-        let face = self.face(node, &name, home, z, at, window, cx);
+        let face = self.face(&aimed, home, z, at, window, cx);
         let wrapper = div()
             .relative()
             .occlude()
             .w(px(width))
             .child(place::measure(self.boxed.clone(), owner))
             .child(face);
-        let mut float = div().absolute().left(at.x).top(at.y);
+        let mut float = div()
+            .absolute()
+            .left(at.x)
+            .top(at.y)
+            .on_key_down(cx.listener(Self::keys));
         if !measured {
             float = float.invisible();
         }
         let pop = self.listing.as_ref().map(|(list, _)| {
             let (above, room) = place::pop_space(f32::from(at.y), boxed, pane, None, z);
-            let wide = (PICK_WIDTH * z).min((f32::from(pane.width) - 2.0 * MARGIN).max(0.0));
-            let left = (f32::from(at.x)
-                .min(f32::from(pane.width) - MARGIN - wide)
-                .max(MARGIN))
-                - f32::from(at.x);
-            list.update(cx, |list, cx| list.place(z, wide, room, above, cx));
+            list.update(cx, |list, cx| list.place(z, width, room, above, cx));
             let gap = px(place::POP_GAP * z);
-            let anchored = div().absolute().left(px(left)).child(list.clone());
+            let anchored = div().absolute().left_0().child(list.clone());
             if above {
                 anchored.bottom(boxed.height + gap)
             } else {
@@ -601,18 +786,99 @@ impl Render for Composer {
 }
 
 impl Composer {
-    #[allow(clippy::too_many_arguments)]
+    fn card(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let first = aimed.waits.first()?;
+        let c = ui::colors(cx);
+        let total = aimed.total.to_string();
+        let count = |index: usize| {
+            ui::say_with(
+                cx,
+                Str::ComposerAlertCount,
+                &[
+                    ("index", &(index + 1).to_string()),
+                    ("count", &aimed.waits.len().to_string()),
+                    ("total", &total),
+                ],
+            )
+        };
+        let Aim::Alert(id) = aimed.aim else {
+            let line = div()
+                .flex()
+                .items_center()
+                .gap(px(8.0 * z))
+                .px(px(10.0 * z))
+                .py(px(5.0 * z))
+                .rounded(px(10.0 * z))
+                .border_1()
+                .border_color(c.line_strong)
+                .bg(c.surface)
+                .text_size(px(12.0 * z))
+                .text_color(c.ink_3)
+                .child(entry::mark(first.tone, z, &c))
+                .child(
+                    div()
+                        .flex_none()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.ink)
+                        .child(ui::say(cx, kind_label(first.wait.kind)).to_owned()),
+                )
+                .children(
+                    (first.wait.kind == api::graph::waits::WaitKind::Question)
+                        .then(|| entry::qid(first.wait.id.to_string(), first.tone, 18.0, z, &c)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(ui::say(cx, Str::ComposerNotAnswer).to_owned()),
+                )
+                .child(div().flex_none().child(count(0)));
+            return Some(line.into_any_element());
+        };
+        let index = aimed.waits.iter().position(|w| w.wait.id == id)?;
+        let wait = &aimed.waits[index];
+        let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, count(index), cx);
+        Some(
+            div()
+                .id("composer-card")
+                .max_h(px(CARD_ROOM * z))
+                .overflow_y_scroll()
+                .px(px(10.0 * z))
+                .py(px(8.0 * z))
+                .rounded(px(10.0 * z))
+                .border_1()
+                .border_color(entry::tone_of(wait.tone, &c))
+                .bg(c.surface)
+                .text_size(px(13.0 * z))
+                .child(body)
+                .into_any_element(),
+        )
+    }
+
     fn face(
         &self,
-        node: u32,
-        name: &str,
+        aimed: &Aimed,
         home: bool,
         z: f32,
         at: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.field.update(cx, |field, cx| field.set_scale(z, cx));
+        let c = ui::colors(cx);
+        let (tone, _) = aimed.kind.paint(&c);
+        let label = match aimed.kind {
+            Kind::Answer(_) => Str::InboxAnswerPlaceholder,
+            Kind::Continue(_) => Str::InboxFollowUpPlaceholder,
+            Kind::Prompt => Str::ComposerPlaceholder,
+        };
+        self.field.update(cx, |field, cx| {
+            field.set_scale(z, cx);
+            field.set_tone(tone, cx);
+            field.set_rest(tone, cx);
+            field.set_lead(LEAD, cx);
+            field.set_label(label, cx);
+        });
         let focused = self.field.read(cx).focused(window);
         let ready = !self.field.read(cx).is_blank()
             || !self.pictures.read(cx).is_empty()
@@ -630,8 +896,10 @@ impl Composer {
             cx,
         )
         .map(IntoElement::into_any_element);
+        let card = self.card(aimed, z, cx);
         let view = ComposerView {
-            name,
+            name: &aimed.name,
+            kind: aimed.kind,
             home,
             z,
             focused,
@@ -644,22 +912,26 @@ impl Composer {
                     &[("count", &self.filing.to_string())],
                 )
             }),
-            note: self.note.clone(),
+            note: self.note.clone().or_else(|| {
+                aimed
+                    .lost
+                    .then(|| ui::say(cx, Str::ComposerTargetClosed).to_owned())
+            }),
         };
         let field = self.field.clone().into_any_element();
         let live = Live {
             cx,
-            node,
             at,
-            anchor: self.chevron.clone(),
+            anchor: self.anchor.clone(),
             sendable,
         };
-        face(&view, images, field, &live, cx)
+        face(&view, card, images, field, &live, cx)
     }
 }
 
 pub struct ComposerView<'a> {
     pub name: &'a str,
+    pub kind: Kind,
     pub home: bool,
     pub z: f32,
     pub focused: bool,
@@ -673,22 +945,16 @@ pub trait ComposerWire {
     fn shell(&self, el: Div) -> Div {
         el
     }
-    fn head(&self, el: Div) -> Div {
+    fn drag(&self, el: Div) -> Div {
         el
     }
-    fn name(&self, el: Stateful<Div>) -> Stateful<Div> {
-        el
-    }
-    fn chevron(&self, el: Stateful<Div>) -> Stateful<Div> {
+    fn target(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
     fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
     fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
-        el
-    }
-    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
@@ -698,6 +964,7 @@ pub trait ComposerWire {
 
 pub fn face<W: ComposerWire>(
     view: &ComposerView,
+    card: Option<AnyElement>,
     images: Option<AnyElement>,
     field: AnyElement,
     wire: &W,
@@ -705,6 +972,7 @@ pub fn face<W: ComposerWire>(
 ) -> Div {
     let c = ui::colors(cx);
     let z = view.z;
+    let (tone, tone_ink) = view.kind.paint(&c);
     let tool = |id: &'static str, size: f32| {
         div()
             .id(id)
@@ -716,46 +984,46 @@ pub fn face<W: ComposerWire>(
             .justify_center()
             .text_color(c.ink_2)
     };
-    let chevron = div()
-        .id("composer-chevron")
-        .flex_none()
-        .size(px(18.0 * z))
-        .rounded(px(4.0 * z))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(c.ink_2)
-        .when(view.listing, |d| d.bg(c.surface_hover).text_color(c.ink))
-        .child(icon(
-            if view.listing {
-                Lucide::ChevronUp
-            } else {
-                Lucide::ChevronDown
-            },
-            14.0 * z,
-            if view.listing { c.ink } else { c.ink_2 },
-        ));
-    let target = div()
-        .flex()
-        .items_center()
-        .gap(px(4.0 * z))
-        .min_w_0()
-        .overflow_hidden()
-        .child(icon(Lucide::SquareTerminal, 14.0 * z, c.ink_3))
-        .child(
-            wire.name(
-                div()
-                    .id("composer-name")
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(c.ink)
-                    .child(view.name.to_owned()),
-            ),
-        )
-        .child(wire.chevron(chevron))
-        .child(ui::say(cx, Str::ComposerTo));
-    let head = wire.head(
+    let target = wire.target(
+        div()
+            .id("composer-target")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.0 * z))
+            .max_w(px(220.0 * z))
+            .h(px(BUTTON * z))
+            .pl(px(10.0 * z))
+            .pr(px(6.0 * z))
+            .rounded(px(8.0 * z))
+            .border_1()
+            .border_color(tone)
+            .bg(tone)
+            .text_color(tone_ink)
+            .text_size(px(12.5 * z))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(icon(view.kind.glyph(), 14.0 * z, tone_ink))
+            .child(div().min_w_0().truncate().child(ui::say_with(
+                cx,
+                Str::ComposerToNode,
+                &[("name", view.name)],
+            )))
+            .child(icon(
+                if view.listing {
+                    Lucide::ChevronDown
+                } else {
+                    Lucide::ChevronUp
+                },
+                14.0 * z,
+                tone_ink,
+            )),
+    );
+    let keys = match view.kind {
+        Kind::Answer(id) => ui::say_with(cx, Str::ComposerKeyAnswer, &[("id", &id.to_string())]),
+        Kind::Continue(_) => ui::say(cx, Str::ComposerKeyContinue).to_owned(),
+        Kind::Prompt => ui::say(cx, Str::ComposerKeyPrompt).to_owned(),
+    };
+    let hint = wire.drag(
         div()
             .flex()
             .items_center()
@@ -763,15 +1031,10 @@ pub fn face<W: ComposerWire>(
             .min_w_0()
             .text_size(px(12.0 * z))
             .text_color(c.ink_3)
-            .child(target)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_right()
-                    .child(ui::say(cx, Str::ComposerKeys)),
-            )
+            .child(div().flex_1().min_w_0().child(format!(
+                "{keys} \u{b7} {}",
+                ui::say(cx, Str::ComposerKeyMore)
+            )))
             .children(
                 (!view.home).then(|| wire.reset(tool("composer-reset", 22.0).child("\u{21ba}"))),
             ),
@@ -786,21 +1049,26 @@ pub fn face<W: ComposerWire>(
         .note
         .clone()
         .map(|text| div().text_size(px(12.0 * z)).text_color(c.err).child(text));
+    let image = wire.image(
+        tool("composer-image", 22.0)
+            .absolute()
+            .left(px(4.0 * z))
+            .top(px(4.0 * z))
+            .child(icon(Lucide::Image, 16.0 * z, c.ink_2)),
+    );
     let line = div()
         .flex()
         .items_end()
-        .gap(px(4.0 * z))
-        .child(div().flex_1().min_w_0().child(field))
-        .child(wire.image(tool("composer-image", BUTTON).child(icon(
-            Lucide::Image,
-            16.0 * z,
-            c.ink_2,
-        ))))
-        .child(wire.file(tool("composer-file", BUTTON).child(icon(
-            Lucide::Paperclip,
-            16.0 * z,
-            c.ink_2,
-        ))))
+        .gap(px(6.0 * z))
+        .child(target)
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .child(field)
+                .child(image),
+        )
         .child(
             wire.send(
                 div()
@@ -811,11 +1079,11 @@ pub fn face<W: ComposerWire>(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(shade(c.accent, view.sendable, c.panel))
+                    .bg(shade(tone, view.sendable, c.panel))
                     .child(icon(
                         Lucide::ArrowUp,
                         16.0 * z,
-                        shade(c.accent_ink, view.sendable, c.panel),
+                        shade(tone_ink, view.sendable, c.panel),
                     )),
             ),
         );
@@ -839,11 +1107,12 @@ pub fn face<W: ComposerWire>(
             .text_color(c.ink)
             .text_size(px(13.0 * z))
             .shadow(shadow(c.shadow))
-            .child(head)
+            .children(card)
             .children(images)
             .children(filing)
             .children(note)
-            .child(line),
+            .child(line)
+            .child(hint),
     )
 }
 
@@ -857,7 +1126,6 @@ fn shade(color: gpui::Rgba, live: bool, under: gpui::Rgba) -> gpui::Rgba {
 
 struct Live<'a, 'b> {
     cx: &'a Context<'b, Composer>,
-    node: u32,
     at: Point<Pixels>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     sendable: bool,
@@ -870,17 +1138,6 @@ impl Live<'_, '_> {
             .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
             .on_mouse_down(MouseButton::Left, place::stop)
             .tooltip(tip(ui::say(self.cx, label).to_owned()))
-    }
-}
-
-impl Live<'_, '_> {
-    fn pick(&self, el: Stateful<Div>, label: Str) -> Stateful<Div> {
-        self.tool(el, label)
-            .on_click(self.cx.listener(move |composer, _, _, cx| {
-                composer
-                    .pictures
-                    .update(cx, |pictures, cx| pictures.pick_files(cx));
-            }))
     }
 }
 
@@ -898,7 +1155,7 @@ impl ComposerWire for Live<'_, '_> {
             )
     }
 
-    fn head(&self, el: Div) -> Div {
+    fn drag(&self, el: Div) -> Div {
         let at = self.at;
         el.cursor_grab().on_mouse_down(
             MouseButton::Left,
@@ -907,30 +1164,14 @@ impl ComposerWire for Live<'_, '_> {
         )
     }
 
-    fn name(&self, el: Stateful<Div>) -> Stateful<Div> {
-        let node = self.node;
+    fn target(&self, el: Stateful<Div>) -> Stateful<Div> {
+        let anchor = self.anchor.clone();
         el.cursor_pointer()
-            .hover(|s| s.underline())
-            .tooltip(tip(ui::say(self.cx, Str::ComposerShowNode).to_owned()))
-            .on_mouse_down(MouseButton::Left, place::stop)
-            .on_click(self.cx.listener(move |composer, _, _, cx| {
-                composer
-                    .store
-                    .update(cx, |store, cx| store.show_node(node, cx));
-            }))
-    }
-
-    fn chevron(&self, el: Stateful<Div>) -> Stateful<Div> {
-        let (node, anchor) = (self.node, self.anchor.clone());
-        let c = ui::colors(self.cx);
-        el.cursor_pointer()
-            .hover(move |s| s.bg(c.surface_hover).text_color(c.ink))
-            .tooltip(tip(ui::say(self.cx, Str::ComposerPickNode).to_owned()))
+            .tooltip(tip(ui::say(self.cx, Str::ComposerPickTarget).to_owned()))
             .on_mouse_down(MouseButton::Left, place::stop)
             .on_click(
-                self.cx.listener(move |composer, _, window, cx| {
-                    composer.toggle_list(node, window, cx)
-                }),
+                self.cx
+                    .listener(move |composer, _, window, cx| composer.toggle_list(window, cx)),
             )
             .child(
                 canvas(move |bounds, _, _| anchor.set(bounds), |_, _, _, _| ())
@@ -945,11 +1186,12 @@ impl ComposerWire for Live<'_, '_> {
     }
 
     fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
-        self.pick(el, Str::ComposerAttachImage)
-    }
-
-    fn file(&self, el: Stateful<Div>) -> Stateful<Div> {
-        self.pick(el, Str::ComposerAttachFile)
+        self.tool(el, Str::ComposerAttachImage)
+            .on_click(self.cx.listener(move |composer, _, _, cx| {
+                composer
+                    .pictures
+                    .update(cx, |pictures, cx| pictures.pick_files(cx));
+            }))
     }
 
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {

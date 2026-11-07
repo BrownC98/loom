@@ -58,6 +58,8 @@ pub struct Field {
     form: Form,
     scale: f32,
     tone: Option<Rgba>,
+    rest: Option<Rgba>,
+    lead: f32,
     files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
@@ -109,6 +111,8 @@ impl Field {
             form: Form::Chat,
             scale: 1.0,
             tone: None,
+            rest: None,
+            lead: 0.0,
             files: None,
             selected: 0..0,
             reversed: false,
@@ -136,6 +140,27 @@ impl Field {
     pub fn set_tone(&mut self, tone: Rgba, cx: &mut Context<Self>) {
         if self.tone != Some(tone) {
             self.tone = Some(tone);
+            cx.notify();
+        }
+    }
+
+    pub fn set_rest(&mut self, tone: Rgba, cx: &mut Context<Self>) {
+        if self.rest != Some(tone) {
+            self.rest = Some(tone);
+            cx.notify();
+        }
+    }
+
+    pub fn set_lead(&mut self, lead: f32, cx: &mut Context<Self>) {
+        if self.lead != lead {
+            self.lead = lead;
+            cx.notify();
+        }
+    }
+
+    pub fn set_label(&mut self, label: Str, cx: &mut Context<Self>) {
+        if !matches!(&self.hint, Hint::Label(held) if *held == label) {
+            self.hint = Hint::Label(label);
             cx.notify();
         }
     }
@@ -801,10 +826,11 @@ impl Render for Field {
         if self.boxed {
             let z = self.scale;
             let skinned = skin(base, z, focused, colors);
-            let skinned = match self.tone.filter(|_| focused) {
-                Some(tone) => skinned.border_color(tone),
-                None => skinned,
-            };
+            let skinned = match (focused, self.tone, self.rest) {
+                (true, Some(tone), _) | (false, _, Some(tone)) => skinned.border_color(tone),
+                _ => skinned,
+            }
+            .when(self.lead > 0.0, |el| el.pl(px((8.0 + self.lead) * z)));
             let ring = BoxShadow {
                 color: colors.accent_wash.into(),
                 offset: point(px(0.0), px(0.0)),

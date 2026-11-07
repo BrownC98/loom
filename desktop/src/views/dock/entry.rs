@@ -93,8 +93,11 @@ pub(crate) fn published(since: i64, z: f32, cx: &gpui::App) -> Div {
     let c = ui::colors(cx);
     let time = ui::clock(since, "%Y/%m/%d %H:%M:%S");
     div()
-        .flex_none()
+        .min_w_0()
         .ml_auto()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
         .text_size(px(SMALL * z))
         .text_color(c.ink_3)
         .child(ui::say_with(cx, Str::InboxPublished, &[("time", &time)]))

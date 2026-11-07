@@ -151,7 +151,7 @@ loom hands each message to the agent between its steps, and wakes an agent that 
 
 ### One inbox for questions and results
 
-When an agent asks you a question or reports a result, a notice shows in the question pill at the top of the graph and in the **Notifications** tab of the right panel.
+When an agent asks you a question or reports a result, a notice shows in the input bar below the graph and in the **Notifications** tab of the right panel.
 
 - Answer in the notice: click an option button, or type an answer and paste images.
 - An agent can attach a document (a mockup or a report). It opens in the browser, and you answer its question in the document.
@@ -159,7 +159,7 @@ When an agent asks you a question or reports a result, a notice shows in the que
 - Click a notice to go to its node. System notifications can tell you when the loom window is not visible.
 
 <p align="center">
-  <a href="docs/images/inbox.png"><img src="docs/images/inbox.png" alt="The Notifications tab: lead asks Q3 'Merge store-api and cli into main now?' with the buttons Merge both (recommended), Merge store-api only and Wait, and an answer box. Below it is the done report of lead. The question pill at the top of the graph shows the same question." width="960"></a><br>
+  <a href="docs/images/inbox.png"><img src="docs/images/inbox.png" alt="Alerts in the input bar: claude-1 asks Q1 'Approve the Q&amp;A UX draft v1?' with the buttons Approve (recommended) and Revise above the input. The target button 'To claude-1' sends the typed text as the answer to Q1. The Notifications tab on the right lists all 20 alerts by node." width="960"></a><br>
   <em>The Notifications tab: a question with option buttons and a done report.</em>
 </p>
 

@@ -46,11 +46,8 @@ const RESET_TAB = {
   cardView: 'graph',
   graphScope: 'graph',
   edgeStyle: 'graph',
-  questionPill: 'graph',
   composerOff: 'graph',
-  pillPlace: 'graph',
   composerPlace: 'graph',
-  pillSize: 'graph',
   composerSize: 'graph',
   terminalTheme: 'terminal',
   terminalFont: 'terminal',
@@ -61,7 +58,6 @@ const RESET_TAB = {
   paneWidths: 'notReset',
   closedPanes: 'notReset',
   closedSwitchNotice: 'notReset',
-  closedPill: 'notReset',
 } as const satisfies Record<keyof SettingsView, SettingsTab | 'notReset'>;
 const SETTING_KEYS = Object.keys(RESET_TAB) as (keyof SettingsView)[];
 const ALL_SETTINGS = SETTING_KEYS.filter((key) => RESET_TAB[key] !== 'notReset');

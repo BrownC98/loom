@@ -12,12 +12,12 @@ export function findSpots(repos: readonly RepoView[], views: NodeView[], query: 
   return spotsWhere(repos, views, nameHit(query));
 }
 
-export function nameHit(query: string): (name: string) => boolean {
+function nameHit(query: string): (name: string) => boolean {
   const needle = query.trim().toLocaleLowerCase();
   return (name) => name.toLocaleLowerCase().includes(needle);
 }
 
-export function spotsWhere(repos: readonly RepoView[], views: NodeView[], hit: (name: string) => boolean): Found[] {
+function spotsWhere(repos: readonly RepoView[], views: NodeView[], hit: (name: string) => boolean): Found[] {
   return repos.flatMap((repo) => {
     const groups = groupsOf(repo, views);
     const parents = groupParents(groups, views);

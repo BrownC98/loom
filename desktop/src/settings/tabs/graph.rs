@@ -1,9 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::settings::{
-    DefaultCardView, EdgeStyle, FloatSize, GraphScope, QuestionPill, SettingsView,
-};
+use api::settings::{DefaultCardView, EdgeStyle, FloatSize, GraphScope, SettingsView};
 use gpui::{App, Div, ParentElement, SharedString, Styled, Window, div, px};
 
 mod preview;
@@ -22,7 +20,6 @@ const SIZES: [(FloatSize, Str); 4] = [
 
 #[derive(Default)]
 pub struct State {
-    pill_hover: Rc<Cell<Option<FloatSize>>>,
     composer_hover: Rc<Cell<Option<FloatSize>>>,
 }
 
@@ -82,9 +79,8 @@ fn choice<T: Copy + PartialEq + 'static>(
     with_reset(section.child(radios).child(note), reset.0, reset.1, ctx, cx)
 }
 
-fn preview(section: &mut Section, shown: FloatSize, pill: bool, cx: &App) -> Div {
+fn preview(section: &mut Section, shown: FloatSize, cx: &App) -> Div {
     let name = say(cx, Str::FloatSizeSampleNode);
-    let text = say(cx, Str::FloatSizeSampleText);
     let size_label = SIZES
         .iter()
         .find(|(size, _)| *size == shown)
@@ -95,22 +91,12 @@ fn preview(section: &mut Section, shown: FloatSize, pill: bool, cx: &App) -> Div
         cx,
     );
     let _ = section.text(name, cx);
-    if pill {
-        let _ = section.text(text, cx);
-        preview::frame(
-            cap,
-            preview::pill(shown, name, text, cx),
-            preview::pill(FloatSize::Huge, name, text, cx),
-            cx,
-        )
-    } else {
-        preview::frame(
-            cap,
-            preview::composer(shown, name, cx),
-            preview::composer(FloatSize::Huge, name, cx),
-            cx,
-        )
-    }
+    preview::frame(
+        cap,
+        preview::composer(shown, name, cx),
+        preview::composer(FloatSize::Huge, name, cx),
+        cx,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -122,7 +108,6 @@ fn size_choice(
     hint_text: Str,
     reset: (&'static str, &'static [&'static str]),
     hovered: &Rc<Cell<Option<FloatSize>>>,
-    pill: bool,
     ctx: &Ctx,
     cx: &App,
 ) -> Section {
@@ -146,7 +131,7 @@ fn size_choice(
         cx,
     );
     let shown = hovered.get().unwrap_or(current);
-    let sample = preview(&mut section, shown, pill, cx);
+    let sample = preview(&mut section, shown, cx);
     let note = hint(&mut section, hint_text, cx);
     with_reset(
         section.child(radios).child(sample).child(note),
@@ -241,43 +226,6 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
             ctx,
             cx,
         ),
-        choice(
-            "graph-question-pill",
-            &[
-                (QuestionPill::Line, Str::QuestionPillLine),
-                (QuestionPill::Answer, Str::QuestionPillAnswer),
-                (QuestionPill::Off, Str::QuestionPillOff),
-            ],
-            ctx.view.question_pill,
-            |view, value| {
-                view.question_pill = value;
-                view.closed_pill = None;
-            },
-            head(Str::QuestionPillHeading, ctx, cx),
-            Str::QuestionPillHint,
-            ("graph-question-pill-reset", &["questionPill"]),
-            ctx,
-            cx,
-        ),
-        size_choice(
-            "graph-pill-size",
-            |view| view.pill_size,
-            |view, value| view.pill_size = value,
-            Str::FloatSizePillSize,
-            Str::FloatSizePillSizeHint,
-            ("graph-pill-size-reset", &["pillSize"]),
-            &state.pill_hover,
-            true,
-            ctx,
-            cx,
-        ),
-        place(
-            Str::QuestionPillPlace,
-            Str::QuestionPillPlaceHint,
-            ("graph-pill-place-reset", &["pillPlace"]),
-            ctx,
-            cx,
-        ),
         composer,
         size_choice(
             "graph-composer-size",
@@ -287,7 +235,6 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
             Str::FloatSizeComposerSizeHint,
             ("graph-composer-size-reset", &["composerSize"]),
             &state.composer_hover,
-            false,
             ctx,
             cx,
         ),

@@ -82,7 +82,6 @@ const EMPTY_SETTINGS: SettingsView = {
   cardView: 'standard',
   graphScope: 'repo',
   edgeStyle: 'step',
-  questionPill: 'line',
   composerOff: false,
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
@@ -97,13 +96,10 @@ const EMPTY_SETTINGS: SettingsView = {
   minimapFolded: false,
   repo: null,
   paneWidths: { side: null, dock: null },
-  pillPlace: null,
   composerPlace: null,
-  pillSize: 'normal',
   composerSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
-  closedPill: null,
   colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';

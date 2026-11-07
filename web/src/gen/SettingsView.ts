@@ -11,7 +11,6 @@ import type { GraphScope } from "./GraphScope";
 import type { InUse } from "./InUse";
 import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
-import type { QuestionPill } from "./QuestionPill";
 import type { RepoId } from "./RepoId";
 import type { Roles } from "./Roles";
 import type { TerminalFont } from "./TerminalFont";
@@ -19,7 +18,6 @@ import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
 import type { TreeLimits } from "./TreeLimits";
 import type { UiColors } from "./UiColors";
-import type { WaitId } from "./WaitId";
 
 export type SettingsView = { 
 /**
@@ -46,11 +44,7 @@ graphScope: GraphScope,
 /**
  * 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
  */
-edgeStyle: EdgeStyle, 
-/**
- * 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
- */
-questionPill: QuestionPill, composerOff: boolean, 
+edgeStyle: EdgeStyle, composerOff: boolean, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */
@@ -109,17 +103,9 @@ minimapFolded: boolean,
  */
 repo: RepoId | null, paneWidths: PaneWidths, 
 /**
- * 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
- */
-pillPlace: FloatPlace | null, 
-/**
  * 사람이 끌어 옮긴 입력 창의 자리. 없으면 그래프 칸 아래 가운데다. 근거: 목업 docs/mockups/composer-place.html M50 v1, 2026-10-30 사람 승인 Q1861.
  */
 composerPlace: FloatPlace | null, 
-/**
- * 질문 알약과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
- */
-pillSize: FloatSize, 
 /**
  * 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
  */
@@ -127,9 +113,4 @@ composerSize: FloatSize, closedPanes: ClosedPanes,
 /**
  * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
  */
-closedSwitchNotice: number | null, 
-/**
- * 사람이 알약의 [×]를 눌렀을 때 있던 가장 큰 대기 번호. 이보다 큰 대기가 오면 알약이 다시 뜬다.
- * 근거: 목업 docs/mockups/pill-close.html M19 ②·③.
- */
-closedPill: WaitId | null, };
+closedSwitchNotice: number | null, };

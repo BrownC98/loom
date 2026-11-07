@@ -830,10 +830,6 @@ type PtyRequest|giveBack	variant
 type PtyRequest|resize	variant
 type PtyRequest|resize.resize	: Resize
 type Question	= variants
-type QuestionPill	= variants
-type QuestionPill|answer	variant
-type QuestionPill|line	variant
-type QuestionPill|off	variant
 type Question|in=inbox	variant
 type Question|in=inbox.id	: number
 type Question|in=message	variant
@@ -1072,7 +1068,6 @@ type SettingsView.autoSwitch	: boolean
 type SettingsView.bypassOff	: Array<AgentId>
 type SettingsView.cardView	: DefaultCardView
 type SettingsView.closedPanes	: ClosedPanes
-type SettingsView.closedPill	: WaitId | null
 type SettingsView.closedSwitchNotice	: number | null
 type SettingsView.colors	: UiColors
 type SettingsView.composerOff	: boolean
@@ -1084,9 +1079,6 @@ type SettingsView.language	: Language
 type SettingsView.minimapFolded	: boolean
 type SettingsView.osNotify	: boolean
 type SettingsView.paneWidths	: PaneWidths
-type SettingsView.pillPlace	: FloatPlace | null
-type SettingsView.pillSize	: FloatSize
-type SettingsView.questionPill	: QuestionPill
 type SettingsView.repo	: RepoId | null
 type SettingsView.roles	: Roles
 type SettingsView.terminalFont	: TerminalFont

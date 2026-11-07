@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::events;
 use super::{
-    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, from_json, optional_json, parent_of, set_work,
-    state_of, to_json,
+    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json,
+    parent_of, set_work, state_of, to_json,
 };
 use super::{hosts, waits};
 use crate::choices::offers_choices_without_tail;
@@ -529,12 +529,7 @@ impl Graph {
             return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
-        let kept = tx.query_row(
-            "SELECT state ->> 'kept' FROM nodes WHERE id = ?1",
-            [node.0],
-            |row| row.get(0),
-        )?;
-        set_work(&tx, node, &Work::Done { kept })?;
+        finish_work(&tx, node)?;
         let mut unkept = Vec::new();
         for kept in report.keep {
             let done = tx
@@ -887,6 +882,15 @@ fn hush_judged_peer(
             to_json(&Kind::Queue),
             to_json(&Kind::Steer)
         ],
+    )?;
+    Ok(())
+}
+
+pub(super) fn file_quiet_round(db: &Connection, to: NodeId, branch: &str) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE messages SET delivered = 1, printed = 1
+         WHERE recipient = ?1 AND delivered = 0 AND quiet = 1 AND what ->> 'branch' = ?2",
+        params![to.0, branch],
     )?;
     Ok(())
 }

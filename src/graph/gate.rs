@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::events;
 use super::mailbox::{self, Stamp};
-use super::{Graph, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
+use super::{Graph, REACHABLE, finish_work, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{self, Deploy, MessageId};
 use crate::task;
 use api::graph::errors::Refusal;
@@ -12,7 +12,7 @@ use api::graph::events::{Entry, GateTrace, Via};
 use api::graph::messages::{Finding, GateState, GateVerb, Judgment, Kind, MessageKind};
 use api::ids::{AgentId, NodeId, RepoId};
 use api::settings::roles::REVIEWER_ROLES;
-use policy::{GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
+use policy::{Arrival, GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
 
@@ -773,7 +773,7 @@ impl Graph {
         Ok(seated(&self.lock(), gate, branch, role)?.is_some())
     }
 
-    pub fn introduce_reviewer(&self, node: NodeId) -> rusqlite::Result<()> {
+    pub fn introduce_reviewer(&self, node: NodeId, target: &str) -> rusqlite::Result<()> {
         let db = self.lock();
         let Some((gate, branch)) = db
             .query_row(
@@ -814,7 +814,7 @@ impl Graph {
             };
             let mut body = Vec::new();
             if let (true, Some(head)) = (*id == node, &head) {
-                body.push(policy::first_round_step(&branch, head));
+                body.push(policy::first_round_step(&branch, head, target));
             }
             if !peers.is_empty() {
                 body.push(policy::peers_step(&branch, &peers));
@@ -919,8 +919,15 @@ impl Graph {
                     Some(_) => policy::Lineage::Child,
                     None => policy::Lineage::Root,
                 };
-                if !held.needs_gate() && !policy::wakes(call, *receiver, target, lineage) {
-                    mailbox::hush(&tx, id)?;
+                match policy::arrival(call, *receiver, target, lineage) {
+                    Arrival::Wakes => {}
+                    Arrival::Quiet if held.needs_gate() => {}
+                    Arrival::Quiet => mailbox::hush(&tx, id)?,
+                    Arrival::Finishes => {
+                        mailbox::file_read(&tx, id)?;
+                        mailbox::file_quiet_round(&tx, to_node, branch)?;
+                        finish_work(&tx, to_node)?;
+                    }
                 }
                 sent.push(to_node);
             }
@@ -1073,8 +1080,7 @@ fn withdraw(
         head: row.head.clone(),
     };
     for (node, name, agent) in &reviewers {
-        let body =
-            policy::withdrawn_step(branch, row.state, &findings_of(tx, *node, name, branch)?);
+        let body = policy::withdrawn_step(branch, &findings_of(tx, *node, name, branch)?);
         mailbox::enqueue_from_loom(
             tx,
             *node,

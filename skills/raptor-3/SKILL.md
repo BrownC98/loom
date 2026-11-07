@@ -1,6 +1,6 @@
 ---
 name: raptor-3
-description: 랩터-3 (raptor-3). Keep the number of parts in a code base to a minimum ("the best part is no part"). Use Musk's five design steps (question the requirement → delete → simplify → accelerate → automate) to find parts without a requirement, reinvented code, duplicate state, slow loops and repeated manual steps, and fix them in that order. Use it when the human asks for "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검" or "사이클 타임 단축". It applies to all languages, projects and agents.
+description: 랩터-3 (raptor-3): fewest parts in a code base. Find parts with no requirement, reinvented code and duplicate state. Use for "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검", "사이클 타임 단축".
 ---
 
 # Raptor-3

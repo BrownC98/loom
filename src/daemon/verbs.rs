@@ -116,11 +116,20 @@ pub(super) async fn spawn(
         fresh.keep();
     }
     if let (Ok(id), Some(_)) = (&spawned, review)
-        && let Err(e) = app.graph.introduce_reviewer(*id)
+        && let Err(e) = introduce(app, *id, place.repo).await
     {
         crate::log::logln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
     }
     spawned
+}
+
+async fn introduce(app: &App, reviewer: NodeId, repo: RepoId) -> Result<(), Refusal> {
+    let dir = app
+        .repos
+        .path(repo)
+        .map_err(|e| Refusal::Git(e.to_string()))?;
+    let target = crate::worktree::merge::base_branch(app.files(), &dir).await?;
+    Ok(app.graph.introduce_reviewer(reviewer, &target)?)
 }
 
 pub(super) fn role_refusal(e: RoleProblem) -> Refusal {

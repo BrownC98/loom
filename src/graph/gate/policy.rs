@@ -129,40 +129,56 @@ pub(super) enum Lineage {
     Child,
 }
 
-pub(super) fn wakes(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> bool {
-    !matches!(
-        (call, to, target, lineage),
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Arrival {
+    Wakes,
+    Quiet,
+    Finishes,
+}
+
+pub(super) fn arrival(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> Arrival {
+    match (call, to, target, lineage) {
+        (GateCall::End(MergeEnd::Merged), Receiver::Owner, Target::Coordinator, _) => {
+            Arrival::Finishes
+        }
         (GateCall::Verdict(Judgment::Pass), ..)
-            | (
-                GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
-                Receiver::Gate | Receiver::Root,
-                ..
-            )
-            | (
-                GateCall::End(MergeEnd::Merged),
-                Receiver::Owner,
-                Target::Base,
-                Lineage::Child
-            )
-    )
+        | (
+            GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
+            Receiver::Gate | Receiver::Root,
+            ..,
+        )
+        | (GateCall::End(MergeEnd::Merged), Receiver::Owner, Target::Base, Lineage::Child) => {
+            Arrival::Quiet
+        }
+        _ => Arrival::Wakes,
+    }
 }
 
 pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
     let mut lines = Vec::new();
     if !held.reviewers.is_empty() {
         let names = held.reviewers.join(", ");
-        lines.push(match to {
-            Receiver::Owner => format!(
-                "Next: do not commit to this branch. loom holds it until {names} judge it. If a reviewer stopped, the gate relaunches it with `loom relaunch <name>`, or removes it with `loom rm <name>` and you call `loom ready {branch}` again to spawn a new one."
+        let wait = match to {
+            Receiver::Owner => {
+                format!("Next: do not commit to this branch. loom holds it until {names} judge it.")
+            }
+            Receiver::Gate | Receiver::Root => {
+                format!("Next: loom holds the branch until {names} judge it.")
+            }
+        };
+        lines.push(match (held.stopped, to) {
+            (false, _) => wait,
+            (true, Receiver::Owner) => format!(
+                "{wait} A reviewer stopped: the gate relaunches it with `loom relaunch <name>`, or removes it with `loom rm <name>` and you call `loom ready {branch}` again."
             ),
-            Receiver::Gate | Receiver::Root => format!(
-                "Next: loom holds the branch until {names} judge it. If a reviewer stopped, relaunch it with `loom relaunch <name>`, or remove it with `loom rm <name>` and have the owner call `loom ready {branch}` again to spawn a new one."
+            (true, Receiver::Gate | Receiver::Root) => format!(
+                "{wait} A reviewer stopped: `loom relaunch <name>`, or `loom rm <name>` and the owner calls `loom ready {branch}` again."
             ),
         });
     }
     if !held.seats.is_empty() {
         lines.push(format!(
-            "Next: loom holds the branch until a reviewer in each empty seat ({}) passes this head. Call `loom ready {branch}` again to spawn the missing reviewers.",
+            "Next: loom holds the branch until a reviewer in each empty seat ({}) passes this head. Call `loom ready {branch}` again to spawn them.",
             held.seats.join(", ")
         ));
     }
@@ -193,18 +209,19 @@ pub(super) fn next_step(
     branch: &str,
     head: &str,
 ) -> String {
+    let head = short(head);
     match (call, to) {
         (GateCall::Ready, _) if target == Target::Coordinator => format!(
-            "Next: accept or return the branch yourself, with no reviewer. Check the result against the done-when of its brief (acceptance, not a code review), then call `loom verdict {branch} {head} pass`, or `loom verdict {branch} {head} block --findings <file>` with what in done-when is missing. Give this head: loom refuses a verdict for another head."
+            "Next: you judge it, with no reviewer. Check the result against its brief's done-when (acceptance, not a code review), then `loom verdict {branch} {head} pass`, or `block --findings <file>` with the missing done-when items."
         ),
         (GateCall::Ready, _) => format!(
-            "Next: nothing for reviewers. loom spawns one reviewer of {branch} per reviewer role as your children and sends them each round. They call `loom verdict {branch} <head> pass|block --findings <file>`."
+            "Next: nothing. loom spawns the reviewers of {branch} as your children and sends them each round."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
-            "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()
+            "Next: nothing. loom queued the branch and sends the merge result.".to_owned()
         }
         (GateCall::Verdict(Judgment::Pass), Receiver::Owner) => {
-            "Next: do not commit to this branch. loom queued it and sends the merge result (merged, rework or failed).".to_owned()
+            "Next: do not commit to this branch. loom queued it and sends the merge result.".to_owned()
         }
         (
             GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
@@ -220,16 +237,16 @@ pub(super) fn next_step(
         (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate)
             if target == Target::Coordinator =>
         {
-            "Next: accept the result. loom keeps the owner node until your branch is merged, for gate rework, then removes it, its clean worktree and the branch.".to_owned()
+            "Next: accept the result. loom keeps the owner node until your branch is merged.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate) => {
-            "Next: accept the result. loom removes the branch's reviewers, its owner node, its clean worktree and the branch.".to_owned()
+            "Next: accept the result. loom removes the owner node, its reviewers, its clean worktree and the branch.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) if target == Target::Coordinator => {
-            "Next: call `loom done` again. loom keeps this node until your gate's branch is merged, then removes it, its clean worktree and the branch. If your gate sends rework, commit the fix on this branch and call `loom ready` again.".to_owned()
+            "Next: nothing. loom set your work to done. If your gate sends rework, commit the fix on this branch and call `loom ready` again.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
-            "Next: nothing. loom removes this node, its clean worktree and the branch now, unless the node has no parent or has children. Do not commit to this branch again.".to_owned()
+            "Next: nothing. Do not commit to this branch again.".to_owned()
         }
         (GateCall::End(MergeEnd::Failed), Receiver::Root | Receiver::Gate) => format!(
             "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
@@ -240,9 +257,9 @@ pub(super) fn next_step(
     }
 }
 
-pub(super) fn withdrawn_step(branch: &str, state: GateState, findings: &str) -> String {
+pub(super) fn withdrawn_step(branch: &str, findings: &str) -> String {
     format!(
-        "Next: write the findings that you have now to {findings}, then stop reviewing {branch}. loom shows that file to the other reviewers in the next round. The round went back to {state:?}, so loom refuses a verdict for it now. loom sends you the next round (kind: ready) when the owner calls `loom ready {branch}` again."
+        "Next: write your findings so far to {findings}, then stop reviewing {branch}. loom refuses verdicts until the owner's next `loom ready`, which sends you a new round."
     )
 }
 
@@ -268,22 +285,28 @@ pub(super) fn review_again_step(
     judged: Option<&str>,
     findings: &str,
 ) -> String {
-    let fixes = match judged {
-        None => format!("You did not judge {branch} before. Review the whole branch."),
-        Some(judged) if judged == head => {
-            "The head is the one that you judged last. Check only the rebuttals.".to_owned()
-        }
+    let head = short(head);
+    let range = match judged.map(short) {
+        None => "the whole branch (you did not judge it before)".to_owned(),
+        Some(judged) if judged == head => "only the rebuttals (you judged this head)".to_owned(),
         Some(judged) => format!(
-            "The fixes since the head that you judged last are `git log {judged}..{head}`. Review only that range, not the whole branch again. If {judged} is not an ancestor of {head}, review the whole branch."
+            "only the fixes `git log {judged}..{head}` (the whole branch if {judged} is not an ancestor of {head})"
         ),
     };
     format!(
-        "Next: a new round of {branch} started. {fixes} Compare it with your findings file {findings}, the other reviewers' findings and the owner's rebuttals. Write your findings file again, then call `loom verdict {branch} {head} pass|block`. Give this head: loom refuses a verdict for another head."
+        "Next: review {range} against your findings file {findings}, the other reviewers' findings and the owner's rebuttals. Write your findings file again, then `loom verdict {branch} {head} pass|block`."
     )
 }
 
-pub(super) fn first_round_step(branch: &str, head: &str) -> String {
+pub(super) fn first_round_step(branch: &str, head: &str, target: &str) -> String {
+    let head = short(head);
     format!(
-        "Next: the open round of {branch} is head {head}. Review it, write your findings file, then call `loom verdict {branch} {head} pass|block`. Give this head: loom refuses a verdict for another head."
+        "Next: review `git diff {target}...{head}`, write your findings file, then `loom verdict {branch} {head} pass|block`."
     )
+}
+
+const SHORT_HEAD: usize = 12;
+
+fn short(head: &str) -> &str {
+    head.get(..SHORT_HEAD).unwrap_or(head)
 }

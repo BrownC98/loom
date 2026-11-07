@@ -21,11 +21,8 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 - Do not accept review findings without examination.
   - The branch owner accepts each finding or rejects it with evidence: `path:line`, a failing or passing test, or steps to see the problem.
   - The gate (the owner) carries rejections and answers between the owner and the reviewers. The lead does not review or argue.
-  - A reviewer answers each rejection with evidence. Evidence decides, not authority.
-  - Reviewers of one branch share their work. When you find a defect, send it at once to the other reviewer with `loom note <reviewer> --steer`. Do not check again a defect that the other reviewer sent or wrote. Answer a disagreement with evidence.
   - A block is temporary until the argument ends. It becomes final when the owner accepts it or the gate decides.
   - If a dispute remains after two rounds, the gate decides and writes the reason in the verdict's findings file.
-  - A reviewer that receives `kind: withdrawn` writes its findings to its findings file, then stops that review.
 
 ## Completion
 

@@ -128,6 +128,11 @@ pub enum Refusal {
     Uncommitted(String),
     /// 담당 브랜치가 대상 브랜치와 같다. 값은 브랜치다.
     SameAsTarget(String),
+    /// 담당의 작업 폴더에 내용 있는 `result.md`가 없다. 검토자가 그 파일과 검사 기록을 읽는다. `path`는 그 파일이다.
+    NoResult {
+        branch: String,
+        path: String,
+    },
     /// 열린 관문 차례가 이미 담당 워크트리의 지금 커밋이다. 새 커밋만 차례를 갈음한다. 값은 브랜치다.
     SameHead(String),
     /// 판정이 적은 커밋이 열린 차례의 커밋이 아니다. `head`는 열린 차례의 커밋이다.
@@ -309,6 +314,10 @@ impl fmt::Display for Refusal {
             Refusal::Uncommitted(branch) => write!(
                 f,
                 "{branch}: commit or remove the uncommitted changes in your worktree first (git status --short)."
+            ),
+            Refusal::NoResult { branch, path } => write!(
+                f,
+                "{branch}: {path} is missing or empty. Reviewers read it with your check logs: write the result, the checks and the evidence paths there, then call `loom ready {branch}` again."
             ),
             Refusal::SameAsTarget(branch) => write!(
                 f,

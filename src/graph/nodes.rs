@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::agent_state;
 use super::events;
 use super::relaunch_plans::resume_at_turn_end;
-use super::token::NodeToken;
+use super::token::{NodeLaunch, NodeToken};
 use super::{
     Db, Graph, ProcessOutcome, REACHABLE, Work, from_json, hosts, mailbox, name_of, node_state,
     note_state, optional_json, parent_of, place_label, place_of, process_of, state_of, to_json,
@@ -630,12 +630,12 @@ impl Graph {
             })
     }
 
-    pub fn set_model(&self, id: NodeId, model: &Model) -> rusqlite::Result<()> {
+    pub fn set_model(&self, launch: NodeLaunch<'_>, model: &Model) -> rusqlite::Result<()> {
         let db = self.lock();
         let changed = db.execute(
             "UPDATE nodes SET model = ?2, effort = ?3
-             WHERE id = ?1 AND (model IS NOT ?2 OR effort IS NOT ?3)",
-            params![id.0, model.model, model.effort],
+             WHERE id = ?1 AND token = ?4 AND (model IS NOT ?2 OR effort IS NOT ?3)",
+            params![launch.node.0, model.model, model.effort, launch.token],
         )?;
         if changed > 0 {
             self.publish_nodes();

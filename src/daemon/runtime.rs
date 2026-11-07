@@ -1,7 +1,7 @@
 use super::agent::AgentPort;
 use super::*;
 use crate::distro::{Distro, Host};
-use crate::graph::{Active, NodeToken};
+use crate::graph::{Active, NodeLaunch, NodeToken};
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
 use crate::profile::adapter::{LaunchAt, Record, Started};
@@ -539,11 +539,16 @@ impl App {
         });
     }
 
-    pub(super) fn this_launch(&self, headers: &HeaderMap) -> bool {
-        bearer(headers)
-            .ok()
-            .and_then(|token| self.graph.current_caller(token).ok().flatten())
-            .is_some()
+    pub(super) fn is_current(&self, token: &str) -> bool {
+        self.graph.current_caller(token).ok().flatten().is_some()
+    }
+
+    fn launch_caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
+        let node = self.caller(headers)?;
+        match self.is_current(bearer(headers)?) {
+            true => Ok(node),
+            false => Err((StatusCode::UNAUTHORIZED, EARLIER_LAUNCH.to_owned())),
+        }
     }
 
     pub(super) fn caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
@@ -554,7 +559,7 @@ impl App {
             .map_err(|e| for_agent(Refusal::from(e)))?
             .ok_or_else(unauthorized)?;
         if let Some(spoken) = unserved_protocol(headers) {
-            if self.this_launch(headers) {
+            if self.is_current(token) {
                 let app = self.clone();
                 tokio::spawn(async move {
                     if let Err(e) = app.relaunch_unserved(node).await {
@@ -898,17 +903,55 @@ impl
     }
 }
 
-pub(super) async fn from_this_launch(
-    State(app): State<Arc<App>>,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
-    let earlier = bearer(request.headers()).ok().is_some_and(|token| {
-        !app.this_launch(request.headers()) && app.graph.caller(token).ok().flatten().is_some()
-    });
-    match earlier {
-        true => (StatusCode::UNAUTHORIZED, EARLIER_LAUNCH).into_response(),
-        false => next.run(request).await,
+pub(super) struct ThisLaunch<B = NoBody> {
+    pub(super) node: NodeId,
+    pub(super) token: String,
+    pub(super) body: B,
+}
+
+impl<B> ThisLaunch<B> {
+    pub(super) fn launch(&self) -> NodeLaunch<'_> {
+        NodeLaunch {
+            node: self.node,
+            token: &self.token,
+        }
+    }
+}
+
+pub(super) struct NoBody;
+
+impl axum::extract::FromRequest<Arc<App>> for NoBody {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request(
+        _: axum::extract::Request,
+        _: &Arc<App>,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(NoBody)
+    }
+}
+
+impl<B> axum::extract::FromRequest<Arc<App>> for ThisLaunch<B>
+where
+    B: axum::extract::FromRequest<Arc<App>> + Send,
+{
+    type Rejection = Response;
+
+    async fn from_request(
+        request: axum::extract::Request,
+        app: &Arc<App>,
+    ) -> Result<Self, Self::Rejection> {
+        let headers = request.headers().clone();
+        let body = B::from_request(request, app)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        let node = app
+            .launch_caller(&headers)
+            .map_err(IntoResponse::into_response)?;
+        let token = bearer(&headers)
+            .map_err(IntoResponse::into_response)?
+            .to_owned();
+        Ok(ThisLaunch { node, token, body })
     }
 }
 

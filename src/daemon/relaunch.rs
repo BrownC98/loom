@@ -86,8 +86,9 @@ pub(super) async fn agent_relaunch(
 pub(super) async fn agent_relaunch_unserved(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    at: super::runtime::ThisLaunch,
 ) -> Result<Json<Relaunched>, AgentError> {
-    let caller = app.caller(&headers)?;
+    let caller = at.node;
     let via = super::gate::via(&headers, "/api/agent/relaunch-unserved");
     let relaunched = app.relaunch_unserved(caller).await;
     let to = format!("#{}", caller.0);

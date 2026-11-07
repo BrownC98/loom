@@ -1,3 +1,9 @@
+use rusqlite::{Connection, params};
+
+use api::graph::errors::Refusal;
+use api::ids::NodeId;
+
+const EARLIER_LAUNCH: &str = "an earlier launch of this node";
 const LAUNCH_MARK: char = '-';
 const NODE_BYTES: usize = 16;
 const LAUNCH_BYTES: usize = 8;
@@ -52,4 +58,22 @@ fn hex(bytes: usize) -> Result<String, String> {
     let mut random = vec![0u8; bytes];
     getrandom::fill(&mut random).map_err(|e| e.to_string())?;
     Ok(random.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+#[derive(Clone, Copy)]
+pub struct NodeLaunch<'a> {
+    pub node: NodeId,
+    pub token: &'a str,
+}
+
+pub(super) fn current_in(db: &Connection, launch: NodeLaunch<'_>) -> Result<(), Refusal> {
+    let current: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND token = ?2)",
+        params![launch.node.0, launch.token],
+        |row| row.get(0),
+    )?;
+    match current {
+        true => Ok(()),
+        false => Err(Refusal::Ended(EARLIER_LAUNCH.into())),
+    }
 }

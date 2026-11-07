@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, watch};
 use super::idle::Wait;
 use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
-use crate::graph::{Hold, WaitSource};
+use crate::graph::{Hold, NodeLaunch, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
@@ -39,9 +39,12 @@ impl App {
         self.idle.turn_started(node, req.step);
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
-        let messages =
-            self.graph
-                .take(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
+        let messages = self.graph.take(
+            NodeLaunch { node, token },
+            &req.kinds,
+            req.limit_bytes,
+            self.hold_in_turn(node),
+        )?;
         let note = match req.human_input {
             true => self.human_input(node, req.prompt.as_deref())?,
             false => None,
@@ -51,10 +54,11 @@ impl App {
 
     pub(super) async fn take_in_turn(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.next_mail(node, kinds, self.hold_in_turn(node)).await
+        self.next_mail(launch, kinds, self.hold_in_turn(launch.node))
+            .await
     }
 
     fn hold_in_turn(&self, node: NodeId) -> Hold {
@@ -69,7 +73,7 @@ impl App {
 
     async fn next_mail(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         kinds: &[Kind],
         hold: Hold,
     ) -> Result<Vec<Delivery>, Refusal> {
@@ -78,7 +82,7 @@ impl App {
             changed.as_mut().enable();
             let taken = self
                 .graph
-                .take_waking(node, kinds, BATCH_LIMIT_BYTES, hold)?;
+                .take_waking(launch, kinds, BATCH_LIMIT_BYTES, hold)?;
             if !taken.is_empty() {
                 return Ok(taken);
             }
@@ -214,9 +218,12 @@ impl App {
             return Ok(WakeReply::Mail(Vec::new()));
         }
         let order = self.wakes.order();
-        let messages =
-            self.graph
-                .take_waking(node, &req.kinds, req.limit_bytes, self.hold_in_turn(node))?;
+        let messages = self.graph.take_waking(
+            NodeLaunch { node, token },
+            &req.kinds,
+            req.limit_bytes,
+            self.hold_in_turn(node),
+        )?;
         if !messages.is_empty() {
             self.idle.turn_started(node, req.step);
             self.wakes.woken(&order, node, req.prompt_id);
@@ -237,10 +244,10 @@ impl App {
         )
     }
 
-    pub(super) fn ack(&self, node: NodeId, req: AckRequest) -> Result<(), Refusal> {
-        self.graph.ack(node, &req.ids)?;
+    pub(super) fn ack(&self, launch: NodeLaunch<'_>, req: AckRequest) -> Result<(), Refusal> {
+        self.graph.ack(launch, &req.ids)?;
         if let Some(handoff) = req.handoff {
-            self.wakes.finish_shown(node, handoff);
+            self.wakes.finish_shown(launch.node, handoff);
         }
         Ok(())
     }
@@ -295,7 +302,8 @@ impl App {
         current: impl Fn() -> bool,
     ) -> Result<IdleReply, AgentError> {
         let opened = self.open_wait(node, token, req, arrival)?;
-        self.listen(node, opened, current).await
+        self.listen(NodeLaunch { node, token }, opened, current)
+            .await
     }
 
     fn open_wait(
@@ -342,10 +350,11 @@ impl App {
 
     async fn listen(
         &self,
-        node: NodeId,
+        launch: NodeLaunch<'_>,
         opened: Opened<'_>,
         current: impl Fn() -> bool,
     ) -> Result<IdleReply, AgentError> {
+        let node = launch.node;
         let mut wait = match opened {
             Opened::Nudge(nudge) => return Ok(IdleReply::Nudge { nudge }),
             Opened::Wait(wait) => wait,
@@ -358,7 +367,7 @@ impl App {
             }
         }
         tokio::select! {
-            taken = self.next_mail(node, Kind::ALL, Hold::Started) => match taken {
+            taken = self.next_mail(launch, Kind::ALL, Hold::Started) => match taken {
                 Ok(taken) => {
                     wait.hand_mail();
                     Ok(IdleReply::Mail(taken))
@@ -378,7 +387,7 @@ impl App {
 
     pub(super) fn report(self: &Arc<Self>, node: NodeId, token: &str, report: Report) {
         let written = match report {
-            Report::Model(model) => self.graph.set_model(node, &model),
+            Report::Model(model) => self.graph.set_model(NodeLaunch { node, token }, &model),
             Report::Session(session) => {
                 self.sessions.started(node, token);
                 self.graph.set_session(token, &session)
@@ -611,7 +620,13 @@ impl Port for AgentPort {
         let opened = self.app.open_wait(node, &self.token, req, None);
         Box::pin(async move {
             let waited = match opened {
-                Ok(opened) => self.app.listen(node, opened, || self.current(node)).await,
+                Ok(opened) => {
+                    let launch = NodeLaunch {
+                        node,
+                        token: &self.token,
+                    };
+                    self.app.listen(launch, opened, || self.current(node)).await
+                }
                 Err(e) => Err(e),
             };
             waited.map_err(|(_, e)| e)
@@ -622,7 +637,7 @@ impl Port for AgentPort {
         Box::pin(async move {
             let node = self.bound().await;
             tokio::select! {
-                taken = self.app.take_in_turn(node, kinds) => taken,
+                taken = self.app.take_in_turn(NodeLaunch { node, token: &self.token }, kinds) => taken,
                 () = self.until_ended() => std::future::pending().await,
             }
         })
@@ -640,7 +655,13 @@ impl Port for AgentPort {
 
     fn ack(&self, ids: &[MessageId]) -> Result<(), Refusal> {
         match *self.node.borrow() {
-            Some(node) => self.app.graph.ack(node, ids),
+            Some(node) => self.app.graph.ack(
+                NodeLaunch {
+                    node,
+                    token: &self.token,
+                },
+                ids,
+            ),
             None => Ok(()),
         }
     }

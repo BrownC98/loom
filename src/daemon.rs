@@ -217,7 +217,7 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
             .map_err(std::io::Error::other)?;
     }
     app.start_nodes();
-    let node_routes = commands::node_routes(&app);
+    let node_routes = commands::node_routes();
     let router = node_routes
         .clone()
         .merge(commands::routes())
@@ -293,7 +293,7 @@ impl App {
 fn endpoint_routes(
     app: &Arc<App>,
 ) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, arrival::Caller> {
-    commands::node_routes(app)
+    commands::node_routes()
         .merge(commands::endpoint_only_routes())
         .layer(axum::middleware::from_fn(origin::same_site))
         .layer(axum::middleware::from_fn_with_state(

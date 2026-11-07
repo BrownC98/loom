@@ -20,7 +20,6 @@ const COMPOSER_WIDTH = 680;
 
 const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
 const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
-const HINT = { answer: 'composer.keyAnswer', continue: 'composer.keyContinue', prompt: 'composer.keyPrompt' } as const satisfies Record<Route['kind'], string>;
 
 let focusOnMount: NodeId | null = null;
 
@@ -116,7 +115,6 @@ export function DeskComposer(props: DeskProps) {
       <div ref={float} className="composer-float" data-dragging={drag.at ? true : undefined} style={at ? { ...zoom, left: at.left, top: at.top } : { ...zoom, visibility: 'hidden' }} onClickCapture={drag.swallowClick} onKeyDown={onKeyDown}>
         <DeskFace
           route={route.kind}
-          qid={route.kind === 'prompt' ? '' : `Q${route.wait.id}`}
           name={target.view.name}
           dragging={composer.dragging}
           drop={composer.drop}
@@ -147,7 +145,6 @@ export function DeskComposer(props: DeskProps) {
 
 export function DeskFace(props: {
   route: Route['kind'];
-  qid: string;
   name: string;
   dragging: boolean;
   drop: Pick<DOMAttributes<HTMLDivElement>, 'onDragOver' | 'onDragLeave' | 'onDrop'>;
@@ -162,7 +159,7 @@ export function DeskFace(props: {
   const { t } = useTranslation();
   const Icon = ROUTE_ICON[props.route];
   return (
-    <div className="composer desk" data-route={props.route} data-dragging={props.dragging || undefined} {...props.drop}>
+    <div className="composer desk" data-route={props.route} data-dragging={props.dragging || undefined} onPointerDown={props.float?.onDragStart} {...props.drop}>
       {props.children}
       <form
         className="composer-line"
@@ -191,22 +188,18 @@ export function DeskFace(props: {
             />
           </label>
           <textarea {...props.field} rows={1} aria-label={t('composer.label', { name: props.name })} placeholder={t(PLACEHOLDER[props.route])} autoComplete="off" autoCapitalize="off" spellCheck={false} />
+          <span className="composer-keys">{t('composer.keys')}</span>
         </div>
         {props.route === 'prompt' && <FilePick onFiles={props.onFiles} />}
         <button type="submit" className="send" aria-label={t('composer.send')} title={t('composer.send')} disabled={!props.sendable}>
           <ArrowUp aria-hidden="true" />
         </button>
-      </form>
-      <div className="composer-hint" onPointerDown={props.float?.onDragStart}>
-        <span>
-          {t(HINT[props.route], { id: props.qid })} · {t('composer.keyMore')}
-        </span>
         {props.float?.onReset && (
           <button type="button" className="float-reset" aria-label={t('composer.resetPlace')} title={t('composer.resetPlace')} onClick={props.float.onReset}>
             <RotateCcw aria-hidden="true" />
           </button>
         )}
-      </div>
+      </form>
     </div>
   );
 }

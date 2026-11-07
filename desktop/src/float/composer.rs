@@ -20,7 +20,7 @@ use crate::strings::Str;
 use crate::theme::mix;
 use crate::views::dock::answers::{self, Answers};
 use crate::views::dock::entry;
-use crate::views::dock::questions::{groups_of, kind_label};
+use crate::views::dock::questions::groups_of;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
@@ -39,6 +39,9 @@ const DISABLED_ALPHA: f32 = 0.4;
 const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 const LEAD: f32 = 22.0;
 const CARD_ROOM: f32 = 280.0;
+const KEYS_FONT: f32 = 11.0;
+const KEYS_GAP: f32 = 6.0;
+const KEYS_ROOM: f32 = 480.0;
 
 struct Filed {
     node: NodeId,
@@ -189,6 +192,14 @@ fn shadow(color: gpui::Rgba) -> Vec<BoxShadow> {
         spread_radius: px(0.0),
         inset: false,
     }]
+}
+
+#[derive(Clone, Copy)]
+struct Spot {
+    home: bool,
+    z: f32,
+    width: f32,
+    at: Point<Pixels>,
 }
 
 struct Look {
@@ -748,7 +759,8 @@ impl Render for Composer {
             self.store
                 .update(cx, |store, cx| store.set_composer(shown, cx));
         }
-        let face = self.face(&aimed, home, z, at, window, cx);
+        let spot = Spot { home, z, width, at };
+        let face = self.face(&aimed, &spot, window, cx);
         let wrapper = div()
             .relative()
             .occlude()
@@ -787,7 +799,9 @@ impl Render for Composer {
 
 impl Composer {
     fn card(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let first = aimed.waits.first()?;
+        if aimed.waits.is_empty() {
+            return None;
+        }
         let c = ui::colors(cx);
         let total = aimed.total.to_string();
         let count = |index: usize| {
@@ -801,44 +815,22 @@ impl Composer {
                 ],
             )
         };
-        let Aim::Alert(id) = aimed.aim else {
-            let line = div()
-                .flex()
-                .items_center()
-                .gap(px(8.0 * z))
-                .px(px(10.0 * z))
-                .py(px(5.0 * z))
-                .rounded(px(10.0 * z))
-                .border_1()
-                .border_color(c.line_strong)
-                .bg(c.surface)
-                .text_size(px(12.0 * z))
-                .text_color(c.ink_3)
-                .child(entry::mark(first.tone, z, &c))
-                .child(
-                    div()
-                        .flex_none()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.ink)
-                        .child(ui::say(cx, kind_label(first.wait.kind)).to_owned()),
-                )
-                .children(
-                    (first.wait.kind == api::graph::waits::WaitKind::Question)
-                        .then(|| entry::qid(first.wait.id.to_string(), first.tone, 18.0, z, &c)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(ui::say(cx, Str::ComposerNotAnswer).to_owned()),
-                )
-                .child(div().flex_none().child(count(0)));
-            return Some(line.into_any_element());
+        let (index, label) = match aimed.aim {
+            Aim::Alert(id) => {
+                let index = aimed.waits.iter().position(|w| w.wait.id == id)?;
+                (index, count(index))
+            }
+            Aim::Prompt => (
+                0,
+                format!(
+                    "{} \u{b7} {}",
+                    ui::say(cx, Str::ComposerNotAnswer),
+                    count(0)
+                ),
+            ),
         };
-        let index = aimed.waits.iter().position(|w| w.wait.id == id)?;
         let wait = &aimed.waits[index];
-        let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, count(index), cx);
+        let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, label, cx);
         Some(
             div()
                 .id("composer-card")
@@ -859,12 +851,11 @@ impl Composer {
     fn face(
         &self,
         aimed: &Aimed,
-        home: bool,
-        z: f32,
-        at: Point<Pixels>,
+        spot: &Spot,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let Spot { home, z, width, at } = *spot;
         let c = ui::colors(cx);
         let (tone, _) = aimed.kind.paint(&c);
         let label = match aimed.kind {
@@ -872,11 +863,23 @@ impl Composer {
             Kind::Continue(_) => Str::InboxFollowUpPlaceholder,
             Kind::Prompt => Str::ComposerPlaceholder,
         };
+        let keys = (width >= KEYS_ROOM * z).then(|| ui::say(cx, Str::ComposerKeys).to_owned());
+        let trail = keys.as_ref().map_or(0.0, |text| {
+            let style = window.text_style();
+            let run = style.to_run(text.len());
+            let line = window.text_system().shape_line(
+                text.clone().into(),
+                px(KEYS_FONT * z),
+                &[run],
+                None,
+            );
+            f32::from(line.width) / z + KEYS_GAP
+        });
         self.field.update(cx, |field, cx| {
             field.set_scale(z, cx);
             field.set_tone(tone, cx);
             field.set_rest(tone, cx);
-            field.set_lead(LEAD, cx);
+            field.set_inset(LEAD, trail, cx);
             field.set_label(label, cx);
         });
         let focused = self.field.read(cx).focused(window);
@@ -905,6 +908,7 @@ impl Composer {
             focused,
             sendable,
             listing: self.listing.is_some(),
+            keys,
             filing: (self.filing > 0).then(|| {
                 ui::say_with(
                     cx,
@@ -937,6 +941,7 @@ pub struct ComposerView<'a> {
     pub focused: bool,
     pub sendable: bool,
     pub listing: bool,
+    pub keys: Option<String>,
     pub filing: Option<String>,
     pub note: Option<String>,
 }
@@ -1018,27 +1023,6 @@ pub fn face<W: ComposerWire>(
                 tone_ink,
             )),
     );
-    let keys = match view.kind {
-        Kind::Answer(id) => ui::say_with(cx, Str::ComposerKeyAnswer, &[("id", &id.to_string())]),
-        Kind::Continue(_) => ui::say(cx, Str::ComposerKeyContinue).to_owned(),
-        Kind::Prompt => ui::say(cx, Str::ComposerKeyPrompt).to_owned(),
-    };
-    let hint = wire.drag(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.0 * z))
-            .min_w_0()
-            .text_size(px(12.0 * z))
-            .text_color(c.ink_3)
-            .child(div().flex_1().min_w_0().child(format!(
-                "{keys} \u{b7} {}",
-                ui::say(cx, Str::ComposerKeyMore)
-            )))
-            .children(
-                (!view.home).then(|| wire.reset(tool("composer-reset", 22.0).child("\u{21ba}"))),
-            ),
-    );
     let filing = view.filing.clone().map(|text| {
         div()
             .text_size(px(12.0 * z))
@@ -1056,6 +1040,19 @@ pub fn face<W: ComposerWire>(
             .top(px(4.0 * z))
             .child(icon(Lucide::Image, 16.0 * z, c.ink_2)),
     );
+    let keys = view.keys.clone().map(|text| {
+        div()
+            .absolute()
+            .right(px(8.0 * z))
+            .bottom(px(5.0 * z))
+            .h(px(18.0 * z))
+            .flex()
+            .items_center()
+            .text_size(px(KEYS_FONT * z))
+            .text_color(c.ink_3)
+            .whitespace_nowrap()
+            .child(text)
+    });
     let line = div()
         .flex()
         .items_end()
@@ -1066,8 +1063,10 @@ pub fn face<W: ComposerWire>(
                 .relative()
                 .flex_1()
                 .min_w_0()
+                .on_mouse_down(MouseButton::Left, place::stop)
                 .child(field)
-                .child(image),
+                .child(image)
+                .children(keys),
         )
         .child(
             wire.send(
@@ -1086,33 +1085,47 @@ pub fn face<W: ComposerWire>(
                         shade(tone_ink, view.sendable, c.panel),
                     )),
             ),
-        );
-    wire.shell(
+        )
+        .children((!view.home).then(|| {
+            wire.reset(tool("composer-reset", 22.0).h(px(BUTTON * z)).child(icon(
+                Lucide::RotateCcw,
+                14.0 * z,
+                c.ink_3,
+            )))
+        }));
+    let still = |el: AnyElement| {
         div()
-            .flex()
-            .flex_col()
-            .gap(px(6.0 * z))
-            .pt(px(8.0 * z))
-            .pr(px(8.0 * z))
-            .pb(px(8.0 * z))
-            .pl(px(10.0 * z))
-            .rounded(px(14.0 * z))
-            .border_1()
-            .border_color(if view.focused {
-                c.accent
-            } else {
-                c.line_strong
-            })
-            .bg(c.panel)
-            .text_color(c.ink)
-            .text_size(px(13.0 * z))
-            .shadow(shadow(c.shadow))
-            .children(card)
-            .children(images)
-            .children(filing)
-            .children(note)
-            .child(line)
-            .child(hint),
+            .cursor_default()
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .child(el)
+    };
+    wire.shell(
+        wire.drag(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0 * z))
+                .pt(px(8.0 * z))
+                .pr(px(8.0 * z))
+                .pb(px(8.0 * z))
+                .pl(px(10.0 * z))
+                .rounded(px(14.0 * z))
+                .border_1()
+                .border_color(if view.focused {
+                    c.accent
+                } else {
+                    c.line_strong
+                })
+                .bg(c.panel)
+                .text_color(c.ink)
+                .text_size(px(13.0 * z))
+                .shadow(shadow(c.shadow))
+                .children(card.map(still))
+                .children(images.map(still))
+                .children(filing)
+                .children(note)
+                .child(line),
+        ),
     )
 }
 
@@ -1143,8 +1156,7 @@ impl Live<'_, '_> {
 
 impl ComposerWire for Live<'_, '_> {
     fn shell(&self, el: Div) -> Div {
-        el.on_mouse_down(MouseButton::Left, place::stop)
-            .on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
+        el.on_scroll(|_: &ScrollEvent, _, cx| cx.stop_propagation())
             .on_drop(
                 self.cx
                     .listener(move |composer, paths: &ExternalPaths, _, cx| {
@@ -1160,7 +1172,10 @@ impl ComposerWire for Live<'_, '_> {
         el.cursor_grab().on_mouse_down(
             MouseButton::Left,
             self.cx
-                .listener(move |composer, e: &MouseDownEvent, _, cx| composer.grab(e, at, cx)),
+                .listener(move |composer, e: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    composer.grab(e, at, cx);
+                }),
         )
     }
 

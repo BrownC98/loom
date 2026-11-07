@@ -60,6 +60,7 @@ pub struct Field {
     tone: Option<Rgba>,
     rest: Option<Rgba>,
     lead: f32,
+    trail: f32,
     files: Option<Files>,
     selected: Range<usize>,
     reversed: bool,
@@ -113,6 +114,7 @@ impl Field {
             tone: None,
             rest: None,
             lead: 0.0,
+            trail: 0.0,
             files: None,
             selected: 0..0,
             reversed: false,
@@ -151,9 +153,10 @@ impl Field {
         }
     }
 
-    pub fn set_lead(&mut self, lead: f32, cx: &mut Context<Self>) {
-        if self.lead != lead {
+    pub fn set_inset(&mut self, lead: f32, trail: f32, cx: &mut Context<Self>) {
+        if (self.lead, self.trail) != (lead, trail) {
             self.lead = lead;
+            self.trail = trail;
             cx.notify();
         }
     }
@@ -830,7 +833,9 @@ impl Render for Field {
                 (true, Some(tone), _) | (false, _, Some(tone)) => skinned.border_color(tone),
                 _ => skinned,
             }
-            .when(self.lead > 0.0, |el| el.pl(px((8.0 + self.lead) * z)));
+            .when(self.lead > 0.0, |el| el.pl(px((8.0 + self.lead) * z)))
+            .when(self.trail > 0.0, |el| el.pr(px((8.0 + self.trail) * z)))
+            .when(empty && self.lead > 0.0, |el| el.truncate());
             let ring = BoxShadow {
                 color: colors.accent_wash.into(),
                 offset: point(px(0.0), px(0.0)),

@@ -27,7 +27,7 @@ function Sample(props: { size: FloatSize }) {
   const { t } = useTranslation();
   return (
     <div style={{ zoom: floatZoom(props.size) }}>
-      <DeskFace route="prompt" qid="" name={t('floatSize.sampleNode')} dragging={false} drop={{}} field={{ value: '', readOnly: true }} sendable onFiles={IDLE} onSubmit={IDLE} target={{ open: false, onToggle: IDLE }} />
+      <DeskFace route="prompt" name={t('floatSize.sampleNode')} dragging={false} drop={{}} field={{ value: '', readOnly: true }} sendable onFiles={IDLE} onSubmit={IDLE} target={{ open: false, onToggle: IDLE }} />
     </div>
   );
 }

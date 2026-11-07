@@ -4,7 +4,7 @@ import type { FloatSize } from './gen/FloatSize';
 
 export const FLOAT_MARGIN = 12;
 const DRAG_SLOP = 4;
-const NO_DRAG = 'input, textarea, a, label, .float-reset';
+const DRAG_FRAME = '.composer, .composer-line';
 
 export const COMPOSER_HOME: FloatPlace = { x: 0.5, y: 1 };
 
@@ -59,7 +59,7 @@ export function useFloatDrag(float: RefObject<HTMLElement | null>, pane: Size | 
   const moved = useRef(false);
   const start = (e: ReactPointerEvent<HTMLElement>) => {
     const el = float.current;
-    if (e.button !== 0 || !pane || !box || !el || !(e.target instanceof Element) || e.target.closest(NO_DRAG)) return;
+    if (e.button !== 0 || !pane || !box || !el || !(e.target instanceof Element) || !e.target.matches(DRAG_FRAME)) return;
     const from = { x: e.clientX, y: e.clientY, left: el.offsetLeft, top: el.offsetTop };
     const dragged = (ev: PointerEvent) => ({ left: from.left + ev.clientX - from.x, top: from.top + ev.clientY - from.y, far: Math.hypot(ev.clientX - from.x, ev.clientY - from.y) > DRAG_SLOP });
     const place = (ev: PointerEvent) => {

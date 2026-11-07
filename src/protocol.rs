@@ -171,7 +171,6 @@ macro_rules! message_usage {
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work. If you receive an interrupt, stop your previous task and do what it tells. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
 - loom ready <branch> [--no-deploy] (branch owner, all committed) sends the branch to its gate: your parent when your branch was made from its branch, else you. After a pass, loom runs scripts/gate/check.sh (if the repository has it), then merges. --no-deploy: on a merge into the original checkout, the merge commit carries [skip ci], so the remote CI and its deploy do not run; into a coordinator branch it does nothing, and the coordinator gives it on its own loom ready. A new loom ready with a new commit replaces an open round until the queue takes the branch.
 - loom verdict <branch> <head> pass|block [--findings <file>]: judge a branch. The round message gives the head (loom refuses another head) and your next step. Only the branch's reviewers judge a merge into the original checkout, never the owner. Without --findings, the file is review/<branch>-<your name>.md in your task folder.
-All commands return at once. loom picks receivers. loom --help has details.
 "
     };
 }

@@ -641,6 +641,7 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 ", crate::message_usage!(), "- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
 - loom adopt <name>: become that node's parent. loom detach <name>: make that node a root again (its loom ask then goes to the human). loom rm <target>: remove that node and end its process; its children become yours.
 - loom relaunch [<target>] [--agent <agent-id>]: restart your own (or any other node's) agent process with the current loom settings; the conversation continues after the turn ends. --agent gives the node to a new session of that agent; it keeps its role, mailbox and children.
+All commands return at once. loom picks receivers. loom --help has details.
 Run a command in the background if you do not need its result for your next step (a build, a test, a deploy wait, a server), however long it takes. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal: results go in loom done or loom note. After loom ask, done or note, end the turn with at most one short line (for example, in Korean, \"코디 결과 대기\"); do not write again what you sent. A direct answer to the human's terminal question can be longer, but must not repeat a done or an ask.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.

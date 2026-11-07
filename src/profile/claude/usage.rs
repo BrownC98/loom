@@ -86,7 +86,8 @@ fn status(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
             file()
         };
         match token {
-            Some(token) => oauth_limits(&token),
+            Some(token) if token.expired() => failed(UsageProblem::TokenExpired("Claude".into())),
+            Some(token) => oauth_limits(&token.access_token),
             None => failed(UsageProblem::NoToken("Claude".into())),
         }
     } else {
@@ -113,10 +114,30 @@ fn keychain_read(security: &Path, service: &str, limit: Duration) -> Option<Vec<
     crate::timed::output(cmd, limit)
 }
 
-fn oauth_token(credentials: &[u8]) -> Option<String> {
-    serde_json::from_slice::<Value>(credentials).ok()?["claudeAiOauth"]["accessToken"]
-        .as_str()
-        .map(str::to_owned)
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OauthToken {
+    access_token: String,
+    expires_at: Option<f64>,
+}
+
+impl OauthToken {
+    fn expired(&self) -> bool {
+        self.expires_at
+            .is_some_and(|ms| ms <= jiff::Timestamp::now().as_millisecond() as f64)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Credentials {
+    claude_ai_oauth: OauthToken,
+}
+
+fn oauth_token(credentials: &[u8]) -> Option<OauthToken> {
+    serde_json::from_slice::<Credentials>(credentials)
+        .ok()
+        .map(|c| c.claude_ai_oauth)
 }
 
 fn oauth_limits(token: &str) -> Limits {

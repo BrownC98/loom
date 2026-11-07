@@ -914,7 +914,11 @@ impl Graph {
                     via,
                     &trace,
                 )?;
-                if !policy::wakes(call, *receiver) {
+                let lineage = match parent_of(&tx, to_node)? {
+                    Some(_) => policy::Lineage::Child,
+                    None => policy::Lineage::Root,
+                };
+                if !policy::wakes(call, *receiver, target, lineage) {
                     mailbox::hush(&tx, id)?;
                 }
                 sent.push(to_node);

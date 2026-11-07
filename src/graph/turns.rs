@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Graph;
-use super::waits::unreported_root;
+use super::waits::{put_done, unreported_root};
 use crate::protocol::kind_line;
 use api::graph::events::TurnCheck;
 use api::ids::NodeId;
@@ -37,7 +37,6 @@ const _: () = match Bit::FirstInput {
 
 #[derive(Clone, Copy)]
 pub enum TurnMark {
-    Human,
     Called,
     Asked,
     QuestionBox,
@@ -46,7 +45,6 @@ pub enum TurnMark {
 impl TurnMark {
     fn mask(self) -> u8 {
         match self {
-            TurnMark::Human => Bit::Human,
             TurnMark::Called => Bit::Called,
             TurnMark::Asked => Bit::Asked,
             TurnMark::QuestionBox => Bit::QuestionBox,
@@ -111,6 +109,15 @@ impl Graph {
         set_flags(&self.lock(), node, mark.mask(), 0)
     }
 
+    pub fn heard(&self, node: NodeId, said: Option<&str>) -> rusqlite::Result<()> {
+        self.lock()
+            .execute(
+                "UPDATE nodes SET turn_flags = turn_flags | ?2, heard = ?3 WHERE id = ?1",
+                params![node.0, Bit::Human.mask(), said],
+            )
+            .map(drop)
+    }
+
     pub fn said(&self, node: NodeId, text: &str, turn: Option<&str>) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -165,11 +172,11 @@ impl Graph {
     pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<TurnCheck>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let (flags, reply): (u8, Option<String>) = tx
+        let (flags, reply, heard): (u8, Option<String>, Option<String>) = tx
             .query_row(
-                "SELECT turn_flags, reply FROM nodes WHERE id = ?1",
+                "SELECT turn_flags, reply, heard FROM nodes WHERE id = ?1",
                 [node.0],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?
             .unwrap_or_default();
@@ -184,10 +191,22 @@ impl Graph {
                 .is_some_and(|text| kind_line(text).is_some())
         {
             Some(TurnCheck::KindLine)
-        } else if has(Bit::Human) && reply.is_some() && unreported_root(&tx, node)? {
-            Some(TurnCheck::Unreported)
         } else {
             None
+        };
+        let reported = match reply.as_deref() {
+            Some(reply) if check.is_none() && has(Bit::Human) && unreported_root(&tx, node)? => {
+                put_done(
+                    &tx,
+                    node,
+                    heard.as_deref().unwrap_or_default(),
+                    reply,
+                    &[],
+                    None,
+                )?;
+                true
+            }
+            _ => false,
         };
         tx.execute(
             "INSERT OR IGNORE INTO ended_turns (node, turn)
@@ -204,6 +223,9 @@ impl Graph {
             params![node.0, kept | (flags & SUBMITTED_INPUT)],
         )?;
         tx.commit()?;
+        if reported {
+            self.publish_nodes();
+        }
         Ok(check)
     }
 

@@ -465,9 +465,7 @@ pub fn done(
         },
         None,
     )?;
-    println!(
-        "Reported. Do not write the report again in the terminal."
-    );
+    println!("Reported. Do not write the report again in the terminal.");
     if let Some(warning) = reported.warning {
         println!(
             "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."

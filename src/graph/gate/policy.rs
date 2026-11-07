@@ -123,13 +123,26 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-pub(super) fn wakes(call: GateCall, to: Receiver) -> bool {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Lineage {
+    Root,
+    Child,
+}
+
+pub(super) fn wakes(call: GateCall, to: Receiver, target: Target, lineage: Lineage) -> bool {
     !matches!(
-        (call, to),
-        (GateCall::Verdict(Judgment::Pass), _)
+        (call, to, target, lineage),
+        (GateCall::Verdict(Judgment::Pass), ..)
             | (
                 GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
                 Receiver::Gate | Receiver::Root,
+                ..
+            )
+            | (
+                GateCall::End(MergeEnd::Merged),
+                Receiver::Owner,
+                Target::Base,
+                Lineage::Child
             )
     )
 }
@@ -239,7 +252,7 @@ pub(super) fn peers_step(branch: &str, peers: &[Peer]) -> String {
         .map(|p| format!("{} ({})", p.name, p.findings))
         .collect();
     format!(
-        "Other reviewers of {branch} and their findings files: {}. When you find a defect, send it to them at once: `loom note <reviewer> --steer \"<defect>\"`. Do not check again or report a defect that another reviewer sent you or wrote in its file.",
+        "Other reviewers of {branch} and their findings files: {}.",
         listed.join(", ")
     )
 }

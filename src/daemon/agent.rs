@@ -96,7 +96,7 @@ impl App {
             self.graph.human_input(node)?;
         }
         self.draft_ended(node);
-        self.turn_ends.human(node);
+        self.turn_ends.human(node, prompt);
         if let Some(text) = prompt
             && !injected
         {

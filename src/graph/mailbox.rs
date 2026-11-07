@@ -23,8 +23,12 @@ use api::ids::{AgentId, NodeId};
 
 const NOTICE: &str = "what ->> 'kind' IN ('exited', 'removed', 'adopted')";
 
+fn rests() -> String {
+    format!("(quiet = 1 OR coalesce({NOTICE}, 0))")
+}
+
 fn wakes() -> String {
-    format!(r#"(kind != '"queue"' OR what IS NULL OR NOT {NOTICE})"#)
+    format!(r#"(kind != '"queue"' OR NOT {})"#, rests())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,7 +81,7 @@ impl Graph {
                 body,
                 via,
             },
-            |_, _| Ok(()),
+            |db, to, id| hush_judged_peer(db, from, to, id),
         )
     }
 
@@ -99,7 +103,7 @@ impl Graph {
                 body,
                 via,
             },
-            |db, to| {
+            |db, to, _| {
                 shells = hosts::guarded(db, to)?;
                 stop(to, &shells);
                 Ok(())
@@ -130,7 +134,7 @@ impl Graph {
                 body: question,
                 via,
             },
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
     }
 
@@ -163,7 +167,7 @@ impl Graph {
                 body,
                 via,
             },
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
     }
 
@@ -172,7 +176,7 @@ impl Graph {
         from: NodeId,
         to: &str,
         message: Outgoing<'_>,
-        before_delivery: impl FnOnce(&Connection, NodeId) -> rusqlite::Result<()>,
+        before_delivery: impl FnOnce(&Connection, NodeId, MessageId) -> rusqlite::Result<()>,
     ) -> Result<Sent, Refusal> {
         let Outgoing {
             kind,
@@ -210,7 +214,7 @@ impl Graph {
         };
         let id = enqueue(&tx, from, to_id, kind, &what, body, stamp)?;
         if let Some(to_id) = to_id {
-            before_delivery(&tx, to_id)?;
+            before_delivery(&tx, to_id, id)?;
         }
         tx.commit()?;
         match to_id {
@@ -386,7 +390,7 @@ impl Graph {
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let steered = steer(&tx, node, NOTICE)?;
+        let steered = steer(&tx, node, &rests())?;
         let resumed = resume(&tx, node)?;
         tx.commit()?;
         if resumed || steered > 0 {
@@ -565,7 +569,15 @@ impl Graph {
                     file: report.file.map(str::to_owned),
                     warning: report.warning.clone(),
                 };
-                enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
+                let id = enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
+                let reviewer: bool = tx.query_row(
+                    "SELECT review IS NOT NULL FROM nodes WHERE id = ?1",
+                    [node.0],
+                    |row| row.get(0),
+                )?;
+                if reviewer {
+                    hush(&tx, id)?;
+                }
             }
         }
         tx.commit()?;
@@ -606,7 +618,7 @@ impl Graph {
         let what = MessageKind::HumanInput {
             node: super::name_of(&tx, node)?,
         };
-        enqueue(
+        let id = enqueue(
             &tx,
             node,
             Some(parent),
@@ -615,6 +627,7 @@ impl Graph {
             text,
             Stamp::default(),
         )?;
+        hush(&tx, id)?;
         tx.commit()?;
         self.publish_sent(&db, node, parent)?;
         Ok(())
@@ -849,6 +862,41 @@ pub(super) fn enqueue(
     };
     events::write(db, &entry, Some(id))?;
     Ok(id)
+}
+
+pub(super) fn hush(db: &Connection, id: MessageId) -> rusqlite::Result<()> {
+    db.execute("UPDATE messages SET quiet = 1 WHERE id = ?1", [id.0])?;
+    Ok(())
+}
+
+fn hush_judged_peer(
+    db: &Connection,
+    from: NodeId,
+    to: NodeId,
+    id: MessageId,
+) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE messages SET quiet = 1, kind = ?4 WHERE id = ?1 AND kind IN (?4, ?5) AND EXISTS(
+             SELECT 1 FROM nodes s JOIN nodes r ON r.parent = s.parent AND r.review = s.review
+             JOIN gate_votes v ON v.reviewer = r.id AND v.branch = r.review AND v.vote IS NOT NULL
+             WHERE s.id = ?2 AND r.id = ?3)",
+        params![
+            id.0,
+            from.0,
+            to.0,
+            to_json(&Kind::Queue),
+            to_json(&Kind::Steer)
+        ],
+    )?;
+    Ok(())
+}
+
+pub(super) fn file_read(db: &Connection, id: MessageId) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE messages SET delivered = 1, printed = 1 WHERE id = ?1",
+        [id.0],
+    )?;
+    Ok(())
 }
 
 pub(super) fn enqueue_human(

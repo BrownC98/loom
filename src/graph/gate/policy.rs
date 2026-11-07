@@ -123,8 +123,16 @@ pub(super) fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-pub(super) const KEPT_FOR_CALLER: &str =
-    "No other node receives this. loom keeps it in your inbox as the gate record.";
+pub(super) fn wakes(call: GateCall, to: Receiver) -> bool {
+    !matches!(
+        (call, to),
+        (GateCall::Verdict(Judgment::Pass), _)
+            | (
+                GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
+                Receiver::Gate | Receiver::Root,
+            )
+    )
+}
 
 pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
     let mut lines = Vec::new();

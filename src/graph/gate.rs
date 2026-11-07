@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use super::events;
 use super::mailbox::{self, Stamp};
 use super::{Graph, REACHABLE, from_json, name_of, parent_of, place_of, to_json};
-use crate::protocol::{self, Deploy};
+use crate::protocol::{self, Deploy, MessageId};
 use crate::task;
 use api::graph::errors::Refusal;
 use api::graph::events::{Entry, GateTrace, Via};
@@ -904,7 +904,7 @@ impl Graph {
                     true => policy::next_step(call, *receiver, target, branch, &row.head),
                     false => policy::held_step(*receiver, branch, &held),
                 });
-                post(
+                let id = post(
                     &tx,
                     caller,
                     to_node,
@@ -914,21 +914,23 @@ impl Graph {
                     via,
                     &trace,
                 )?;
+                if !policy::wakes(call, *receiver) {
+                    mailbox::hush(&tx, id)?;
+                }
                 sent.push(to_node);
             }
             if let (true, Caller::Node(me)) = (sent.is_empty(), caller) {
-                let mut body = lines;
-                body.push(policy::KEPT_FOR_CALLER.to_owned());
-                post(
+                let id = post(
                     &tx,
                     caller,
                     me,
                     Kind::Queue,
                     &what,
-                    &body.join("\n"),
+                    &lines.join("\n"),
                     via,
                     &trace,
                 )?;
+                mailbox::file_read(&tx, id)?;
                 sent.push(me);
             }
             if call == GateCall::Ready {
@@ -1432,20 +1434,17 @@ fn post(
     body: &str,
     via: Option<&Via>,
     trace: &GateTrace,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<MessageId> {
     match caller {
         Caller::Node(me) => {
             let stamp = Stamp {
                 via: via.cloned(),
                 gate: Some(trace.clone()),
             };
-            mailbox::enqueue(tx, me, Some(to), kind, what, body, stamp)?;
+            mailbox::enqueue(tx, me, Some(to), kind, what, body, stamp)
         }
-        Caller::Loom => {
-            mailbox::enqueue_from_loom(tx, to, kind, what, body, Some(trace.clone()))?;
-        }
+        Caller::Loom => mailbox::enqueue_from_loom(tx, to, kind, what, body, Some(trace.clone())),
     }
-    Ok(())
 }
 
 pub(super) fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {

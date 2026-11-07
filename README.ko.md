@@ -159,7 +159,7 @@ loom은 메시지를 에이전트의 단계 사이에 넣고, 쉬는 에이전�
 - 알림을 누르면 그 노드로 갑니다. loom 창이 보이지 않을 때는 시스템 알림으로도 알립니다.
 
 <p align="center">
-  <a href="docs/images/inbox.png"><img src="docs/images/inbox.png" alt="알림 탭: lead가 Q3 「Merge store-api and cli into main now?」를 묻고, Merge both(권장), Merge store-api only, Wait 단추와 답 칸이 있다. 그 아래에 lead의 완료 보고가 있다. 그래프 위 질문 알약에도 같은 질문이 보인다." width="960"></a><br>
+  <a href="docs/images/inbox.png"><img src="docs/images/inbox.png" alt="입력 창 안의 알림: claude-1이 Q1 「질의응답 UX 시안 v1을 승인할까요?」를 묻고, 입력칸 위에 승인(권장)·고침 단추가 있다. 「claude-1에게」 단추가 친 글을 Q1의 답으로 보낸다. 오른쪽 알림 탭은 알림 20개를 노드별로 보인다." width="960"></a><br>
   <em>알림 탭: 선택지 단추가 있는 질문과 완료 보고.</em>
 </p>
 

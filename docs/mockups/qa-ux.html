@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M73 loom 질의응답 UX 시안 목업</title>
+<title>M73 loom 질의응답 입력 창 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -266,6 +266,24 @@ table.cmp td:first-child { white-space: nowrap; font-weight: 600; }
 table.cmp { table-layout: fixed; width: 100%; }
 .popup { position: absolute; width: 440px; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px var(--shadow); font-size: 12.5px; }
 .popup > .ih { font-size: 12px; color: var(--ink-3); }
+.targets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+.tchip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: 12px; }
+.tchip.on.q { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); font-weight: 600; }
+.tchip.on.d { background: var(--ok); border-color: var(--ok); color: var(--warn-ink); font-weight: 600; }
+.tchip.on.p { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.targets .keys { margin-left: auto; }
+.composer.qmode .text { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.composer.dmode .text { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.composer .text.typed { color: var(--ink); }
+.sendw { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.sendw.q { background: var(--warn); color: var(--warn-ink); }
+.sendw.d { background: var(--ok); color: var(--warn-ink); }
+.sendw.p { background: var(--accent); color: var(--accent-ink); }
+.cmp-item.mini { padding: 4px 10px; border-color: var(--line-strong); }
+.cmp-item.done { border-color: var(--ok); }
+.composer.wide2 { width: 640px; }
+table.recv td code { white-space: pre-wrap; font-size: 12px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; } .note li { margin-left: 18px; }
 
 </style>
 </head>
@@ -283,150 +301,90 @@ table.cmp { table-layout: fixed; width: 100%; }
 </svg>
 
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M73</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 질의응답UX</b></span><span>v1 · 2026-11-08</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M73</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 질의응답UX</b></span><span>v2 · 2026-11-08</span></div>
   <h1>질의응답 UX 시안</h1>
-  <p class="lead">사람 질문: 「loom의 질의응답 ui/ux를 어떻게 더 매끄럽게 연결할 수 있을까? tui 구조를 탈피해야하나?」, 지시: 「시안들 목업부터 뽑아」(Q2559). 지금은 한 대화가 세 곳(카드 터미널, 알림 목록, 아래 입력 창)으로 나뉘고, 같은 완료 글이 터미널과 알림에 두 번 보입니다. 아래 네 안은 모두 같은 자료(사람 지시 → 질문 Q2559 답 → 완료 → 질문 Q2561)로 그렸습니다.</p>
-  <div class="flow"><span>사람이 지시한다</span>→<span>에이전트가 일한다</span>→<span>질문·완료가 온다</span>→<span>사람이 답하거나 확인한다</span>→<span>사람이 다시 지시한다</span></div>
+  <p class="lead">사람 결정(Q2565): 방향은 안 D, 입력 창에 알림을 합칩니다(v1 D2 D). v1 D1(A: 대화에 둘 것)은 대화 줄이 있는 안 A·C에만 걸리므로 안 D에서는 새 대화 기록을 만들지 않습니다. 이번 지시: 입력 창에 친 글을 열린 질문의 답으로 보낼지, 노드에 보통 지시로 보낼지를 보내기 전에 분명히 보입니다. 두 상태, 바꾸는 법, 키, 노드가 받는 글을 그렸습니다.</p>
+  <div class="flow"><span>노드를 고른다</span>→<span>입력 창 위에 그 노드의 가장 오래된 알림이 붙는다</span>→<span>보낼 곳 칩을 확인하거나 Alt+↑↓로 바꾼다</span>→<span>Enter</span>→<span>답이면 알림이 닫히고, 지시면 터미널에 쳐진다</span></div>
 
-  <h2>한눈에 비교</h2>
-  <table class="cmp"><colgroup><col style="width:120px"><col style="width:13%"><col><col><col><col style="width:14%"></colgroup>
-    <thead><tr><th></th><th>지금</th><th>A 카드 안 대화</th><th>B TUI 없앰</th><th>C 터미널 옆 대화 칸</th><th>D 입력 창에 합침</th></tr></thead>
+  <div class="fig"><h2>① 질문에 답 <span class="tag">노드에 열린 질문이 있으면 처음 고른 곳</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
+<div class="row"><span class="b">loom</span></div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
+<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
+<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
+<div class="canvas"><div class="inbox-pill" style="left:24px; top:14px"><svg class="i qicon"><use href="#ask"/></svg><b>알림</b><span class="notice-count">2</span></div><div class="card big" data-selected style="left:24px; top:62px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
+<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
+
+<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
+  ⎿ Q2561
+
+● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
+
+<span class="box">&gt; <span class="cursor"></span></span>
+<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div><div class="composer wide2 qmode" style="bottom:14px"><div class="cmp-item"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>claude-1 · 21:40</span><span class="grow"></span><button class="pill-close" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div></div><div class="mk new targets" data-n="1"><span>보낼 곳</span><span class="tchip q on"><svg class="i"><use href="#ask"/></svg>Q2561에 답</span><span class="tchip d"><svg class="i"><use href="#check"/></svg>완료에 이어서 맡김</span><span class="tchip p"><svg class="i"><use href="#term"/></svg>claude-1에 지시</span><span class="keys">Alt+↑↓ 바꾸기</span></div><div class="line"><div class="mk new text typed" data-n="2">고침. 안마다 비용 표도 붙여 줘</div><button class="icon-btn" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><button class="mk new sendw q" data-n="3">Q2561에 답<svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: Q2561에 답 보내기 · Shift+Enter 줄바꿈 · Esc 터미널로</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개 · 완료 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>1</b><span>보낼 곳: 이 노드의 열린 알림마다 칩 하나와 「지시」 칩. 고른 칩이 칠해집니다. 누르거나 Alt+↑↓로 바꿉니다.</span></div><div><b>2</b><span>입력칸 테두리가 고른 칩 색(질문은 노랑)을 따릅니다.</span></div><div><b>3</b><span>보내기 단추에 보낼 곳을 씁니다. 보내면 Q2561이 닫히고 다음 알림이 위에 옵니다.</span></div></div></div>
+
+  <section class="decision" id="D1" data-for="1 3"><h3><span class="did">D1</span>노드에 열린 질문이 있을 때 처음 고른 보낼 곳</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">가장 오래된 질문의 답<span class="mark">권장</span><span class="sub">지금: 알림 목록을 펴서 답칸에 침 → 바뀐 뒤: 입력 창에 바로 치면 답 · 노란 테두리와 「Q2561에 답」 단추로 보냄 · 위험: 지시를 답으로 보냄 → 질문이 닫히지만 노드는 글을 그대로 받음 · 되돌리기: 설정 한 줄</span></span></div><div class="opt"><span class="key">B</span><span class="label">늘 「지시」<span class="sub">지금 입력 창과 같음 · 답하려면 칩을 누르거나 Alt+↑ · 질문을 지시로 답하면 에이전트가 <code>loom answered</code>로 닫아야 함</span></span></div></div><ul class="why"><li>질문이 열린 노드는 그 답을 기다립니다. 이때 친 글은 대개 답입니다.</li><li>보내기 전에 색과 단추 글이 보낼 곳을 보입니다.</li></ul></section>
+
+  <section class="decision" id="D2" data-for="1"><h3><span class="did">D2</span>보낼 곳을 바꾸는 키</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">Alt+↑ / Alt+↓로 칩을 하나씩 옮김, 칩을 눌러도 됨<span class="mark">권장</span><span class="sub">입력 창에서 지금 쓰지 않는 키 · 글을 쓰다가도 바꿈 · 칩 줄 오른쪽에 「Alt+↑↓ 바꾸기」를 보임</span></span></div><div class="opt"><span class="key">B</span><span class="label">칩을 누를 때만<span class="sub">새 키 없음 · 손을 키보드에서 떼야 함</span></span></div></div><ul class="why"><li>Tab은 초점 이동이라 쓰지 않습니다. Ctrl+Shift 조합은 그래프 이동 키가 씁니다(<code>keys.ts</code>).</li></ul></section>
+
+  <div class="fig"><h2>② 노드에 지시 <span class="tag">「claude-1에 지시」 칩을 고름</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
+<div class="row"><span class="b">loom</span></div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
+<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
+<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
+<div class="canvas"><div class="inbox-pill" style="left:24px; top:14px"><svg class="i qicon"><use href="#ask"/></svg><b>알림</b><span class="notice-count">2</span></div><div class="card big" data-selected style="left:24px; top:62px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
+<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
+
+<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
+  ⎿ Q2561
+
+● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
+
+<span class="box">&gt; <span class="cursor"></span></span>
+<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div><div class="composer wide2 " style="bottom:14px"><div class="mk new cmp-item mini" data-n="5"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>열림 · 이 글은 답이 아닙니다</span></div></div><div class="mk new targets" data-n="4"><span>보낼 곳</span><span class="tchip q"><svg class="i"><use href="#ask"/></svg>Q2561에 답</span><span class="tchip d"><svg class="i"><use href="#check"/></svg>완료에 이어서 맡김</span><span class="tchip p on"><svg class="i"><use href="#term"/></svg>claude-1에 지시</span><span class="keys">Alt+↑↓ 바꾸기</span></div><div class="line"><div class="text typed">설계 문서도 같이 읽어 줘</div><button class="icon-btn" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><button class="mk new sendw p" data-n="6">지시 보내기<svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: claude-1 터미널에 치기 · Shift+Enter 줄바꿈 · Esc 터미널로</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개 · 완료 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>4</b><span>「claude-1에 지시」 칩을 고름: 지금 입력 창과 같이 글을 터미널에 붙여넣고 Enter를 칩니다.</span></div><div><b>5</b><span>질문은 한 줄로 접히고 열린 채 남습니다.</span></div><div><b>6</b><span>단추 글이 「지시 보내기」로, 색이 검정으로 바뀝니다.</span></div></div></div>
+  <div class="fig"><h2>③ 완료에 이어서 맡김 <span class="tag">「완료에 이어서 맡김」 칩을 고름</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
+<div class="row"><span class="b">loom</span></div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
+<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
+<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
+<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
+<div class="canvas"><div class="inbox-pill" style="left:24px; top:14px"><svg class="i qicon"><use href="#ask"/></svg><b>알림</b><span class="notice-count">2</span></div><div class="card big" data-selected style="left:24px; top:62px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
+<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
+
+<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
+  ⎿ Q2561
+
+● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
+
+<span class="box">&gt; <span class="cursor"></span></span>
+<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div><div class="composer wide2 dmode" style="bottom:14px"><div class="mk new cmp-item done" data-n="7"><div class="ih"><svg class="i ok-ico"><use href="#check"/></svg><b>완료</b><span>claude-1 · 21:39</span><span class="grow"></span><button class="sbtn">확인</button></div><div class="ans">지시: 시안들 목업부터 뽑아</div><div>목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.</div></div><div class="targets"><span>보낼 곳</span><span class="tchip q"><svg class="i"><use href="#ask"/></svg>Q2561에 답</span><span class="tchip d on"><svg class="i"><use href="#check"/></svg>완료에 이어서 맡김</span><span class="tchip p"><svg class="i"><use href="#term"/></svg>claude-1에 지시</span><span class="keys">Alt+↑↓ 바꾸기</span></div><div class="line"><div class="text typed">좋아. 이제 안 D를 v2로 다듬어 줘</div><button class="icon-btn" title="그림 붙이기"><svg class="i"><use href="#img"/></svg></button><button class="mk new sendw d" data-n="8">이어서 맡기기<svg class="i"><use href="#up"/></svg></button></div><div class="targets"><span>Enter: 완료에 이어서 맡기기 · Shift+Enter 줄바꿈 · Esc 터미널로</span></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개 · 완료 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
+</div>
+<div class="calls"><div><b>7</b><span>완료 알림: [확인]만 누르면 글 없이 닫힙니다.</span></div><div><b>8</b><span>보내면 완료가 닫히고 글이 이어서 맡김으로 노드에 갑니다. 테두리와 단추는 초록입니다.</span></div></div></div>
+
+  <section class="decision" id="D3" data-for="7 8"><h3><span class="did">D3</span>가장 오래된 알림이 완료일 때 처음 고른 보낼 곳</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">완료에 이어서 맡김<span class="mark">권장</span><span class="sub">지금 알림 목록의 완료 입력칸과 같음 · 보내면 완료가 닫혀 같은 글이 남지 않음 · 되돌리기: 설정 한 줄</span></span></div><div class="opt"><span class="key">B</span><span class="label">「지시」<span class="sub">글은 터미널로 감 · 완료는 [확인]을 누를 때까지 남음</span></span></div></div><ul class="why"><li>완료 뒤에 친 글은 대개 다음 일이고, 완료를 따로 [확인]할 일이 줄어듭니다.</li></ul></section>
+
+  <h2>노드가 받는 글</h2>
+  <table class="recv">
+    <thead><tr><th>보낼 곳</th><th>가는 길</th><th>노드가 받는 글</th><th>보낸 뒤 알림</th></tr></thead>
     <tbody>
-      <tr><td>사람이 보는 곳</td><td>3곳: 터미널, 알림 목록, 입력 창</td><td>1곳: 카드(터미널은 단추 뒤)</td><td>1곳: 채팅</td><td>2곳: 터미널과 대화 칸(나란히)</td><td>2곳: 터미널과 입력 창</td></tr>
-      <tr><td>질문 → 답</td><td>알림 목록의 단추·입력칸</td><td>대화 줄 안의 단추·입력칸</td><td>채팅 안의 단추</td><td>대화 칸 안의 단추·입력칸</td><td>입력 창 위의 단추, 또는 입력 창에 침</td></tr>
-      <tr><td>완료</td><td>알림 목록과 터미널에 두 번</td><td>대화 줄에 한 번</td><td>채팅에 한 번</td><td>대화 칸에 한 번(옆 터미널에 원문)</td><td>입력 창 위와 터미널</td></tr>
-      <tr><td>친 지시</td><td>터미널에만 남음</td><td>대화 줄에 남음</td><td>채팅에 남음</td><td>대화 칸에 남음</td><td>터미널에만 남음</td></tr>
-      <tr><td>지난 대화 찾기</td><td>터미널을 올려 봄</td><td>대화 줄</td><td>채팅</td><td>대화 칸</td><td>터미널을 올려 봄</td></tr>
-      <tr><td>데몬에 있는 자료</td><td colspan="5">질문·답·완료·이어서 맡김·확인은 이벤트 기록(<code>Asked</code>, <code>Answered</code>, <code>Reported</code>, <code>Instructed</code>, <code>Confirmed</code>)에 글째로 있습니다. 노드 사이 메시지 본문은 <code>messages</code> 표에 있습니다. 턴마다의 사람 입력(<code>nodes.heard</code>)과 답 글(<code>nodes.reply</code>)은 마지막 하나만 둡니다.</td></tr>
-      <tr><td>새로 만들 것</td><td>—</td><td>턴 끝 이벤트 한 줄(사람 입력 + 답 글. <code>Graph::end_turn</code>이 두 값을 이미 가짐), 대화 읽기 API 하나, 화면 대화 줄, 카드 [대화 | 터미널] 단추</td><td>에이전트마다 구조 API 연결, 사건 그리기, 권한 창, 로그인·모델·세션 고르기 화면. 지금 쓰는 화면 읽기(<code>profile::dialogs</code>)는 다시 짬</td><td>A와 같은 데몬 부품, 화면 대화 줄, 대화 탭과 그 아래 입력 창</td><td>화면만: 입력 창이 대기 하나를 받음. 데몬 변경 없음</td></tr>
-      <tr><td>지울 것</td><td>—</td><td>알림 목록 팝업(알림 탭 목록이 맡음)</td><td>카드 터미널, PTY 입력 경로(모든 에이전트가 옮겨 온 뒤에만)</td><td>알림 목록 팝업, 알림 탭(대화 탭이 맡음). 떠 있는 입력 창은 대화 칸을 닫았을 때만 보임</td><td>알림 목록 팝업</td></tr>
-      <tr><td>토큰</td><td>0</td><td>0: 데몬이 이미 받는 훅·서버 사건만 씀</td><td>0</td><td>0: A와 같음</td><td>0</td></tr>
-      <tr><td>에이전트별 한계</td><td>—</td><td>Antigravity는 답 글을 알리지 않아 「터미널에서 보기」만 보임. Esc로 끊은 Claude 턴은 Stop이 없어 그 턴 글이 빠짐. 턴 중간의 도구 실행은 터미널에만 있음</td><td>지금 서버 API로 붙는 7개(Codex, Trae, OpenCode 2, MiMo Code, Kilocode, Crush, Mistral Vibe)는 사건을 받음. Claude Code·OpenClaude는 <code>claude -p --input-format stream-json --output-format stream-json</code>과 <code>--permission-prompt-tool</code>로 띄우는 길을 새로 짬. 가설: Cursor, Qwen Code, Pi, OMP, DSH, Hermes, Antigravity, GitHub Copilot에 같은 길이 있는지 확인하지 않았음</td><td>A와 같음</td><td>없음</td></tr>
-      <tr><td>되돌리기</td><td>—</td><td>카드 단추로 터미널</td><td>어려움: 띄우는 길이 바뀜</td><td>탭을 「알림」으로 되돌림</td><td>쉬움</td></tr>
+      <tr><td>Q2561에 답</td><td>사람이 보낸 큐 메시지(지금 알림 답과 같은 <code>POST /api/waits/Q2561/answer</code>). 일하는 노드는 다음 도구 호출 사이에, 쉬는 노드는 새 턴으로 받음</td><td><code>Answer to loom ask question Q2561 (질의응답 UX 시안 v1을 승인할까요? …): 고침. 안마다 비용 표도 붙여 줘
+The human answered from the loom inbox. The question is closed: do not call loom answered.</code></td><td>Q2561 닫힘, 「기록」으로 감</td></tr>
+      <tr><td>완료에 이어서 맡김</td><td>같은 큐 메시지 길(지금 완료 입력칸과 같음)</td><td><code>New instruction from the human in the loom inbox, after your done report: 좋아. 이제 안 D를 v2로 다듬어 줘</code></td><td>완료 닫힘</td></tr>
+      <tr><td>claude-1에 지시</td><td>지금 입력 창과 같음: 터미널에 붙여넣고 Enter</td><td>친 글 그대로(사람 입력). 열린 질문이 있으면 데몬이 그 턴에 한 줄을 더함: <code>Open loom ask questions: Q2561: … If this input answers some of these questions, first call loom answered with their IDs …</code></td><td>Q2561 열린 채 남음</td></tr>
     </tbody>
   </table>
+  <ul class="note"><li>그림: 답과 이어서 맡김은 지금처럼 <code>Images: '&lt;경로&gt;'</code> 줄이 붙고, 지시는 지금 입력 창처럼 경로를 붙여넣습니다.</li><li>터미널에 바로 친 글은 언제나 지시입니다.</li><li>알약은 알림 수만 보입니다. 누르면 알림이 있는 다음 노드를 고릅니다. 알림 목록 팝업은 지웁니다.</li><li>데몬 변경 없음: 세 길 모두 지금 있는 API입니다. 화면(입력 창)만 바꿉니다. 토큰 0.</li></ul>
 
-  <div class="fig"><h2>① 지금 <span class="tag">알약을 펼친 화면</span></h2>
-<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
-<div class="row"><span class="b">loom</span></div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
-<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
-<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
-<div class="canvas"><div class="inbox-pill" style="left:24px; top:14px"><button class="pill-close"><svg class="i"><use href="#x"/></svg></button><svg class="i qicon"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><button class="go"><b>claude-1</b>: 질의응답 UX 시안 v1을 승인할까요?</button></div>
-<div class="mk card big" data-selected style="left:24px; top:62px; width:560px" data-n="2"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
-<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
-
-<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
-  ⎿ Q2561
-
-● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
-
-<span class="box">&gt; <span class="cursor"></span></span>
-<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div>
-<div class="mk popup" style="left:300px; top:56px" data-n="1"><div class="ih"><b>알림 2</b></div>
-<div class="item done"><div class="ih"><svg class="i ok-ico"><use href="#check"/></svg><b>완료</b><span>21:39</span><span class="grow"></span><button class="sbtn">확인</button></div><div class="ans">지시: 시안들 목업부터 뽑아</div><div>목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.</div></div>
-<div class="item"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>21:40</span><span class="grow"></span><button class="pill-close" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div><div class="reply"><span class="f">답변 입력, 그림 붙여넣기, Enter로 보내기</span><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div>
-</div>
-<div class="mk composer" style="bottom:14px; width:560px; left:24px; transform:none" data-n="3"><div class="to"><span class="tgt"><svg class="i"><use href="#term"/></svg><b>claude-1</b> 에 입력</span><span class="keys">Enter 보내기 · Shift+Enter 줄바꿈 · Esc 터미널로</span></div><div class="line"><div class="text"><span class="ph">메시지를 입력하거나 그림·파일을 끌어다 놓으십시오</span></div><button class="send" disabled aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개 · 완료 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
-</div>
-<div class="calls"><div><b>1</b><span>알림 목록: 완료 글 전문과 질문. 같은 완료 글이 터미널에도 있습니다.</span></div><div><b>2</b><span>터미널(TUI): 에이전트의 글, 도구 실행, 권한 창이 모두 여기에 나옵니다.</span></div><div><b>3</b><span>입력 창: 고른 노드의 터미널에 칩니다. 알림 목록의 입력칸과 다른 곳입니다.</span></div></div></div>
-  <div class="fig"><h2>② 안 A · 카드 안 대화 보기 <span class="tag">TUI는 「터미널」 단추 뒤에 남음</span></h2>
-<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
-<div class="row"><span class="b">loom</span></div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
-<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
-<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
-<div class="canvas"><div class="inbox-pill"><button class="pill-close"><svg class="i"><use href="#x"/></svg></button><svg class="i qicon"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><button class="go"><b>claude-1</b>: 질의응답 UX 시안 v1을 승인할까요?</button></div>
-<div class="card big" data-selected style="left:24px; top:62px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span><span class="mk new seg" data-n="4"><span class="on">대화</span><span>터미널</span></span></div>
-<div class="convo"><div class="msg me">loom의 질의응답 ui/ux를 어떻게 더 매끄럽게 연결할 수 있을까? tui 구조를 탈피해야하나?<span class="meta">사람 · 입력 창 · 21:02</span></div>
-<div class="item closed"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2559</span><span>21:05</span></div><div>바로 설계할까요, 시안 목업부터 만들까요? (A: 목업 / B: 설계)</div><div class="ans">답함 · 21:07 — 시안들 목업부터 뽑아</div></div>
-<div class="msg">코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.<span class="meta">claude-1 · 21:07</span></div>
-
-<div class="mk new item done" data-n="6"><div class="ih"><svg class="i ok-ico"><use href="#check"/></svg><b>완료</b><span>21:39</span><span class="grow"></span><button class="sbtn">확인</button></div><div class="ans">지시: 시안들 목업부터 뽑아</div><div>목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.</div></div>
-<div class="mk new item" data-n="5"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>21:40</span><span class="grow"></span><button class="pill-close" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div><div class="reply"><span class="f">답변 입력, 그림 붙여넣기, Enter로 보내기</span><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div>
-<div class="mk new msg me" data-n="7">안마다 비용 표도 붙여 줘<span class="meta">사람 · 입력 창 · 21:44</span></div>
-</div></div>
-<div class="composer" style="left:auto; right:16px; transform:none; width:220px; bottom:14px"><div class="to"><span class="tgt"><svg class="i"><use href="#term"/></svg><b>claude-1</b> 에 입력</span></div><div class="line"><div class="text"><span class="ph">메시지 입력</span></div><button class="send" disabled aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div>
-<div class="mk new lrow" data-n="8"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span>claude-1</div><div>질의응답 UX 시안 v1을 승인할까요?</div><span class="go2">대화에서 보기</span></div>
-<div class="lrow"><div class="ih"><svg class="i ok-ico"><use href="#check"/></svg><b>완료</b>claude-1</div><div>목업 v1을 만들었습니다.</div><span class="go2">대화에서 보기</span></div></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
-</div>
-<div class="calls"><div><b>4</b><span>카드 머리에 [대화 | 터미널]. 기본은 대화. 터미널을 누르면 지금 TUI를 그대로 봅니다.</span></div><div><b>5</b><span>질문: 대화 줄 안에서 바로 답합니다. 선택지 단추와 입력칸은 지금 알림과 같습니다.</span></div><div><b>6</b><span>완료: 대화 줄 안의 한 칸. 글은 여기 한 곳에만 보입니다.</span></div><div><b>7</b><span>입력 창에 친 지시도 대화 줄에 사람 말로 남습니다.</span></div><div><b>8</b><span>알림 탭은 답할 것만 모은 목록. 누르면 그 대화의 그 칸으로 갑니다.</span></div></div></div>
-  <div class="fig"><h2>③ 안 C · 터미널 옆 대화 칸 <span class="tag">카드는 지금 그대로, 알림 탭이 「대화」가 됨</span></h2>
-<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
-<div class="row"><span class="b">loom</span></div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
-<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
-<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
-<div class="canvas"><div class="mk card big" data-selected style="left:24px; top:62px" data-n="12"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
-<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
-
-<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
-  ⎿ Q2561
-
-● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
-
-<span class="box">&gt; <span class="cursor"></span></span>
-<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div></div><aside class="dock wide"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="newtab"><span data-n="9" class="mk new">대화</span></button><button>터미널</button></div>
-<div class="filter"><span class="who2">claude-1 <svg class="i"><use href="#more"/></svg></span><span class="grow" style="flex:1"></span><span class="chip">전체</span><span class="chip on">답할 것 2</span></div>
-<div class="convo"><div class="msg me">loom의 질의응답 ui/ux를 어떻게 더 매끄럽게 연결할 수 있을까? tui 구조를 탈피해야하나?<span class="meta">사람 · 입력 창 · 21:02</span></div>
-<div class="item closed"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2559</span><span>21:05</span></div><div>바로 설계할까요, 시안 목업부터 만들까요? (A: 목업 / B: 설계)</div><div class="ans">답함 · 21:07 — 시안들 목업부터 뽑아</div></div>
-<div class="msg">코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.<span class="meta">claude-1 · 21:07</span></div>
-
-<div class="item done"><div class="ih"><svg class="i ok-ico"><use href="#check"/></svg><b>완료</b><span>21:39</span><span class="grow"></span><button class="sbtn">확인</button></div><div class="ans">지시: 시안들 목업부터 뽑아</div><div>목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.</div></div>
-<div class="mk new item" data-n="10"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>21:40</span><span class="grow"></span><button class="pill-close" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div><div class="reply"><span class="f">답변 입력, 그림 붙여넣기, Enter로 보내기</span><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div>
-</div>
-<div class="mk new dock-in" data-n="11"><div class="to"><b>claude-1</b> 에 입력 · Enter 보내기</div><div class="line"><div class="text">메시지를 입력하거나 그림·파일을 끌어다 놓으십시오</div><button class="send" disabled aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
-</div>
-<div class="calls"><div><b>9</b><span>「알림」 탭이 「대화」 탭이 됩니다.</span></div><div><b>10</b><span>질문·완료·지시가 안 A와 같은 칸으로 줄에 섞입니다. 「답할 것」을 누르면 답할 칸만 남습니다.</span></div><div><b>11</b><span>입력 창이 대화 칸 아래로 옵니다. 읽기·답하기·지시가 한 칸에 있습니다.</span></div><div><b>12</b><span>카드 터미널은 지금 그대로. 도구 실행과 권한 창은 여기서 봅니다. 대화 칸이 열리면 알약은 숨습니다.</span></div></div></div>
-
-  <section class="decision" id="D1" data-for="5 10"><h3><span class="did">D1</span>대화 줄에 무엇을 보일까(A나 C를 고를 때)</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">사람 입력, 턴의 마지막 글, 질문·답·완료만<span class="mark">권장</span><span class="sub">지금: 알림 목록에 따로 → 바뀐 뒤: 한 줄에 차례대로 · 비용: 턴 끝 이벤트 한 줄 · 토큰 0 · 되돌리기: 그 이벤트를 안 읽으면 지금과 같음</span></span></div><div class="opt"><span class="key">B</span><span class="label">도구 실행 줄도 보임<span class="sub">턴 중간 진행도 대화 줄에 보임 · 비용: 에이전트마다 기록 파일(Claude JSONL 등)이나 서버 사건을 읽는 코드를 따로 씀(17개 에이전트) · 기록 형식이 판마다 바뀌면 깨짐</span></span></div></div><ul class="why"><li>A는 모든 에이전트에 이미 오는 사건만 씁니다. 에이전트마다 다른 코드가 없습니다.</li><li>도구 실행은 옆 터미널(C)이나 [터미널] 단추(A)에서 그대로 봅니다.</li></ul></section>
-
-  <div class="fig"><h2>④ 안 B · TUI를 없애고 채팅 화면만 <span class="tag">에이전트를 구조 API로만 띄움</span></h2>
-<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
-<div class="row"><span class="b">loom</span></div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
-<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
-<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
-<div class="canvas"><div class="card big" data-selected style="left:24px; top:40px; width:470px"><div class="card-head"><span class="name">claude-1</span><span class="state">일하는 중</span><span class="model">opus 5.5 · high</span></div>
-<div class="convo">
-<div class="msg me">loom의 질의응답 ui/ux를 어떻게 더 매끄럽게 연결할 수 있을까?<span class="meta">사람 · 21:02</span></div>
-<div class="msg">코디 질의응답UX에게 목업을 맡깁니다.<span class="meta">claude-1 · 21:03</span></div>
-<div class="mk new tool" data-n="13"><span class="okm">✓</span>Bash · loom spawn 코디 질의응답UX --role 코디</div>
-<div class="tool"><span class="okm">✓</span>Read · docs/design/메시징.md</div>
-<div class="mk new item" data-n="14"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>권한</b><span>21:04</span></div><div>Bash 실행을 허락할까요? <code>rm -rf target/tmp</code></div><div class="ob-row"><span class="ob"><span class="k">1</span>허락</span><span class="ob"><span class="k">2</span>이번 세션 내내 허락</span><span class="ob"><span class="k">3</span>거절하고 말하기</span></div></div>
-<div class="item"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>21:40</span><span class="grow"></span><button class="pill-close" title="알림 지우기"><svg class="i"><use href="#x"/></svg></button></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div><div class="reply"><span class="f">답변 입력, 그림 붙여넣기, Enter로 보내기</span><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div>
-</div></div>
-<div class="card" style="left:510px; top:330px; width:210px"><div class="card-head"><span class="name">agy-1</span><span class="model">Antigravity</span></div><div class="mk new notsup" data-n="16">이 에이전트는 채팅 화면을 지원하지 않습니다.</div></div>
-<div class="composer" style="left:auto; right:16px; transform:none; width:240px; bottom:14px"><div class="to"><span class="tgt"><b>claude-1</b> 에 입력</span></div><div class="line"><div class="text">/login</div><button class="send" aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div><div class="mk new refuse" data-n="15">「/login」은 채팅 화면에 없습니다. 설정 › 에이전트 계정에서 로그인하십시오.</div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
-</div>
-<div class="calls"><div><b>13</b><span>도구 실행 줄. 에이전트마다 그리는 코드를 따로 씁니다.</span></div><div><b>14</b><span>권한 창을 loom이 다시 그립니다. 지금은 TUI가 그리고 loom은 읽기만 합니다.</span></div><div><b>15</b><span>TUI 명령(/login, /model, /resume 등)은 없습니다. 쓰던 명령마다 loom 화면을 새로 만듭니다.</span></div><div><b>16</b><span>구조 API가 없는 에이전트는 채팅 화면으로 쓸 수 없습니다.</span></div></div></div>
-  <div class="fig"><h2>⑤ 안 D · 입력 창에 알림을 합침 <span class="tag">가장 작은 변경</span></h2>
-<div class="page"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3>
-<div class="row"><span class="b">loom</span></div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span></div>
-<div class="row on" style="--d:2"><span class="dot"></span>claude-1</div>
-<div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">질의응답UX</span></div>
-<div class="row" style="--d:2"><span class="dot"></span>코디 질의응답UX</div></aside>
-<div class="canvas"><div class="mk new inbox-pill" style="left:24px; top:14px" data-n="18"><svg class="i qicon"><use href="#ask"/></svg><b>알림</b><span class="notice-count">2</span></div>
-<div class="card big" data-selected style="left:24px; top:62px; width:600px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span><span class="model">opus 5.5 · high</span></div>
-<div class="term"><span class="dim">● 코디 질의응답UX에게 목업을 맡겼습니다. 목업이 오면 알림으로 묻겠습니다.</span>
-
-<span class="dim">● Bash(loom ask "[질의응답 UX 시안](…) v1을 승인할까요? …")</span>
-  ⎿ Q2561
-
-● 목업 v1을 만들었습니다. 안 A·B·C·D를 같은 자료로 그렸습니다.
-
-<span class="box">&gt; <span class="cursor"></span></span>
-<span style="color:var(--err)">▸▸ bypass permissions on</span> <span class="dim">(shift+tab to cycle)</span></div><div class="card-foot">선택함 · 터미널에 바로 쳐도 됩니다</div></div>
-<div class="composer" style="bottom:14px; width:600px"><div class="mk new cmp-item" data-n="17"><div class="ih"><svg class="i q-ico"><use href="#ask"/></svg><b>질문</b><span class="qid">Q2561</span><span>claude-1 · 21:40</span><span class="grow"></span><span>1 / 2 · 다음 ▸</span></div><div><span class="dlink">질의응답 UX 시안</span> v1을 승인할까요?</div><div class="ob-row"><span class="ob rec"><span class="k">A</span>승인<span class="rm">권장</span></span><span class="ob"><span class="k">B</span>고침</span></div></div><div class="to"><span class="tgt"><b>claude-1</b> Q2561에 답</span><span class="keys">Enter 보내기 · Esc 터미널로</span></div><div class="line"><div class="text"><span class="ph">답변 입력, 그림 붙여넣기, Enter로 보내기</span></div><button class="send" disabled aria-label="보내기"><svg class="i"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>커밋 그래프</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 1개 · 완료 1개</p></aside></div><div class="statusbar"><span>claude-1 · Claude Code · opus 5.5 · high</span><span>노드 2</span></div>
-</div>
-<div class="calls"><div><b>17</b><span>입력 창 위에 고른 노드의 가장 오래된 알림 하나가 붙습니다. 입력 창에 치면 그 알림의 답이 됩니다. 알약을 누르면 알림이 있는 다음 노드를 고릅니다.</span></div><div><b>18</b><span>알약은 수만 보입니다.</span></div></div></div>
-
-  <section class="decision" id="D2" data-for="4 9 13 17"><h3><span class="did">D2</span>어느 안으로 갈까</h3><div class="opts"><div class="opt"><span class="key">A</span><span class="label">안 A · 카드 안 대화 보기<span class="sub">지금: 3곳 → 바뀐 뒤: 카드 1곳 · 일하는 동안 대화 줄은 조용하고 진행은 [터미널]을 눌러야 보임 · 되돌리기: 카드 단추</span></span></div><div class="opt"><span class="key">B</span><span class="label">안 B · TUI를 없애고 채팅만<span class="sub">지금: 3곳 → 바뀐 뒤: 채팅 1곳 · 비용: 에이전트마다 연결·권한 창·명령 화면을 새로 짬 · 구조 API가 없는 에이전트를 못 씀 · 되돌리기 어려움</span></span></div><div class="opt" data-recommended><span class="key">C</span><span class="label">안 C · 터미널 옆 대화 칸<span class="mark">권장</span><span class="sub">지금: 3곳 → 바뀐 뒤: 터미널과 대화 칸 2곳 나란히, 알림 목록과 떠 있는 입력 창이 대화 칸에 합쳐짐 · 비용: A와 같음 · 되돌리기: 탭을 「알림」으로</span></span></div><div class="opt"><span class="key">D</span><span class="label">안 D · 입력 창에 알림을 합침<span class="sub">지금: 3곳 → 바뀐 뒤: 2곳 · 비용 가장 작음(화면만) · 지난 대화와 지시는 지금처럼 터미널에만 남음</span></span></div></div><ul class="why"><li>C는 TUI의 권한 창·명령·로그인을 그대로 두고, 알림 목록과 입력 창을 한 칸으로 모읍니다.</li><li>A는 같은 비용이지만 터미널을 가려 턴 중간 진행을 놓치기 쉽습니다.</li><li>B는 TUI 기능을 에이전트마다 다시 만들어야 하고 쓸 수 없는 에이전트가 생깁니다.</li></ul></section>
+  <h2>고르지 않은 안(v1)</h2>
+  <ul class="note"><li>A 카드 안 대화 보기: 터미널을 가려 턴 중간 진행을 놓침.</li><li>B TUI 없앰: 에이전트마다 권한 창·명령을 다시 만들고, 구조 API가 없는 에이전트를 못 씀.</li><li>C 터미널 옆 대화 칸: 사람이 D를 골랐음.</li></ul>
 </main>
 <button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
 

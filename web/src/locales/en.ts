@@ -663,7 +663,7 @@ const en = {
     gone: 'The terminal has ended. You cannot send.',
     resetPlace: 'Put the input bar back (bottom centre)',
     place: 'Input bar place',
-    placeHint: 'Drag the top row of the input bar to put it anywhere in the graph pane. The default place is bottom centre. After a move, the top row shows a put-back button.',
+    placeHint: 'Drag the key hint row under the input field to put the bar anywhere in the graph pane. The default place is bottom centre. After a move, that row shows a put-back button.',
     toNode: 'To {{name}}',
     pickTarget: 'Pick where to send (Alt+L)',
     keyAnswer: 'Enter: send as the answer to {{id}}',

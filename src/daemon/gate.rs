@@ -218,6 +218,24 @@ impl App {
         problems
     }
 
+    async fn written_result(&self, node: NodeId, branch: &str) -> Result<(), Refusal> {
+        let dir = self.task_dir(node).await.map_err(|e| match e {
+            Problem::Refused(refusal) => refusal,
+            e => Refusal::Launch(for_agent(e).1),
+        })?;
+        let written = self
+            .files()
+            .read(&dir.local.join(crate::task::RESULT))
+            .is_ok_and(|bytes| !String::from_utf8_lossy(&bytes).trim().is_empty());
+        match written {
+            true => Ok(()),
+            false => Err(Refusal::NoResult {
+                branch: branch.to_owned(),
+                path: format!("{}/{}", dir.shown, crate::task::RESULT),
+            }),
+        }
+    }
+
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {
         let place = self.graph.place_of(node)?;
         self.repos
@@ -244,6 +262,7 @@ impl App {
         {
             return Err(Refusal::Uncommitted(branch.to_owned()));
         }
+        self.written_result(node, branch).await?;
         let (gate, target) = self.gate_of(node, &repo).await?;
         if target == branch {
             return Err(Refusal::SameAsTarget(branch.to_owned()));

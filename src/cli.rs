@@ -155,17 +155,19 @@ pub fn status() -> Result<(), String> {
     let relations: Relations = call("status", &(), None)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&relations).map_err(|e| e.to_string())?
+        serde_json::to_string(&relations).map_err(|e| e.to_string())?
     );
     Ok(())
 }
 
 pub fn directory() -> Result<(), String> {
     let listed: Vec<Listed> = call("nodes", &(), None)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())?
-    );
+    let lines = listed
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    println!("[\n{}\n]", lines.join(",\n"));
     Ok(())
 }
 
@@ -368,10 +370,6 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         AskResult::Inbox(asked) => asked,
         AskResult::Parent(sent) => {
             print_sent(&sent);
-            println!(
-                "Asked your parent. The answer comes as a message (kind: answer), or wait for it: `loom wait --reply-to {} --timeout <seconds>`.",
-                sent.id.0
-            );
             return Ok(());
         }
     };
@@ -379,14 +377,12 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         .doc
         .map(|doc| format!(" with {} ({})", doc.id, doc.title))
         .unwrap_or_default();
-    println!("{} in the inbox{with}: {}", asked.id, question.trim());
+    println!("{} is in the human's inbox{with}.", asked.id);
     if asked.open.len() > 1 {
         let open: Vec<String> = asked.open.iter().map(WaitId::to_string).collect();
         println!("Open questions: {}.", open.join(", "));
     }
-    println!(
-        "The question is in the human's inbox. Do not write it again in the terminal. End your turn now. The human answers in your terminal or in the inbox."
-    );
+    println!("End your turn now. Do not write the question again in the terminal.");
     Ok(())
 }
 
@@ -496,7 +492,7 @@ pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), Stri
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). loom sends you the result. To change the branch before the queue takes it, commit and call `loom ready {branch}` again.",
+        "Sent {branch} to its gate {} (target {}).",
         readied.gate, readied.target
     );
     for problem in &readied.unseated {

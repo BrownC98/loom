@@ -26,6 +26,7 @@ use api::graph::errors::LaunchError;
 use api::graph::messages::Kind;
 use api::graph::waits::WaitKind;
 use api::profile::ModelRule;
+use api::settings::AlwaysOn;
 use api::start::ModelChoice;
 
 mod accounts;
@@ -131,7 +132,7 @@ impl Adapter for Claude {
     }
 
     fn launch_settings(&self) -> Option<String> {
-        Some(settings().to_string())
+        Some(settings(AlwaysOn::default()).to_string())
     }
 
     fn launch<'a>(
@@ -374,13 +375,13 @@ fn args(plugin: &Path, launch: Launch) -> Vec<String> {
         "--append-system-prompt".into(),
         usage(launch),
         "--settings".into(),
-        settings().to_string(),
+        settings(launch.skills).to_string(),
         "--plugin-dir".into(),
         plugin.to_string_lossy().into_owned(),
     ]
 }
 
-fn settings() -> Value {
+fn settings(on: AlwaysOn) -> Value {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": HOOK,
@@ -395,8 +396,12 @@ fn settings() -> Value {
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
     let human = HUMAN_NOTIFICATIONS.map(|(name, _)| name).join("|");
+    let hidden: serde_json::Map<String, Value> = crate::skills::names(on)
+        .map(|name| (name.to_owned(), json!("off")))
+        .collect();
     json!({
         "permissions": { "allow": ALLOWED },
+        "skillOverrides": hidden,
         "hooks": {
             "SessionStart": hook,
             "UserPromptSubmit": hook,

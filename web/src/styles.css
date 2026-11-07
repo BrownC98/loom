@@ -1042,6 +1042,8 @@ span.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
 @container (max-width: 340px) { .composer-keys { display: none; } }
 .composer .alert-card { padding: 8px 10px; border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
 .alert-card .published { margin-left: 0; }
+.alert-card .top { flex-wrap: wrap; row-gap: 2px; }
+.alert-aside { flex: none; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .alert-pos { flex: none; margin-left: auto; color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .target-list-at { position: absolute; left: 0; width: 100%; bottom: calc(100% + 6px); }
 .target-list-at:not([data-above]) { top: calc(100% + 6px); bottom: auto; }

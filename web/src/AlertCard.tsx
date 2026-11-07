@@ -16,7 +16,7 @@ export function AlertCard(props: { target: Target; onChoose: (key: string) => vo
   return (
     <div className="entry alert-card" data-tone={wait.tone}>
       <WaitHead wait={wait}>
-        {target.key === PROMPT && <span className="kind">{t('composer.notAnswer')}</span>}
+        {target.key === PROMPT && <span className="alert-aside">{t('composer.notAnswer')}</span>}
         <Position target={target} />
       </WaitHead>
       {wait.instruction && <Instruction text={wait.instruction} />}

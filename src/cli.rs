@@ -12,8 +12,8 @@ use crate::daemon::{
 };
 use crate::graph::{Kept, Listed, Relations, Sent};
 use crate::protocol::{
-    AckRequest, ChoiceRequest, Delivery, IdleReply, IdleRequest, MessageId, NODE_CALLS,
-    NODE_CALLS_HEADER, Report,
+    AckRequest, ChoiceRequest, Delivery, END_TURN_NOW, IdleReply, IdleRequest, MessageId,
+    NODE_CALLS, NODE_CALLS_HEADER, Report,
 };
 use crate::roles::SetRole;
 use crate::task;
@@ -382,7 +382,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         let open: Vec<String> = asked.open.iter().map(WaitId::to_string).collect();
         println!("Open questions: {}.", open.join(", "));
     }
-    println!("End your turn now. Do not write the question again in the terminal.");
+    println!("{END_TURN_NOW} Do not write the question again in the terminal.");
     Ok(())
 }
 

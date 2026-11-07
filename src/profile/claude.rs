@@ -18,7 +18,7 @@ use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::accounts::Site;
 use crate::distro::Distro;
 use crate::place::{self, Files, Machine};
-use crate::protocol::{Delivery, Model, Session};
+use crate::protocol::{Delivery, END_TURN_NOW, Model, Session};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 use crate::wsl::Run;
@@ -41,7 +41,8 @@ const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const GUARD: &str = "loom guard";
-const TURN_END_VERBS: [&str; 3] = ["done", "ask", "verdict"];
+const TURN_END_VERBS: [&str; 2] = ["done", "verdict"];
+const ASK_VERB: &str = "ask";
 const TURN_ENDED: &str = "loom";
 const HOOK: &str = "loom hook claude";
 const LEAN_ENV: [(&str, &str); 3] = [
@@ -630,6 +631,8 @@ pub enum Event {
         tool_name: String,
         #[serde(default)]
         tool_input: Value,
+        #[serde(default)]
+        tool_response: Value,
     },
     PostToolUseFailure,
     Stop,
@@ -684,12 +687,15 @@ impl Event {
             Event::PostToolUse {
                 tool_name,
                 tool_input,
-            } => {
-                tool_name == "Bash"
-                    && tool_input["run_in_background"] != true
-                    && tool_input["command"]
+                tool_response,
+            } if tool_name == "Bash" && tool_input["run_in_background"] != true => {
+                match tool_input["command"].as_str().and_then(lone_loom_verb) {
+                    Some(verb) if TURN_END_VERBS.contains(&verb) => true,
+                    Some(ASK_VERB) => tool_response["stdout"]
                         .as_str()
-                        .is_some_and(calls_turn_end_verb)
+                        .is_some_and(|out| out.contains(END_TURN_NOW)),
+                    _ => false,
+                }
             }
             _ => false,
         }
@@ -873,17 +879,32 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     Some(input)
 }
 
-fn calls_turn_end_verb(command: &str) -> bool {
+fn lone_loom_verb(command: &str) -> Option<&str> {
     let command = command
         .strip_prefix(GUARD)
-        .map_or(command, |rest| rest.trim_start_matches('\n'));
-    let first = command.lines().next().unwrap_or_default();
-    let last = first.rsplit([';', '&', '|']).next().unwrap_or_default();
-    let mut words = last.split_whitespace();
-    words.next() == Some("loom")
-        && words
-            .next()
-            .is_some_and(|verb| TURN_END_VERBS.contains(&verb))
+        .map_or(command, |rest| rest.trim_start_matches('\n'))
+        .trim();
+    let mut quote = None;
+    let mut escaped = false;
+    for c in command.chars() {
+        match (quote, c) {
+            _ if escaped => escaped = false,
+            (Some('\''), '\'') | (Some('"'), '"') => quote = None,
+            (Some('\''), _) => {}
+            (_, '\\') => escaped = true,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, ';' | '&' | '|' | '\n' | '`' | '(' | ')' | '<' | '>') => return None,
+            (None, _) => {}
+        }
+    }
+    if quote.is_some() || escaped {
+        return None;
+    }
+    let mut words = command.split_whitespace();
+    (words.next() == Some(crate::protocol::LOOM))
+        .then(|| words.next())
+        .flatten()
 }
 
 fn turn_shown(screen: &str) -> bool {

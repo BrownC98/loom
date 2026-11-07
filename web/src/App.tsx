@@ -189,7 +189,7 @@ export function App() {
   useEffect(() => {
     if (!draftFilled) {
       if (pinned) setPinned(null);
-    } else if (target && (!pinned || !nodes.has(pinned.node))) setPinned({ node: target.view.id, key: target.key });
+    } else if (target && !pinned) setPinned({ node: target.view.id, key: target.key });
   }, [draftFilled, pinned, target?.view.id, target?.key]);
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');

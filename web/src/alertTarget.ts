@@ -30,9 +30,9 @@ function routeOf(wait: ScreenWait | null): Route {
 }
 
 export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Chosen | null): Target | null {
-  const held = pinned && nodes.has(pinned.node) ? pinned : null;
-  const view = held ? nodes.get(held.node) : selected === null ? waiting[0] : nodes.get(selected);
+  const view = (pinned && nodes.get(pinned.node)) || (selected !== null && nodes.get(selected)) || waiting[0];
   if (!view) return null;
+  const held = pinned?.node === view.id ? pinned : null;
   const waits = [...view.waits].sort(bySince);
   const open = (wanted: TargetKey) => wanted === PROMPT || waits.some((w) => w.id === wanted);
   const wanted = chosen?.node === view.id ? chosen.key : null;
@@ -44,7 +44,7 @@ export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: rea
     key,
     card,
     collapsed: key === PROMPT && card !== null,
-    lost: held !== null && !open(held.key),
+    lost: pinned !== null && (held === null || !open(held.key)),
     route: routeOf(key === PROMPT ? null : card),
     index: card ? waits.indexOf(card) + 1 : 0,
     total: waiting.reduce((n, v) => n + v.waits.length, 0),

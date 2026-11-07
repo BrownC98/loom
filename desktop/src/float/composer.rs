@@ -204,8 +204,8 @@ impl Composer {
         let groups = groups_of(snapshot);
         let total = groups.iter().map(|g| g.waits.len()).sum();
         let exists = |id: &u32| snapshot.nodes.iter().any(|n| n.id.0 == *id);
-        let pinned = self.pinned.filter(|(held, _)| exists(held));
-        let node = pinned
+        let held = self.pinned.filter(|(held, _)| exists(held));
+        let node = held
             .map(|(held, _)| held)
             .or_else(|| store.selected().filter(exists))
             .or_else(|| groups.first().map(|g| g.node.0))?;
@@ -219,11 +219,12 @@ impl Composer {
             .chosen
             .filter(|(held, _)| *held == node)
             .map(|(_, a)| a);
-        let aim = match pinned {
+        let aim = match held {
             Some((_, pin)) => pin,
             None => aim::resolve(chosen, &waits),
         };
-        let lost = matches!(aim, Aim::Alert(id) if !waits.iter().any(|w| w.wait.id == id));
+        let lost = (self.pinned.is_some() && held.is_none())
+            || matches!(aim, Aim::Alert(id) if !waits.iter().any(|w| w.wait.id == id));
         let kind = aim::kind_of(aim, &waits);
         Some(Aimed {
             node,
@@ -258,7 +259,16 @@ impl Composer {
         let selected = self.store.read(cx).selected();
         if selected != self.seen_selected {
             self.seen_selected = selected;
-            self.reaim(cx);
+            let gone = self.pinned.is_some_and(|(held, _)| {
+                !self
+                    .store
+                    .read(cx)
+                    .snapshot()
+                    .is_some_and(|s| s.nodes.iter().any(|n| n.id.0 == held))
+            });
+            if !gone {
+                self.reaim(cx);
+            }
         }
         let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {

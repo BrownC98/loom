@@ -749,6 +749,14 @@ impl Graph {
         Ok(Some(found))
     }
 
+    pub fn owns_merged(&self, owner: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS (SELECT 1 FROM gates WHERE owner = ?1 AND state = ?2)",
+            params![owner.0, to_json(&GateState::Merged)],
+            |r| r.get(0),
+        )
+    }
+
     pub fn note_reclaim(&self, round: &Reclaim, body: &str) -> rusqlite::Result<()> {
         let db = self.lock();
         let to = parent_of(&db, round.owner)

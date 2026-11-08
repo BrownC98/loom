@@ -715,21 +715,21 @@ impl Graph {
     }
 
     pub fn remove_childless_child(&self, id: NodeId) -> Result<bool, Refusal> {
-        self.remove_child_where(id, "TRUE")
+        self.remove_child_where(id, "TRUE".to_owned())
     }
 
     pub fn remove_merged_owner(&self, id: NodeId) -> Result<bool, Refusal> {
-        self.remove_child_where(id, MERGED_OWNER_FREE)
+        self.remove_child_where(id, format!("{MERGED_OWNER_SETTLED} AND {IDLE}"))
     }
 
-    fn remove_child_where(&self, id: NodeId, rule: &str) -> Result<bool, Refusal> {
+    fn remove_child_where(&self, id: NodeId, rule: String) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let removable: bool = tx
             .query_row(
                 &format!(
-                    "SELECT parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = n.id)
-                     AND {rule} FROM nodes n WHERE id = ?1"
+                    "SELECT c.parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes k WHERE k.parent = c.id)
+                     AND {rule} FROM nodes c WHERE c.id = ?1"
                 ),
                 [id.0],
                 |row| row.get(0),
@@ -1166,16 +1166,26 @@ impl Graph {
     }
 }
 
-const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS NULL AND c.role IS NOT NULL
+macro_rules! settled {
+    ($mail:literal) => {
+        concat!(
+            r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS NULL AND c.role IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
      AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
-     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
+     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0"#,
+            $mail,
+            r#"
          AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
      AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
-         AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))"#;
+         AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))"#
+        )
+    };
+}
 
-const MERGED_OWNER_FREE: &str = "n.state ->> 'kind' = 'done' AND n.state ->> 'kept' IS NULL
-     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.recipient = n.id AND m.sender = n.parent AND m.delivered = 0)";
+const SETTLED: &str = settled!("");
+
+const MERGED_OWNER_SETTLED: &str =
+    settled!(" AND NOT (m.sender IS NULL AND m.what ->> 'kind' IN ('merged', 'removed'))");
 
 const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
      WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))";

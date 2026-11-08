@@ -128,7 +128,11 @@ impl App {
         let app = self.clone();
         tokio::spawn(async move {
             let swept = app.sweep(parent).await;
-            if !swept.removed.is_empty() {
+            let owns_merged = app.graph.owns_merged(parent).unwrap_or_else(|e| {
+                crate::log::logln!("loom: 노드 {}의 병합한 차례를 읽지 못했다: {e}", parent.0);
+                false
+            });
+            if !swept.removed.is_empty() || owns_merged {
                 tokio::spawn(super::reclaim::run(app.clone()));
             }
             for problem in swept.problems {

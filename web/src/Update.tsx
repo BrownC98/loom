@@ -61,7 +61,6 @@ function useAppUpdates(): Updates {
       next.current = setTimeout(find, CHECK_EVERY_MS);
       return found;
     } catch (err) {
-      fail(find)(err);
       next.current = setTimeout(find, RETRY_AFTER_MS);
       throw err;
     }
@@ -97,7 +96,8 @@ function useAppUpdates(): Updates {
       params.delete(UPDATE_QUERY);
       const query = params.toString();
       history.replaceState(null, '', `${location.pathname}${query && `?${query}`}${location.hash}`);
-      find().then((found) => found && download(found, install), () => {});
+      const update = () => find().then((found) => found && download(found, install), fail(update));
+      update();
     } else {
       find().catch(() => {});
     }

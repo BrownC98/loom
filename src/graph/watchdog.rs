@@ -43,10 +43,14 @@ const REREVIEW: &str = r#"CASE WHEN n.review IS NOT NULL AND NOT EXISTS (SELECT 
 const DEPLOY: &str = "(SELECT json_object('kind', 'deploy', 'target', d.target, 'sha', d.sha)
      FROM deploys d WHERE d.root = n.id ORDER BY d.id DESC LIMIT 1)";
 
+fn waited() -> String {
+    format!("coalesce({MAIL}, {CHILDREN}, {ANSWER}, {REVIEW}, {MERGE}, {REREVIEW}, {DEPLOY})")
+}
+
 fn reason() -> String {
     format!(
-        r#"coalesce({MAIL}, {CHILDREN}, {ANSWER}, {REVIEW}, {MERGE}, {REREVIEW}, {DEPLOY},
-     CASE WHEN (n.turn_flags & {STATUS}) != 0 THEN '{{"kind":"job"}}' END)"#
+        r#"coalesce({}, CASE WHEN (n.turn_flags & {STATUS}) != 0 THEN '{{"kind":"job"}}' END)"#,
+        waited()
     )
 }
 
@@ -62,7 +66,7 @@ fn no_wake_source() -> String {
         "{QUIET} AND {} IS NULL
      AND (SELECT m.what ->> 'kind' FROM messages m WHERE m.recipient = n.id OR m.sender = n.id
          ORDER BY m.id DESC LIMIT 1) IS NOT 'idle'",
-        reason()
+        waited()
     )
 }
 

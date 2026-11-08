@@ -15,6 +15,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
 use crate::theme::{Terminal, Theme};
+use crate::views::compose;
 use crate::views::inputs::Inputs;
 use crate::vt::view::Picked;
 use crate::vt::{self, Key, KeyKind, Screen, Shape, Vt};
@@ -244,6 +245,22 @@ impl TerminalView {
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         window.focus(&self.focus, cx);
+    }
+
+    pub fn refocus(&self, window: &mut Window, cx: &mut App) -> bool {
+        compose::refocus(&self.focus, window, cx)
+    }
+
+    pub fn composing(&self) -> bool {
+        self.marked.is_some()
+    }
+
+    fn set_marked(&mut self, marked: Option<String>, cx: &mut App) {
+        let open = marked.is_some();
+        if open || self.marked.is_some() {
+            compose::mark(&self.focus, open, cx);
+        }
+        self.marked = marked;
     }
 
     pub fn focused(&self, window: &Window) -> bool {
@@ -528,7 +545,7 @@ impl EntityInputHandler for TerminalView {
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.marked = None;
+        self.set_marked(None, cx);
         cx.notify();
     }
 
@@ -539,7 +556,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.marked = None;
+        self.set_marked(None, cx);
         if !text.is_empty() {
             self.type_in(text.as_bytes().to_vec());
         }
@@ -560,7 +577,7 @@ impl EntityInputHandler for TerminalView {
         {
             pty.composing();
         }
-        self.marked = (!new_text.is_empty()).then(|| new_text.to_owned());
+        self.set_marked((!new_text.is_empty()).then(|| new_text.to_owned()), cx);
         cx.notify();
     }
 

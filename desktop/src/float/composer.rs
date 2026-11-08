@@ -854,8 +854,11 @@ impl Render for Composer {
             .size_full()
             .child(place::measure(self.pane.clone(), owner));
         let off = self.store.read(cx).settings().composer_off;
+        let composing = self.field.read(cx).composing();
         let shown = self.aimed(cx).filter(|a| {
-            !a.stream.is_empty() || (!off && self.inputs.read(cx).state(a.node, cx).is_some())
+            composing
+                || !a.stream.is_empty()
+                || (!off && self.inputs.read(cx).state(a.node, cx).is_some())
         });
         let Some(aimed) = shown else {
             self.grab = None;

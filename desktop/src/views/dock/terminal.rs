@@ -13,6 +13,7 @@ use crate::strings::Lang;
 use crate::strings::Str;
 use crate::views::card::{self, Actions, Face, Press};
 use crate::views::cardlink;
+use crate::views::compose;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::terminal;
 
@@ -156,11 +157,21 @@ impl Dock {
         let c = ui::colors(cx);
         let id = node.id.0;
         if self.terminal.as_ref().is_none_or(|(held, _)| *held != id) {
-            self.terminal = self.store.read(cx).base().map(str::to_owned).map(|base| {
-                let view = terminal::open(&self.inputs, &base, id, window, cx);
-                view.update(cx, |view, cx| view.focus(window, cx));
-                (id, view)
-            });
+            self.terminal = self
+                .store
+                .read(cx)
+                .base()
+                .map(str::to_owned)
+                .map(|base| (id, terminal::open(&self.inputs, &base, id, window, cx)));
+            self.focus_due = true;
+        }
+        if self.focus_due
+            && let Some((_, view)) = &self.terminal
+        {
+            self.focus_due = !view.update(cx, |view, cx| view.refocus(window, cx));
+            if self.focus_due {
+                compose::retry(window, cx);
+            }
         }
         let lang = *cx.global::<Lang>();
         let parent = node.parent.and_then(|parent| {

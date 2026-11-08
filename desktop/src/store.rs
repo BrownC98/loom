@@ -70,7 +70,6 @@ pub struct NodeMenu {
     pub button: Option<Bounds<Pixels>>,
 }
 
-/// 사이드 칸이나 터미널 독의 칩을 눌렀다. 그래프가 자세히 창을 연다.
 pub struct NodeStatus {
     pub node: u32,
     pub at: gpui::Point<Pixels>,
@@ -86,7 +85,6 @@ pub enum Target {
 
 pub struct Show(pub Target);
 
-/// 이벤트 탭을 열고 이 이름으로 거른다(상태 자세히 창의 「이벤트 기록에서 보기」).
 pub struct ShowEvents(pub String);
 pub struct DraftChanged(pub u32, pub Slot);
 

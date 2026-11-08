@@ -1,6 +1,3 @@
-//! 칩을 누르면 뜨는 자세히 창(목업 ③): 기다리는 것과 최근 상태 5개.
-//! 최근 상태는 데몬의 `GET /api/nodes/{id}/process-log`(프로세스 상태 바뀜 이벤트, 새것부터)다.
-
 use api::graph::events::{Entry, EventRecord};
 use gpui::{
     Context, Div, Entity, EventEmitter, FocusHandle, FontWeight, InteractiveElement, IntoElement,
@@ -18,13 +15,11 @@ use crate::views::ui;
 use crate::views::worktree::{Closed, error, shell};
 
 pub const WIDTH: f32 = 380.0;
-/// 처음 그릴 때 쓰는 높이. 그린 뒤에는 잰 높이를 쓴다.
 pub const HEIGHT: f32 = 200.0;
 
 pub struct StatusView {
     store: Entity<Store>,
     node: u32,
-    /// `None`이면 읽는 중이다.
     history: Option<Result<Vec<EventRecord>, String>>,
     focus: FocusHandle,
 }

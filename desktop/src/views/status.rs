@@ -1,6 +1,3 @@
-//! 노드의 상태 칩(알약), 아래 줄, 짧은 시간. 카드·사이드바 줄·자세히 창이 함께 쓴다.
-//! 목업 docs/mockups/agent-state.html M77 v3, 문구는 web/src/locales의 `node.status.*`.
-
 use api::graph::waits::{ScreenWait, WaitKind, WaitTone};
 use api::graph::{NodeView, Status};
 use chrono::Local;
@@ -12,7 +9,6 @@ use crate::views::ui;
 
 pub mod pop;
 
-/// `rework`가 이 수 이상이면 칩 옆에 「재작업 N」이 보인다.
 const REWORK_FROM: u32 = 3;
 const PILL_HEIGHT: f32 = 18.0;
 const PILL_TEXT: f32 = 11.0;
@@ -20,19 +16,12 @@ const SHA_LEN: usize = 7;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
-    /// 사람 차례: 채운 노랑.
     Ask,
-    /// 문제: 채운 빨강.
     Problem,
-    /// 일함: 연한 파랑.
     Working,
-    /// 결과: 연한 초록.
     Result,
-    /// 기다림: 회색 테두리.
     Waiting,
-    /// 사람이 확인할 완료 알림: 채운 초록.
     Done,
-    /// 재작업 수: 연한 빨강.
     Rework,
 }
 
@@ -45,12 +34,10 @@ pub fn wash(color: Rgba, alpha: f32) -> Rgba {
     Rgba { a: alpha, ..color }
 }
 
-/// 사람의 답을 기다리는 대기(노랑 칩·테두리·사람 상태). 멈춤 의심은 사람에게 묻는 것이 아니라서 뺀다(웹 `asking`).
 pub fn asking(wait: &ScreenWait) -> bool {
     matches!(wait.tone, WaitTone::Ask) && wait.wait.kind != WaitKind::Stalled
 }
 
-/// 빨간 테두리와 빨간 아래 줄이 붙는 상태.
 pub fn problem(status: &Status) -> bool {
     matches!(
         status,
@@ -62,7 +49,6 @@ fn text(key: Str, lang: Lang) -> String {
     key.text(lang).to_owned()
 }
 
-/// 칩. `Human`은 없다: 열린 질문 칩(`wait.<kind>` 개수)이 그 자리를 쓴다.
 pub fn chip(status: &Status, lang: Lang) -> Option<Chip> {
     let (text, tone) = match status {
         Status::Human => return None,
@@ -93,7 +79,6 @@ pub fn chip(status: &Status, lang: Lang) -> Option<Chip> {
     Some(Chip { text, tone })
 }
 
-/// 칩 옆의 「재작업 N」.
 pub fn rework(node: &NodeView, lang: Lang) -> Option<Chip> {
     (node.rework >= REWORK_FROM).then(|| Chip {
         text: Str::NodeStatusChipRework.with(lang, &[("n", &node.rework.to_string())]),
@@ -105,7 +90,6 @@ fn sha(sha: &str) -> String {
     sha.chars().take(SHA_LEN).collect()
 }
 
-/// 아래 줄의 글. 없으면 시간만 보인다.
 pub fn line(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String> {
     let reply = || node.reply.clone();
     match &node.status {
@@ -160,7 +144,6 @@ pub fn line(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String>
     }
 }
 
-/// 「12분」「1시간」 꼴의 짧은 경과 시간. `since`가 0이면(데몬이 아직 모른다) 없다.
 pub fn since_short(since: i64, lang: Lang) -> Option<String> {
     (since > 0).then(|| short(Local::now().timestamp() - since, lang))
 }
@@ -179,7 +162,6 @@ fn short(seconds: i64, lang: Lang) -> String {
     format!("{count}{unit}")
 }
 
-/// 알약 하나. 모든 상태가 이 모양이다(사람 결정 Q2669 D1).
 pub fn pill(text: String, tone: Tone, zoom: f32, c: &Colors) -> Div {
     let (fill, edge, ink) = match tone {
         Tone::Ask => (c.warn, c.warn, c.warn_ink),

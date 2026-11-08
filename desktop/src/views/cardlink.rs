@@ -41,7 +41,6 @@ pub fn wake(base: &str, node: u32) -> Result<(), Failure> {
     link::post::<Value>(base, &format!("/api/nodes/{node}/wake"), None).map(|_| ())
 }
 
-/// 노드의 마지막 프로세스 상태 바뀜 5개(새것부터).
 pub fn process_log(base: &str, node: u32) -> Result<Vec<EventRecord>, Failure> {
     link::read(base, &format!("/api/nodes/{node}/process-log"))
 }

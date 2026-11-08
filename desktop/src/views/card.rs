@@ -1034,7 +1034,6 @@ fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
         .child(foot_line(face, false, zoom, colors).when(asleep(face.node), |d| d.opacity(ASLEEP)))
 }
 
-/// 아래 줄: 상태가 주는 글과 시간. 표준 카드의 발과 심플 카드의 마지막 줄이 함께 쓴다.
 fn foot_line(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
     let node = face.node;
     let text = status::line(node, face.parent, face.lang);

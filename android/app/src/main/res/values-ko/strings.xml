@@ -40,5 +40,6 @@
     <string name="wait_trust">폴더 신뢰 확인</string>
     <string name="wait_auth">로그인·계정 설정</string>
     <string name="wait_input">입력 요청</string>
+    <string name="wait_stalled">멈춤 의심</string>
     <string name="wait_done">완료</string>
 </resources>

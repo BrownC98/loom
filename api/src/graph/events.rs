@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{NodeState, ProcessState};
 use super::errors::Refusal;
 use super::messages::{Field, Finding, GateState, GateVerb, Kind, MessageKind};
 use super::text::TextPart;
 use super::waits::{Choice, WaitDoc};
+use super::{NodeState, ProcessState};
 use crate::ids::{AccountId, AgentId, NodeId, WaitId};
 use crate::profile::Provider;
 

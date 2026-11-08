@@ -33,10 +33,10 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 
 The usage text gives the commands, the waits and the size limits. These rules are not in it:
 
-- At start and after an `adopted` notice, run `loom status` to see your current parent and children. If a send fails, first look at the relations and `alive`. Report to your parent.
+- At start and after an `adopted` notice, run `loom status` to see your current parent and children. If a send fails, first look at the relations and `process`. Report to your parent.
 - A node number is not a message number. To ask a child something, send `loom note` and get a `loom done` or an answer. If an answer is refused because the parent changed, send the current parent the question's history and its result.
-- A question stays open after its time limit. Do not send the same question again automatically. Look at the relations and `alive`, then follow the supervision procedure.
-- `done` means that the work is complete, not that the process stopped. A done node with `alive: true` can receive feedback, and then it is running again. Spawn a node with `alive: false` again with a new name.
+- A question stays open after its time limit. Do not send the same question again automatically. Look at the relations and `process`, then follow the supervision procedure.
+- `done` means that the work is complete, not that the process stopped. A done node whose `process` is not `stopped` (`working`, `idle`, `blocked` or `asleep`) can receive feedback, and then it is running again. Spawn a node with `process` `stopped` again with a new name.
 - `done --file` sends the absolute path, not the file content. A result file has no size limit.
 
 ## Reports to the human

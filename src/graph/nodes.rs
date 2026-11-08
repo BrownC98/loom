@@ -7,14 +7,14 @@ use super::relaunch_plans::resume_at_turn_end;
 use super::token::{NodeLaunch, NodeToken};
 use super::{
     Db, Graph, ProcessOutcome, REACHABLE, Work, from_json, hosts, mailbox, name_of, node_state,
-    note_state, optional_json, parent_of, place_label, place_of, process_of, state_of, to_json,
-    waits,
+    note_state, optional_json, parent_of, place_label, place_of, process_of, process_state,
+    running_live, state_of, to_json, waits,
 };
 use crate::protocol::{AdapterRecord, Model, Session, StartDigests};
 use api::graph::errors::{BRIEF_LIMIT_BYTES, Refusal};
-use api::graph::events::{AgentEvent, AgentState, Entry};
+use api::graph::events::{AgentEvent, Entry};
 use api::graph::messages::{Kind, MessageKind};
-use api::graph::{CardView, NodeState, Place, Toward};
+use api::graph::{CardView, NodeState, Place, ProcessState, Toward};
 use api::ids::{AccountId, AgentId, NodeId};
 use api::limits::TreeLimits;
 
@@ -294,7 +294,8 @@ impl Graph {
             return Ok(());
         };
         let tx = db.transaction()?;
-        agent_state::apply(&tx, id, AgentEvent::Exited)?;
+        let was = agent_state::was(&tx, id)?;
+        agent_state::step(&tx, id, &AgentEvent::Exited)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL WHERE id = ?1 AND process IS NULL",
             params![id.0, to_json(&ended)],
@@ -302,6 +303,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
+        agent_state::note(&tx, id, was, AgentEvent::Exited)?;
         hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
@@ -356,7 +358,8 @@ impl Graph {
     pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        agent_state::apply(&tx, id, AgentEvent::Slept)?;
+        let was = agent_state::was(&tx, id)?;
+        agent_state::step(&tx, id, &AgentEvent::Slept)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, sleeping = 0, wait = NULL
              WHERE id = ?1 AND process IS NULL AND sleeping = 1 AND state ->> 'kind' = 'done'",
@@ -365,6 +368,7 @@ impl Graph {
         if changed == 0 {
             return Ok(false);
         }
+        agent_state::note(&tx, id, was, AgentEvent::Slept)?;
         hosts::drop_host(&tx, id)?;
         waits::drop_questions(&tx, id)?;
         tx.commit()?;
@@ -404,6 +408,7 @@ impl Graph {
     pub fn sleep_again(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        let was = agent_state::was(&tx, id)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2
              WHERE id = ?1 AND process IS NOT NULL AND state ->> 'kind' = 'done'",
@@ -412,7 +417,8 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
-        agent_state::apply(&tx, id, AgentEvent::Slept)?;
+        agent_state::step(&tx, id, &AgentEvent::Slept)?;
+        agent_state::note(&tx, id, was, AgentEvent::Slept)?;
         tx.commit()?;
         self.publish_nodes();
         Ok(())
@@ -436,7 +442,8 @@ impl Graph {
         let Some(from) = state_of(&tx, id).optional()? else {
             return Ok(());
         };
-        agent_state::apply(&tx, id, AgentEvent::Exited)?;
+        let was = agent_state::was(&tx, id)?;
+        agent_state::step(&tx, id, &AgentEvent::Exited)?;
         let changed = tx.execute(
             "UPDATE nodes SET process = ?2, state = ?3
              WHERE id = ?1 AND process ->> 'kind' IN ('asleep', 'hostGone')",
@@ -449,6 +456,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
+        agent_state::note(&tx, id, was, AgentEvent::Exited)?;
         note_state(&tx, id, from)?;
         let parent = parent_of(&tx, id)?;
         let what = MessageKind::Exited {
@@ -505,7 +513,8 @@ impl Graph {
         let Some(from) = state_of(&tx, id).optional()? else {
             return Ok(());
         };
-        agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
+        let was = agent_state::was(&tx, id)?;
+        agent_state::step(&tx, id, &AgentEvent::Relaunched)?;
         let cleared = changed(&tx)?
             + tx.execute(
                 "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
@@ -516,6 +525,7 @@ impl Graph {
             "UPDATE nodes SET process = NULL, sleeping = 0 WHERE id = ?1 AND process IS NOT NULL",
             [id.0],
         )? > 0;
+        agent_state::note(&tx, id, was, AgentEvent::Relaunched)?;
         note_state(&tx, id, from)?;
         tx.commit()?;
         if revived || cleared > 0 {
@@ -557,8 +567,7 @@ impl Graph {
                         id,
                         name: row.get(0)?,
                         state: node_state(from_json(row, 1)?, process),
-                        alive: process.is_none(),
-                        agent_state,
+                        process: process_state(process, agent_state.as_ref()),
                     })
                 },
             )
@@ -582,7 +591,7 @@ impl Graph {
         let listed = db
             .prepare(
                 "SELECT n.id, n.name, n.parent, coalesce(r.path, ''), coalesce(n.worktree, ''),
-                 n.state, n.process
+                 n.state, n.process, (SELECT s.state FROM agent_states s WHERE s.node = n.id)
                  FROM nodes n LEFT JOIN repos r ON r.id = n.repo ORDER BY n.id",
             )?
             .query_map([], |row| {
@@ -593,7 +602,7 @@ impl Graph {
                     parent: row.get::<_, Option<u32>>(2)?.map(NodeId),
                     place: place_label(&row.get::<_, String>(3)?, &row.get::<_, String>(4)?),
                     state: node_state(from_json(row, 5)?, process),
-                    alive: process.is_none(),
+                    process: process_state(process, optional_json(row, 7)?.as_ref()),
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -944,11 +953,11 @@ fn children_of(tx: &Connection, id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
 }
 
 fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
-    let Some(state) = state_of(tx, id).optional()? else {
+    let Some(running) = running_live(tx, id).optional()? else {
         return Ok(None);
     };
     let children = children_of(tx, id)?;
-    let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
+    let waiting_parent = parent_of(tx, id)?.filter(|_| running);
     if let Some(parent) = waiting_parent {
         let what = MessageKind::Removed {
             node: name_of(tx, id)?,
@@ -1015,7 +1024,7 @@ fn detach_in(tx: &Connection, child: NodeId) -> Result<Adoption, Refusal> {
         return Err(Refusal::NameTaken(name));
     }
     let before = super::gate::open_gates(tx, &[child])?;
-    let told_old = (state_of(tx, child).ok() == Some(NodeState::Running)).then_some(old);
+    let told_old = running_live(tx, child)?.then_some(old);
     let detached = MessageKind::Adopted {
         node: name,
         parent: NO_PARENT.to_owned(),
@@ -1090,7 +1099,8 @@ fn adopt_in(
         return Err(Refusal::NameTaken(name));
     }
     let before = super::gate::open_gates(tx, &[child])?;
-    let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
+    let running = running_live(tx, child)?;
+    let told_old = old.filter(|_| running);
     let adopted = MessageKind::Adopted {
         node: name.clone(),
         parent: name_of(tx, parent)?,
@@ -1359,9 +1369,7 @@ pub struct Peer {
     pub id: NodeId,
     pub name: String,
     pub state: NodeState,
-    pub alive: bool,
-    #[serde(default)]
-    pub agent_state: Option<AgentState>,
+    pub process: ProcessState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1371,7 +1379,7 @@ pub struct Listed {
     pub parent: Option<NodeId>,
     pub place: String,
     pub state: NodeState,
-    pub alive: bool,
+    pub process: ProcessState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

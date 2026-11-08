@@ -45,13 +45,9 @@ pub enum ProcessState {
     /// 데몬이 완료 노드의 프로세스를 재웠다. 메시지가 오면 다시 띄운다.
     Asleep,
     /// 사람의 답을 기다리는 창이 에이전트를 막았다. `before`는 창이 닫히면 돌아갈 상태다(`working`이나 `idle`).
-    Blocked {
-        before: Box<ProcessState>,
-    },
+    Blocked { before: Box<ProcessState> },
     /// 프로세스가 없다. `code`가 없으면 끝 코드를 모른다: 데몬이 다시 시작했을 때 사라졌거나, 호스트가 없거나, 에이전트를 띄우지 않았다.
-    Stopped {
-        code: Option<u32>,
-    },
+    Stopped { code: Option<u32> },
 }
 
 /// 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.

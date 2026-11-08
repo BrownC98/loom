@@ -1,18 +1,106 @@
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 
-use api::graph::events::{AgentEvent, AgentState, Entry, IdleEnd};
+use api::graph::ProcessState;
+use api::graph::events::{AgentEvent, Entry, IdleEnd};
 
 use super::events;
 use super::turns::SUBMITTED_INPUT;
-use super::{Graph, mailbox, optional_json, to_json};
+use super::{Graph, mailbox, optional_json, process_of, process_state, to_json};
 use api::ids::NodeId;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AgentState {
+    Starting,
+    Blocked { before: Box<AgentState> },
+    Listening,
+    Deaf,
+    Turn,
+    Mismatch,
+}
+
+impl AgentState {
+    pub fn busy(&self) -> bool {
+        !matches!(self, Self::Listening | Self::Deaf | Self::Blocked { .. })
+    }
+
+    pub fn cut(&self) -> bool {
+        match self {
+            Self::Listening => false,
+            Self::Blocked { before } => before.cut(),
+            Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
+        }
+    }
+
+    pub(super) fn shown(&self) -> ProcessState {
+        match self {
+            Self::Starting | Self::Turn | Self::Mismatch => ProcessState::Working,
+            Self::Listening | Self::Deaf => ProcessState::Idle,
+            Self::Blocked { before } => ProcessState::Blocked {
+                before: Box::new(before.shown()),
+            },
+        }
+    }
+
+    fn name(state: Option<&Self>) -> &'static str {
+        match state {
+            Some(Self::Starting) => "starting",
+            Some(Self::Blocked { .. }) => "blocked",
+            Some(Self::Listening) => "listening",
+            Some(Self::Deaf) => "deaf",
+            Some(Self::Turn) => "turn",
+            Some(Self::Mismatch) => "mismatch",
+            None => "ended",
+        }
+    }
+
+    pub fn next(self, event: &AgentEvent) -> Option<AgentState> {
+        use AgentEvent as E;
+        use AgentState as S;
+        Some(match (self, event) {
+            (_, E::Exited | E::Slept) => return None,
+            (_, E::Relaunched) => S::Starting,
+            (state, E::RelaunchStarted) => state,
+            (_, E::VersionMismatch) => S::Mismatch,
+            (S::Mismatch, _) => S::Mismatch,
+            (S::Blocked { before }, E::DialogCleared) => *before,
+            (S::Blocked { before }, E::Dialog) => S::Blocked { before },
+            (S::Blocked { before }, event) => S::Blocked {
+                before: Box::new(before.next(event)?),
+            },
+            (state, E::Dialog) => S::Blocked {
+                before: Box::new(state),
+            },
+            (state, E::DialogCleared) => state,
+            (_, E::TurnStarted | E::Busy | E::InputSent) => S::Turn,
+            (_, E::WaitOpened | E::TurnEndedWaitOpened | E::Idle) => S::Listening,
+            (_, E::Lost) => S::Deaf,
+            (
+                _,
+                E::WaitClosed {
+                    by: IdleEnd::Mail | IdleEnd::Turn { .. } | IdleEnd::Typed,
+                },
+            ) => S::Turn,
+            (S::Listening, E::WaitClosed { .. }) => S::Deaf,
+            (state, E::WaitClosed { .. }) => state,
+            (S::Starting | S::Turn, E::TurnEnded) => S::Deaf,
+            (state, E::TurnEnded) => state,
+        })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentChange {
     pub node: NodeId,
-    pub from: Option<AgentState>,
     pub to: Option<AgentState>,
     pub by: AgentEvent,
+}
+
+#[derive(PartialEq)]
+pub(super) struct Was {
+    process: ProcessState,
+    agent: Option<AgentState>,
 }
 
 fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Option<AgentState>>> {
@@ -37,14 +125,51 @@ pub(super) fn start(db: &Connection, node: NodeId) -> rusqlite::Result<()> {
     store(db, node, &AgentState::Starting)
 }
 
+pub(super) fn was(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Was>> {
+    let Some(agent) = load(db, node)? else {
+        return Ok(None);
+    };
+    let process = process_state(process_of(db, node)?, agent.as_ref());
+    Ok(Some(Was { process, agent }))
+}
+
+pub(super) fn note(
+    db: &Connection,
+    node: NodeId,
+    was: Option<Was>,
+    by: AgentEvent,
+) -> rusqlite::Result<()> {
+    let (Some(was), Some(now)) = (was, self::was(db, node)?) else {
+        return Ok(());
+    };
+    if was == now {
+        return Ok(());
+    }
+    let entry = Entry::ProcessChanged {
+        node: events::who(db, node)?,
+        from: was.process,
+        to: now.process,
+        by,
+        detail: AgentState::name(now.agent.as_ref()).to_owned(),
+    };
+    events::write(db, &entry, None)
+}
+
 pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlite::Result<usize> {
+    let was = was(db, node)?;
+    let moved = step(db, node, &event)?;
+    note(db, node, was, event)?;
+    Ok(moved)
+}
+
+pub(super) fn step(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Result<usize> {
     let Some(now) = load(db, node)? else {
         return Ok(0);
     };
-    let moved = move_mail(db, node, &event)?;
+    let moved = move_mail(db, node, event)?;
     let to = match now.clone() {
-        Some(state) => state.next(&event),
-        None if event == AgentEvent::Relaunched => Some(AgentState::Starting),
+        Some(state) => state.next(event),
+        None if *event == AgentEvent::Relaunched => Some(AgentState::Starting),
         None => None,
     };
     let turn_began = to == Some(AgentState::Turn)
@@ -74,13 +199,6 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         Some(state) => store(db, node, state)?,
         None => drop(db.execute("DELETE FROM agent_states WHERE node = ?1", [node.0])?),
     }
-    let entry = Entry::AgentStateChanged {
-        node: events::who(db, node)?,
-        from: now,
-        to,
-        by: event,
-    };
-    events::write(db, &entry, None)?;
     Ok(moved)
 }
 

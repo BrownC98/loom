@@ -648,6 +648,8 @@ fn framed(
     }
     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
     .on_click(dismiss);
+    let split = strip.as_ref().is_some_and(|strip| strip.bulk.is_some());
+    let close = close.when(split, |close| close.rounded_r(px(0.0)));
     let carded = strip.is_some();
     let top = div()
         .flex()
@@ -706,8 +708,7 @@ fn framed(
                 .flex_none()
                 .ml_auto()
                 .child(small(strip.counts))
-                .children(strip.bulk)
-                .child(close);
+                .child(div().flex().flex_none().child(close).children(strip.bulk));
             let wrapped = div()
                 .flex()
                 .flex_wrap()

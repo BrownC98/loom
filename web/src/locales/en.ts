@@ -664,6 +664,7 @@ const en = {
     pickTarget: 'Pick where to send (Alt+L)',
     keys: 'Enter send · Alt+L list',
     alertTotal: 'Remaining {{total}} · Questions {{ask}} · Done {{done}}',
+    confirmMenu: 'Confirm all done menu',
     confirmAll: 'Confirm all {{count}} done',
     sectionNodes: 'Instruct a node',
     sectionAlerts: 'Alerts',

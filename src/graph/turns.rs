@@ -19,6 +19,8 @@ enum Bit {
     FirstInput,
     UnjudgedNudged,
     Status,
+    Typed,
+    HumanReply,
 }
 
 impl Bit {
@@ -27,7 +29,7 @@ impl Bit {
     }
 }
 
-const _: () = match Bit::Status {
+const _: () = match Bit::HumanReply {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
@@ -36,8 +38,10 @@ const _: () = match Bit::Status {
     | Bit::Replied
     | Bit::SubmittedInput
     | Bit::FirstInput
-    | Bit::UnjudgedNudged => {}
-    last @ Bit::Status => assert!((last as u32) < u16::BITS),
+    | Bit::UnjudgedNudged
+    | Bit::Status
+    | Bit::Typed => {}
+    last @ Bit::HumanReply => assert!((last as u32) < u16::BITS),
 };
 
 const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
@@ -86,6 +90,8 @@ impl TurnMark {
 
 const REPLIED: u16 = Bit::Replied.mask();
 pub(super) const STATUS: u16 = Bit::Status.mask();
+pub(super) const HUMAN_REPLY: u16 = Bit::HumanReply.mask();
+pub(super) const TYPED: u16 = Bit::Typed.mask();
 pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
 const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
@@ -277,9 +283,13 @@ impl Graph {
         } else {
             0
         };
+        let human_reply = if has(Bit::Typed) { HUMAN_REPLY } else { 0 };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept | (flags & (SUBMITTED_INPUT | STATUS | open))],
+            params![
+                node.0,
+                kept | human_reply | (flags & (SUBMITTED_INPUT | STATUS | open))
+            ],
         )?;
         tx.commit()?;
         if reported {
@@ -297,7 +307,13 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | STATUS | FIRST_INPUT,
+            TurnMark::Asked.mask()
+                | TurnMark::QuestionBox.mask()
+                | REPLIED
+                | STATUS
+                | HUMAN_REPLY
+                | TYPED
+                | FIRST_INPUT,
         )?;
         tx.commit()
     }

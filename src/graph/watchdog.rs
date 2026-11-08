@@ -1,13 +1,18 @@
 use rusqlite::OptionalExtension;
 
-use super::turns::STATUS;
+use super::turns::{HUMAN_REPLY, STATUS};
 use super::{Graph, mailbox};
 use api::graph::messages::{Kind, MessageKind};
 use api::ids::NodeId;
 
-const QUIET: &str = "n.process IS NULL AND n.state ->> 'kind' != 'done' AND n.wait IS NULL AND n.reply IS NOT NULL
+fn quiet() -> String {
+    format!(
+        "n.process IS NULL AND n.state ->> 'kind' != 'done' AND n.wait IS NULL AND n.reply IS NOT NULL
+     AND (n.turn_flags & {HUMAN_REPLY}) = 0
      AND EXISTS (SELECT 1 FROM agent_states s WHERE s.node = n.id AND s.state ->> 'kind' = 'listening')
-     AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = n.id)";
+     AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = n.id)"
+    )
+}
 
 const MAIL: &str = r#"CASE WHEN EXISTS (SELECT 1 FROM relaunch_plans p WHERE p.node = n.id)
          OR EXISTS (SELECT 1 FROM messages m WHERE m.recipient = n.id AND m.delivered = 0)
@@ -56,16 +61,18 @@ fn reason() -> String {
 
 pub(super) fn idle_status() -> String {
     format!(
-        r#"coalesce({}, CASE WHEN {QUIET} THEN '{{"kind":"stalled"}}' END)"#,
-        reason()
+        r#"coalesce({}, CASE WHEN {} THEN '{{"kind":"stalled"}}' END)"#,
+        reason(),
+        quiet()
     )
 }
 
 fn no_wake_source() -> String {
     format!(
-        "{QUIET} AND {} IS NULL
+        "{} AND {} IS NULL
      AND (SELECT m.what ->> 'kind' FROM messages m WHERE m.recipient = n.id OR m.sender = n.id
          ORDER BY m.id DESC LIMIT 1) IS NOT 'idle'",
+        quiet(),
         waited()
     )
 }

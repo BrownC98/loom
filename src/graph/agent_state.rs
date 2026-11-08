@@ -5,7 +5,7 @@ use api::graph::ProcessState;
 use api::graph::events::{AgentEvent, Entry, IdleEnd};
 
 use super::events;
-use super::turns::{STATUS, SUBMITTED_INPUT};
+use super::turns::{HUMAN_REPLY, STATUS, SUBMITTED_INPUT};
 use super::{Graph, mailbox, optional_json, process_of, process_state, to_json};
 use api::ids::NodeId;
 
@@ -193,7 +193,7 @@ pub(super) fn step(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlit
         )?;
         db.execute(
             "UPDATE nodes SET turn_flags = turn_flags & ~?2 WHERE id = ?1",
-            params![node.0, STATUS],
+            params![node.0, STATUS | HUMAN_REPLY],
         )?;
     }
     if to == now {

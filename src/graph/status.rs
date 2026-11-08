@@ -62,9 +62,10 @@ pub(super) fn views(
     db: &Connection,
     linked: fn(&AgentId) -> bool,
     tool: &dyn Fn(NodeId) -> Option<String>,
+    quiet: &dyn Fn(NodeId) -> bool,
 ) -> rusqlite::Result<Vec<NodeView>> {
     let since = since_of(db)?;
-    let mut views = with_status(db, linked, tool)?;
+    let mut views = with_status(db, linked, tool, quiet)?;
     for view in &mut views {
         view.since = match view.status {
             Status::Human => asks_human(view).min(),
@@ -80,6 +81,7 @@ fn with_status(
     db: &Connection,
     linked: fn(&AgentId) -> bool,
     tool: &dyn Fn(NodeId) -> Option<String>,
+    quiet: &dyn Fn(NodeId) -> bool,
 ) -> rusqlite::Result<Vec<NodeView>> {
     db.prepare(&query())?
         .query_map([], |row| {
@@ -95,7 +97,7 @@ fn with_status(
         .map(|row| {
             let (mut view, derived) = row?;
             view.rework = derived.rework;
-            view.status = status(&view, derived, tool);
+            view.status = status(&view, derived, tool, quiet);
             Ok(view)
         })
         .collect()
@@ -108,7 +110,12 @@ fn asks_human(view: &NodeView) -> impl Iterator<Item = i64> + '_ {
         .map(|w| w.wait.since)
 }
 
-fn status(view: &NodeView, derived: Derived, tool: &dyn Fn(NodeId) -> Option<String>) -> Status {
+fn status(
+    view: &NodeView,
+    derived: Derived,
+    tool: &dyn Fn(NodeId) -> Option<String>,
+    quiet: &dyn Fn(NodeId) -> bool,
+) -> Status {
     let running = view.state == NodeState::Running;
     if asks_human(view).next().is_some() {
         return Status::Human;
@@ -131,14 +138,17 @@ fn status(view: &NodeView, derived: Derived, tool: &dyn Fn(NodeId) -> Option<Str
     if view.state == NodeState::Done {
         return derived.merged.unwrap_or(Status::Done);
     }
-    derived.idle.unwrap_or(Status::Idle)
+    derived
+        .idle
+        .filter(|idle| *idle != Status::Stalled || quiet(view.id))
+        .unwrap_or(Status::Idle)
 }
 
 impl Graph {
-    pub fn sync_stalls(&self) -> rusqlite::Result<()> {
+    pub fn sync_stalls(&self, quiet: impl Fn(NodeId) -> bool) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let stalled: Vec<NodeId> = with_status(&tx, self.linked, &|_| None)?
+        let stalled: Vec<NodeId> = with_status(&tx, self.linked, &|_| None, &quiet)?
             .into_iter()
             .filter(|v| v.status == Status::Stalled)
             .map(|v| v.id)

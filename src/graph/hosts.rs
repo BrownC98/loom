@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Graph;
+use super::token::NodeLaunch;
 use crate::process_tree::Identity;
 use api::ids::NodeId;
 
@@ -21,12 +22,13 @@ pub(super) fn guarded(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<Ide
 }
 
 impl Graph {
-    pub fn guard(&self, node: NodeId, shell: Identity) -> rusqlite::Result<()> {
+    pub fn guard(&self, launch: NodeLaunch<'_>, shell: Identity) -> rusqlite::Result<()> {
         self.lock()
             .execute(
                 "INSERT OR IGNORE INTO guarded_commands (node, pid, birth)
-                 SELECT node, ?2, ?3 FROM node_hosts WHERE node = ?1",
-                params![node.0, shell.pid, shell.birth],
+                 SELECT h.node, ?2, ?3 FROM node_hosts h JOIN nodes n ON n.id = h.node
+                 WHERE h.node = ?1 AND n.token = ?4",
+                params![launch.node.0, shell.pid, shell.birth, launch.token],
             )
             .map(drop)
     }

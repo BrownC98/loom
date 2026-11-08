@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import type { Target } from './alertTarget';
-import { Choices, Instruction, ToTerminal, WaitContent, WaitHead, WaitTitle } from './Inbox';
+import { PROMPT, type Target } from './alertTarget';
+import { Choices, Instruction, ToTerminal, WaitContent, WaitHead } from './Inbox';
 
 function Position(props: { target: Target }) {
   const { t } = useTranslation();
@@ -13,19 +13,10 @@ export function AlertCard(props: { target: Target; onChoose: (key: string) => vo
   const { target } = props;
   const wait = target.card;
   if (!wait) return null;
-  if (target.collapsed)
-    return (
-      <div className="entry alert-card alert-line" data-tone={wait.tone}>
-        <div className="top">
-          <WaitTitle wait={wait} />
-          <span className="kind">{t('composer.notAnswer')}</span>
-          <Position target={target} />
-        </div>
-      </div>
-    );
   return (
     <div className="entry alert-card" data-tone={wait.tone}>
       <WaitHead wait={wait}>
+        {target.key === PROMPT && <span className="alert-aside">{t('composer.notAnswer')}</span>}
         <Position target={target} />
       </WaitHead>
       {wait.instruction && <Instruction text={wait.instruction} />}

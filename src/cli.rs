@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -33,6 +34,7 @@ pub use hook::hook;
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
+const CONNECT_WAIT: Duration = Duration::from_secs(120);
 
 const NO_BRIEF: &str = "loom spawn: no brief. Write it to a file and give --file <path>.";
 
@@ -95,12 +97,12 @@ pub fn show(file: PathBuf, step: DocStep) -> Result<(), String> {
 }
 
 pub fn roles() -> Result<(), String> {
-    print_roles(call("roles", &(), None)?);
+    print_roles(call("roles", &())?);
     Ok(())
 }
 
 pub fn set_role(set: SetRole) -> Result<(), String> {
-    print_roles(call("roles/set", &set, None)?);
+    print_roles(call("roles/set", &set)?);
     Ok(())
 }
 
@@ -123,7 +125,7 @@ fn print_roles(roles: Roles) {
 }
 
 pub fn note(to: String, mode: Kind, body: String) -> Result<(), String> {
-    let sent: Sent = call("note", &NoteRequest { to, mode, body }, None)?;
+    let sent: Sent = call("note", &NoteRequest { to, mode, body })?;
     print_sent(&sent);
     Ok(())
 }
@@ -135,7 +137,6 @@ pub fn answer(message: u32, body: String) -> Result<(), String> {
             message: MessageId(message),
             body,
         },
-        None,
     )?;
     print_sent(&sent);
     Ok(())
@@ -152,7 +153,7 @@ fn print_sent(sent: &Sent) {
 }
 
 pub fn status() -> Result<(), String> {
-    let relations: Relations = call("status", &(), None)?;
+    let relations: Relations = call("status", &())?;
     println!(
         "{}",
         serde_json::to_string(&relations).map_err(|e| e.to_string())?
@@ -161,7 +162,7 @@ pub fn status() -> Result<(), String> {
 }
 
 pub fn directory() -> Result<(), String> {
-    let listed: Vec<Listed> = call("nodes", &(), None)?;
+    let listed: Vec<Listed> = call("nodes", &())?;
     let lines = listed
         .iter()
         .map(serde_json::to_string)
@@ -187,7 +188,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>) -> Result<(), Stri
     println!("{}", crate::profile::message_text(&[delivery]));
     std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
     reconnecting(None, |_| {
-        call::<()>(
+        call_once::<()>(
             "ack",
             &AckRequest {
                 ids: vec![id],
@@ -205,7 +206,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>) -> Result<(), Stri
 }
 
 fn wait_until_mail(request: IdleRequest) -> Result<IdleReply, String> {
-    let idle = || call("idle", &request, None);
+    let idle = || call_once("idle", &request, None);
     match through_endpoint() {
         true => again_after_cut(None, |_| idle(), |e, _| Err(e.into())),
         false => idle().map_err(Into::into),
@@ -239,7 +240,7 @@ fn choice_made(asked: &ChoiceRequest, close: endpoint::Close) -> Result<usize, S
 
 fn choice_withdrawn() -> Result<(), String> {
     reconnecting(None, |_| {
-        call::<()>("report", &Report::HumanWait(None), None)
+        call_once::<()>("report", &Report::HumanWait(None), None)
     })
 }
 
@@ -354,7 +355,7 @@ pub fn guard() -> Result<(), String> {
             caller: std::process::id(),
         },
     };
-    Ok(call::<()>("guard", &request, None)?)
+    Ok(call_once::<()>("guard", &request, None)?)
 }
 
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
@@ -365,7 +366,6 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
             question: with_doc_link(&question, doc.as_deref()),
             doc: doc.map(crate::wsl::for_daemon),
         },
-        None,
     )? {
         AskResult::Inbox(asked) => asked,
         AskResult::Parent(sent) => {
@@ -406,7 +406,7 @@ pub fn answered(ids: Vec<String>) -> Result<(), String> {
                 .map_err(|_| format!("{id}: give a question number such as Q12."))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let closed: Vec<WaitId> = call("answered", &AnsweredRequest { ids }, None)?;
+    let closed: Vec<WaitId> = call("answered", &AnsweredRequest { ids })?;
     let closed: Vec<String> = closed.iter().map(WaitId::to_string).collect();
     match closed.is_empty() {
         true => println!("No question was open."),
@@ -432,7 +432,7 @@ pub fn done(
                 true => absolute(&task_dir()?.join(path))?,
                 false => absolute(&path)?,
             };
-            let relations: Relations = call("status", &(), None)?;
+            let relations: Relations = call("status", &())?;
             if relations.parent.is_none() {
                 return Err(format!(
                     "You have no parent, so the human reads this report in the inbox and cannot open {} in its text. Write a summary: `loom done \"<what you did>\" --asked \"<the human's instruction>\"`. To show a document, write it as user-doc HTML, run show.sh on it, and add --doc <that file>.",
@@ -459,7 +459,6 @@ pub fn done(
             doc: doc.map(crate::wsl::for_daemon),
             keep,
         },
-        None,
     )?;
     match reported.warning {
         None => println!("Reported. {END_TURN_NOW} Do not write the report again in the terminal."),
@@ -489,7 +488,6 @@ pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), Stri
                 .display()
                 .to_string(),
         },
-        None,
     )?;
     println!(
         "Sent {branch} to its gate {} (target {}).",
@@ -522,7 +520,6 @@ pub fn verdict(
             judgment,
             findings,
         },
-        None,
     )?;
     println!(
         "Recorded the verdict. {branch} is now {state:?}. loom told the receivers. {END_TURN_NOW}"
@@ -531,7 +528,7 @@ pub fn verdict(
 }
 
 fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
-    let relations: Relations = call("status", &(), None)?;
+    let relations: Relations = call("status", &())?;
     let path = task_dir()?.join(task::findings(branch, &relations.me.name));
     match (path.is_file(), judgment) {
         (true, _) => absolute(&path).map(Some),
@@ -544,7 +541,7 @@ fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>,
 }
 
 fn task_dir() -> Result<PathBuf, String> {
-    let dir: Option<String> = call("task", &(), None)?;
+    let dir: Option<String> = call("task", &())?;
     dir.map(|dir| match crate::place::parse(&dir) {
         crate::place::Machine::Ssh(at) => PathBuf::from(at.path),
         crate::place::Machine::Pc | crate::place::Machine::Wsl(_) => crate::wsl::from_daemon(dir),
@@ -564,19 +561,19 @@ fn with_doc_link(text: &str, doc: Option<&Path>) -> String {
 }
 
 pub fn adopt(name: String) -> Result<(), String> {
-    call::<()>("adopt", &AdoptRequest { name }, None)?;
+    call::<()>("adopt", &AdoptRequest { name })?;
     println!("You are the parent now. Messages that node kept move to your inbox.");
     Ok(())
 }
 
 pub fn detach(name: String) -> Result<(), String> {
-    call::<()>("detach", &DetachRequest { name: name.clone() }, None)?;
+    call::<()>("detach", &DetachRequest { name: name.clone() })?;
     println!("{name} is a root node now. Its loom ask goes to the human inbox.");
     Ok(())
 }
 
 pub fn remove(name: String) -> Result<(), String> {
-    let moved: Vec<String> = call("rm", &RemoveRequest { name: name.clone() }, None)?;
+    let moved: Vec<String> = call("rm", &RemoveRequest { name: name.clone() })?;
     println!("Removed {name}.");
     if !moved.is_empty() {
         println!(
@@ -598,7 +595,7 @@ pub fn relaunch(
         choice,
     });
     let switch = to.is_some();
-    let when: Relaunched = call("relaunch", &RelaunchRequest { name, to }, None)?;
+    let when: Relaunched = call("relaunch", &RelaunchRequest { name, to })?;
     println!(
         "{}",
         match (when, yourself, switch) {
@@ -615,7 +612,32 @@ pub fn relaunch(
     Ok(())
 }
 
-fn call<T: DeserializeOwned>(
+fn call<T: DeserializeOwned>(action: &str, body: &impl Serialize) -> Result<T, CallError> {
+    let mut waiting: Option<Instant> = None;
+    loop {
+        let e = match call_once(action, body, None) {
+            Err(e) if e.not_connected() => e,
+            answered => return answered,
+        };
+        let since = *waiting.get_or_insert_with(|| {
+            let _ = writeln!(
+                std::io::stderr(),
+                "loom: {e} loom tries again for {} s.",
+                CONNECT_WAIT.as_secs()
+            );
+            Instant::now()
+        });
+        if since.elapsed() >= CONNECT_WAIT {
+            return Err(CallError::NotConnected(format!(
+                "{e} loom tried for {} s.",
+                CONNECT_WAIT.as_secs()
+            )));
+        }
+        std::thread::sleep(RECONNECT_AFTER);
+    }
+}
+
+fn call_once<T: DeserializeOwned>(
     action: &str,
     body: &impl Serialize,
     timeout: Option<Duration>,
@@ -667,7 +689,7 @@ fn reach<T: DeserializeOwned>(
     let Some(at) = endpoint else {
         return post_as(&http()?, token, action, body, connect, timeout);
     };
-    match post_as(
+    let endpoint_failed = match post_as(
         &Daemon::Endpoint(at, None),
         token,
         action,
@@ -675,12 +697,21 @@ fn reach<T: DeserializeOwned>(
         connect,
         timeout,
     ) {
-        Err(CallError::NotConnected(_)) => {}
+        Err(CallError::NotConnected(e)) => e,
         reached => return reached,
-    }
-    http()
-        .and_then(|daemon| post_as(&daemon, token, action, body, connect, timeout))
-        .map_err(|e| CallError::FellBack(Box::new(e)))
+    };
+    let through_url = match http() {
+        Ok(daemon) => {
+            post_as(&daemon, token, action, body, connect, timeout).map_err(|e| match e {
+                CallError::NotConnected(url) => {
+                    CallError::NotConnected(format!("{endpoint_failed} {url}"))
+                }
+                e => e,
+            })
+        }
+        Err(_) => Err(CallError::NotConnected(endpoint_failed)),
+    };
+    through_url.map_err(|e| CallError::FellBack(Box::new(e)))
 }
 
 enum Daemon {
@@ -750,6 +781,14 @@ enum CallError {
 }
 
 impl CallError {
+    fn not_connected(&self) -> bool {
+        match self {
+            CallError::NotConnected(_) => true,
+            CallError::FellBack(e) => e.not_connected(),
+            _ => false,
+        }
+    }
+
     fn through_url(self) -> CallError {
         match self {
             CallError::FellBack(e) => *e,
@@ -824,6 +863,9 @@ fn post_as<T: DeserializeOwned>(
         .send_json(body)
         .map_err(|e| match e {
             ureq::Error::ConnectionFailed => CallError::NotConnected(daemon.not_answered(e)),
+            ureq::Error::Io(ref io) if io.kind() == std::io::ErrorKind::ConnectionRefused => {
+                CallError::NotConnected(daemon.not_answered(e))
+            }
             e => CallError::Unreachable(daemon.not_answered(e)),
         })?;
     let status = res.status();

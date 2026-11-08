@@ -3,7 +3,6 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, TypeText};
 
-use super::runtime::bearer;
 use super::*;
 use crate::protocol::ChoiceRequest;
 use api::graph::docs::DocQuestion;
@@ -369,11 +368,9 @@ impl Drop for Release {
 
 pub(super) async fn agent_choice(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<ChoiceRequest>,
+    at: super::runtime::ThisLaunch<Json<ChoiceRequest>>,
 ) -> Result<Json<usize>, AgentError> {
-    let node = app.caller(&headers)?;
-    let token = bearer(&headers)?.to_owned();
+    let (node, token, Json(req)) = (at.node, at.token, at.body);
     let summary = req.prompt.summary.clone();
     let (serial, chosen) = app
         .choices

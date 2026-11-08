@@ -367,9 +367,65 @@ async fn end_found(distro: &Distro, find: distro::Command) -> Result<(), String>
         .map_err(|e| e.to_string())?
 }
 
-pub async fn end_token(distro: &Distro, token: &str, names: &[&str]) -> Result<(), String> {
-    let args = std::iter::once(token).chain(names.iter().copied());
-    bounded(distro, sh(END_TOKEN, args)).await.map(drop)
+pub struct Held<'a> {
+    pub node: &'a str,
+    pub launch_prefix: &'a str,
+}
+
+pub struct Ended {
+    pub signal: String,
+    pub pid: u32,
+    pub command: String,
+}
+
+pub async fn end_token(
+    distro: &Distro,
+    held: &Held<'_>,
+    names: &[&str],
+) -> Result<Vec<Ended>, String> {
+    let args = [held.node, held.launch_prefix]
+        .into_iter()
+        .chain(names.iter().copied());
+    let ran = bounded(distro, sh(END_TOKEN, args)).await?;
+    Ok(ended(&ran.stdout))
+}
+
+#[cfg(unix)]
+pub async fn end_token_here(held: &Held<'_>, names: &[&str]) -> Result<Vec<Ended>, String> {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", END_TOKEN, "sh", held.node, held.launch_prefix])
+        .args(names);
+    let out = tokio::task::spawn_blocking(move || crate::timed::finished(cmd, END_TOKEN_WAIT))
+        .await
+        .map_err(|e| e.to_string())??;
+    if !out.status.success() {
+        return Err(format!(
+            "{}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(ended(&String::from_utf8_lossy(&out.stdout)))
+}
+
+#[cfg(not(unix))]
+pub async fn end_token_here(_: &Held<'_>, _: &[&str]) -> Result<Vec<Ended>, String> {
+    Ok(Vec::new())
+}
+
+fn ended(stdout: &str) -> Vec<Ended> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (signal, rest) = line.split_once(' ')?;
+            let (pid, command) = rest.split_once(' ').unwrap_or((rest, ""));
+            Some(Ended {
+                signal: signal.to_owned(),
+                pid: pid.parse().ok()?,
+                command: command.trim().to_owned(),
+            })
+        })
+        .collect()
 }
 
 pub fn end_trees(distro: &Distro, roots: &[u32]) {
@@ -407,7 +463,8 @@ async fn run(
 }
 
 const END_TOKEN: &str = r#"token=$1
-shift
+prefix=$2
+shift 2
 names=$*
 envs() {
   if [ -r /proc/self/environ ]; then
@@ -419,6 +476,13 @@ envs() {
     ps -E -ww -x -o pid= -o command= 2>/dev/null | grep -F "=$token"
   fi
 }
+command_of() {
+  if [ -r /proc/self/cmdline ]; then
+    tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null
+  else
+    ps -ww -o command= -p "$1" 2>/dev/null
+  fi
+}
 signal() {
   sent=1
   found=$(envs)
@@ -426,11 +490,15 @@ signal() {
     line=${line#"${line%%[! ]*}"}
     held=1
     for name in $names; do
-      case " $line " in *" $name=$token "*) held=0 ;; esac
+      case " $line " in *" $name=$token "*|*" $name=$prefix"*) held=0 ;; esac
     done
     [ "$held" = 0 ] || continue
     case " $line " in *" HOME=$HOME "*) ;; *) continue ;; esac
-    kill -"$1" "${line%% *}" 2>/dev/null && sent=0
+    pid=${line%% *}
+    command=$(command_of "$pid")
+    kill -"$1" "$pid" 2>/dev/null || continue
+    sent=0
+    printf '%s %s %s\n' "$1" "$pid" "$command"
   done <<EOF
 $found
 EOF

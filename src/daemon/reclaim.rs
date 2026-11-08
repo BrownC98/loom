@@ -119,8 +119,9 @@ async fn live_target(files: Files<'_>, dir: &Path, target: &str) -> Result<Strin
 }
 
 fn remove(app: &App, node: NodeId) -> Result<(), Refusal> {
+    let leftovers = app.leftovers(node);
     if app.graph.remove_childless_child(node)? {
-        app.host.kill(node);
+        app.removed(node, leftovers);
     }
     Ok(())
 }

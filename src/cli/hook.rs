@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::endpoint::Close;
-use super::{call, choice_made, choice_withdrawn, interrupt_arrived, wait_until_mail};
+use super::{call_once, choice_made, choice_withdrawn, interrupt_arrived, wait_until_mail};
 use crate::daemon::Relaunched;
 use crate::profile::{
     BATCH_LIMIT_BYTES, Handed, Hook, HookEntry, HookEvent, LineEvent, Served, Shown, Signals, Take,
@@ -70,7 +70,7 @@ fn lines(parse: fn(&str) -> Result<Box<dyn LineEvent>, Unserved>) -> Result<(), 
                         ids: ids.to_vec(),
                         handoff: None,
                     };
-                    call::<()>("ack", &ack, None)
+                    call_once::<()>("ack", &ack, None)
                         .map_err(String::from)
                         .and_then(|()| send(request.acked()))
                 }
@@ -122,7 +122,7 @@ fn unserved(unserved: Unserved, out: &Mutex<std::io::Stdout>) -> Result<(), Stri
     if let Some(reply) = unserved.reply {
         send_line(out, reply)?;
     }
-    let relaunch = match call::<Relaunched>("relaunch-unserved", &(), Some(CALL_LIMIT)) {
+    let relaunch = match call_once::<Relaunched>("relaunch-unserved", &(), Some(CALL_LIMIT)) {
         Ok(_) => format!(
             "loom relaunches this node with the current {}",
             unserved.extension
@@ -245,7 +245,7 @@ impl Unacked {
             ids: self.ids,
             handoff: self.handoff,
         };
-        if let Err(e) = call::<()>("ack", &ack, self.limit) {
+        if let Err(e) = call_once::<()>("ack", &ack, self.limit) {
             eprintln!("loom: could not acknowledge: {e}");
         }
     }
@@ -258,7 +258,7 @@ fn run(
     let mut signals = event.signals();
     let step = step(&mut signals);
     for report in std::mem::take(&mut signals.reports) {
-        if let Err(e) = call::<()>("report", &report, Some(CALL_LIMIT)) {
+        if let Err(e) = call_once::<()>("report", &report, Some(CALL_LIMIT)) {
             eprintln!("loom: could not report to loom: {e}");
         }
     }
@@ -276,14 +276,14 @@ fn run(
         }
         Step::Idle(request) => (handed(wait_until_mail(request)?), None),
         Step::Listen(request) => {
-            let reply = call("listen", &request, Some(CALL_LIMIT)).unwrap_or_else(|e| {
+            let reply = call_once("listen", &request, Some(CALL_LIMIT)).unwrap_or_else(|e| {
                 eprintln!("loom: could not report the idle state to loom: {e}");
                 IdleReply::Mail(Vec::new())
             });
             (handed(reply), Some(CALL_LIMIT))
         }
         Step::Woken(request) => {
-            let handed = match call("wake", &request, Some(CALL_LIMIT))? {
+            let handed = match call_once("wake", &request, Some(CALL_LIMIT))? {
                 WakeReply::Mail(messages) => Handed::Mail(messages),
                 WakeReply::Finish { finish, handoff: h } => {
                     handoff = Some(h);
@@ -293,7 +293,7 @@ fn run(
             (handed, Some(CALL_LIMIT))
         }
         Step::Take(request) => {
-            let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
+            let Taken { messages, note } = call_once("take", &request, Some(CALL_LIMIT))?;
             (Handed::Taken { messages, note }, Some(CALL_LIMIT))
         }
         Step::Last(request, end) => {
@@ -323,7 +323,7 @@ fn run(
 }
 
 fn interrupt_pending() -> bool {
-    call("interrupt-pending", &(), Some(CALL_LIMIT)).unwrap_or_else(|e| {
+    call_once("interrupt-pending", &(), Some(CALL_LIMIT)).unwrap_or_else(|e| {
         eprintln!("loom: could not check for an interrupt: {e}");
         false
     })

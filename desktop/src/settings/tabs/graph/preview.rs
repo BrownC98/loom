@@ -28,6 +28,7 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
         focused: false,
         sendable: true,
         listing: false,
+        keys: None,
         filing: None,
         note: None,
     };

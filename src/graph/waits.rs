@@ -18,7 +18,7 @@ use api::graph::NodeState;
 use api::graph::errors::Refusal;
 use api::graph::events::{AgentEvent, ClosedBy, Entry};
 use api::graph::messages::{MessageKind, Question};
-use api::graph::text::TextPart;
+use api::graph::text::Block;
 use api::ids::{AgentId, NodeId, WaitId};
 
 use super::{Graph, from_json, parent_of, state_of, to_json};
@@ -44,15 +44,15 @@ fn preview(text: String) -> String {
 const PREVIEW_LIMIT_BYTES: usize = 1024;
 
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
-    let parts = match wait.kind {
+    let blocks = match wait.kind {
         WaitKind::Question | WaitKind::Done => markdown(&wait.text),
         WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
-            parts(&wait.text)
+            Block::paragraph(parts(&wait.text))
         }
     };
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
-        None => preview(parts.iter().map(TextPart::shown).collect()),
+        None => preview(Block::shown(&blocks)),
     };
     let tone = match wait.kind {
         WaitKind::Question
@@ -63,7 +63,7 @@ pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
-        parts,
+        blocks,
         choices: match wait.kind {
             WaitKind::Question => choices(&wait.text),
             WaitKind::Approval
@@ -567,7 +567,7 @@ fn new_wait(
         instruction: None,
         images: Vec::new(),
         prompt: None,
-        parts: Vec::new(),
+        blocks: Vec::new(),
         choices: Vec::new(),
     })
 }

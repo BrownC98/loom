@@ -1,7 +1,7 @@
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
 
-use api::graph::text::{TextPart, drawable_form, is_url};
+use api::graph::text::{Align, Block, TextPart, drawable_form, is_url};
 
 pub fn parts(text: &str) -> Vec<TextPart> {
     let mut parts = Vec::new();
@@ -199,79 +199,143 @@ fn trim_tail(mut found: &str) -> &str {
     found
 }
 
-pub fn markdown(text: &str) -> Vec<TextPart> {
+pub fn markdown(text: &str) -> Vec<Block> {
     let mut out = Shaped::default();
-    let mut lists: Vec<Option<u64>> = Vec::new();
-    let mut strong = 0usize;
-    let mut code: Option<String> = None;
-    let mut link: Option<(String, String)> = None;
-    let mut skip = 0usize;
-    for (event, range) in Parser::new(text).into_offset_iter() {
-        if skip > 0 {
+    for (event, range) in Parser::new_ext(text, Options::ENABLE_TABLES).into_offset_iter() {
+        out.event(event, &text[range]);
+    }
+    out.flush();
+    match out.open.pop() {
+        Some(Open::Blocks(blocks)) => blocks,
+        _ => Vec::new(),
+    }
+}
+
+enum Open {
+    Blocks(Vec<Block>),
+    Quote(Vec<Block>),
+    List(Option<u32>, Vec<Vec<Block>>),
+    Item(Vec<Block>),
+    Table {
+        align: Vec<Align>,
+        head: Vec<Vec<TextPart>>,
+        rows: Vec<Vec<Vec<TextPart>>>,
+        row: Vec<Vec<TextPart>>,
+    },
+}
+
+struct Shaped {
+    open: Vec<Open>,
+    inline: Vec<TextPart>,
+    heading: Option<u8>,
+    strong: usize,
+    emphasis: usize,
+    code: Option<String>,
+    link: Option<(String, String)>,
+    skip: usize,
+}
+
+impl Default for Shaped {
+    fn default() -> Self {
+        Self {
+            open: vec![Open::Blocks(Vec::new())],
+            inline: Vec::new(),
+            heading: None,
+            strong: 0,
+            emphasis: 0,
+            code: None,
+            link: None,
+            skip: 0,
+        }
+    }
+}
+
+impl Shaped {
+    fn event(&mut self, event: Event, source: &str) {
+        if self.skip > 0 {
             match event {
-                Event::Start(Tag::Link { .. } | Tag::Image { .. }) => skip += 1,
-                Event::End(TagEnd::Link | TagEnd::Image) => skip -= 1,
+                Event::Start(Tag::Link { .. } | Tag::Image { .. }) => self.skip += 1,
+                Event::End(TagEnd::Link | TagEnd::Image) => self.skip -= 1,
                 _ => {}
             }
-            continue;
+            return;
         }
         match event {
-            Event::Start(Tag::Heading { .. } | Tag::Strong | Tag::Emphasis) => strong += 1,
-            Event::End(TagEnd::Heading(_)) => {
-                strong -= 1;
-                out.gap = 2;
+            Event::Start(Tag::Paragraph | Tag::HtmlBlock) => self.flush(),
+            Event::End(TagEnd::Paragraph | TagEnd::HtmlBlock) => self.flush(),
+            Event::Start(Tag::Heading { level, .. }) => {
+                self.flush();
+                self.heading = Some(level as u8);
             }
-            Event::End(TagEnd::Strong | TagEnd::Emphasis) => strong -= 1,
-            Event::End(TagEnd::Paragraph | TagEnd::BlockQuote(_) | TagEnd::HtmlBlock) => {
-                out.gap = if lists.is_empty() { 2 } else { 1 };
+            Event::End(TagEnd::Heading(_)) => self.flush(),
+            Event::Start(Tag::Strong) => self.strong += 1,
+            Event::End(TagEnd::Strong) => self.strong -= 1,
+            Event::Start(Tag::Emphasis) => self.emphasis += 1,
+            Event::End(TagEnd::Emphasis) => self.emphasis -= 1,
+            Event::Start(Tag::BlockQuote(_)) => self.open(Open::Quote(Vec::new())),
+            Event::Start(Tag::List(first)) => self.open(Open::List(
+                first.map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
+                Vec::new(),
+            )),
+            Event::Start(Tag::Item) => self.open(Open::Item(Vec::new())),
+            Event::Start(Tag::Table(align)) => self.open(Open::Table {
+                align: align.into_iter().map(aligned).collect(),
+                head: Vec::new(),
+                rows: Vec::new(),
+                row: Vec::new(),
+            }),
+            Event::End(TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item | TagEnd::Table) => {
+                self.close()
             }
-            Event::Start(Tag::List(first)) => lists.push(first),
-            Event::End(TagEnd::List(_)) => {
-                lists.pop();
-                out.gap = if lists.is_empty() { 2 } else { 1 };
+            Event::End(TagEnd::TableCell) => {
+                let cell = std::mem::take(&mut self.inline);
+                if let Some(Open::Table { row, .. }) = self.open.last_mut() {
+                    row.push(cell);
+                }
             }
-            Event::Start(Tag::Item) => {
-                out.gap = out.gap.max(1);
-                let depth = lists.len().saturating_sub(1);
-                let marker = match lists.last_mut() {
-                    Some(Some(next)) => {
-                        *next += 1;
-                        format!("{}. ", *next - 1)
+            Event::End(TagEnd::TableHead | TagEnd::TableRow) => {
+                if let Some(Open::Table {
+                    head, rows, row, ..
+                }) = self.open.last_mut()
+                {
+                    let cells = std::mem::take(row);
+                    if head.is_empty() {
+                        *head = cells;
+                    } else {
+                        rows.push(cells);
                     }
-                    _ => "• ".to_owned(),
-                };
-                out.put(plain(format!("{}{marker}", "  ".repeat(depth))));
+                }
             }
-            Event::End(TagEnd::Item) => out.gap = 1,
-            Event::Start(Tag::CodeBlock(_)) => code = Some(String::new()),
+            Event::Start(Tag::CodeBlock(_)) => {
+                self.flush();
+                self.code = Some(String::new());
+            }
             Event::End(TagEnd::CodeBlock) => {
-                let block = code.take().unwrap_or_default();
-                out.put(TextPart::Block {
-                    text: block.trim_end_matches('\n').to_owned(),
+                let text = self.code.take().unwrap_or_default();
+                self.push(Block::Code {
+                    text: text.trim_end_matches('\n').to_owned(),
                 });
-                out.gap = if lists.is_empty() { 2 } else { 1 };
             }
             Event::Start(Tag::Link { dest_url, .. })
-                if link.is_none() && !text[range.clone()].contains("](<") && drawn(&dest_url) =>
+                if self.link.is_none() && !source.contains("](<") && drawn(&dest_url) =>
             {
-                link = Some((dest_url.into_string(), String::new()));
+                self.link = Some((dest_url.into_string(), String::new()));
             }
             Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                let source = &text[range];
                 let shown = if source.contains(dest_url.as_ref()) {
                     source.to_owned()
                 } else {
                     format!("{source}({dest_url})")
                 };
-                match link.as_mut() {
+                match self.link.as_mut() {
                     Some((_, label)) => label.push_str(&shown),
-                    None => out.put(plain(shown)),
+                    None => self.put(plain(shown)),
                 }
-                skip = 1;
+                self.skip = 1;
             }
             Event::End(TagEnd::Link) => {
-                if let Some((target, label)) = link.take() {
-                    out.put(if target == DOC_LINK {
+                if let Some((target, label)) = self.link.take() {
+                    self.put(if target == DOC_LINK {
                         TextPart::Doc { label }
                     } else {
                         TextPart::Link {
@@ -281,47 +345,98 @@ pub fn markdown(text: &str) -> Vec<TextPart> {
                     });
                 }
             }
-            Event::Rule => out.put(plain(&text[range])),
+            Event::Rule => self.push(Block::Rule),
             Event::Text(t) | Event::Code(t) | Event::Html(t) | Event::InlineHtml(t)
-                if code.is_some() || link.is_some() =>
+                if self.code.is_some() || self.link.is_some() =>
             {
-                if let Some(block) = code.as_mut() {
+                if let Some(block) = self.code.as_mut() {
                     block.push_str(&t);
-                } else if let Some((_, label)) = link.as_mut() {
+                } else if let Some((_, label)) = self.link.as_mut() {
                     label.push_str(&t);
                 }
             }
-            Event::Text(t) if strong > 0 => out.put(TextPart::Strong { text: t.into() }),
+            Event::Text(t) if self.strong > 0 => self.put(TextPart::Strong { text: t.into() }),
+            Event::Text(t) if self.emphasis > 0 => self.put(TextPart::Emphasis { text: t.into() }),
             Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) => {
-                out.put(plain(t.into_string()))
+                self.put(plain(t.into_string()))
             }
-            Event::Code(t) => out.put(TextPart::Code { text: t.into() }),
-            Event::SoftBreak | Event::HardBreak if link.is_none() => out.put(plain("\n")),
+            Event::Code(t) => self.put(TextPart::Code { text: t.into() }),
+            Event::SoftBreak | Event::HardBreak => match self.link.as_mut() {
+                Some((_, label)) => label.push(' '),
+                None => self.put(plain("\n")),
+            },
             _ => {}
         }
     }
-    out.parts
-}
 
-#[derive(Default)]
-struct Shaped {
-    parts: Vec<TextPart>,
-    gap: usize,
-}
+    fn open(&mut self, open: Open) {
+        self.flush();
+        self.open.push(open);
+    }
 
-impl Shaped {
-    fn put(&mut self, part: TextPart) {
-        let gap = std::mem::take(&mut self.gap);
-        if gap > 0 && !self.parts.is_empty() {
-            self.put(plain("\n".repeat(gap)));
+    fn close(&mut self) {
+        self.flush();
+        let block = match self.open.pop() {
+            Some(Open::Quote(blocks)) => Block::Quote { blocks },
+            Some(Open::List(start, items)) => Block::List { start, items },
+            Some(Open::Table {
+                align, head, rows, ..
+            }) => Block::Table { align, head, rows },
+            Some(Open::Item(item)) => {
+                if let Some(Open::List(_, items)) = self.open.last_mut() {
+                    items.push(item);
+                }
+                return;
+            }
+            Some(Open::Blocks(blocks)) => {
+                self.open.push(Open::Blocks(blocks));
+                return;
+            }
+            None => return,
+        };
+        self.push(block);
+    }
+
+    fn flush(&mut self) {
+        let parts = std::mem::take(&mut self.inline);
+        let block = match self.heading.take() {
+            Some(level) => Block::Heading { level, parts },
+            None if parts.is_empty() => return,
+            None => Block::Paragraph { parts },
+        };
+        self.push(block);
+    }
+
+    fn push(&mut self, block: Block) {
+        if !matches!(block, Block::Paragraph { .. } | Block::Heading { .. }) {
+            self.flush();
         }
-        match (self.parts.last_mut(), part) {
+        match self.open.last_mut() {
+            Some(Open::Blocks(blocks) | Open::Quote(blocks) | Open::Item(blocks)) => {
+                blocks.push(block)
+            }
+            Some(Open::List(..) | Open::Table { .. }) | None => {}
+        }
+    }
+
+    fn put(&mut self, part: TextPart) {
+        match (self.inline.last_mut(), part) {
             (Some(TextPart::Text { text: last }), TextPart::Text { text })
-            | (Some(TextPart::Strong { text: last }), TextPart::Strong { text }) => {
+            | (Some(TextPart::Strong { text: last }), TextPart::Strong { text })
+            | (Some(TextPart::Emphasis { text: last }), TextPart::Emphasis { text }) => {
                 last.push_str(&text)
             }
-            (_, part) => self.parts.push(part),
+            (_, part) => self.inline.push(part),
         }
+    }
+}
+
+fn aligned(align: Alignment) -> Align {
+    match align {
+        Alignment::None => Align::None,
+        Alignment::Left => Align::Left,
+        Alignment::Center => Align::Center,
+        Alignment::Right => Align::Right,
     }
 }
 

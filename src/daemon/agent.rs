@@ -101,7 +101,7 @@ impl App {
         }
         self.draft_ended(node);
         self.turn_ends.human(node, prompt);
-        if !injected {
+        if !injected && !prompt.is_some_and(|p| p.trim_start().starts_with('/')) {
             self.graph.instructed(node, prompt.unwrap_or_default())?;
         }
         if let Some(text) = prompt

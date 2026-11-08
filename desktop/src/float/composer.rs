@@ -955,7 +955,7 @@ impl Composer {
             node: shown.name.clone(),
             counts,
             bulk: (done > 0).then(|| self.bulk(done, z, cx)),
-            note: matches!(aimed.aim, Aim::Prompt)
+            note: (matches!(aimed.aim, Aim::Prompt) && !matches!(shown.wait.tone, WaitTone::Done))
                 .then(|| ui::say(cx, Str::ComposerNotAnswer).to_owned()),
         };
         let hints = matches!(aimed.aim, Aim::Alert(_));

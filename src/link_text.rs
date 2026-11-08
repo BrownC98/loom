@@ -256,10 +256,16 @@ pub fn markdown(text: &str) -> Vec<TextPart> {
             {
                 link = Some((dest_url.into_string(), String::new()));
             }
-            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                let source = &text[range];
+                let shown = if source.contains(dest_url.as_ref()) {
+                    source.to_owned()
+                } else {
+                    format!("{source}({dest_url})")
+                };
                 match link.as_mut() {
-                    Some((_, label)) => label.push_str(&text[range]),
-                    None => out.put(plain(&text[range])),
+                    Some((_, label)) => label.push_str(&shown),
+                    None => out.put(plain(shown)),
                 }
                 skip = 1;
             }

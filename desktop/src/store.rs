@@ -580,6 +580,21 @@ impl Store {
         newer
     }
 
+    #[cfg(test)]
+    pub fn fixture(&mut self, base: &str, snapshot: Snapshot, cx: &mut Context<Self>) {
+        self.base = Some(base.to_owned());
+        let settings = SettingsView::default();
+        self.load(
+            Loaded {
+                order: 1,
+                snapshot,
+                settings,
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
     fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
         if !self.newer(loaded.order) {
             return;

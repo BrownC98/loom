@@ -158,7 +158,7 @@ impl Dock {
         if self.terminal.as_ref().is_none_or(|(held, _)| *held != id) {
             self.terminal = self.store.read(cx).base().map(str::to_owned).map(|base| {
                 let view = terminal::open(&self.inputs, &base, id, window, cx);
-                view.update(cx, |view, cx| view.focus(window, cx));
+                view.update(cx, |view, cx| view.refocus(window, cx));
                 (id, view)
             });
         }

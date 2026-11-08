@@ -2,6 +2,8 @@
 
 mod canvas;
 mod daemon;
+#[cfg(test)]
+mod fixture;
 mod float;
 mod fonts;
 mod frame;

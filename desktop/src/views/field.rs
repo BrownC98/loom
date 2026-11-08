@@ -13,6 +13,7 @@ use gpui::{
 use crate::fonts::TERMINAL_FAMILY;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
+use crate::views::compose;
 
 const MASK: char = '\u{2022}';
 const FONT_SIZE: f32 = 13.0;
@@ -168,6 +169,24 @@ impl Field {
         }
     }
 
+    fn set_marked(&mut self, marked: Option<Range<usize>>, cx: &mut Context<Self>) {
+        let open = marked.is_some();
+        if open || self.marked.is_some() {
+            compose::mark(&self.focus, open, cx);
+        }
+        self.marked = marked;
+    }
+
+    /// Test probe: the field painted since the last call.
+    #[cfg(test)]
+    pub fn painted(&mut self) -> bool {
+        self.layout.take().is_some()
+    }
+
+    pub fn composing(&self) -> bool {
+        self.marked.is_some()
+    }
+
     pub fn focused(&self, window: &Window) -> bool {
         self.focus.is_focused(window)
     }
@@ -196,7 +215,7 @@ impl Field {
         self.text = text.to_owned();
         self.selected = selected;
         self.reversed = false;
-        self.marked = None;
+        self.set_marked(None, cx);
         cx.emit(FieldEvent::Changed);
         cx.notify();
     }
@@ -219,7 +238,7 @@ impl Field {
         self.text.clear();
         self.selected = 0..0;
         self.reversed = false;
-        self.marked = None;
+        self.set_marked(None, cx);
         cx.emit(FieldEvent::Changed);
         cx.notify();
     }
@@ -345,7 +364,7 @@ impl Field {
         let end = range.start + text.len();
         self.selected = end..end;
         self.reversed = false;
-        self.marked = None;
+        self.set_marked(None, cx);
         window.notify_text_input_changed(&self.focus);
         cx.emit(FieldEvent::Changed);
         cx.notify();
@@ -576,7 +595,7 @@ impl EntityInputHandler for Field {
     }
 
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.marked = None;
+        self.set_marked(None, cx);
         window.notify_text_input_changed(&self.focus);
         cx.notify();
     }
@@ -615,7 +634,7 @@ impl EntityInputHandler for Field {
             .unwrap_or_else(|| self.selected.clone());
         let start = range.start;
         self.text.replace_range(range, text);
-        self.marked = (!text.is_empty()).then(|| start..start + text.len());
+        self.set_marked((!text.is_empty()).then(|| start..start + text.len()), cx);
         let start_units = self.byte_to_utf16(start);
         let length = text.encode_utf16().count();
         self.selected = selected

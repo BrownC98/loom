@@ -175,7 +175,7 @@ pub struct ScreenWait {
     #[ts(flatten)]
     pub wait: HumanWait,
     pub tone: WaitTone,
-    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글.
+    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글을 1KB에서 자른 것. 시스템 알림과 대상 목록 줄이 쓴다.
     pub summary: String,
 }
 

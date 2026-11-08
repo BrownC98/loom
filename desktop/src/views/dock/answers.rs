@@ -719,23 +719,16 @@ fn wait_content(
         body = body.child(prompt_body(answers, id, wait.tone, prompt, z, find, cx));
     } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
         let owner = answers.clone();
-        body = body.child(
-            div()
-                .text_size(px(ui::TEXT * z))
-                .when(done, |text| text.font_weight(FontWeight::SEMIBOLD))
-                .child(body::render(
-                    ("text", id as usize),
-                    &wait.wait.parts,
-                    &wait.wait.text,
-                    wait.wait.doc.as_ref(),
-                    entry::tone_of(wait.tone, &c),
-                    find,
-                    cx,
-                    move |target, cx| {
-                        owner.update(cx, |answers, cx| answers.follow(id, target, cx))
-                    },
-                )),
-        );
+        body = body.child(div().text_size(px(ui::TEXT * z)).child(body::render(
+            ("text", id as usize),
+            &wait.wait.parts,
+            &wait.wait.text,
+            wait.wait.doc.as_ref(),
+            entry::tone_of(wait.tone, &c),
+            find,
+            cx,
+            move |target, cx| owner.update(cx, |answers, cx| answers.follow(id, target, cx)),
+        )));
     }
     if wait.wait.answerable && !done && !wait.wait.choices.is_empty() {
         body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(

@@ -18,6 +18,30 @@ pub enum TextPart {
     Doc {
         label: String,
     },
+    /// Markdown 강조(`**…**`, `*…*`)와 제목.
+    Strong {
+        text: String,
+    },
+    /// Markdown 글 안 코드(`` `…` ``).
+    Code {
+        text: String,
+    },
+    /// Markdown 코드 블록. 화면은 줄을 바꾸지 않고 그린다.
+    Block {
+        text: String,
+    },
+}
+
+impl TextPart {
+    pub fn shown(&self) -> &str {
+        match self {
+            Self::Text { text }
+            | Self::Strong { text }
+            | Self::Code { text }
+            | Self::Block { text } => text,
+            Self::Link { label, .. } | Self::Doc { label } => label,
+        }
+    }
 }
 
 pub fn drawable_form(found: &str) -> String {

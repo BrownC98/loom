@@ -34,6 +34,7 @@ num-bigint = "0.4.8"
 mime_guess = "2.0.5"
 percent-encoding = "2.3.2"
 portable-pty = "0.9.0"
+pulldown-cmark = { version = "0.13.6", default-features = false }
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 ring = "0.17.14"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "crypto"] }

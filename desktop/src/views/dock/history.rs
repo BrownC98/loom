@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use api::graph::events::ClosedBy;
 use api::graph::search::WaitSearch;
-use api::graph::waits::{Closed, ClosedWait, WaitKind, WaitTone};
-use gpui::prelude::FluentBuilder;
+use api::graph::waits::{Closed, ClosedWait, WaitKind};
 use gpui::{
     Context, Div, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px,
@@ -265,22 +264,15 @@ impl Dock {
             );
         }
         if !wait.text.is_empty() || wait.doc.is_some() {
-            row = row.child(
-                div()
-                    .text_size(px(ui::TEXT))
-                    .when(matches!(tone, WaitTone::Done), |text| {
-                        text.font_weight(FontWeight::SEMIBOLD)
-                    })
-                    .child(body::text(
-                        ("history-text", seq),
-                        &wait.parts,
-                        &wait.text,
-                        wait.doc.as_ref(),
-                        entry::tone_of(tone, &c),
-                        find,
-                        cx,
-                    )),
-            );
+            row = row.child(div().text_size(px(ui::TEXT)).child(body::text(
+                ("history-text", seq),
+                &wait.parts,
+                &wait.text,
+                wait.doc.as_ref(),
+                entry::tone_of(tone, &c),
+                find,
+                cx,
+            )));
         }
         if !wait.choices.is_empty() {
             row = row.child(div().flex().flex_wrap().gap(px(GAP)).children(

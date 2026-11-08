@@ -4,7 +4,6 @@ use super::Graph;
 use super::gate::{Unjudged, unjudged};
 use super::waits::{put_done, unreported_root};
 use crate::protocol::kind_line;
-use api::graph::errors::SUMMARY_LIMIT_BYTES;
 use api::graph::events::TurnCheck;
 use api::ids::NodeId;
 
@@ -237,7 +236,7 @@ impl Graph {
                     &tx,
                     node,
                     heard.as_deref().unwrap_or_default(),
-                    &summary_of(reply),
+                    reply,
                     &[],
                     None,
                 )?;
@@ -300,16 +299,3 @@ impl Graph {
         )? > 0)
     }
 }
-
-fn summary_of(reply: &str) -> String {
-    if reply.len() <= SUMMARY_LIMIT_BYTES {
-        return reply.to_owned();
-    }
-    let cut = (0..=SUMMARY_LIMIT_BYTES - TRIMMED.len())
-        .rev()
-        .find(|i| reply.is_char_boundary(*i))
-        .unwrap_or(0);
-    format!("{}{TRIMMED}", &reply[..cut])
-}
-
-const TRIMMED: &str = "…";

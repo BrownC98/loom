@@ -12,7 +12,7 @@ use super::closed::{self, Open};
 use super::events;
 use super::mailbox;
 use crate::choices::{choices, offers_choices_without_tail};
-use crate::link_text::{bare_link, parts};
+use crate::link_text::{bare_link, markdown, parts};
 use crate::protocol::OpenQuestion;
 use api::graph::NodeState;
 use api::graph::errors::Refusal;
@@ -31,16 +31,15 @@ pub enum WaitSource {
 }
 
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
-    let parts = parts(&wait.text);
+    let parts = match wait.kind {
+        WaitKind::Question | WaitKind::Done => markdown(&wait.text),
+        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
+            parts(&wait.text)
+        }
+    };
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
-        None => parts
-            .iter()
-            .map(|part| match part {
-                TextPart::Text { text } => text.as_str(),
-                TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
-            })
-            .collect(),
+        None => parts.iter().map(TextPart::shown).collect(),
     };
     let tone = match wait.kind {
         WaitKind::Question

@@ -5,8 +5,9 @@ use std::sync::Arc;
 use api::graph::text::TextPart;
 use api::graph::waits::WaitDoc;
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, HighlightStyle, InteractiveElement, IntoElement,
-    ParentElement, Rgba, StatefulInteractiveElement, Styled, Task, UnderlineStyle, div, px,
+    AnyElement, App, Context, ElementId, Entity, FontWeight, HighlightStyle, InteractiveElement,
+    IntoElement, ParentElement, Rgba, StatefulInteractiveElement, Styled, Task, UnderlineStyle,
+    div, px,
 };
 
 use super::Dock;
@@ -28,6 +29,7 @@ pub enum Target {
 struct Built {
     shown: String,
     links: Vec<(Range<usize>, Target)>,
+    styles: Vec<(Range<usize>, HighlightStyle)>,
 }
 
 impl Built {
@@ -37,6 +39,12 @@ impl Built {
         if let Some(target) = target {
             self.links.push((start..self.shown.len(), target));
         }
+    }
+
+    fn styled(&mut self, text: &str, style: HighlightStyle) {
+        let start = self.shown.len();
+        self.shown.push_str(text);
+        self.styles.push((start..self.shown.len(), style));
     }
 }
 
@@ -87,6 +95,20 @@ pub fn render(
                 built.push(label, doc.map(|d| Target::Doc(d.id.clone())));
             }
             TextPart::Link { label, href } => built.push(label, Some(Target::Url(href.clone()))),
+            TextPart::Strong { text } => built.styled(
+                text,
+                HighlightStyle {
+                    font_weight: Some(FontWeight::BOLD),
+                    ..Default::default()
+                },
+            ),
+            TextPart::Code { text } | TextPart::Block { text } => built.styled(
+                text,
+                HighlightStyle {
+                    background_color: Some(ui::colors(cx).line.into()),
+                    ..Default::default()
+                },
+            ),
         }
     }
     if parts.is_empty() {
@@ -122,8 +144,14 @@ pub fn render(
         }),
         ..Default::default()
     };
-    let Built { shown, links } = built;
-    let marks: Vec<_> = links.iter().map(|(r, _)| (r.clone(), highlight)).collect();
+    let Built {
+        shown,
+        links,
+        styles,
+    } = built;
+    let mut marks: Vec<_> = links.iter().map(|(r, _)| (r.clone(), highlight)).collect();
+    marks.extend(styles);
+    marks.sort_by_key(|(r, _)| r.start);
     let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
     let text = (!shown.is_empty()).then(|| {
         let follow = follow.clone();

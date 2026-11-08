@@ -1,4 +1,5 @@
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 use api::graph::text::{TextPart, drawable_form, is_url};
 
@@ -196,4 +197,125 @@ fn trim_tail(mut found: &str) -> &str {
         found = &found[..found.len() - last.len_utf8()];
     }
     found
+}
+
+pub fn markdown(text: &str) -> Vec<TextPart> {
+    let mut out = Shaped::default();
+    let mut lists: Vec<Option<u64>> = Vec::new();
+    let mut strong = 0usize;
+    let mut code: Option<String> = None;
+    let mut link: Option<(String, String)> = None;
+    let mut skip = 0usize;
+    for (event, range) in Parser::new(text).into_offset_iter() {
+        if skip > 0 {
+            match event {
+                Event::Start(Tag::Link { .. } | Tag::Image { .. }) => skip += 1,
+                Event::End(TagEnd::Link | TagEnd::Image) => skip -= 1,
+                _ => {}
+            }
+            continue;
+        }
+        match event {
+            Event::Start(Tag::Heading { .. } | Tag::Strong) => strong += 1,
+            Event::End(TagEnd::Heading(_)) => {
+                strong -= 1;
+                out.gap = 2;
+            }
+            Event::End(TagEnd::Strong) => strong -= 1,
+            Event::End(TagEnd::Paragraph | TagEnd::BlockQuote(_) | TagEnd::HtmlBlock) => {
+                out.gap = if lists.is_empty() { 2 } else { 1 };
+            }
+            Event::Start(Tag::List(first)) => lists.push(first),
+            Event::End(TagEnd::List(_)) => {
+                lists.pop();
+                out.gap = if lists.is_empty() { 2 } else { 1 };
+            }
+            Event::Start(Tag::Item) => {
+                out.gap = out.gap.max(1);
+                let depth = lists.len().saturating_sub(1);
+                let marker = match lists.last_mut() {
+                    Some(Some(next)) => {
+                        *next += 1;
+                        format!("{}. ", *next - 1)
+                    }
+                    _ => "• ".to_owned(),
+                };
+                out.put(plain(format!("{}{marker}", "  ".repeat(depth))));
+            }
+            Event::End(TagEnd::Item) => out.gap = 1,
+            Event::Start(Tag::CodeBlock(_)) => code = Some(String::new()),
+            Event::End(TagEnd::CodeBlock) => {
+                let block = code.take().unwrap_or_default();
+                out.put(TextPart::Block {
+                    text: block.trim_end_matches('\n').to_owned(),
+                });
+                out.gap = if lists.is_empty() { 2 } else { 1 };
+            }
+            Event::Start(Tag::Link { dest_url, .. })
+                if link.is_none() && !text[range.clone()].contains("](<") && drawn(&dest_url) =>
+            {
+                link = Some((dest_url.into_string(), String::new()));
+            }
+            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+                out.put(plain(&text[range]));
+                skip = 1;
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some((target, label)) = link.take() {
+                    out.put(if target == DOC_LINK {
+                        TextPart::Doc { label }
+                    } else {
+                        TextPart::Link {
+                            label,
+                            href: target,
+                        }
+                    });
+                }
+            }
+            Event::Rule => out.put(plain(&text[range])),
+            Event::Text(t) | Event::Code(t) | Event::Html(t) | Event::InlineHtml(t)
+                if code.is_some() || link.is_some() =>
+            {
+                if let Some(block) = code.as_mut() {
+                    block.push_str(&t);
+                } else if let Some((_, label)) = link.as_mut() {
+                    label.push_str(&t);
+                }
+            }
+            Event::Text(t) if strong > 0 => out.put(TextPart::Strong { text: t.into() }),
+            Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) => {
+                out.put(plain(t.into_string()))
+            }
+            Event::Code(t) => out.put(TextPart::Code { text: t.into() }),
+            Event::SoftBreak | Event::HardBreak if link.is_none() => out.put(plain("\n")),
+            _ => {}
+        }
+    }
+    out.parts
+}
+
+#[derive(Default)]
+struct Shaped {
+    parts: Vec<TextPart>,
+    gap: usize,
+}
+
+impl Shaped {
+    fn put(&mut self, part: TextPart) {
+        let gap = std::mem::take(&mut self.gap);
+        if gap > 0 && !self.parts.is_empty() {
+            self.put(plain("\n".repeat(gap)));
+        }
+        match (self.parts.last_mut(), part) {
+            (Some(TextPart::Text { text: last }), TextPart::Text { text })
+            | (Some(TextPart::Strong { text: last }), TextPart::Strong { text }) => {
+                last.push_str(&text)
+            }
+            (_, part) => self.parts.push(part),
+        }
+    }
+}
+
+fn plain(text: impl Into<String>) -> TextPart {
+    TextPart::Text { text: text.into() }
 }

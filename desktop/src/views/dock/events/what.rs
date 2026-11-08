@@ -267,13 +267,7 @@ pub fn matches_name(entry: &Entry, needle: &str) -> bool {
 }
 
 pub fn plain(parts: &[TextPart]) -> String {
-    parts
-        .iter()
-        .map(|part| match part {
-            TextPart::Text { text } => text.as_str(),
-            TextPart::Link { label, .. } | TextPart::Doc { label } => label.as_str(),
-        })
-        .collect()
+    parts.iter().map(TextPart::shown).collect()
 }
 
 pub fn body_of(record: &EventRecord, c: &Ctx) -> Option<Vec<TextPart>> {

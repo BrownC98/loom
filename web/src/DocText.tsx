@@ -20,6 +20,16 @@ export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null
             return doc ? <DocLink key={index} doc={doc} label={part.label} onRefusal={props.onRefusal} /> : part.label;
           case 'link':
             return <TextLink key={index} label={part.label} href={part.href} node={props.node} />;
+          case 'strong':
+            return <strong key={index}>{part.text}</strong>;
+          case 'code':
+            return <code key={index}>{part.text}</code>;
+          case 'block':
+            return (
+              <code key={index} className="block">
+                {part.text}
+              </code>
+            );
         }
       })}
       {doc && !inline && (

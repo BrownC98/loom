@@ -3,4 +3,4 @@
 /**
  * 화면이 그리는 글 조각. 화면은 링크를 찾지 않는다.
  */
-export type TextPart = { "part": "text", text: string, } | { "part": "link", label: string, href: string, } | { "part": "doc", label: string, };
+export type TextPart = { "part": "text", text: string, } | { "part": "link", label: string, href: string, } | { "part": "doc", label: string, } | { "part": "strong", text: string, } | { "part": "code", text: string, } | { "part": "block", text: string, };

@@ -722,7 +722,6 @@ fn wait_content(
         body = body.child(
             div()
                 .text_size(px(ui::TEXT * z))
-                .when(done, |text| text.font_weight(FontWeight::SEMIBOLD))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(body::render(
                     ("text", id as usize),

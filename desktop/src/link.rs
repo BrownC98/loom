@@ -27,6 +27,7 @@ const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 pub const SLOW_LIMIT: Duration = Duration::from_secs(120);
 const LOST_AFTER: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_millis(10);
+const HELD_INPUT_LIMIT: usize = 4096;
 
 pub enum Event {
     Size { cols: u16, rows: u16 },
@@ -48,6 +49,7 @@ pub enum LinkState {
 enum Out {
     Input(Vec<u8>),
     Resize(u16, u16),
+    Composing,
 }
 
 enum Cmd {
@@ -110,6 +112,10 @@ impl Pty {
 
     pub fn resize(&self, cols: u16, rows: u16) {
         hub().send(Cmd::Out(self.key, Out::Resize(cols, rows)));
+    }
+
+    pub fn composing(&self) {
+        hub().send(Cmd::Out(self.key, Out::Composing));
     }
 }
 
@@ -521,6 +527,9 @@ struct Conn {
     down_since: Option<Instant>,
     opened_once: bool,
     dirty: bool,
+    held: Vec<Vec<u8>>,
+    held_bytes: usize,
+    overflowed: bool,
 }
 
 impl Conn {
@@ -539,6 +548,9 @@ impl Conn {
             down_since: None,
             opened_once: false,
             dirty: false,
+            held: Vec::new(),
+            held_bytes: 0,
+            overflowed: false,
         }
     }
 
@@ -590,6 +602,10 @@ impl Conn {
 
     fn out(&mut self, out: Out) -> Option<Fate> {
         let message = match out {
+            Out::Input(bytes) if self.socket.is_none() => {
+                self.hold(bytes);
+                return None;
+            }
             Out::Input(bytes) => Message::binary(bytes),
             Out::Resize(cols, rows) => {
                 if let Target::Pty { route, .. } = &self.target {
@@ -600,8 +616,25 @@ impl Conn {
                 }
                 frame(&PtyRequest::Resize(Resize { cols, rows }))
             }
+            Out::Composing => frame(&PtyRequest::Composing),
         };
         self.push(message)
+    }
+
+    fn hold(&mut self, bytes: Vec<u8>) {
+        self.overflowed |= self.held_bytes + bytes.len() > HELD_INPUT_LIMIT;
+        if !self.overflowed {
+            self.held_bytes += bytes.len();
+            self.held.push(bytes);
+        }
+    }
+
+    fn give_held(&mut self) -> Option<Fate> {
+        self.held_bytes = 0;
+        self.overflowed = false;
+        std::mem::take(&mut self.held)
+            .into_iter()
+            .find_map(|bytes| self.push(Message::binary(bytes)))
     }
 
     fn pump(&mut self) -> Option<Fate> {
@@ -809,6 +842,7 @@ impl Worker {
             *backlog = true;
             fate = fate.or(conn.emit(Event::Reset));
         }
+        fate = fate.or_else(|| conn.give_held());
         conn.opened_once = true;
         conn.flush();
         if fate.is_none() {

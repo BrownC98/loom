@@ -152,7 +152,29 @@ async fn pty(
     if app.host.attach(id).is_none() {
         return coming_pty(ws, via, app, id);
     }
-    serve_pty(ws, via, app, |app| &app.host, live_typed, id)
+    let input = PtyInput {
+        typed: live_typed,
+        composing: live_composing,
+    };
+    serve_pty(ws, via, app, |app| &app.host, input, id)
+}
+
+fn live_composing(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>) {
+    if asleep(app, id) {
+        app.sleeps.keep(id, &[], pty.serial());
+    }
+    app.sleeps.knocked(id);
+}
+
+fn asleep(app: &App, id: NodeId) -> bool {
+    app.graph
+        .process(id)
+        .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep))
+}
+
+pub(super) struct PtyInput<K> {
+    pub typed: fn(&Arc<App>, K, &node_host::Keys<'_>, &[u8]) -> Typed,
+    pub composing: fn(&Arc<App>, K, &node_host::Keys<'_>),
 }
 
 pub(super) enum Typed {
@@ -161,19 +183,14 @@ pub(super) enum Typed {
 }
 
 fn live_typed(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>, bytes: &[u8]) -> Typed {
-    let asleep = || {
-        app.graph
-            .process(id)
-            .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep))
-    };
-    if !asleep() && !app.sleeps.holds(id) {
+    if !asleep(app, id) && !app.sleeps.holds(id) {
         human_typed(app, id, bytes);
         return Typed::Write;
     }
     if has_text(bytes) {
         app.sleeps.keep(id, bytes, pty.serial());
     }
-    if asleep() {
+    if asleep(app, id) {
         app.sleeps.knocked(id);
     }
     let app = app.clone();
@@ -273,8 +290,13 @@ fn coming_pty(
                             app.give_kept_keys(id);
                         }
                         Heard::Frame(Some(Ok(Message::Text(text)))) => {
-                            if pulse.paced(&text) && send_beat(&mut socket, &pulse).await.is_err() {
-                                return;
+                            if pulse.paced(&text) {
+                                if send_beat(&mut socket, &pulse).await.is_err() {
+                                    return;
+                                }
+                            } else if !gone && matches!(serde_json::from_str(&text), Ok(PtyRequest::Composing)) {
+                                app.sleeps.keep(id, &[], None);
+                                app.sleeps.knocked(id);
                             }
                         }
                         Heard::Frame(Some(Ok(_))) => {}
@@ -321,7 +343,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &node_host::Keys<'_>, &[u8]) -> Typed,
+    input: PtyInput<K>,
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -346,7 +368,7 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
                 id,
                 borrower,
             };
-            relay_pty(socket, attached, &app, host, typed, id, borrower).await;
+            relay_pty(socket, attached, &app, host, input, id, borrower).await;
         })
     })
 }
@@ -369,7 +391,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     attached: node_host::Attached,
     app: &Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
-    typed: fn(&Arc<App>, K, &node_host::Keys<'_>, &[u8]) -> Typed,
+    input: PtyInput<K>,
     id: K,
     borrower: node_host::Borrower,
 ) {
@@ -418,7 +440,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                 }
                 Heard::Frame(Some(Ok(Message::Binary(bytes)))) => {
                     let _ = host(app).write_if(id, |keys| {
-                        if node_host::typed(&bytes) && matches!(typed(app, id, keys, &bytes), Typed::Kept) {
+                        if node_host::typed(&bytes) && matches!((input.typed)(app, id, keys, &bytes), Typed::Kept) {
                             return Ok(Vec::new());
                         }
                         Ok::<_, std::convert::Infallible>(bytes.to_vec())
@@ -433,6 +455,12 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                     Ok(PtyRequest::Resize(Resize { cols, rows })) => host(app).resize(id, cols, rows),
                     Ok(PtyRequest::Borrow(Resize { cols, rows })) => host(app).borrow(id, borrower, cols, rows),
                     Ok(PtyRequest::GiveBack) => host(app).give_back(id, borrower),
+                    Ok(PtyRequest::Composing) => {
+                        let _ = host(app).strokes_if(id, std::time::Duration::ZERO, |keys| {
+                            (input.composing)(app, id, keys);
+                            Ok::<_, std::convert::Infallible>(Vec::new())
+                        });
+                    }
                     Err(_) => {}
                 },
                 Heard::Frame(Some(Ok(_))) => {}

@@ -11,13 +11,13 @@ use super::agent_state;
 use super::closed::{self, Open};
 use super::events;
 use super::mailbox;
-use crate::choices::{choices, offers_choices_without_tail};
+use crate::choices::{choices, offers_choices_without_tail, without_tail};
 use crate::link_text::{bare_link, markdown, parts};
 use crate::protocol::OpenQuestion;
 use api::graph::errors::Refusal;
 use api::graph::events::{AgentEvent, ClosedBy, Entry};
 use api::graph::messages::{MessageKind, Question};
-use api::graph::text::TextPart;
+use api::graph::text::Block;
 use api::ids::{AgentId, NodeId, WaitId};
 
 use super::{Graph, from_json, parent_of, running_live, to_json};
@@ -43,15 +43,32 @@ fn preview(text: String) -> String {
 const PREVIEW_LIMIT_BYTES: usize = 1024;
 
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
-    let parts = match wait.kind {
-        WaitKind::Question | WaitKind::Done => markdown(&wait.text),
-        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
-            parts(&wait.text)
-        }
+    let text = match wait.kind {
+        WaitKind::Question => without_tail(&wait.text).unwrap_or(&wait.text),
+        _ => &wait.text,
     };
+    let blocks = text_blocks(wait.kind, text);
+    screen(wait, blocks)
+}
+
+pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
+    let blocks = text_blocks(wait.kind, &wait.text);
+    screen(wait, blocks)
+}
+
+fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
+    match kind {
+        WaitKind::Question | WaitKind::Done => markdown(text),
+        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
+            Block::paragraph(parts(text))
+        }
+    }
+}
+
+fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
-        None => preview(parts.iter().map(TextPart::shown).collect()),
+        None => preview(Block::shown(&blocks)),
     };
     let tone = match wait.kind {
         WaitKind::Question
@@ -62,7 +79,7 @@ pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
-        parts,
+        blocks,
         choices: match wait.kind {
             WaitKind::Question => choices(&wait.text),
             WaitKind::Approval
@@ -566,7 +583,7 @@ fn new_wait(
         instruction: None,
         images: Vec::new(),
         prompt: None,
-        parts: Vec::new(),
+        blocks: Vec::new(),
         choices: Vec::new(),
     })
 }

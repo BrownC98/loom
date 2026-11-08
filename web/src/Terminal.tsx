@@ -349,8 +349,11 @@ export function SizingTerminal(props: TerminalProps) {
       const openView = () => {
         xterm.open(el);
         unscaleMouse(xterm);
-        const watched = watchComposition(xterm.textarea ?? el);
+        const typing = xterm.textarea ?? el;
+        const watched = watchComposition(typing);
         composition = watched;
+        const composing = () => link.sendRequest('composing');
+        typing.addEventListener('compositionstart', composing);
         el.addEventListener('paste', pasteImage, true);
         const detachTouch = attachTouchGestures(xterm, el, (at) => {
           const box = el.getBoundingClientRect();
@@ -365,6 +368,7 @@ export function SizingTerminal(props: TerminalProps) {
         if (latest.current.focused) focusSoon(xterm);
         return () => {
           watched.dispose();
+          typing.removeEventListener('compositionstart', composing);
           shown.delete(el);
           el.removeEventListener('paste', pasteImage, true);
           unpick.dispose();

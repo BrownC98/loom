@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getClosedWaits } from './api';
 import { useShowNodes } from './camera';
-import { DocText } from './DocText';
+import { DocBlocks } from './DocText';
 import type { Closed } from './gen/Closed';
 import type { ClosedWait } from './gen/ClosedWait';
 import type { NodeId } from './gen/NodeId';
@@ -204,9 +204,9 @@ const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (
         {wait.instruction && <Instruction text={wait.instruction} />}
         <div className="wait-body" data-tone={wait.tone}>
           {(wait.text || wait.doc) && (
-            <p className="full" data-find>
-              <DocText parts={wait.parts ?? []} doc={wait.doc} node={node.id} onRefusal={props.onRefusal} />
-            </p>
+            <div className="full" data-find>
+              <DocBlocks blocks={wait.blocks ?? []} doc={wait.doc} node={node.id} onRefusal={props.onRefusal} />
+            </div>
           )}
           {choices.length > 0 && (
             <div className="choices">

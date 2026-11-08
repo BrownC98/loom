@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::events::{ClosedBy, Who};
-use super::text::TextPart;
+use super::text::Block;
 use crate::ids::WaitId;
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
@@ -159,10 +159,10 @@ pub struct HumanWait {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
-    /// `text`의 글 조각. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
+    /// `text`의 글 덩어리. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub parts: Vec<TextPart>,
-    /// 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
+    pub blocks: Vec<Block>,
+    /// 질문(`Question`)만: 표준 꼴 선택지. `blocks`와 같이 화면에 보낼 때만 채운다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<Choice>,
 }
@@ -175,7 +175,7 @@ pub struct ScreenWait {
     #[ts(flatten)]
     pub wait: HumanWait,
     pub tone: WaitTone,
-    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `parts`의 글을 1KB에서 자른 것. 시스템 알림과 대상 목록 줄이 쓴다.
+    /// 한 줄 미리 보기: 창이 있으면 `prompt.summary`, 없으면 `blocks`의 글을 1KB에서 자른 것. 시스템 알림과 대상 목록 줄이 쓴다.
     pub summary: String,
 }
 

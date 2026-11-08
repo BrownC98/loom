@@ -6,7 +6,7 @@ import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
 import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
-import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys, type Delivery } from './Composer';
+import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useDraftFilled, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
@@ -25,8 +25,6 @@ const MIN_STREAM = 75;
 
 const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
 const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
-
-let focusOnMount: NodeId | null = null;
 
 type DeskProps = {
   target: Target;
@@ -76,6 +74,7 @@ export function DeskComposer(props: DeskProps) {
     });
   };
   const composer = useComposer({ node, keys: props.keys, deliver });
+  const drafted = useDraftFilled();
   const focusField = () => float.current?.querySelector('textarea')?.focus();
   const closeList = () => {
     setListing(false);
@@ -87,18 +86,12 @@ export function DeskComposer(props: DeskProps) {
     show([id]);
     props.onTarget(id, key);
     props.onSelect(id);
-    if (id === node) focusField();
-    else focusOnMount = id;
+    focusField();
   };
   useEffect(() => {
     const next = followClosed(target.stream);
     if (next && !target.lost) pick(next.node, next.key);
   }, [target.stream]);
-  useEffect(() => {
-    const wanted = focusOnMount === node;
-    focusOnMount = null;
-    if (wanted) requestAnimationFrame(focusField);
-  }, []);
   useLayoutEffect(() => {
     const canvas = layer.current?.parentElement;
     if (!canvas || !box || !home) return;
@@ -109,7 +102,7 @@ export function DeskComposer(props: DeskProps) {
   const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
   const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
   const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
-  if (!input && target.stream.length === 0) return null;
+  if (!input && target.stream.length === 0 && !drafted) return null;
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const { route } = target;

@@ -11,7 +11,7 @@ use super::agent_state;
 use super::closed::{self, Open};
 use super::events;
 use super::mailbox;
-use crate::choices::{choices, offers_choices_without_tail};
+use crate::choices::{choices, offers_choices_without_tail, without_tail};
 use crate::link_text::{bare_link, markdown, parts};
 use crate::protocol::OpenQuestion;
 use api::graph::NodeState;
@@ -44,11 +44,21 @@ fn preview(text: String) -> String {
 const PREVIEW_LIMIT_BYTES: usize = 1024;
 
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
+    screen(wait, true)
+}
+
+pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
+    screen(wait, false)
+}
+
+fn screen(wait: HumanWait, buttons: bool) -> ScreenWait {
+    let text = match wait.kind {
+        WaitKind::Question if buttons => without_tail(&wait.text).unwrap_or(&wait.text),
+        _ => &wait.text,
+    };
     let parts = match wait.kind {
-        WaitKind::Question | WaitKind::Done => markdown(&wait.text),
-        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
-            parts(&wait.text)
-        }
+        WaitKind::Question | WaitKind::Done => markdown(text),
+        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => parts(text),
     };
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),

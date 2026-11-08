@@ -36,6 +36,13 @@ fn parse(question: &str) -> Option<(Vec<Choice>, Tail)> {
     Some((choices, tail))
 }
 
+pub fn without_tail(question: &str) -> Option<&str> {
+    let text = question.trim();
+    parse(text)?;
+    let body = text[..group_start(text)?].trim_end();
+    (!body.is_empty()).then_some(body)
+}
+
 pub fn offers_choices_without_tail(question: &str) -> bool {
     match parse(question) {
         Some((_, tail)) => tail == Tail::Mixed,
@@ -127,6 +134,10 @@ fn recommended_key(part: &str) -> Option<char> {
 }
 
 fn last_group(text: &str) -> Option<&str> {
+    group_start(text).map(|i| &text[i + 1..text.len() - 1])
+}
+
+fn group_start(text: &str) -> Option<usize> {
     if !text.ends_with(')') {
         return None;
     }
@@ -137,7 +148,7 @@ fn last_group(text: &str) -> Option<&str> {
             '(' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Some(&text[i + 1..text.len() - 1]);
+                    return Some(i);
                 }
             }
             _ => {}

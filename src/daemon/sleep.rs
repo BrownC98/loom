@@ -57,6 +57,18 @@ impl Sleeps {
             .extend(bytes.iter().filter(|b| **b != SUBMIT).take(room));
     }
 
+    pub fn slept(&self, node: NodeId) {
+        let typed = self
+            .kept
+            .lock()
+            .unwrap()
+            .get(&node)
+            .is_some_and(|keys| !keys.bytes.is_empty());
+        if typed {
+            self.knocked(node);
+        }
+    }
+
     fn let_go(&self, node: NodeId) {
         if let Some(keys) = self.kept.lock().unwrap().get_mut(&node) {
             keys.old_pty = None;

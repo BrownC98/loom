@@ -83,7 +83,7 @@ impl App {
             .collect();
         let (due, next) = self.watchdog.due(&listening, now());
         for id in due {
-            if !self.relaunch_planned(id) && self.graph.wake_idle(id, IDLE_NOTE)? {
+            if self.graph.wake_idle(id, IDLE_NOTE)? {
                 crate::log::logln!(
                     "loom: 일이 남은 채 쉬고 깨울 것이 없는 노드 {}를 깨운다",
                     id.0

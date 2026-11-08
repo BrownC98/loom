@@ -5,6 +5,8 @@ use api::graph::messages::{Kind, MessageKind};
 use api::ids::NodeId;
 
 const NO_WAKE_SOURCE: &str = r#"n.process IS NULL AND n.state ->> 'kind' != 'done' AND n.wait IS NULL
+     AND EXISTS (SELECT 1 FROM agent_states s WHERE s.node = n.id AND s.state ->> 'kind' = 'listening')
+     AND NOT EXISTS (SELECT 1 FROM relaunch_plans p WHERE p.node = n.id)
      AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.recipient = n.id AND m.delivered = 0)
      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = n.id AND c.state ->> 'kind' != 'done'
          AND (c.process IS NULL OR c.process ->> 'kind' IN ('asleep', 'hostGone')))

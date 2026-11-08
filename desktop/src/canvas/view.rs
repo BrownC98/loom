@@ -624,8 +624,11 @@ impl CanvasView {
             && self.focused != Some(id)
             && let Some(live) = self.live.get(&id)
         {
-            live.view.update(cx, |view, cx| view.refocus(window, cx));
-            self.focused = Some(id);
+            if live.view.update(cx, |view, cx| view.refocus(window, cx)) {
+                self.focused = Some(id);
+            } else {
+                crate::views::compose::retry(window, cx);
+            }
         }
         if waiting {
             cx.spawn_in(window, async move |this, cx| {

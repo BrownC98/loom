@@ -15,7 +15,7 @@ import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, NoticeBadges, oldestWait, showsId } from './notice';
-import { PromptBody } from './PromptBody';
+import { KeyHint, PromptBody } from './PromptBody';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
   return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => bySince(oldestWait(a), oldestWait(b)));
@@ -139,7 +139,7 @@ export function Instruction(props: { text: string }) {
   );
 }
 
-export function ConfirmButton(props: { wait: WaitId }) {
+export function ConfirmButton(props: { wait: WaitId; onClose?: () => () => void }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -150,7 +150,11 @@ export function ConfirmButton(props: { wait: WaitId }) {
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
+        const cancel = props.onClose?.();
+        dismissWait(props.wait).catch((err: Error) => {
+          cancel?.();
+          setRefusal(err.message);
+        });
       }}
     >
       {t('inbox.confirm')}
@@ -158,7 +162,7 @@ export function ConfirmButton(props: { wait: WaitId }) {
   );
 }
 
-export function WaitContent(props: { node: NodeId; wait: ScreenWait }) {
+export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boolean }) {
   const { wait } = props;
   const { prompt } = wait;
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -185,6 +189,7 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait }) {
           prompt={prompt}
           draft={String(wait.id)}
           busy={choosing}
+          hints={props.hints}
           onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
           onType={(text, option) => answerPrompt(typeText(wait.id, prompt, text, option))}
         />
@@ -281,8 +286,6 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   );
 }
 
-export const CHOICE_KEYS = 9;
-
 export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void; hints?: boolean }) {
   const { t } = useTranslation();
   const { list } = props;
@@ -291,7 +294,7 @@ export function Choices(props: { list: readonly Choice[]; onPick: (key: string) 
     <div className="choices">
       {list.map((c, i) => (
         <button key={c.key} type="button" className="choice" data-recommended={c.recommended || undefined} onClick={() => props.onPick(c.key)}>
-          {props.hints && i < CHOICE_KEYS && <kbd className="key-hint">Alt+{i + 1}</kbd>}
+          {props.hints && <KeyHint index={i} />}
           <span className="key">{c.key}</span>
           <span className="label">
             {c.label}
@@ -372,7 +375,7 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
   );
 }
 
-export function DismissButton(props: { wait: WaitId }) {
+export function DismissButton(props: { wait: WaitId; onClose?: () => () => void }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -384,7 +387,11 @@ export function DismissButton(props: { wait: WaitId }) {
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
+        const cancel = props.onClose?.();
+        dismissWait(props.wait).catch((err: Error) => {
+          cancel?.();
+          setRefusal(err.message);
+        });
       }}
     >
       <X aria-hidden="true" />

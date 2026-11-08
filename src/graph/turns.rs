@@ -286,7 +286,7 @@ impl Graph {
         } else {
             0
         };
-        let human_reply = if has(Bit::Typed) && !has(Bit::Status) {
+        let human_reply = if has(Bit::Typed) && !has(Bit::Status) && !has(Bit::Background) {
             HUMAN_REPLY
         } else {
             0

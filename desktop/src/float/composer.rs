@@ -1,9 +1,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::graph::waits::ScreenWait;
+use api::graph::waits::WaitTone;
 use api::ids::{NodeId, WaitId};
 use api::settings::{FloatPlace, FloatSize};
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
@@ -11,21 +12,22 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, point, px,
 };
 
-use super::aim::{self, Aim, Kind};
+use super::aim::{self, Aim, Chosen, Kind, Stop, Streamed};
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::mix;
-use crate::views::dock::answers::{self, Answers};
+use crate::views::dock::answers::{self, Answers, Strip};
 use crate::views::dock::entry;
-use crate::views::dock::questions::groups_of;
+use crate::views::dock::questions::kind_label;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
 use crate::views::inputs::Inputs;
 use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
+use crate::views::scrollbar::Bar;
 use crate::views::terminal::InputState;
 use crate::views::tooltip::tip;
 use crate::views::viewer::Viewer;
@@ -39,6 +41,8 @@ const DISABLED_ALPHA: f32 = 0.4;
 const FOCUS_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 const LEAD: f32 = 22.0;
 const CARD_ROOM: f32 = 280.0;
+const STREAM_FLOOR: f32 = 52.0;
+const STREAM_TIME: &str = "%H:%M";
 const KEYS_FONT: f32 = 11.0;
 const KEYS_GAP: f32 = 6.0;
 const KEYS_ROOM: f32 = 480.0;
@@ -69,9 +73,13 @@ pub struct Composer {
     files: Vec<Filed>,
     viewer: Entity<Viewer>,
     answers: Entity<Answers>,
-    chosen: Option<(u32, Aim)>,
-    pinned: Option<(u32, Aim)>,
+    chosen: Option<Chosen>,
+    pinned: Option<Stop>,
     seen_selected: Option<u32>,
+    seen_node: Option<u32>,
+    stream_bar: Bar,
+    stream_box: Rc<Cell<Size<Pixels>>>,
+    scrolled: Option<WaitId>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
@@ -86,11 +94,28 @@ struct Sending {
 struct Aimed {
     node: u32,
     name: String,
-    waits: Vec<ScreenWait>,
-    total: usize,
+    stream: Vec<Streamed>,
     aim: Aim,
     kind: Kind,
     lost: bool,
+}
+
+impl Aimed {
+    /// The wait that the card shows: the current wait, or the oldest wait of the node
+    /// while the text goes to the node and not to a wait.
+    fn shown(&self) -> Option<&Streamed> {
+        match self.aim {
+            Aim::Alert(id) => self.stream.iter().find(|s| s.wait.wait.id == id),
+            Aim::Prompt => self.stream.iter().find(|s| s.node == self.node),
+        }
+    }
+
+    fn asks(&self) -> usize {
+        self.stream
+            .iter()
+            .filter(|s| matches!(s.wait.tone, WaitTone::Ask))
+            .count()
+    }
 }
 
 pub fn composer(
@@ -162,20 +187,26 @@ pub fn composer(
             chosen: None,
             pinned: None,
             seen_selected: None,
+            seen_node: None,
+            stream_bar: Bar::new(),
+            stream_box: Rc::new(Cell::new(Size::default())),
+            scrolled: None,
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
             subscriptions: vec![typed, heard],
         };
-        composer
-            .subscriptions
-            .push(cx.observe(&store, |composer: &mut Composer, _, cx| composer.sync(cx)));
+        composer.subscriptions.push(cx.observe_in(
+            &store,
+            window,
+            |composer: &mut Composer, _, window, cx| composer.sync(window, cx),
+        ));
         composer
             .subscriptions
             .push(cx.observe(&registry, |_, _, cx| cx.notify()));
         composer
             .subscriptions
             .push(cx.observe(&composer.answers, |_, _, cx| cx.notify()));
-        composer.sync(cx);
+        composer.sync(window, cx);
         composer
     })
 }
@@ -212,40 +243,36 @@ impl Composer {
     fn aimed(&self, cx: &App) -> Option<Aimed> {
         let store = self.store.read(cx);
         let snapshot = store.snapshot()?;
-        let groups = groups_of(snapshot);
-        let total = groups.iter().map(|g| g.waits.len()).sum();
+        let stream = aim::stream_of(snapshot);
         let exists = |id: &u32| snapshot.nodes.iter().any(|n| n.id.0 == *id);
         let held = self.pinned.filter(|(held, _)| exists(held));
-        let node = held
-            .map(|(held, _)| held)
-            .or_else(|| store.selected().filter(exists))
-            .or_else(|| groups.first().map(|g| g.node.0))?;
+        let chosen = self.chosen.filter(|c| exists(&c.stop.0));
+        let fallback = store.selected().filter(exists);
+        let (node, aim) = aim::resolve(held, chosen, &stream, fallback)?;
         let name = snapshot.nodes.iter().find(|n| n.id.0 == node)?.name.clone();
-        let waits = groups
-            .into_iter()
-            .find(|g| g.node.0 == node)
-            .map(|g| g.waits)
-            .unwrap_or_default();
-        let chosen = self
-            .chosen
-            .filter(|(held, _)| *held == node)
-            .map(|(_, a)| a);
-        let aim = match held {
-            Some((_, pin)) => pin,
-            None => aim::resolve(chosen, &waits),
-        };
         let lost = (self.pinned.is_some() && held.is_none())
-            || matches!(aim, Aim::Alert(id) if !waits.iter().any(|w| w.wait.id == id));
-        let kind = aim::kind_of(aim, &waits);
+            || matches!(aim, Aim::Alert(id) if !stream.iter().any(|s| s.wait.wait.id == id));
+        let kind = aim::kind_of(aim, &stream);
         Some(Aimed {
             node,
             name,
-            waits,
-            total,
+            stream,
             aim,
             kind,
             lost,
         })
+    }
+
+    fn stream(&self, cx: &App) -> Vec<Streamed> {
+        self.store
+            .read(cx)
+            .snapshot()
+            .map(aim::stream_of)
+            .unwrap_or_default()
+    }
+
+    fn choose(&mut self, stop: Stop, cx: &mut Context<Self>) {
+        self.chosen = Some(aim::chosen(stop, &self.stream(cx)));
     }
 
     fn repin(&mut self, cx: &mut Context<Self>) {
@@ -266,7 +293,7 @@ impl Composer {
         self.aimed(cx).map(|a| a.node)
     }
 
-    fn sync(&mut self, cx: &mut Context<Self>) {
+    fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let selected = self.store.read(cx).selected();
         if selected != self.seen_selected {
             self.seen_selected = selected;
@@ -277,10 +304,18 @@ impl Composer {
                     .snapshot()
                     .is_some_and(|s| s.nodes.iter().any(|n| n.id.0 == held))
             });
+            if let Some(node) = selected
+                && Some(node) != self.node(cx)
+            {
+                let stream = self.stream(cx);
+                let first = stream.iter().find(|s| s.node == node).map(Streamed::stop);
+                self.choose(first.unwrap_or((node, Aim::Prompt)), cx);
+            }
             if !gone {
                 self.reaim(cx);
             }
         }
+        self.follow(window, cx);
         let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {
             self.seen_place = place;
@@ -291,6 +326,32 @@ impl Composer {
                 .update(cx, |pictures, _| pictures.aim(NodeId(node)));
         }
         cx.notify();
+    }
+
+    /// The graph selection follows the current wait when it moves to another node.
+    fn follow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(aimed) = self.aimed(cx) else { return };
+        let moved = self.seen_node.is_some_and(|node| node != aimed.node);
+        self.seen_node = Some(aimed.node);
+        if moved
+            && matches!(aimed.aim, Aim::Alert(_))
+            && self.store.read(cx).selected() != Some(aimed.node)
+        {
+            let typing = self.field.read(cx).focused(window);
+            self.store.update(cx, |store, cx| store.go(aimed.node, cx));
+            if typing {
+                self.focus_later(window, cx);
+            }
+        }
+    }
+
+    /// Selecting a node moves the focus away; the field takes it back after a short delay.
+    fn focus_later(&self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(FOCUS_DELAY).await;
+            let _ = this.update_in(cx, |composer, window, cx| composer.focus_field(window, cx));
+        })
+        .detach();
     }
 
     fn look(&self, cx: &Context<Self>) -> Look {
@@ -655,13 +716,44 @@ impl Composer {
         cx.notify();
     }
 
-    fn cycle(&mut self, by: isize, cx: &mut Context<Self>) {
+    fn cycle(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(aimed) = self.aimed(cx) else {
             return;
         };
-        let next = aim::cycle(aimed.aim, &aimed.waits, by);
-        self.chosen = Some((aimed.node, next));
+        let next = aim::cycle((aimed.node, aimed.aim), &aimed.stream, by);
+        self.choose(next, cx);
         self.reaim(cx);
+        self.follow(window, cx);
+    }
+
+    /// Closes every open done wait of the stream, as [확인] on each one does.
+    fn confirm_all(&mut self, cx: &mut Context<Self>) {
+        let ids: Vec<u32> = self
+            .stream(cx)
+            .iter()
+            .filter(|s| matches!(s.wait.tone, WaitTone::Done))
+            .map(|s| s.wait.wait.id.0)
+            .collect();
+        self.answers.update(cx, |answers, cx| {
+            for id in ids {
+                answers.dismiss(id, cx);
+            }
+        });
+    }
+
+    /// Alt+1 … Alt+9: answers with that choice of the current card.
+    fn answer_nth(&mut self, nth: usize, cx: &mut Context<Self>) -> bool {
+        let Some(aimed) = self.aimed(cx) else {
+            return false;
+        };
+        let Aim::Alert(id) = aimed.aim else {
+            return false;
+        };
+        let Some(wait) = aimed.stream.iter().find(|s| s.wait.wait.id == id) else {
+            return false;
+        };
+        self.answers
+            .update(cx, |answers, cx| answers.choose_nth(&wait.wait, nth, cx))
     }
 
     fn keys(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -671,9 +763,15 @@ impl Composer {
             return;
         }
         match keys.key.as_str() {
-            "up" if self.listing.is_none() => self.cycle(-1, cx),
-            "down" if self.listing.is_none() => self.cycle(1, cx),
+            "up" if self.listing.is_none() => self.cycle(-1, window, cx),
+            "down" if self.listing.is_none() => self.cycle(1, window, cx),
             "l" => self.toggle_list(window, cx),
+            digit if digit.len() == 1 && ("1"..="9").contains(&digit) => {
+                let nth = usize::from(digit.as_bytes()[0] - b'1');
+                if self.listing.is_some() || !self.answer_nth(nth, cx) {
+                    return;
+                }
+            }
             _ => return,
         }
         cx.stop_propagation();
@@ -686,21 +784,18 @@ impl Composer {
 
     fn pick(&mut self, node: NodeId, aim: Aim, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.node(cx);
-        self.chosen = Some((node.0, aim));
+        self.choose((node.0, aim), cx);
         self.reaim(cx);
         self.store.update(cx, |store, cx| {
             store.show_node(node.0, cx);
             store.select(node.0, cx);
         });
+        self.follow(window, cx);
         if current == Some(node.0) {
             self.focus_field(window, cx);
             return;
         }
-        cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(FOCUS_DELAY).await;
-            let _ = this.update_in(cx, |composer, window, cx| composer.focus_field(window, cx));
-        })
-        .detach();
+        self.focus_later(window, cx);
     }
 }
 
@@ -714,9 +809,9 @@ impl Render for Composer {
             .size_full()
             .child(place::measure(self.pane.clone(), owner));
         let off = self.store.read(cx).settings().composer_off;
-        let shown = self
-            .aimed(cx)
-            .filter(|a| a.total > 0 || (!off && self.inputs.read(cx).state(a.node, cx).is_some()));
+        let shown = self.aimed(cx).filter(|a| {
+            !a.stream.is_empty() || (!off && self.inputs.read(cx).state(a.node, cx).is_some())
+        });
         let Some(aimed) = shown else {
             self.grab = None;
             self.at = None;
@@ -725,6 +820,20 @@ impl Render for Composer {
                 .update(cx, |store, cx| store.set_composer(None, cx));
             return root;
         };
+        let current = match aimed.aim {
+            Aim::Alert(id) => Some(id),
+            Aim::Prompt => None,
+        };
+        if self.scrolled != current {
+            self.scrolled = current;
+            if let Some(index) = aimed
+                .stream
+                .iter()
+                .position(|s| Some(s.wait.wait.id) == current)
+            {
+                self.stream_bar.handle().scroll_to_item(index);
+            }
+        }
         let look = self.look(cx);
         let z = place::zoom(look.size);
         let (pane, boxed) = (self.pane.get(), self.boxed.get());
@@ -798,40 +907,41 @@ impl Render for Composer {
 }
 
 impl Composer {
+    fn bulk(&self, done: usize, z: f32, cx: &mut Context<Self>) -> AnyElement {
+        let text = ui::say_with(cx, Str::ComposerConfirmAll, &[("count", &done.to_string())]);
+        ui::button_at("composer-confirm-all", z, cx)
+            .flex_none()
+            .whitespace_nowrap()
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .on_click(cx.listener(|composer, _, _, cx| composer.confirm_all(cx)))
+            .child(text)
+            .into_any_element()
+    }
+
     fn card(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if aimed.waits.is_empty() {
-            return None;
-        }
         let c = ui::colors(cx);
-        let total = aimed.total.to_string();
-        let count = |index: usize| {
-            ui::say_with(
-                cx,
-                Str::ComposerAlertCount,
-                &[
-                    ("index", &(index + 1).to_string()),
-                    ("count", &aimed.waits.len().to_string()),
-                    ("total", &total),
-                ],
-            )
+        let shown = aimed.shown()?;
+        let ask = aimed.asks();
+        let done = aimed.stream.len() - ask;
+        let counts = ui::say_with(
+            cx,
+            Str::ComposerAlertTotal,
+            &[
+                ("total", &aimed.stream.len().to_string()),
+                ("ask", &ask.to_string()),
+                ("done", &done.to_string()),
+            ],
+        );
+        let strip = Strip {
+            repo: shown.repo.clone(),
+            node: shown.name.clone(),
+            counts,
+            bulk: (done > 0).then(|| self.bulk(done, z, cx)),
+            note: matches!(aimed.aim, Aim::Prompt)
+                .then(|| ui::say(cx, Str::ComposerNotAnswer).to_owned()),
         };
-        let (index, label) = match aimed.aim {
-            Aim::Alert(id) => {
-                let index = aimed.waits.iter().position(|w| w.wait.id == id)?;
-                (index, count(index))
-            }
-            Aim::Prompt => (
-                0,
-                format!(
-                    "{} \u{b7} {}",
-                    ui::say(cx, Str::ComposerNotAnswer),
-                    count(0)
-                ),
-            ),
-        };
-        let wait = &aimed.waits[index];
-        let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, label, cx);
-        let node = aimed.node;
+        let body = answers::card(&self.answers, NodeId(shown.node), &shown.wait, z, strip, cx);
+        let node = shown.node;
         Some(
             div()
                 .id("composer-card")
@@ -845,12 +955,85 @@ impl Composer {
                 .py(px(8.0 * z))
                 .rounded(px(10.0 * z))
                 .border_1()
-                .border_color(entry::tone_of(wait.tone, &c))
+                .border_color(entry::tone_of(shown.wait.tone, &c))
                 .bg(c.surface)
                 .text_size(px(13.0 * z))
                 .child(body)
                 .into_any_element(),
         )
+    }
+
+    /// Every remaining wait of the stream as one row; the current wait is bold.
+    fn stream_list(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> AnyElement {
+        let c = ui::colors(cx);
+        let current = aimed.shown().map(|s| s.wait.wait.id);
+        // The list grows with the waits until the composer fills the pane; then it scrolls.
+        let rest = self.boxed.get().height - self.stream_box.get().height;
+        let room = self.pane.get().height - px(2.0 * MARGIN) - rest;
+        let mut list = div()
+            .id("composer-stream")
+            .flex()
+            .flex_col()
+            .max_h(room.max(px(STREAM_FLOOR * z)))
+            .overflow_y_scroll()
+            .track_scroll(self.stream_bar.handle());
+        for (index, row) in aimed.stream.iter().enumerate() {
+            let id = row.wait.wait.id;
+            let node = row.node;
+            let on = Some(id) == current && matches!(aimed.aim, Aim::Alert(_));
+            let hover = c.surface_hover;
+            let chip = if row.wait.wait.kind == api::graph::waits::WaitKind::Question {
+                id.to_string()
+            } else {
+                ui::say(cx, kind_label(row.wait.wait.kind)).to_owned()
+            };
+            list = list.child(
+                div()
+                    .id(("composer-stream-row", index))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0 * z))
+                    .min_h(px(26.0 * z))
+                    .px(px(8.0 * z))
+                    .rounded(px(6.0 * z))
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover))
+                    .when(on, |d| {
+                        d.bg(c.accent_wash).font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .on_click(cx.listener(move |composer, _, window, cx| {
+                        composer.pick(NodeId(node), Aim::Alert(id), window, cx)
+                    }))
+                    .child(entry::mark(row.wait.tone, z, &c))
+                    .child(entry::qid(chip, row.wait.tone, 18.0, z, &c))
+                    .child(
+                        div()
+                            .flex_none()
+                            .max_w(px(140.0 * z))
+                            .truncate()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(row.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(c.ink_2)
+                            .child(row.wait.summary.replace('\n', " ")),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(11.0 * z))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(c.ink_3)
+                            .child(ui::clock(row.wait.wait.since, STREAM_TIME)),
+                    ),
+            );
+        }
+        let list = list.child(place::measure(self.stream_box.clone(), cx.entity_id()));
+        self.stream_bar.reserved(list).min_h_0().into_any_element()
     }
 
     fn face(
@@ -904,7 +1087,15 @@ impl Composer {
             cx,
         )
         .map(IntoElement::into_any_element);
-        let card = self.card(aimed, z, cx);
+        let alerts = (!aimed.stream.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0 * z))
+                .child(self.stream_list(aimed, z, cx))
+                .children(self.card(aimed, z, cx))
+                .into_any_element()
+        });
         let view = ComposerView {
             name: &aimed.name,
             kind: aimed.kind,
@@ -934,7 +1125,7 @@ impl Composer {
             anchor: self.anchor.clone(),
             sendable,
         };
-        face(&view, card, images, field, &live, cx)
+        face(&view, alerts, images, field, &live, cx)
     }
 }
 

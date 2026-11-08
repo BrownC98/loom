@@ -113,6 +113,7 @@ pub(crate) enum Look {
 
 pub(crate) struct Choice<'a> {
     pub key: String,
+    pub hint: Option<String>,
     pub label: &'a str,
     pub recommended: bool,
     pub look: Look,
@@ -127,6 +128,7 @@ pub(crate) fn choice_face<E: Styled + ParentElement>(
 ) -> E {
     let Choice {
         key,
+        hint,
         label,
         recommended,
         look,
@@ -179,7 +181,14 @@ pub(crate) fn choice_face<E: Styled + ParentElement>(
                 .child(ui::say(cx, Str::InboxRecommended)),
         );
     }
-    face.child(
+    face.children(hint.map(|text| {
+        div()
+            .text_size(px(10.0 * z))
+            .font_family(fonts::TERMINAL_FAMILY)
+            .text_color(c.ink_3)
+            .child(text)
+    }))
+    .child(
         div()
             .text_size(px(11.0 * z))
             .font_weight(FontWeight::SEMIBOLD)

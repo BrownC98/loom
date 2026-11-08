@@ -586,11 +586,13 @@ export function EventConsole(props: {
   onRepo: (id: RepoId) => void;
   highlight: EventRecord | null;
   onHighlight: (record: EventRecord | null) => void;
+  query: string;
+  onQuery: (query: string) => void;
 }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   const [hidden, setHidden] = useState<ReadonlySet<Category>>(new Set());
-  const [query, setQuery] = useState('');
+  const { query, onQuery: setQuery } = props;
   const { onHighlight, highlight } = props;
 
   useEffect(() => {

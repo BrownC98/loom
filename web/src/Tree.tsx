@@ -19,8 +19,8 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { ShortPlaceTag, sshHosts } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { AgentLine, stateClass, stateText, stateTitle, Unread, viewLabel } from './NodeCard';
-import { chipClass, NoticeChips } from './notice';
+import { AgentLine, stateClass, stateText, Unread } from './NodeCard';
+import { StatusPills } from './status';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './sheet';
 import { useDismiss } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
@@ -80,12 +80,6 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   );
 }
 
-function StateTag({ view }: { view: NodeView }) {
-  if (view.waits.length > 0) return <NoticeChips view={view} />;
-  if (!chipClass(view)) return null;
-  return <span className={`state-tag ${chipClass(view)}`} title={stateTitle(view)}>{viewLabel(view)}</span>;
-}
-
 function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[], rename: (key: string) => Rename, note: ParentNote, acts: NodeActions): Item[] {
   return views
     .filter((v) => (parent === null ? !views.some((p) => p.id === v.parent) : v.parent === parent))
@@ -105,7 +99,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
               {from !== null && <FromIcon title={from} />}
               {v.unread > 0 && <span className="spacer" />}
               {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
-              <StateTag view={v} />
+              <StatusPills view={v} />
             </span>
             <span className="node-line">
               <AgentLine view={v} label={label} />

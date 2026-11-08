@@ -295,6 +295,9 @@ fn node_view(v: &ViewIn) -> NodeView {
         "reply": null,
         "waits": [],
         "relaunch": null,
+        "status": {"kind": "idle"},
+        "since": 0,
+        "rework": 0,
     }))
     .expect("node view")
 }

@@ -48,6 +48,9 @@ impl CanvasView {
             steer: press(|this, id, _, _, cx| this.steer(id, cx)),
             bookmark: press(|this, id, _, _, cx| this.bookmark(id, cx)),
             wake: press(|this, id, _, _, cx| this.wake(id, cx)),
+            status: press(|this, id, e, window, cx| {
+                this.open_status(id, e.position, None, window, cx)
+            }),
             expand: if collapse {
                 press(|this, _, _, _, cx| this.collapse(cx))
             } else {
@@ -126,6 +129,21 @@ impl CanvasView {
             focus: 0,
         });
         cx.notify();
+    }
+
+    pub(super) fn open_status(
+        &mut self,
+        id: u32,
+        click: Point<Pixels>,
+        button: Option<Bounds<Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let anchor = match button.or_else(|| self.anchors.get(&format!("status:{id}"))) {
+            Some(button) => popover::Anchor::Below(button),
+            None => popover::Anchor::At(click),
+        };
+        popover::status(self, id, anchor, window, cx);
     }
 
     pub(super) fn close_menu(&mut self, cx: &mut Context<Self>) {

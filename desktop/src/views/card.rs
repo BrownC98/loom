@@ -8,7 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, deferred, div, point, px,
 };
 
-use api::graph::waits::{WaitKind, WaitTone};
+use api::graph::waits::WaitTone;
 use api::graph::{CardView, NodeState, NodeView, ProcessState};
 use api::repos::PlaceView;
 use api::settings::DefaultCardView;
@@ -18,10 +18,11 @@ use crate::fonts;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::anchor::Anchors;
+use crate::views::dock::questions::kind_label;
 use crate::views::dotted;
 use crate::views::field::Field;
 use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
-use crate::views::prose::prose;
+use crate::views::status::{self, Tone, chip, pill, rework, wash};
 use crate::views::tooltip;
 
 pub const HEAD: f32 = 35.0;
@@ -30,8 +31,6 @@ const BUTTON: f32 = 26.0;
 const BUTTON_ROUND: f32 = 6.0;
 const ICON: f32 = 14.0;
 const NAME: f32 = 13.0;
-const TAG_HEIGHT: f32 = 18.0;
-const TAG_TEXT: f32 = 11.0;
 const UNREAD_HEIGHT: f32 = 20.0;
 const RENAME_WIDTH: f32 = 160.0;
 const RENAME_MIN: f32 = 96.0;
@@ -47,6 +46,7 @@ const HALO: f32 = 3.0;
 const FRAME_WASH: f32 = 0.03;
 const WAIT_WASH: f32 = 0.35;
 const DIM: f32 = 0.4;
+const ASLEEP: f32 = 0.72;
 const UNREACHED: f32 = 0.55;
 const UNREACHED_TAG: f32 = 11.0;
 const CURRENT_LINE: f32 = 3.0;
@@ -97,10 +97,6 @@ fn ring(color: Rgba, spread: f32) -> BoxShadow {
         spread_radius: px(spread),
         inset: false,
     }
-}
-
-fn wash(color: Rgba, alpha: f32) -> Rgba {
-    Rgba { a: alpha, ..color }
 }
 
 fn text_px(size: f32, zoom: f32) -> Pixels {
@@ -514,6 +510,7 @@ pub struct Actions {
     pub steer: Press,
     pub bookmark: Press,
     pub wake: Press,
+    pub status: Press,
     pub expand: Press,
     pub menu: Press,
     pub rename: Press,
@@ -545,14 +542,6 @@ pub fn model_text(node: &NodeView) -> String {
         .join(" · ")
 }
 
-pub fn state_text(state: &NodeState, lang: Lang) -> String {
-    match state {
-        NodeState::Running => Str::NodeStateRunning.text(lang).to_owned(),
-        NodeState::Done => Str::NodeStateDone.text(lang).to_owned(),
-        NodeState::SetupFailed { .. } => Str::NodeStateSetupFailed.text(lang).to_owned(),
-    }
-}
-
 pub fn process_text(process: &ProcessState, lang: Lang) -> String {
     match process {
         ProcessState::Working => Str::NodeProcessWorking.text(lang).to_owned(),
@@ -581,72 +570,8 @@ pub fn active(node: &NodeView) -> bool {
     matches!(node.state, NodeState::Running) && stopped_code(node).is_none()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum StateChip {
-    Failed,
-    Asleep,
-}
-
-pub fn chip_of(node: &NodeView) -> Option<StateChip> {
-    if failed(node) {
-        Some(StateChip::Failed)
-    } else if matches!(node.process, ProcessState::Asleep) {
-        Some(StateChip::Asleep)
-    } else {
-        None
-    }
-}
-
-pub fn chip_text(node: &NodeView, lang: Lang) -> String {
-    match node.state {
-        NodeState::SetupFailed { .. } => state_text(&node.state, lang),
-        _ => process_text(&node.process, lang),
-    }
-}
-
-pub fn chip_tip(node: &NodeView, lang: Lang) -> String {
-    format!(
-        "{} \u{00b7} {}",
-        state_text(&node.state, lang),
-        process_text(&node.process, lang)
-    )
-}
-
-pub fn foot_height(node: &NodeView) -> f32 {
-    if failed(node) { FOOT } else { 0.0 }
-}
-
-pub fn body_height(card_height: f32, node: &NodeView) -> f32 {
-    card_height - HEAD - foot_height(node) - 2.0
-}
-
-pub fn foot_text(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String> {
-    if let NodeState::SetupFailed { code } = node.state {
-        return Some(Str::NodeFootSetupFailed.with(lang, &[("code", &code.to_string())]));
-    }
-    match stopped_code(node)? {
-        None => Some(Str::NodeFootDaemonRestarted.text(lang).to_owned()),
-        Some(code) => {
-            let code = code.to_string();
-            Some(match parent {
-                Some(parent) => {
-                    Str::NodeFootStoppedSent.with(lang, &[("code", &code), ("parent", parent)])
-                }
-                None => Str::NodeFootStopped.with(lang, &[("code", &code)]),
-            })
-        }
-    }
-}
-
-fn wait_kind(kind: &WaitKind) -> Str {
-    match kind {
-        WaitKind::Question => Str::WaitQuestion,
-        WaitKind::Approval => Str::WaitApproval,
-        WaitKind::Trust => Str::WaitTrust,
-        WaitKind::Auth => Str::WaitAuth,
-        WaitKind::Input => Str::WaitInput,
-        WaitKind::Done => Str::WaitDone,
-    }
+pub fn body_height(card_height: f32) -> f32 {
+    card_height - HEAD - FOOT - 2.0
 }
 
 fn button(id: impl Into<ElementId>, size: f32, zoom: f32) -> Stateful<Div> {
@@ -730,24 +655,6 @@ fn bookmark_button(face: &Face, zoom: f32, colors: &Colors) -> Stateful<Div> {
         ))
 }
 
-fn tag(text: String, fill: Rgba, ink: Rgba, zoom: f32) -> Div {
-    div()
-        .flex_none()
-        .h(px(TAG_HEIGHT * zoom))
-        .px(px(7.0 * zoom))
-        .flex()
-        .items_center()
-        .rounded(px(9.0 * zoom))
-        .border(px((zoom).max(0.5)))
-        .border_color(fill)
-        .bg(fill)
-        .text_size(text_px(TAG_TEXT, zoom))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(ink)
-        .whitespace_nowrap()
-        .child(text)
-}
-
 fn badges(face: &Face, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
     let (node, lang) = (face.node, face.lang);
     let mut out: Vec<AnyElement> = Vec::new();
@@ -793,47 +700,48 @@ fn badges(face: &Face, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
     let dones = node.waits.len() - asks.len();
     if let Some(oldest) = asks.iter().min_by_key(|w| w.wait.since) {
         out.push(
-            tag(
-                format!("{} {}", wait_kind(&oldest.wait.kind).text(lang), asks.len()),
-                colors.ask,
-                colors.ask_ink,
+            pill(
+                format!("{} {}", kind_label(oldest.wait.kind).text(lang), asks.len()),
+                Tone::Ask,
                 zoom,
+                colors,
             )
             .into_any_element(),
         );
     }
     if dones > 0 {
         out.push(
-            tag(
+            pill(
                 Str::TreeDone.with(lang, &[("n", &dones.to_string())]),
-                colors.ok,
-                colors.surface,
+                Tone::Done,
                 zoom,
+                colors,
             )
             .into_any_element(),
         );
     }
-    if let Some(chip) = chip_of(node) {
-        let ink = match chip {
-            StateChip::Failed => colors.err,
-            StateChip::Asleep => colors.ink_2,
-        };
+    if let Some(chip) = chip(&node.status, lang) {
+        let press = face.actions.status.clone();
+        let label = Str::NodeStatusPopLabel.with(lang, &[("name", &node.name)]);
         out.push(
             div()
-                .id(("state-chip", node.id.0 as usize))
-                .flex()
+                .id(("status-chip", node.id.0 as usize))
+                .relative()
                 .flex_none()
-                .items_center()
-                .gap(px(5.0 * zoom))
-                .text_size(text_px(SMALL, zoom))
-                .font_family(fonts::TERMINAL_FAMILY)
-                .text_color(ink)
-                .whitespace_nowrap()
-                .tooltip(tooltip::tip(chip_tip(node, lang)))
-                .child(div().size(px((7.0 * zoom).max(1.0))).rounded_full().bg(ink))
-                .child(chip_text(node, lang))
+                .cursor_pointer()
+                .when(asleep(node), |d| d.opacity(ASLEEP))
+                .on_mouse_down(MouseButton::Left, move |e, window, cx| {
+                    press(e, window, cx);
+                    cx.stop_propagation();
+                })
+                .tooltip(tooltip::tip(label))
+                .child(face.actions.anchors.mark(format!("status:{}", node.id.0)))
+                .child(pill(chip.text, chip.tone, zoom, colors))
                 .into_any_element(),
         );
+    }
+    if let Some(chip) = rework(node, lang) {
+        out.push(pill(chip.text, chip.tone, zoom, colors).into_any_element());
     }
     out
 }
@@ -906,13 +814,14 @@ fn name_slot(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
         .group(group.clone())
         .relative()
         .cursor_text()
-        .min_w_0()
+        .min_w(px(36.0 * zoom))
         .max_w(px(face.width * 0.45 * zoom))
         .overflow_hidden()
         .whitespace_nowrap()
         .text_ellipsis()
         .text_size(text_px(NAME, zoom))
         .font_weight(FontWeight::SEMIBOLD)
+        .when(asleep(node), |d| d.opacity(ASLEEP))
         .on_mouse_down(MouseButton::Left, move |e, window, cx| {
             if e.click_count == 2 {
                 press(e, window, cx);
@@ -1122,38 +1031,59 @@ fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
                     .child(model),
             )
         })
-        .children(face.node.reply.clone().map(|reply| {
+        .child(foot_line(face, false, zoom, colors).when(asleep(face.node), |d| d.opacity(ASLEEP)))
+}
+
+/// 아래 줄: 상태가 주는 글과 시간. 표준 카드의 발과 심플 카드의 마지막 줄이 함께 쓴다.
+fn foot_line(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
+    let node = face.node;
+    let text = status::line(node, face.parent, face.lang);
+    let time = status::since_short(node.since, face.lang);
+    let ink = if status::problem(&node.status) {
+        colors.err
+    } else if selected {
+        colors.accent
+    } else {
+        colors.ink_2
+    };
+    div()
+        .flex()
+        .items_baseline()
+        .gap(px(8.0 * zoom))
+        .min_w_0()
+        .text_size(text_px(SMALL, zoom))
+        .text_color(ink)
+        .children(text.map(|text| {
             div()
-                .id(("reply", face.node.id.0 as usize))
-                .text_size(text_px(SMALL, zoom))
-                .text_color(colors.ink_2)
+                .min_w_0()
+                .flex_1()
                 .overflow_hidden()
-                .line_clamp(2)
-                .tooltip(tooltip::tip(reply.clone()))
-                .child(prose(reply))
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(text)
+        }))
+        .children(time.map(|time| {
+            div()
+                .flex_none()
+                .ml_auto()
+                .text_color(colors.ink_3)
+                .whitespace_nowrap()
+                .child(time)
         }))
 }
 
-pub fn foot(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Option<Div> {
-    let text = foot_text(face.node, face.parent, face.lang)?;
-    Some(
-        div()
-            .w_full()
-            .h(px(FOOT * zoom))
-            .px(px(10.0 * zoom))
-            .flex()
-            .flex_none()
-            .items_center()
-            .border_t(px(zoom.max(0.5)))
-            .border_color(colors.line)
-            .text_size(text_px(SMALL, zoom))
-            .text_color(if selected {
-                colors.accent
-            } else {
-                colors.ink_3
-            })
-            .child(text),
-    )
+pub fn foot(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
+    div()
+        .w_full()
+        .h(px(FOOT * zoom))
+        .px(px(10.0 * zoom))
+        .flex()
+        .flex_none()
+        .items_center()
+        .border_t(px(zoom.max(0.5)))
+        .border_color(colors.line)
+        .when(asleep(face.node), |d| d.opacity(ASLEEP))
+        .child(foot_line(face, selected, zoom, colors).flex_1())
 }
 
 pub fn card(
@@ -1171,9 +1101,7 @@ pub fn card(
     } = look;
     let node = face.node;
     let head_h = px(HEAD * zoom);
-    let foot = (!simple)
-        .then(|| foot(face, selected, zoom, colors))
-        .flatten();
+    let foot = (!simple).then(|| foot(face, selected, zoom, colors));
     let waiting = !node.waits.is_empty();
     let lit = mark == Mark::Lit;
     let (border, rings) = if waiting {
@@ -1193,6 +1121,11 @@ pub fn card(
         )
     } else {
         (colors.line_strong, Vec::new())
+    };
+    let border = if !waiting && status::problem(&node.status) {
+        colors.err
+    } else {
+        border
     };
     let shell = placed(bounds)
         .overflow_hidden()
@@ -1220,9 +1153,8 @@ pub fn card(
                 .top(head_h)
                 .left_0()
                 .w_full()
-                .h(px(
-                    body_height(f32::from(bounds.size.height) / zoom, node) * zoom
-                ))
+                .h(px(body_height(f32::from(bounds.size.height) / zoom) * zoom))
+                .when(asleep(node), |d| d.opacity(ASLEEP))
                 .child(body)
         }))
         .children(foot.map(|row| row.absolute().bottom_0().left_0()))

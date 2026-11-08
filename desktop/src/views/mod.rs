@@ -15,6 +15,7 @@ pub mod rail;
 pub mod scrollbar;
 pub mod shell;
 pub mod sidebar;
+pub mod status;
 pub mod terminal;
 pub mod tooltip;
 pub mod ui;

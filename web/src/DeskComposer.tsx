@@ -1,9 +1,10 @@
 import { ArrowUp, ChevronDown, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type DOMAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { answerWait } from './api';
+import { answerWait, chooseOption } from './api';
 import { AlertCard } from './AlertCard';
-import { stepKey, type Route, type Target, type TargetKey } from './alertTarget';
+import { StreamList } from './StreamList';
+import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
@@ -11,6 +12,8 @@ import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { Prompt } from './gen/Prompt';
+import type { ScreenWait } from './gen/ScreenWait';
 import type { RepoView } from './gen/RepoView';
 import { useNodeInput } from './nodeInputs';
 import { ICON } from './notice';
@@ -18,6 +21,7 @@ import { TargetList } from './TargetList';
 
 const COMPOSER_ROOM = '--composer-room';
 const COMPOSER_WIDTH = 680;
+const MIN_STREAM = 75;
 
 const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
 const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
@@ -51,6 +55,8 @@ export function DeskComposer(props: DeskProps) {
   const [listing, setListing] = useState(false);
   const pane = useSize(layer);
   const box = useSize(float);
+  const streamBox = useRef<HTMLDivElement>(null);
+  const stream = useSize(streamBox);
   const fullWidth = pane ? Math.min(COMPOSER_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : null;
   const fullBox = box && fullWidth !== null ? { w: fullWidth, h: box.h } : null;
   const drag = useFloatDrag(float, pane, fullBox, props.onPlace);
@@ -61,7 +67,13 @@ export function DeskComposer(props: DeskProps) {
       props.onReaim();
       throw new Error(t('composer.targetClosed'));
     }
-    return target.route.kind === 'prompt' ? typeInto(node)(text, paths) : answerWith(target.route.wait.id)(text, paths);
+    if (target.route.kind === 'prompt') return typeInto(node)(text, paths);
+    const { wait } = target.route;
+    const cancel = startClosing(wait, [wait.id]);
+    return Promise.resolve(answerWith(wait.id)(text, paths)).catch((err) => {
+      cancel();
+      throw err;
+    });
   };
   const composer = useComposer({ node, keys: props.keys, deliver });
   const focusField = () => float.current?.querySelector('textarea')?.focus();
@@ -79,6 +91,10 @@ export function DeskComposer(props: DeskProps) {
     else focusOnMount = id;
   };
   useEffect(() => {
+    const next = followClosed(target.stream);
+    if (next && !target.lost) pick(next.node, next.key);
+  }, [target.stream]);
+  useEffect(() => {
     const wanted = focusOnMount === node;
     focusOnMount = null;
     if (wanted) requestAnimationFrame(focusField);
@@ -93,23 +109,51 @@ export function DeskComposer(props: DeskProps) {
   const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
   const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
   const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
-  if (!input && target.total === 0) return null;
+  if (!input && target.stream.length === 0) return null;
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const { route } = target;
+  const streamRoom = pane && box ? Math.max(MIN_STREAM, (pane.h - 2 * FLOAT_MARGIN - box.h + (stream?.h ?? 0)) / floatZoom(props.size)) : null;
   const choose = (key: string) => {
     const wait = target.card;
     if (!wait) return;
     composer.setRefusal(null);
+    const cancel = startClosing(wait, [wait.id]);
     void composer.images
       .paths(node)
       .then((saved) => answerWait(wait.id, key, saved.paths).then(() => composer.images.forget(saved.ids)))
-      .catch((err: Error) => composer.setRefusal(err.message));
+      .catch((err: Error) => {
+        cancel();
+        composer.setRefusal(err.message);
+      });
+  };
+  const choosePrompt = (wait: ScreenWait, prompt: Prompt, option: number) => {
+    composer.setRefusal(null);
+    const cancel = startClosing(wait, [wait.id]);
+    chooseOption(wait.id, prompt, option).catch((err: Error) => {
+      cancel();
+      composer.setRefusal(err.message);
+    });
+  };
+  const keyAction = (n: number): (() => void) | null => {
+    const wait = target.card;
+    if (!wait || listing || target.key === PROMPT) return null;
+    if (wait.answerable) {
+      const choice = wait.tone !== 'done' ? wait.choices?.[n - 1] : undefined;
+      return choice ? () => choose(choice.key) : null;
+    }
+    const { prompt } = wait;
+    return prompt && prompt.options[n - 1] && !prompt.options[n - 1].writes ? () => choosePrompt(wait, prompt, n - 1) : null;
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.nativeEvent.isComposing) return;
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    const keyed = digit ? keyAction(Number(digit[1])) : null;
     if (e.code === 'KeyL') toggleList();
-    else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) props.onTarget(node, stepKey(target, e.code === 'ArrowUp' ? -1 : 1));
+    else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) {
+      const next = stepTo(target, e.code === 'ArrowUp' ? -1 : 1);
+      pick(next.node, next.key);
+    } else if (keyed) keyed();
     else return;
     e.preventDefault();
   };
@@ -128,8 +172,10 @@ export function DeskComposer(props: DeskProps) {
           target={{ ref: targetButton, open: listing, onToggle: toggleList }}
           float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null) }}
         >
+          <StreamList box={streamBox} room={streamRoom} stream={target.stream} current={target.card?.id ?? null} onPick={(entry) => pick(entry.view.id, entry.wait.id)} />
           <AlertCard
             target={target}
+            repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
             onGo={props.onTerminal}
             onFocus={() => {

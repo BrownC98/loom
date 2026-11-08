@@ -5,7 +5,13 @@ import { useDraft } from './drafts';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
 
-export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => Promise<null> }) {
+const CHOICE_KEYS = 9;
+
+export function KeyHint(props: { index: number }) {
+  return props.index < CHOICE_KEYS ? <kbd className="key-hint">Alt+{props.index + 1}</kbd> : null;
+}
+
+export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean; hints?: boolean; onPick: (option: number) => void; onType: (text: string, option?: number) => Promise<null> }) {
   const { prompt } = props;
   const id = useId();
   return (
@@ -21,6 +27,7 @@ export function PromptBody(props: { prompt: Prompt; draft: string; busy: boolean
               </label>
             ) : (
               <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} disabled={props.busy} onClick={() => props.onPick(index)}>
+                {props.hints && <KeyHint index={index} />}
                 <span className="key">{keyLabel(o.key, index)}</span>
                 <span className="label">{o.label}</span>
               </button>

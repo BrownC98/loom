@@ -1,10 +1,9 @@
 use std::cell::Cell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
+use api::graph::NodeState;
 use api::graph::search::WaitSearch;
 use api::graph::waits::{WaitKind, WaitTone};
-use api::graph::{NodeState, NodeView};
 use api::ids::{NodeId, WaitId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -13,13 +12,13 @@ use gpui::{
     ScrollEvent, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
-use super::aim::Aim;
+use super::aim::{self, Aim};
 use super::place;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::dock::entry;
-use crate::views::dock::questions::{Group, Mood, groups_of, kind_label};
+use crate::views::dock::questions::kind_label;
 use crate::views::dock::ui;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
@@ -64,12 +63,7 @@ impl Item {
 }
 
 enum Head {
-    Node {
-        name: String,
-        mood: Mood,
-        asks: usize,
-        dones: usize,
-    },
+    Title(Str),
     Repo(String),
 }
 
@@ -173,42 +167,6 @@ pub fn picker(
     })
 }
 
-fn section_of(group: Group) -> Section {
-    let asks = group
-        .waits
-        .iter()
-        .filter(|w| matches!(w.tone, WaitTone::Ask))
-        .count();
-    let dones = group.waits.len() - asks;
-    let (node, name) = (group.node, group.name);
-    let rows = group
-        .waits
-        .into_iter()
-        .map(|w| Item::Alert {
-            id: w.wait.id,
-            kind: w.wait.kind,
-            tone: w.tone,
-            text: w.summary,
-            since: w.wait.since,
-        })
-        .chain(std::iter::once(Item::Prompt))
-        .map(|item| Row {
-            node,
-            name: name.clone(),
-            item,
-        })
-        .collect();
-    Section {
-        head: Head::Node {
-            name,
-            mood: group.mood,
-            asks,
-            dones,
-        },
-        rows,
-    }
-}
-
 fn live(state: &NodeState) -> bool {
     matches!(state, NodeState::Running | NodeState::Done)
 }
@@ -236,64 +194,73 @@ impl Picker {
                 dones: 0,
             };
         };
-        let mut groups = groups_of(snapshot);
         let search = WaitSearch::new(self.query.read(cx).text());
+        let mut alerts = aim::stream_of(snapshot);
         if let Some(search) = &search {
-            for group in &mut groups {
-                group
-                    .waits
-                    .retain(|w| search.finds_open(&group.name, &w.wait));
-            }
+            alerts.retain(|s| search.finds_open(&s.name, &s.wait.wait));
         }
-        let asks = groups
+        let asks = alerts
             .iter()
-            .flat_map(|g| &g.waits)
-            .filter(|w| matches!(w.tone, WaitTone::Ask))
+            .filter(|s| matches!(s.wait.tone, WaitTone::Ask))
             .count();
-        let all: usize = groups.iter().map(|g| g.waits.len()).sum();
-        if self.chip != Chip::All {
-            let keep = |tone: WaitTone| match self.chip {
-                Chip::Ask => matches!(tone, WaitTone::Ask),
-                Chip::Done => matches!(tone, WaitTone::Done),
-                Chip::All => true,
-            };
-            for group in &mut groups {
-                group.waits.retain(|w| keep(w.tone));
+        let all = alerts.len();
+        alerts.retain(|s| match self.chip {
+            Chip::All => true,
+            Chip::Ask => matches!(s.wait.tone, WaitTone::Ask),
+            Chip::Done => matches!(s.wait.tone, WaitTone::Done),
+        });
+        let mut sections = Vec::new();
+        let shown = |n: &&api::graph::NodeView| {
+            (live(&n.state) || n.id == self.current.0)
+                && search
+                    .as_ref()
+                    .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
+        };
+        let mut nodes = Vec::new();
+        for repo in &snapshot.repos {
+            let rows: Vec<Row> = snapshot
+                .nodes
+                .iter()
+                .filter(shown)
+                .filter(|n| n.place.repo == repo.id)
+                .map(|n| Row {
+                    node: n.id,
+                    name: n.name.clone(),
+                    item: Item::Prompt,
+                })
+                .collect();
+            if !rows.is_empty() {
+                nodes.push(Section {
+                    head: Head::Repo(repo.name.clone()),
+                    rows,
+                });
             }
         }
-        groups.retain(|g| !g.waits.is_empty());
-        let mut sections: Vec<Section> = groups.into_iter().map(section_of).collect();
-        if self.chip == Chip::All {
-            let listed: HashSet<NodeId> = sections
-                .iter()
-                .flat_map(|s| s.rows.iter().map(|r| r.node))
-                .collect();
-            let shown = |n: &&NodeView| {
-                !listed.contains(&n.id)
-                    && (live(&n.state) || n.id == self.current.0)
-                    && search
-                        .as_ref()
-                        .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
-            };
-            for repo in &snapshot.repos {
-                let rows: Vec<Row> = snapshot
-                    .nodes
-                    .iter()
-                    .filter(shown)
-                    .filter(|n| n.place.repo == repo.id)
-                    .map(|n| Row {
-                        node: n.id,
-                        name: n.name.clone(),
-                        item: Item::Prompt,
+        if !nodes.is_empty() {
+            sections.push(Section {
+                head: Head::Title(Str::ComposerSectionNodes),
+                rows: Vec::new(),
+            });
+            sections.extend(nodes);
+        }
+        if !alerts.is_empty() {
+            sections.push(Section {
+                head: Head::Title(Str::ComposerSectionAlerts),
+                rows: alerts
+                    .into_iter()
+                    .map(|s| Row {
+                        node: NodeId(s.node),
+                        name: s.name,
+                        item: Item::Alert {
+                            id: s.wait.wait.id,
+                            kind: s.wait.wait.kind,
+                            tone: s.wait.tone,
+                            text: s.wait.summary,
+                            since: s.wait.wait.since,
+                        },
                     })
-                    .collect();
-                if !rows.is_empty() {
-                    sections.push(Section {
-                        head: Head::Repo(repo.name.clone()),
-                        rows,
-                    });
-                }
-            }
+                    .collect(),
+            });
         }
         Listing {
             sections,
@@ -413,16 +380,31 @@ impl Picker {
                 since,
             } => base
                 .child(entry::mark(*tone, z, c))
-                .child(if *kind == WaitKind::Question {
-                    entry::qid(id.to_string(), *tone, 18.0, z, c)
-                } else {
-                    entry::clip(ui::say(cx, kind_label(*kind)), z, c)
-                })
+                .child(entry::qid(
+                    if *kind == WaitKind::Question {
+                        id.to_string()
+                    } else {
+                        ui::say(cx, kind_label(*kind)).to_owned()
+                    },
+                    *tone,
+                    18.0,
+                    z,
+                    c,
+                ))
+                .child(
+                    div()
+                        .flex_none()
+                        .max_w(px(140.0 * z))
+                        .truncate()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(row.name.clone()),
+                )
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .truncate()
+                        .text_color(c.ink_2)
                         .child(text.replace('\n', " ")),
                 )
                 .child(
@@ -443,7 +425,7 @@ impl Picker {
         }
     }
 
-    fn head(&self, head: &Head, c: &Colors) -> impl IntoElement {
+    fn head(&self, head: &Head, c: &Colors, cx: &App) -> impl IntoElement {
         let z = self.zoom;
         let line = div()
             .flex()
@@ -454,28 +436,11 @@ impl Picker {
             .pb(px(2.0 * z))
             .text_size(px(12.0 * z));
         match head {
-            Head::Node {
-                name,
-                mood,
-                asks,
-                dones,
-            } => {
-                let dot = match mood {
-                    Mood::Waiting => c.ask,
-                    Mood::Failed => c.err,
-                    Mood::Plain => c.ink_3,
-                };
-                line.child(div().flex_none().size(px(7.0 * z)).rounded_full().bg(dot))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c.ink)
-                            .child(name.clone()),
-                    )
-                    .children(entry::notice_badges(*asks, *dones, z, c))
-            }
+            Head::Title(label) => line
+                .pt(px(8.0 * z))
+                .text_color(c.ink)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(ui::say(cx, *label)),
             Head::Repo(name) => line
                 .text_color(c.ink_3)
                 .child(div().min_w_0().truncate().child(name.clone())),
@@ -500,7 +465,7 @@ impl Render for Picker {
             .pb(px(6.0 * z));
         let mut n = 0;
         for section in &listing.sections {
-            list = list.child(self.head(&section.head, &c));
+            list = list.child(self.head(&section.head, &c, cx));
             for row in &section.rows {
                 list = list.child(self.row(n, row, &c, cx));
                 n += 1;

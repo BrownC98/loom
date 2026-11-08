@@ -15,7 +15,7 @@ import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, NoticeBadges, oldestWait, showsId } from './notice';
-import { PromptBody } from './PromptBody';
+import { KeyHint, PromptBody } from './PromptBody';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
   return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => bySince(oldestWait(a), oldestWait(b)));
@@ -139,7 +139,7 @@ export function Instruction(props: { text: string }) {
   );
 }
 
-function ConfirmButton(props: { wait: WaitId }) {
+export function ConfirmButton(props: { wait: WaitId; onClose?: () => () => void }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -150,7 +150,11 @@ function ConfirmButton(props: { wait: WaitId }) {
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
+        const cancel = props.onClose?.();
+        dismissWait(props.wait).catch((err: Error) => {
+          cancel?.();
+          setRefusal(err.message);
+        });
       }}
     >
       {t('inbox.confirm')}
@@ -158,15 +162,22 @@ function ConfirmButton(props: { wait: WaitId }) {
   );
 }
 
-export function WaitContent(props: { node: NodeId; wait: ScreenWait }) {
+export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boolean; onClose?: () => () => void }) {
   const { wait } = props;
   const { prompt } = wait;
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const answerPrompt = (sent: Promise<null>) => {
+  const answerPrompt = (send: () => Promise<null>) => {
     setRefusal(null);
     setChoosing(true);
-    sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
+    const cancel = props.onClose?.();
+    const sent = send();
+    sent
+      .catch((err: Error) => {
+        cancel?.();
+        setRefusal(err.message);
+      })
+      .finally(() => setChoosing(false));
     return sent;
   };
   return (
@@ -185,8 +196,9 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait }) {
           prompt={prompt}
           draft={String(wait.id)}
           busy={choosing}
-          onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
-          onType={(text, option) => answerPrompt(typeText(wait.id, prompt, text, option))}
+          hints={props.hints}
+          onPick={(option) => answerPrompt(() => chooseOption(wait.id, prompt, option))}
+          onType={(text, option) => answerPrompt(() => typeText(wait.id, prompt, text, option))}
         />
       )}
       {!prompt && (wait.text || wait.doc) && (
@@ -281,14 +293,15 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   );
 }
 
-export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
+export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void; hints?: boolean }) {
   const { t } = useTranslation();
   const { list } = props;
   if (list.length === 0) return null;
   return (
     <div className="choices">
-      {list.map((c) => (
+      {list.map((c, i) => (
         <button key={c.key} type="button" className="choice" data-recommended={c.recommended || undefined} onClick={() => props.onPick(c.key)}>
+          {props.hints && <KeyHint index={i} />}
           <span className="key">{c.key}</span>
           <span className="label">
             {c.label}
@@ -369,7 +382,7 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
   );
 }
 
-function DismissButton(props: { wait: WaitId }) {
+export function DismissButton(props: { wait: WaitId; onClose?: () => () => void }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -381,7 +394,11 @@ function DismissButton(props: { wait: WaitId }) {
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
+        const cancel = props.onClose?.();
+        dismissWait(props.wait).catch((err: Error) => {
+          cancel?.();
+          setRefusal(err.message);
+        });
       }}
     >
       <X aria-hidden="true" />

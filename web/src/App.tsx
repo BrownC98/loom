@@ -579,7 +579,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {target && (!settings.composerOff || target.total > 0) && (
+            {target && (!settings.composerOff || target.stream.length > 0) && (
               <DeskComposer
                 key={target.view.id}
                 target={target}

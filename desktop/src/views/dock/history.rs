@@ -291,6 +291,7 @@ impl Dock {
                         div(),
                         Choice {
                             key: choice.key.to_string(),
+                            hint: None,
                             label: &choice.label,
                             recommended: choice.recommended,
                             look,

@@ -31,6 +31,7 @@ mod turn_end;
 mod usage_cache;
 mod verbs;
 mod waits;
+mod watchdog;
 
 use api::graph::errors::{IMAGE_EXTENSIONS, LaunchError, Problem, Refusal};
 pub use commands::{
@@ -125,6 +126,7 @@ struct App {
     idle: idle::IdleWaits,
     relaunch_exits: tokio::sync::Notify,
     sleeps: sleep::Sleeps,
+    watchdog: watchdog::Watchdog,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
     repo_list: one_flight::OneFlight<Result<(u64, Vec<RepoView>), String>>,
@@ -284,6 +286,7 @@ impl App {
                 crate::log::logln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
             }
             app.watch_sleep();
+            app.watch_idle();
             app.watch_agents();
         });
         self.watch_ssh_hosts();
@@ -402,6 +405,7 @@ impl App {
             idle,
             relaunch_exits: tokio::sync::Notify::new(),
             sleeps: sleep::Sleeps::default(),
+            watchdog: watchdog::Watchdog::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             repo_list: one_flight::OneFlight::default(),

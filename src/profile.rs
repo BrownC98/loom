@@ -41,7 +41,7 @@ use api::ids::AgentId;
 use api::repos::PlaceView;
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
-pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
+pub const RESUMED_PROMPT: &str = "loom relaunched your process. The background commands, Monitor tasks and scheduled wakeups of the old process stopped. If you waited on one, read its output and start it again. If your last turn was cut, continue it. Otherwise end your turn.";
 
 #[derive(Debug, PartialEq)]
 pub enum Take {

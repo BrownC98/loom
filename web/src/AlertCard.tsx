@@ -83,7 +83,7 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
         {wait.tone === 'done' ? (
           <span className="confirm-split">
             <ConfirmButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} />
-            {done.length > 1 && <ConfirmAll place={wait} waits={done} />}
+            {done.length > 1 && <ConfirmAll key={wait.id} place={wait} waits={done} />}
           </span>
         ) : (
           <DismissButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} />

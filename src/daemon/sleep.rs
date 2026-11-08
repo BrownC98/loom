@@ -174,6 +174,12 @@ impl App {
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
         self.watchdog.saw(change.node, change.to.as_ref());
+        if !matches!(
+            change.to,
+            Some(AgentState::Turn | AgentState::Blocked { .. })
+        ) {
+            self.tools.ended(change.node);
+        }
         self.give_kept_keys(change.node);
         match change.to {
             Some(AgentState::Deaf) => {}

@@ -85,7 +85,7 @@ impl TurnMark {
 }
 
 const REPLIED: u16 = Bit::Replied.mask();
-const STATUS: u16 = Bit::Status.mask();
+pub(super) const STATUS: u16 = Bit::Status.mask();
 pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
 const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
@@ -279,7 +279,7 @@ impl Graph {
         };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept | (flags & (SUBMITTED_INPUT | open))],
+            params![node.0, kept | (flags & (SUBMITTED_INPUT | STATUS | open))],
         )?;
         tx.commit()?;
         if reported {

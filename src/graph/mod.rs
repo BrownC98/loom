@@ -8,6 +8,7 @@ mod idle;
 mod mailbox;
 mod nodes;
 mod relaunch_plans;
+mod status;
 mod token;
 mod turns;
 mod waits;
@@ -23,7 +24,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 
-use api::graph::{GraphEvent, NodeState, NodeView, Place, ProcessState, RelaunchOffer, Status, Toward};
+use api::graph::{
+    GraphEvent, NodeState, NodeView, Place, ProcessState, RelaunchOffer, Status, Toward,
+};
 use api::ids::{AgentId, NodeId, RepoId};
 
 pub use agent_state::{AgentChange, AgentState};
@@ -39,7 +42,7 @@ pub use waits::{HUMAN, WaitSource};
 
 use crate::db::Database;
 use api::graph::errors::Refusal;
-use api::graph::events::{Entry, EventLog, Via, Who};
+use api::graph::events::{Entry, EventLog, EventRecord, Via, Who};
 use api::graph::messages::{Kind, MessageKind};
 use api::graph::waits::HumanWait;
 
@@ -108,8 +111,9 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     n.card_view, n.reply, n.process,
     EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id),
     n.session IS NOT NULL,
-    (SELECT s.state FROM agent_states s WHERE s.node = n.id)
-    FROM nodes n";
+    (SELECT s.state FROM agent_states s WHERE s.node = n.id),
+    n.limited,
+    (SELECT s.wait FROM stalls s WHERE s.node = n.id AND s.dismissed = 0)";
 
 struct Db<'a> {
     conn: MutexGuard<'a, Connection>,
@@ -201,11 +205,11 @@ impl Graph {
             .collect()
     }
 
-    pub fn views(&self) -> rusqlite::Result<Vec<NodeView>> {
-        self.lock()
-            .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], |row| view_from_row(row, self.linked))?
-            .collect()
+    pub fn views(
+        &self,
+        tool: impl Fn(NodeId) -> Option<String>,
+    ) -> rusqlite::Result<Vec<NodeView>> {
+        status::views(&self.lock(), self.linked, &tool)
     }
 
     fn lock(&self) -> Db<'_> {
@@ -257,6 +261,10 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
+    pub fn process_log(&self, node: NodeId) -> rusqlite::Result<Vec<EventRecord>> {
+        events::process_log(&self.lock(), node)
+    }
+
     pub fn who(&self, node: NodeId) -> rusqlite::Result<Who> {
         events::who(&self.lock(), node)
     }
@@ -265,7 +273,7 @@ impl Graph {
         events::write(&self.lock(), entry, None)
     }
 
-    fn publish_nodes(&self) {
+    pub fn publish_nodes(&self) {
         let _ = self.events.send(GraphEvent::Nodes);
     }
 
@@ -330,6 +338,8 @@ fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<No
             .ok()
             .map(|s| s.wait)
     }));
+    let stall: Option<String> = row.get(21)?;
+    waits.extend(stall.and_then(|w| serde_json::from_str::<HumanWait>(&w).ok()));
     let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);

@@ -216,6 +216,7 @@ fn take_request(signals: &Signals, kinds: &[Kind]) -> TakeRequest {
         prompt: signals.prompt.clone(),
         turn: signals.turn.clone(),
         prompt_id: signals.prompt_id.clone(),
+        tool: signals.tool.clone(),
     }
 }
 

@@ -298,6 +298,8 @@ pub enum TurnCheck {
     KindLine,
     /// 런타임의 자체 질문 창으로 물었다. 사람은 `loom ask`로만 답한다.
     QuestionBox,
+    /// 검토자가 열린 차례의 지금 head를 판정하지 않고 턴을 끝냈다.
+    Unjudged,
 }
 
 /// 요청이 들어온 입구. CLI는 명령 이름(`loom note`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.

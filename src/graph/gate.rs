@@ -24,6 +24,11 @@ pub struct Round<'a> {
     pub deploy: Deploy,
 }
 
+pub struct Unjudged {
+    pub branch: String,
+    pub head: String,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
     Parent { gate: NodeId, worktree: String },
@@ -775,14 +780,7 @@ impl Graph {
 
     pub fn reviewed_owner(&self, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
         let db = self.lock();
-        let Some((gate, branch)) = db
-            .query_row(
-                "SELECT parent, review FROM nodes WHERE id = ?1 AND review IS NOT NULL",
-                [node.0],
-                |r| Ok((NodeId(r.get(0)?), r.get::<_, String>(1)?)),
-            )
-            .optional()?
-        else {
+        let Some((gate, branch)) = reviewing(&db, node)? else {
             return Ok(None);
         };
         Ok(load(&db, place_of(&db, gate)?.repo, &branch)?.map(|row| row.owner))
@@ -790,14 +788,7 @@ impl Graph {
 
     pub fn introduce_reviewer(&self, node: NodeId, target: Option<&str>) -> rusqlite::Result<()> {
         let db = self.lock();
-        let Some((gate, branch)) = db
-            .query_row(
-                "SELECT parent, review FROM nodes WHERE id = ?1 AND review IS NOT NULL",
-                [node.0],
-                |r| Ok((NodeId(r.get(0)?), r.get::<_, String>(1)?)),
-            )
-            .optional()?
-        else {
+        let Some((gate, branch)) = reviewing(&db, node)? else {
             return Ok(());
         };
         let seated: Vec<(NodeId, String, Option<AgentId>)> = db
@@ -1428,6 +1419,38 @@ fn accepts(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Refusal
         branch: branch.to_owned(),
         gate: name_of(db, row.gate)?,
     })
+}
+
+fn reviewing(db: &Connection, node: NodeId) -> rusqlite::Result<Option<(NodeId, String)>> {
+    db.query_row(
+        "SELECT parent, review FROM nodes WHERE id = ?1 AND review IS NOT NULL",
+        [node.0],
+        |r| Ok((NodeId(r.get(0)?), r.get(1)?)),
+    )
+    .optional()
+}
+
+pub(super) fn unjudged(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Unjudged>> {
+    let Some((gate, branch)) = reviewing(db, node)? else {
+        return Ok(None);
+    };
+    let repo = place_of(db, gate)?.repo;
+    let Some(row) = load(db, repo, &branch)? else {
+        return Ok(None);
+    };
+    if row.state != GateState::Ready || row.gate != gate || row.owner == node {
+        return Ok(None);
+    }
+    let judged: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM gate_votes WHERE repo = ?1 AND branch = ?2 AND reviewer = ?3
+         AND head = ?4 AND vote IS NOT NULL)",
+        params![repo.0, branch, node.0, row.head],
+        |r| r.get(0),
+    )?;
+    Ok((!judged).then(|| Unjudged {
+        head: policy::short(&row.head).to_owned(),
+        branch,
+    }))
 }
 
 fn review_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {

@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M77 노드 상태 칩 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.flow { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; font-size: 13px; }
+.flow li { padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); }
+.flow li + li::before { content: '→ '; color: var(--ink-3); }
+.note { font-size: 13px; color: var(--ink-2); max-width: 1000px; }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+
+.page {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(#fdfdfd, #0a0a0a);
+  --term-fg: light-dark(#262626, #d4d4d4);
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --notice: light-dark(oklch(56% 0.2 15), oklch(70% 0.17 15));
+  --notice-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --t-green: light-dark(#0f7b3a, #8ae234);
+  --t-blue: light-dark(#0b5cd5, #729fcf);
+  --t-dim: light-dark(#6b6b6b, #8f8f8f);
+  --t-red: light-dark(#c2272d, #ef2929);
+  width: 1360px; justify-self: start; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all;
+}
+.page svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.page button { border: 0; background: none; padding: 0; cursor: pointer; }
+.page .titlebar { display: flex; align-items: center; height: 36px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.page .titlebar .brand { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; }
+.page .titlebar .brand b { color: var(--ink); font-weight: 600; }
+.page svg.mark { width: 16px; height: 16px; fill: var(--ink-2); stroke: none; }
+.page .titlebar .drag { flex: 1; }
+.page .caption { display: grid; place-items: center; width: 46px; height: 36px; color: var(--ink-2); }
+.page .app { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; grid-template-rows: 560px 22px; }
+.page .side { display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); min-width: 0; }
+.page .side-top { display: flex; gap: 6px; padding: 10px 10px 6px; }
+.page .find { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; }
+.page .ibtn { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 5px; color: var(--ink-2); }
+.page .ibtn.lg { width: 30px; height: 30px; }
+.page .sec { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.page .sec .sp { flex: 1; }
+.page .hint { padding: 0 16px 6px; font-size: 12px; color: var(--ink-3); }
+.page .tree { display: grid; gap: 1px; padding: 0; overflow: hidden; font-size: 13px; }
+.page .row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: 6px; padding-left: calc(8px + var(--d, 0) * 12px); min-width: 0; }
+.page .row.node { height: 44px; display: grid; grid-template-columns: 7px minmax(0, 1fr); column-gap: 7px; row-gap: 0; align-content: center; }
+.page .row.node .l1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.page .row.node .l2 { grid-column: 2; display: flex; align-items: center; gap: 6px; font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page .row[aria-current="true"] { background: var(--accent-wash); }
+.page .row b { font-weight: 600; color: var(--ink); flex: none; }
+.page .row > svg { flex: none; }
+.page .row .sub { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); align-self: center; }
+.page .dot.running { background: var(--run); }
+.page .dot.done { background: var(--ok); }
+.page .dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.page .side-foot { margin-top: auto; padding: 8px; border-top: 1px solid var(--line); display: flex; }
+.page .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--ink); }
+.page .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.page .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.page .btn.full { width: 100%; }
+.page .center { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.page .ptabs { display: flex; align-items: flex-end; gap: 2px; height: 36px; padding: 0 6px 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.page .ptab { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 6px 0 10px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; font-size: 13px; color: var(--ink-2); margin-bottom: -1px; }
+.page .ptab[aria-selected="true"] { background: var(--bg); border-color: var(--line); color: var(--ink); font-weight: 600; height: 31px; }
+.page .ptab .x { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--ink-3); }
+.page .ptab .x svg { width: 12px; height: 12px; }
+.page .ptabs .sp { flex: 1; }
+.page .ptabs .tools { display: flex; gap: 2px; align-self: center; }
+.page .split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 8px; min-height: 0; }
+.page .card { display: flex; flex-direction: column; min-width: 0; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.page .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.page .card[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
+.page .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.page .card-head .name { font-weight: 600; }
+.page .card-head .model { font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.page .card-head .sp { flex: 1; }
+.page .agent { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; font: 700 9px/1 var(--font); color: var(--ink-2); flex: none; }
+.page .unread { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; }
+.page .state { display: inline-flex; align-items: center; gap: 5px; font: 12px/14px var(--mono); color: var(--ink-2); white-space: nowrap; }
+.page .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.page .state.run { color: var(--run); }
+.page .state.wait { color: var(--warn); }
+.page .term { flex: 1; padding: 8px 10px; font: 12px/16px var(--mono); color: var(--term-fg); white-space: pre; overflow: hidden; }
+.page .term .g { color: var(--t-green); }
+.page .term .b { color: var(--t-blue); }
+.page .term .d { color: var(--t-dim); }
+.page .term .r { color: var(--t-red); }
+.page .term .cur { background: var(--term-fg); color: var(--term); }
+.page .term .box { display: inline-block; border: 1px solid var(--t-dim); border-radius: 4px; padding: 0 6px; }
+.page .dock { display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); min-width: 0; }
+.page .dock-head { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 8px 0 12px; }
+.page .dock-head h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.page .tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.page .tabs button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--ink-2); font-size: 13px; white-space: nowrap; }
+.page .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.page .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--notice); color: var(--notice-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.page .wait-list { display: grid; padding: 6px; }
+.page .wait-node { display: grid; gap: 2px; padding: 4px 0; }
+.page .wait-node + .wait-node { border-top: 1px solid var(--line); }
+.page .wait-node > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; color: var(--ink-3); font-size: 12px; }
+.page .wait-node > .go b { color: var(--ink); font-size: 13px; }
+.page .wait-row { margin-left: 13px; padding: 6px 8px 10px; }
+.page .entry { display: grid; gap: 6px; }
+.page .entry .top { display: flex; align-items: center; gap: 6px; }
+.page .entry .kind { color: var(--ink-3); font-size: 12px; }
+.page .entry time { margin-left: auto; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.page .kind-mark { width: 15px; height: 15px; color: var(--warn); }
+.page .qid { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); }
+.page .full { font-size: 13px; color: var(--ink); }
+.page .doc-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
+.page .doc-link svg { width: 12px; height: 12px; }
+.page .doc-link b { font-weight: 600; }
+.page .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.page .choice { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink); }
+.page .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.page .choice.rec { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.page .choice .rmark { color: var(--warn); font-size: 11px; font-weight: 600; }
+.page .answer { display: flex; align-items: flex-end; gap: 6px; }
+.page .answer .field { flex: 1; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; line-height: 18px; }
+.page .send { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--warn); color: var(--warn-ink); }
+.page .to-term { font-size: 12px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.page .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.page .statusbar .sp { flex: 1; }
+.page .statusbar .ver { font-family: var(--mono); color: var(--ink-3); }
+.page .sbtn { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border-radius: 4px; color: var(--ink-2); font-size: 12px; }
+.page .sbtn svg { width: 12px; height: 12px; }
+.page .conn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); }
+.page .doclist { display: grid; padding: 6px 8px; }
+.page .doc-row { display: grid; grid-template-columns: 40px 1fr; gap: 2px 8px; padding: 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.page .doc-row .id { font: 600 12px var(--mono); color: var(--ink-3); }
+.page .doc-row a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.page .doc-row .meta { grid-column: 2; font-size: 12px; color: var(--ink-3); }
+.fig > .page { margin-top: 124px; }
+.fig { padding-bottom: 28px; }
+/* v2: graph canvas and settings dialog (web/src/styles.css values, screens.md, settings-facts.md) */
+.page { --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0)); --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0)); --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0)); --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5)); --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55)); }
+.page .app.tall { grid-template-rows: 640px 22px; }
+.page .canvas { position: relative; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; min-width: 0; }
+.page .canvas-title { position: absolute; left: 16px; top: 12px; font-size: 18px; font-weight: 600; z-index: 2; }
+.page .world { position: absolute; left: 22px; top: 56px; width: 1400px; height: 1080px; transform: scale(0.52); transform-origin: 0 0; }
+.page .world > * { position: absolute; }
+.page .repo-box { border: 2px solid var(--group-line); border-radius: 14px; }
+.page .repo-head { display: flex; align-items: baseline; gap: 8px; height: 46px; padding: 12px 16px 0; }
+.page .repo-head b { font-size: 15px; font-weight: 600; }
+.page .repo-head span { font-size: 12px; color: var(--ink-3); }
+.page .group { border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.page .group-head { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 14px; font-size: 13px; }
+.page .group-head b { font-weight: 600; }
+.page .group-head .kind { color: var(--ink-3); font-size: 12px; }
+.page .group-head .sp { flex: 1; }
+.page .world .card { width: 600px; }
+.page .world .term { height: 352px; flex: none; }
+.page .edges { left: 0; top: 0; width: 1400px; height: 1080px; overflow: visible; pointer-events: none; }
+.page .edges path { fill: none; stroke: var(--edge); stroke-width: 1.5; }
+.page .edges path.sel { stroke: var(--ink-2); stroke-width: 2.25; }
+.page .minimap { position: absolute; right: 12px; bottom: 12px; width: 168px; height: 108px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; z-index: 2; }
+.page .minimap i { position: absolute; display: block; border-radius: 2px; background: color-mix(in oklch, var(--ink) 22%, transparent); }
+.page .minimap .view { background: none; border: 1.5px solid var(--ink-2); border-radius: 3px; }
+.page .zoomctl { position: absolute; right: 186px; bottom: 12px; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); z-index: 2; }
+.page .zoomctl span { min-width: 40px; text-align: center; font: 11px var(--mono); color: var(--ink-2); }
+.page .dock-tools { display: grid; gap: 8px; padding: 0 10px 10px; }
+.page .segs { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.page .segs span { flex: 1; display: grid; place-items: center; height: 30px; font-size: 13px; color: var(--ink-2); }
+.page .segs span + span { border-left: 1px solid var(--line-strong); }
+.page .segs span[aria-checked="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.page .arrange { display: flex; gap: 6px; }
+.page .arrange .btn { flex: 1; justify-content: flex-start; }
+.page .side-foot .btn { justify-content: flex-start; }
+
+
+.page { --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); }
+.page .app.one { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 900px 22px; }
+.page .app.two { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 700px 22px; }
+.page .app.three { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 520px 22px; }
+.page .world { left: 0; top: 0; width: 1100px; height: 960px; transform: none; }
+.page .ev { border-left: 1.5px solid var(--edge); width: 0; }
+.page .eh { border-top: 1.5px solid var(--edge); height: 0; }
+.page .edges { width: 1100px; height: 860px; }
+.page .row.node .l1 { align-items: center; }
+.page .tree { padding: 0 10px 4px; grid-template-columns: minmax(0, 1fr); }
+.page .row.node .l1 { min-width: 0; padding-right: 6px; }
+.page .row.node .l1 b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.page .card.simple { overflow: visible; }
+.page .card.simple > * { min-width: 0; }
+.page .srow .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page .row.node .l1 .sp { flex: 1; }
+.page .sp { flex: 1; }
+.page .row .state-tag, .page .row .st { flex: none; }
+.page .state-tag { flex: none; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.page .state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
+.page .st { display: inline-flex; align-items: center; gap: 5px; font: 12px/16px var(--mono); color: var(--ink-2); white-space: nowrap; flex: none; }
+.page .st::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.page .st.run { color: var(--run); }
+.page .st.ok { color: var(--ok); }
+.page .st.err { color: var(--err); }
+.page .st.wait { color: var(--ink-2); }
+.page .dot.stopped { background: var(--err); }
+.page .card.simple { padding: 8px 6px 8px 12px; background: var(--surface); display: grid; gap: 2px; }
+.page .srow { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.page .srow .name { font-weight: 600; font-size: 13px; }
+.page .smodel { font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page .sline, .page .card-foot > .mk, .page .card-foot > .sline-in { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-2); }
+.page .sline .sl-text, .page .card-foot .sl-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page .sline time, .page .card-foot time { margin-left: auto; flex: none; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.page .card.simple .sline { padding-right: 6px; }
+.page .card[data-problem] { border-color: var(--err); }
+.page .card { overflow: visible; }
+.page .card-head { border-radius: var(--radius) var(--radius) 0 0; }
+.page .card-foot { border-radius: 0 0 var(--radius) var(--radius); }
+.page .tree { overflow: visible; }
+
+.page .card[data-asleep] { opacity: 0.72; }
+.page .card-foot { font-size: 12px; color: var(--ink-2); padding: 8px 10px; border-top: 1px solid var(--line); background: var(--surface); }
+.page .card-foot.err .sl-text { color: var(--err); }
+.page .card-head .name { white-space: nowrap; flex: none; }
+.page .card-head .model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.page .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 20px; }
+.page .grid2 .card, .page .solo .card { height: 196px; }
+.page .grid2 .term, .page .solo .term { height: auto; }
+.page .solo { position: relative; padding: 40px 0 0 60px; }
+.page .solo .card { width: 540px; }
+.page .pop { position: absolute; left: 520px; top: 80px; width: 380px; display: grid; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 24px var(--shadow); font-size: 13px; z-index: 3; }
+.page .pop-head { display: flex; align-items: center; gap: 8px; }
+.page .pop-now { color: var(--ink-2); }
+.page .pop h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
+.page .facts, .page .hist { list-style: none; padding: 0; display: grid; gap: 4px; }
+.page .facts li { padding-right: 4px; display: grid; grid-template-columns: 64px auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.page .facts li > :last-child { justify-self: end; }
+.page .mono { font: 12px var(--mono); color: var(--ink-3); }
+.page .hist li { display: flex; gap: 10px; }
+.page .hist time { font: 12px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.page .pop-foot { display: flex; justify-content: flex-end; }
+.fig > .page { margin-top: 110px; }
+.fig { padding-bottom: 60px; }
+table { border-collapse: collapse; font-size: 13px; max-width: 1200px; }
+th, td { border: 1px solid var(--line-strong); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface); font-weight: 600; }
+td code { font: 12px var(--mono); }
+.cat { white-space: nowrap; font-weight: 600; }
+.sample { white-space: nowrap; }
+.sample .state-tag { padding: 0 7px; border: 1px solid var(--warn); border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; background: var(--warn); color: light-dark(#fff, oklch(20.5% 0 0)); }
+.sample .st { display: inline-flex; align-items: center; gap: 5px; font: 12px/16px var(--mono); }
+.sample .st::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.sample .st.run { color: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); }
+.sample .st.ok { color: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); }
+.sample .st.err { color: var(--err); }
+.sample .st.wait { color: var(--ink-2); }
+.new-tag { font-size: 11px; font-weight: 600; color: var(--ink-3); }
+
+</style>
+</head>
+<body data-ui=".ibtn, .btn, .find, .state-tag, .st">
+
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M77</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 상태표시</b></span><span>v1 · 2026-11-08</span></div>
+  <h1>노드 카드의 상태 칩과 상태 줄</h1>
+  <p class="lead">사람 질문: 「사용자 경험을 향상시키기 위해서는 각 에이전트의 어떤 상태들을 보여줘야 할까?」 원칙: 사람은 결정만 합니다. 그래서 사람이 할 일이 있는 노드를 가장 먼저 보이고, loom이 혼자 하는 일은 조용히 둡니다. 지금 카드는 쉬는 노드가 무엇을 기다리는지 보이지 않습니다. 이 목업은 카드마다 칩 하나와 줄 하나를 둡니다. 데몬이 이미 가진 사실로 정하므로 토큰을 쓰지 않습니다.</p>
+  <ol class="flow"><li>카드의 칩 색으로 사람 일·문제를 먼저 봄</li><li>아래 줄에서 무엇을 기다리는지와 시간을 봄</li><li>칩을 눌러 자세한 사실을 봄</li></ol>
+
+  <div class="fig">
+    <h2>① 그래프: 심플 카드 보기 <span class="tag">모든 저장소 · 노드 10개</span></h2>
+    <div class="page"><div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>모든 저장소</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div><div class="app one"><aside class="side"><div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div><div class="tree"><div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>loom</b><span class="sub">~/src/loom</span></div><div class="row node" style="--d:1"><span class="dot waiting"></span><span class="l1"><b>총괄</b><span class="sp"></span><span class="state-tag" data-tone="ask">질문 1</span></span><span class="l2">claude-opus-5-5 · high</span></div><div class="row node" style="--d:2"><span class="dot "></span><span class="l1"><b>코디 상태표시</b><span class="sp"></span><span class="st wait">자식 대기 3</span></span><span class="l2">claude-opus-5-5 · high</span></div><div class="row node" style="--d:3"><span class="dot running"></span><span class="l1"><b>워커-화면</b><span class="sp"></span><span class="st run">일함</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:3"><span class="dot "></span><span class="l1"><b>워커-데몬</b><span class="sp"></span><span class="st wait">검토 대기</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:3"><span class="dot waiting"></span><span class="l1"><b>리뷰-1</b><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span></span><span class="l2">gpt-5.5-codex · high</span></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div><div class="row node" style="--d:1"><span class="dot "></span><span class="l1"><b>todo 총괄</b><span class="sp"></span><span class="st wait">배포 대기</span></span><span class="l2">claude-opus-5-5 · high</span></div><span class="mk new" data-n="5" style="display:block"><div class="row node" style="--d:2"><span class="dot done"></span><span class="l1"><b>store</b><span class="sp"></span><span class="st ok">병합됨</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div></span><div class="row node" style="--d:2"><span class="dot stopped"></span><span class="l1"><b>cli</b><span class="sp"></span><span class="st err">꺼짐(1)</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:2"><span class="dot stopped"></span><span class="l1"><b>api</b><span class="sp"></span><span class="st err">멈춤 의심</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:2"><span class="dot "></span><span class="l1"><b>docs</b><span class="sp"></span><span class="st wait">작업 대기</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div></div></aside><section class="canvas" aria-label="그래프"><div class="world"><div class="repo-box" style="left:12px;top:40px;width:972px;height:430px"><div class="repo-head"><b>loom</b><span>~/src/loom</span></div></div><div class="repo-box" style="left:12px;top:494px;width:972px;height:300px"><div class="repo-head"><b>todo-app</b><span>~/src/todo-app</span></div></div><i class="ev" style="left:615px;top:186px;height:34px"></i><i class="ev" style="left:615px;top:314px;height:34px"></i><i class="eh" style="left:373px;top:330px;width:485px"></i><i class="ev" style="left:373px;top:330px;height:18px"></i><i class="ev" style="left:857px;top:330px;height:18px"></i><i class="ev" style="left:615px;top:640px;height:34px"></i><i class="eh" style="left:131px;top:656px;width:727px"></i><i class="ev" style="left:131px;top:656px;height:18px"></i><i class="ev" style="left:373px;top:656px;height:18px"></i><i class="ev" style="left:857px;top:656px;height:18px"></i><div style="left:500px;top:92px"><span class="mk" data-n="1" style="display:block"><div class="card simple" data-waiting style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">총괄</span><span class="sp"></span><span class="state-tag" data-tone="ask">질문 1</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-opus-5-5 · high</div><span class="sline "><span class="sl-text">Q42 상태 칩 목업 v1을 승인할까요?</span><time>12분</time></span></div></span></div><div style="left:500px;top:220px"><div class="card simple"  style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">코디 상태표시</span><span class="sp"></span><span class="st wait">자식 대기 3</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-opus-5-5 · high</div><span class="sline "><span class="mk new" data-n="2" style="display:inline-flex"><span class="sl-text">워커-화면 · 리뷰-1 · 워커-데몬</span></span><time>18분</time></span></div></div><div style="left:258px;top:348px"><div class="card simple"  style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">워커-화면</span><span class="sp"></span><span class="st run">일함</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">Edit · web/src/NodeCard.tsx</span><time>4분</time></span></div></div><div style="left:500px;top:348px"><div class="card simple" data-waiting style="width:230px"><div class="srow"><span class="agent">X</span><span class="name">리뷰-1</span><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">gpt-5.5-codex · high</div><span class="sline "><span class="sl-text">Bash: cargo test 실행을 허락할까요?</span><time>2분</time></span></div></div><div style="left:742px;top:348px"><div class="card simple"  style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">워커-데몬</span><span class="sp"></span><span class="st wait">검토 대기</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">리뷰어 2명 중 1명 판정</span><time>7분</time></span></div></div><div style="left:500px;top:546px"><div class="card simple"  style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">todo 총괄</span><span class="sp"></span><span class="st wait">배포 대기</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-opus-5-5 · high</div><span class="sline "><span class="sl-text">main 9a495e0 배포를 확인합니다</span><time>3분</time></span></div></div><div style="left:16px;top:674px"><span class="mk" data-n="4" style="display:block"><div class="card simple" data-asleep style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">store</span><span class="sp"></span><span class="st ok">병합됨</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">잠듦 · 메시지를 보내면 깨어납니다</span><time>1시간</time></span></div></span></div><div style="left:258px;top:674px"><div class="card simple" data-problem style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">api</span><span class="sp"></span><span class="mk new" data-n="3" style="display:inline-flex"><span class="st err">멈춤 의심</span></span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">기다리는 것이 없는데 쉽니다</span><time>34분</time></span></div></div><div style="left:500px;top:674px"><div class="card simple" data-problem style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">cli</span><span class="sp"></span><span class="st err">꺼짐(1)</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">종료 코드 1로 끝났습니다</span><time>9분</time></span></div></div><div style="left:742px;top:674px"><div class="card simple"  style="width:230px"><div class="srow"><span class="agent">C</span><span class="name">docs</span><span class="sp"></span><span class="st wait">작업 대기</span><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="smodel">claude-sonnet-5-5 · medium</div><span class="sline "><span class="sl-text">⏳ 빌드 결과를 기다립니다.</span><time>6분</time></span></div></div></div></section><footer class="statusbar"><span class="conn"><span class="dot done"></span>127.0.0.1:7420</span><span class="sbtn">데몬에 연결됨</span><span class="sp"></span><span class="ver">v0.1.2290</span></footer></div></div>
+    <div class="calls">
+      <div><b>1</b><span>사람이 답할 질문이 있는 카드는 지금처럼 노란 테두리입니다. 아래 줄에 질문 글과 기다린 시간이 보입니다.</span></div>
+      <div><b>2</b><span>쉬는 노드는 기다리는 것을 칩에, 사실과 시간을 아래 줄에 씁니다.</span></div>
+      <div><b>3</b><span>기다리는 것이 없는데 쉬는 노드는 빨간 「멈춤 의심」입니다.</span></div>
+      <div><b>4</b><span>끝나고 잠든 노드는 흐리게 보입니다. 결과 칩(병합됨)은 남습니다.</span></div>
+      <div><b>5</b><span>왼쪽 트리에도 같은 칩이 보입니다.</span></div>
+    </div>
+  </div>
+  <section class="decision" id="D1" data-for="2 6">
+    <h3><span class="did">D1</span>시간과 자세한 사실은 어디에 보이는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">칩은 상태 이름만, 사실과 시간은 카드 아래 줄<span class="mark">권장</span><span class="sub">지금: 칩 없음(일함·쉼은 보이지 않음) → 바뀐 뒤: 머리 「검토 대기」, 아래 줄 「리뷰어 2명 중 1명 판정 · 7분」 · 비용: 표준 카드에 줄 하나(16px) · 되돌리기: 줄만 숨김</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">한 칩에 모두: 「쉼 · 검토 대기 · 12분」<span class="sub">줄을 더하지 않음 · 머리가 좁아 이름이 잘림 · 시간이 바뀔 때마다 칩 폭이 바뀜</span></span></div>
+    </div>
+    <ul class="why"><li>카드 머리에는 이미 이름, 에이전트, 모델, 단추 셋이 있습니다.</li><li>표준 카드 아래 줄은 지금도 「꺼짐」 글에 씁니다. 같은 자리를 늘 씁니다.</li><li>「쉼」은 대기 사유가 이미 말합니다. 칩에서 뺍니다.</li></ul>
+  </section>
+  <section class="decision" id="D2" data-for="1 3 5 7">
+    <h3><span class="did">D2</span>칩 색은 몇 가지인가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">다섯 가지: 사람 노랑(지금 그대로), 문제 빨강, 일함 파랑, 대기 회색, 결과 초록<span class="mark">권장</span><span class="sub">지금: 노랑·빨강만 칩 → 바뀐 뒤: 모든 카드에 칩 · 비용: 지금 토큰만 씀(<code>--run</code>, <code>--ok</code>) · 되돌리기: 색 토큰 하나</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">세 가지: 노랑, 빨강, 나머지 모두 회색<span class="sub">더 조용함 · 일하는 노드와 기다리는 노드를 글로만 가림</span></span></div>
+    </div>
+    <ul class="why"><li>노랑과 빨강만 강한 색이라 사람 일과 문제가 먼저 보입니다. 파랑·초록은 점과 글자에만 씁니다.</li><li>문제 카드는 빨간 테두리를 더합니다. 노란 테두리(질문)와 겹치면 노랑이 이깁니다.</li></ul>
+  </section>
+  <section class="decision" id="D3" data-for="3">
+    <h3><span class="did">D3</span>「멈춤 의심」을 받은편지함에도 알리는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">칩은 곧바로, 받은편지함은 loom의 30분 깨우기가 듣지 않았을 때만<span class="mark">권장</span><span class="sub">지금: 30분 뒤 loom이 한 번 깨우고, 다시 멈추면 아무도 모름 → 바뀐 뒤: 그때 받은편지함에 「api: 멈춤」 한 줄 · 비용: 알림 종류 하나 · 되돌리기: 알림만 끔</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">칩만 보임<span class="sub">알림 없음 · 다시 멈춘 노드는 사람이 그래프를 볼 때만 앎</span></span></div>
+      <div class="opt"><span class="key">C</span><span class="label">칩이 뜰 때 곧바로 받은편지함에도<span class="sub">턴이 막 끝난 짧은 틈에도 알림이 옴 · 대부분 loom이 30분에 혼자 고침</span></span></div>
+    </div>
+    <ul class="why"><li>감시견은 깨우기를 한 번만 보냅니다. 마지막 메시지가 그 깨우기면 다시 깨우지 않습니다(src/graph/watchdog.rs). 그 뒤는 사람만 풀 수 있습니다.</li><li>첫 30분은 loom이 혼자 풀므로 사람 일이 아닙니다.</li></ul>
+  </section>
+  <section class="decision" id="D4" data-for="4">
+    <h3><span class="did">D4</span>잠든 카드에 「깨우기」 단추를 두는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">두지 않음: 아래 줄에 「메시지를 보내면 깨어납니다」<span class="mark">권장</span><span class="sub">지금: 잠든 노드는 메시지가 오면 다시 뜸 → 바뀐 뒤: 같음, 글로 알림 · 비용 없음 · 되돌리기: 단추를 나중에 더함</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">흐린 카드에 「깨우기」 단추<span class="sub">할 말 없이 띄운 노드는 다시 쉬고 잠듦 · 새 API 하나</span></span></div>
+    </div>
+    <ul class="why"><li>잠든 노드는 할 일이 오면 데몬이 이미 깨웁니다(<code>ProcessState::Asleep</code>).</li><li>할 일 없이 깨우면 토큰만 씁니다.</li></ul>
+  </section>
+
+  <div class="fig">
+    <h2>② 그래프: 표준 카드 보기 <span class="tag">갈래마다 카드 하나</span></h2>
+    <div class="page"><div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>모든 저장소</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div><div class="app two"><aside class="side"><div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div><div class="tree"><div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>loom</b><span class="sub">~/src/loom</span></div><div class="row node" style="--d:1"><span class="dot waiting"></span><span class="l1"><b>리뷰-1</b><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span></span><span class="l2">gpt-5.5-codex · high</span></div><div class="row node" style="--d:1"><span class="dot running"></span><span class="l1"><b>워커-화면</b><span class="sp"></span><span class="st run">일함</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot "></span><span class="l1"><b>워커-데몬</b><span class="sp"></span><span class="st wait">검토 대기</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div><div class="row node" style="--d:1"><span class="dot done"></span><span class="l1"><b>store</b><span class="sp"></span><span class="st ok">병합됨</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>cli</b><span class="sp"></span><span class="st err">꺼짐(1)</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>api</b><span class="sp"></span><span class="st err">멈춤 의심</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div></div></aside><section class="canvas" aria-label="그래프"><div class="grid2"><div class="cell"><div class="card" data-waiting><div class="card-head"><span class="name">리뷰-1</span><span class="agent">X</span><span class="model">gpt-5.5-codex · high</span><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> Bash(cargo test --test contract)
+
+<span class="box">Do you want to proceed?
+❯ 1. Yes
+  2. No, and tell Claude what to do</span></div><div class="card-foot "><span class="sline "><span class="sl-text">Bash: cargo test 실행을 허락할까요?</span><time>2분</time></span></div></div></div><div class="cell"><div class="card" ><div class="card-head"><span class="name">워커-화면</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="mk new" data-n="8" style="display:inline-flex"><span class="st run">일함</span></span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> <b>Read</b>(web/src/notice.tsx)
+  <span class="d">⎿</span>  Read 120 lines
+
+<span class="g">●</span> <b>Edit</b>(web/src/NodeCard.tsx)
+<span class="b">✶</span> Editing… <span class="d">(4m 12s)</span></div><div class="card-foot "><span class="sline "><span class="sl-text">Edit · web/src/NodeCard.tsx</span><time>4분</time></span></div></div></div><div class="cell"><div class="card" ><div class="card-head"><span class="name">store</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="st ok">병합됨</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> remove(id), toggle(id)를 더했습니다.
+  npm test 5/5 통과.
+
+<span class="g">●</span> <b>Bash</b>(loom done …)
+<span class="d">✻ Worked for 22s · done 1:10 PM</span></div><div class="card-foot "><span class="sline "><span class="sl-text">main에 병합 · 5f53def</span><time>1시간</time></span></div></div></div><div class="cell"><div class="card" ><div class="card-head"><span class="name">워커-데몬</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="st wait">검토 대기</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> <b>Bash</b>(loom ready 상태-데몬)
+  <span class="d">⎿</span>  round 2 opened
+
+⏳ 리뷰 판정을 기다립니다.
+<span class="d">✻ Worked for 6m · done 2:02 PM</span></div><div class="card-foot "><span class="sline "><span class="mk new" data-n="6" style="display:inline-flex"><span class="sl-text">리뷰어 2명 중 1명 판정 · 브랜치 상태-데몬</span></span><time>7분</time></span></div></div></div><div class="cell"><span class="mk" data-n="7" style="display:block"><div class="card" data-problem><div class="card-head"><span class="name">cli</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="st err">꺼짐(1)</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="r">error</span>: process didn't exit successfully
+  (exit status: 101)
+
+<span class="r">thread 'main' panicked at src/cli.rs:88</span>
+<span class="d">[process exited with code 1]</span></div><div class="card-foot err"><span class="sline "><span class="sl-text">종료 코드 1로 끝났습니다 · 부모에게 알림</span><time>9분</time></span></div></div></span></div><div class="cell"><div class="card" data-problem><div class="card-head"><span class="name">api</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="st err">멈춤 의심</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> 테스트를 고쳤습니다. 다음 단계를
+  정리합니다.
+
+<span class="d">✻ Worked for 3m · done 1:28 PM</span>
+&gt; <span class="cur"> </span></div><div class="card-foot err"><span class="sline "><span class="sl-text">기다리는 것이 없는데 쉽니다 · 30분에 loom이 깨움</span><time>34분</time></span></div></div></div></div></section><footer class="statusbar"><span class="conn"><span class="dot done"></span>127.0.0.1:7420</span><span class="sbtn">데몬에 연결됨</span><span class="sp"></span><span class="ver">v0.1.2290</span></footer></div></div>
+    <div class="calls">
+      <div><b>6</b><span>표준 카드도 터미널 아래 줄에 같은 사실과 시간을 씁니다.</span></div>
+      <div><b>7</b><span>문제 카드는 빨간 테두리입니다. 지금 아래 줄의 꺼짐 글은 그대로 둡니다.</span></div>
+      <div><b>8</b><span>일하는 노드는 파란 「일함」과 지금 쓰는 도구를 보입니다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 칩을 누름: 상태 자세히 <span class="tag">워커-데몬 · 검토 대기</span></h2>
+    <div class="page"><div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>loom</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div><div class="app three"><aside class="side"><div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div><div class="tree"><div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>loom</b><span class="sub">~/src/loom</span></div><div class="row node" style="--d:1"><span class="dot waiting"></span><span class="l1"><b>리뷰-1</b><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span></span><span class="l2">gpt-5.5-codex · high</span></div><div class="row node" style="--d:1"><span class="dot running"></span><span class="l1"><b>워커-화면</b><span class="sp"></span><span class="st run">일함</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot "></span><span class="l1"><b>워커-데몬</b><span class="sp"></span><span class="st wait">검토 대기</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div><div class="row node" style="--d:1"><span class="dot done"></span><span class="l1"><b>store</b><span class="sp"></span><span class="st ok">병합됨</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>cli</b><span class="sp"></span><span class="st err">꺼짐(1)</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>api</b><span class="sp"></span><span class="st err">멈춤 의심</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div></div></aside><section class="canvas" aria-label="그래프"><div class="solo"><div class="card" data-selected><div class="card-head"><span class="name">워커-데몬</span><span class="agent">C</span><span class="model">claude-sonnet-5-5 · medium</span><span class="sp"></span><span class="mk new" data-n="9" style="display:inline-flex"><span class="st wait">검토 대기</span></span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> <b>Bash</b>(loom ready 상태-데몬)
+  <span class="d">⎿</span>  round 2 opened
+
+⏳ 리뷰 판정을 기다립니다.
+<span class="d">✻ Worked for 6m · done 2:02 PM</span></div><div class="card-foot "><span class="sline "><span class="sl-text">리뷰어 2명 중 1명 판정 · 브랜치 상태-데몬</span><time>7분</time></span></div></div><div class="pop" role="dialog" aria-label="워커-데몬 상태"><div class="pop-head"><b>워커-데몬</b><span class="st wait">검토 대기</span><span class="sp"></span><button class="ibtn" aria-label="닫기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><p class="pop-now">14:02부터 7분째 리뷰 판정을 기다립니다.</p><span class="mk new" data-n="10" style="display:block"><section><h4>기다리는 것</h4><ul class="facts"><li><span>브랜치</span><b>상태-데몬</b><span class="mono">3f2a1c0</span></li><li><span>리뷰-1</span><span class="state-tag" data-tone="ask">승인 요청</span><span class="mono">판정 전</span></li><li><span>리뷰-2</span><span class="st ok">통과</span><span class="mono">14:06</span></li></ul></section></span><span class="mk new" data-n="11" style="display:block"><section><h4>최근 상태</h4><ol class="hist"><li><time>14:02</time><span>일함 → 검토 대기</span></li><li><time>13:41</time><span>검토 대기 → 일함 · 판정 막음(1회째)</span></li><li><time>13:30</time><span>일함 → 검토 대기</span></li><li><time>13:05</time><span>시작</span></li></ol></section></span><div class="pop-foot"><button class="btn sm">이벤트 기록에서 보기</button></div></div></div></section><footer class="statusbar"><span class="conn"><span class="dot done"></span>127.0.0.1:7420</span><span class="sbtn">데몬에 연결됨</span><span class="sp"></span><span class="ver">v0.1.2290</span></footer></div></div>
+    <div class="calls">
+      <div><b>9</b><span>칩을 누르면 작은 창이 열립니다. 바깥을 누르거나 Esc로 닫습니다.</span></div>
+      <div><b>10</b><span>무엇을 기다리는지를 하나씩 보입니다. 리뷰어 칩을 누르면 그 카드로 갑니다.</span></div>
+      <div><b>11</b><span>최근 상태 바뀜과 시각을 보입니다.</span></div>
+    </div>
+  </div>
+  <section class="decision" id="D5" data-for="9 11">
+    <h3><span class="did">D5</span>자세히 창에 토큰·메모리도 보이는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">보이지 않음: 기다리는 것과 최근 상태만<span class="mark">권장</span><span class="sub">지금: 자세히 창 없음 → 바뀐 뒤: 칩을 누르면 ③ · 비용: 지금 있는 사실과 이벤트 기록만 씀 · 되돌리기: 창을 빼면 칩만 남음</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">토큰·메모리 줄을 더함<span class="sub">데몬에 지금 노드별 토큰·메모리 값이 없음 · 에이전트마다 새로 모아야 함 · 그 값으로 사람이 정할 일이 없음</span></span></div>
+    </div>
+    <ul class="why"><li>사람이 이 창에서 정할 것은 「기다려도 되는가」입니다. 기다리는 것 목록이 그 답을 줍니다.</li><li>토큰·메모리는 사람이 고를 일이 생길 때 더합니다.</li></ul>
+  </section>
+
+  <h2>모든 상태: 칩, 아래 줄, 데이터</h2>
+  <p class="note">한 노드에 여러 상태가 맞으면 위 갈래가 이깁니다(1 사람 → 2 문제 → 3 일함 → 4 대기 → 5 결과). 시간은 그 상태가 시작된 뒤 흐른 시간입니다. 숨기는 것: 계정 바꿈, 전달 방식, 턴 번호. 대기 사유는 감시견 조건(<code>NO_WAKE_SOURCE</code>)의 줄마다 이름을 붙인 것이고, 그 줄이 하나도 맞지 않으면 「멈춤 의심」입니다.</p>
+  <table><thead><tr><th>갈래</th><th>칩</th><th>아래 줄(예)</th><th>언제</th><th>데몬에 이미 있는 것</th><th>새로 만들 것</th></tr></thead><tbody><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">질문 1</span></td><td>Q42 질문 글 · 기다린 시간</td><td>부모 없는 노드의 열린 <code>loom ask</code></td><td><code>waits</code>(질문, <code>since</code>)</td><td>없음</td></tr><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">승인 요청</span></td><td>창의 요약 · 시간</td><td>창이 에이전트를 막음(<code>blocked</code>)</td><td><code>waits</code>의 신호 대기</td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">꺼짐(1)</span></td><td>지금 카드 아래 줄 그대로</td><td>진행 중에 프로세스가 0이 아닌 코드로 끝남</td><td><code>process: stopped</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">설정 실패</span></td><td>지금 카드 아래 줄 그대로</td><td>설정 스크립트 실패</td><td><code>state: setupFailed</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">사용 한도</span></td><td>모든 Claude 계정 한도 · 14:20에 풀림</td><td>바꿀 계정이 남지 않음</td><td>이벤트 <code>noAccountLeft</code>, 계정별 풀리는 시각</td><td>노드에 「한도」 사실을 붙임</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">멈춤 의심</span></td><td>기다리는 것이 없는데 쉽니다 · 시간</td><td>쉼이고 아래 대기 사유가 하나도 없음</td><td>감시견 조건 <code>NO_WAKE_SOURCE</code>(src/graph/watchdog.rs)</td><td>같은 조건을 노드 목록 읽기에서도 계산</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">재작업 3</span></td><td>칩 옆 작은 표시, 본 칩은 그대로</td><td>같은 브랜치 판정 막음 3회 이상</td><td>관문 판정 기록</td><td>브랜치별 막음 수 세기</td></tr><tr><td class="cat">3 일함</td><td class="sample"><span class="st run">일함</span></td><td>도구 · 대상(예: Edit · NodeCard.tsx) · 시간</td><td>턴 중</td><td><code>process: working</code>, Claude 훅 <code>PreToolUse</code>의 <code>tool_name</code></td><td>마지막 도구 이름·대상을 노드별로 기억(메모리, 저장 안 함). 훅이 없는 에이전트는 시간만</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">자식 대기 3</span></td><td>자식 이름과 칩</td><td>끝나지 않은 산 자식이 있음</td><td><code>nodes.parent</code>, 자식 상태</td><td>없음(조건만 이름 붙임)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">검토 대기</span></td><td>리뷰어 n명 중 m명 판정 · 브랜치</td><td>내 브랜치 관문이 <code>ready</code></td><td><code>gates</code>, <code>gate_votes</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">병합 대기</span></td><td>병합 큐 차례</td><td>관문이 <code>passed</code>·<code>merging</code></td><td><code>gates.state</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">답 대기</span></td><td>부모에게 물음 · 시간</td><td>부모에게 한 <code>loom ask</code>에 답이 없음</td><td><code>messages</code>(ask 뒤 답 없음)</td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">재검토 대기</span></td><td>새 커밋을 기다림</td><td>리뷰어가 이 head에 이미 판정함</td><td><code>gate_votes.head</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">작업 대기</span></td><td>턴 끝 글(⏳ …) 그대로</td><td>턴 끝 글이 「⏳ 」로 시작(loom 규칙이 요구하는 글)</td><td><code>reply</code></td><td>없음(글 앞머리만 봄)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">배포 대기</span></td><td>대상 브랜치와 커밋</td><td>내가 루트인 배포가 아직 끝나지 않음</td><td><code>deploys</code> 테이블(끝나면 지움)</td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">완료</span></td><td>마지막 턴 끝 글</td><td><code>loom done</code> 뒤</td><td><code>state: done</code>, <code>reply</code></td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">병합됨</span></td><td>대상과 병합 커밋</td><td>내 브랜치 관문이 <code>merged</code></td><td><code>gates.state</code></td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">배포됨</span></td><td>대상과 커밋 · 시간</td><td>그 병합을 담은 배포가 성공함</td><td>배포 성공은 지금 남지 않음(줄을 지움)</td><td>배포 성공 사실 저장(관문 줄에 한 칸)</td></tr></tbody></table>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

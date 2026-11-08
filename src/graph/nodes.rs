@@ -844,7 +844,7 @@ impl Graph {
     pub fn name_self(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
         self.rename_if(id, name, |db, old| {
             let given: bool = db.query_row(
-                "SELECT default_name FROM nodes WHERE id = ?1",
+                "SELECT parent IS NULL AND default_name = 1 FROM nodes WHERE id = ?1",
                 [id.0],
                 |row| row.get(0),
             )?;

@@ -504,6 +504,29 @@ impl Answers {
         self.run(wait, None, task, cx);
     }
 
+    pub(crate) fn choose_nth(
+        &mut self,
+        wait: &ScreenWait,
+        nth: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let id = wait.wait.id.0;
+        if let Some(prompt) = &wait.wait.prompt {
+            if prompt.options.get(nth).is_none_or(|option| option.writes) {
+                return false;
+            }
+            self.shown.insert(id, prompt.clone());
+            self.pick(id, nth, cx);
+            return true;
+        }
+        let answerable = wait.wait.answerable && matches!(wait.tone, WaitTone::Ask);
+        let Some(choice) = wait.wait.choices.get(nth).filter(|_| answerable) else {
+            return false;
+        };
+        self.reply(id, choice.key.to_string(), cx);
+        true
+    }
+
     fn reply(&mut self, wait: u32, text: String, cx: &mut Context<Self>) {
         if self.store.read(cx).is_busy(wait) {
             return;
@@ -511,13 +534,17 @@ impl Answers {
         self.send(wait, Text::Typed(text), None, cx);
     }
 
-    fn dismiss(&mut self, wait: u32, cx: &mut Context<Self>) {
+    pub(crate) fn dismiss(&mut self, wait: u32, cx: &mut Context<Self>) {
         let id = WaitId(wait);
         let task = self
             .store
             .update(cx, |store, cx| store.dismiss_wait(id, cx));
         self.run(wait, None, task, cx);
     }
+}
+
+fn hint(shown: bool, index: usize) -> Option<String> {
+    (shown && index < 9).then(|| format!("Alt+{}", index + 1))
 }
 
 fn scaled(
@@ -549,19 +576,27 @@ pub(crate) fn entry(
     framed(answers, wait, z, find, body, None, cx)
 }
 
+pub(crate) struct Strip {
+    pub repo: String,
+    pub node: String,
+    pub counts: String,
+    pub bulk: Option<AnyElement>,
+    pub note: Option<String>,
+}
+
 pub(crate) fn card(
     answers: &Entity<Answers>,
     node: NodeId,
     wait: &ScreenWait,
     z: f32,
-    tail: String,
+    strip: Strip,
     cx: &mut App,
 ) -> Div {
-    let mut body = wait_content(answers, wait, z, None, cx);
+    let mut body = wait_content(answers, wait, z, None, true, cx);
     if !wait.wait.answerable && wait.wait.prompt.is_none() {
         body = body.child(terminal_link(answers, node, wait.wait.id.0, z, cx));
     }
-    framed(answers, wait, z, None, body, Some(tail), cx)
+    framed(answers, wait, z, None, body, Some(strip), cx)
 }
 
 fn framed(
@@ -570,7 +605,7 @@ fn framed(
     z: f32,
     find: Option<&Find>,
     body: Div,
-    tail: Option<String>,
+    strip: Option<Strip>,
     cx: &mut App,
 ) -> Div {
     let c = ui::colors(cx);
@@ -595,29 +630,82 @@ fn framed(
     }
     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
     .on_click(dismiss);
+    let carded = strip.is_some();
     let top = div()
         .flex()
         .items_center()
         .gap(px(GAP * z))
         .min_w_0()
         .child(entry::mark(wait.tone, z, &c))
-        .child(entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c).flex_none())
+        .children(
+            (!carded || wait.wait.kind != WaitKind::Question)
+                .then(|| entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c).flex_none()),
+        )
         .children((wait.wait.kind == WaitKind::Question).then(|| {
             find::chip(
                 find,
                 id,
                 entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c),
             )
-        }))
-        .child(entry::published(wait.wait.since, z, cx))
-        .children(tail.map(|text| {
-            div()
+        }));
+    let (top, note) = match strip {
+        Some(strip) => {
+            let small = |text: String| {
+                div()
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_size(px(SMALL * z))
+                    .text_color(c.ink_3)
+                    .child(text)
+            };
+            let left = top.child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0 * z))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .flex_none()
+                            .whitespace_nowrap()
+                            .text_color(c.ink_3)
+                            .child(format!("{} \u{203a}", strip.repo)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(strip.node),
+                    )
+                    .child(small(ui::clock(wait.wait.since, "%H:%M")).ml(px(6.0 * z))),
+            );
+            let right = div()
+                .flex()
+                .items_center()
+                .gap(px(GAP * z))
                 .flex_none()
-                .text_size(px(SMALL * z))
-                .text_color(c.ink_3)
-                .child(text)
-        }))
-        .child(close);
+                .ml_auto()
+                .child(small(strip.counts))
+                .children(strip.bulk)
+                .child(close);
+            let wrapped = div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_x(px(GAP * z))
+                .gap_y(px(4.0 * z))
+                .child(left)
+                .child(right);
+            (wrapped, strip.note)
+        }
+        None => (
+            top.child(entry::published(wait.wait.since, z, cx))
+                .child(close),
+            None,
+        ),
+    };
     let mut entry = div()
         .flex()
         .flex_col()
@@ -630,6 +718,14 @@ fn framed(
                 .text_size(px(SMALL * z))
                 .text_color(c.ink)
                 .child(find::instruction(find, cx, text)),
+        );
+    }
+    if let Some(text) = note {
+        entry = entry.child(
+            div()
+                .text_size(px(SMALL * z))
+                .text_color(c.ink_3)
+                .child(text),
         );
     }
     entry = entry.child(body);
@@ -649,6 +745,7 @@ fn wait_content(
     wait: &ScreenWait,
     z: f32,
     find: Option<&Find>,
+    hints: bool,
     cx: &mut App,
 ) -> Div {
     let c = ui::colors(cx);
@@ -716,14 +813,13 @@ fn wait_content(
                 answers.shown.insert(id, prompt.clone());
             }
         });
-        body = body.child(prompt_body(answers, id, wait.tone, prompt, z, find, cx));
+        body = body.child(prompt_body(answers, wait, prompt, z, find, hints, cx));
     } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
         let owner = answers.clone();
         body = body.child(
             div()
                 .text_size(px(ui::TEXT * z))
                 .when(done, |text| text.font_weight(FontWeight::SEMIBOLD))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(body::render(
                     ("text", id as usize),
                     &wait.wait.parts,
@@ -740,7 +836,7 @@ fn wait_content(
     }
     if wait.wait.answerable && !done && !wait.wait.choices.is_empty() {
         body = body.child(div().flex().flex_wrap().gap(px(GAP * z)).children(
-            wait.wait.choices.iter().map(|choice| {
+            wait.wait.choices.iter().enumerate().map(|(index, choice)| {
                 let key = choice.key;
                 let owner = answers.clone();
                 let look = if choice.recommended {
@@ -759,6 +855,7 @@ fn wait_content(
                     button,
                     Choice {
                         key: key.to_string(),
+                        hint: hint(hints, index),
                         label: &choice.label,
                         recommended: choice.recommended,
                         look,
@@ -793,7 +890,7 @@ fn wait_body(
     } else {
         ui::say(cx, kind_label(wait.wait.kind)).to_owned()
     };
-    let mut body = wait_content(answers, wait, z, find, cx);
+    let mut body = wait_content(answers, wait, z, find, false, cx);
     if wait.wait.answerable {
         let pictures = answers
             .read(cx)
@@ -969,13 +1066,14 @@ fn send_row(
 
 fn prompt_body(
     answers: &Entity<Answers>,
-    id: u32,
-    tone: WaitTone,
+    wait: &ScreenWait,
     prompt: &Prompt,
     z: f32,
     find: Option<&Find>,
+    hints: bool,
     cx: &mut App,
 ) -> AnyElement {
+    let (id, tone) = (wait.wait.id.0, wait.tone);
     let c = ui::colors(cx);
     let busy = answers.read(cx).store.read(cx).is_busy(id);
     let mut body = div()
@@ -999,6 +1097,7 @@ fn prompt_body(
                         div(),
                         Choice {
                             key: label,
+                            hint: None,
                             label: &option.label,
                             recommended: false,
                             look: Look::Plain,
@@ -1022,6 +1121,7 @@ fn prompt_body(
                     button,
                     Choice {
                         key: label,
+                        hint: hint(hints, index),
                         label: &option.label,
                         recommended: index == 0,
                         look: if index == 0 {

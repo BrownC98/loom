@@ -4,7 +4,6 @@ use std::rc::Rc;
 use api::graph::waits::WaitTone;
 use api::ids::{NodeId, WaitId};
 use api::settings::{FloatPlace, FloatSize};
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
@@ -80,7 +79,6 @@ pub struct Composer {
     last: Option<Chosen>,
     stream_bar: Bar,
     stream_box: Rc<Cell<Size<Pixels>>>,
-    scrolled: Option<WaitId>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
     subscriptions: Vec<Subscription>,
@@ -190,7 +188,6 @@ pub fn composer(
             last: None,
             stream_bar: Bar::new(),
             stream_box: Rc::new(Cell::new(Size::default())),
-            scrolled: None,
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
             subscriptions: vec![typed, heard],
@@ -855,20 +852,6 @@ impl Render for Composer {
                 .update(cx, |store, cx| store.set_composer(None, cx));
             return root;
         };
-        let current = match aimed.aim {
-            Aim::Alert(id) => Some(id),
-            Aim::Prompt => None,
-        };
-        if self.scrolled != current {
-            self.scrolled = current;
-            if let Some(index) = aimed
-                .stream
-                .iter()
-                .position(|s| Some(s.wait.wait.id) == current)
-            {
-                self.stream_bar.handle().scroll_to_item(index);
-            }
-        }
         let look = self.look(cx);
         let z = place::zoom(look.size);
         let (pane, boxed) = (self.pane.get(), self.boxed.get());
@@ -1007,9 +990,18 @@ impl Composer {
         )
     }
 
-    fn stream_list(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn stream_list(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = ui::colors(cx);
         let current = aimed.shown().map(|s| s.wait.wait.id);
+        let rows: Vec<_> = aimed
+            .stream
+            .iter()
+            .filter(|s| Some(s.wait.wait.id) != current)
+            .collect();
+        if rows.is_empty() {
+            self.stream_box.set(Size::default());
+            return None;
+        }
         let rest = self.boxed.get().height - self.stream_box.get().height;
         let room = self.pane.get().height - px(2.0 * MARGIN) - rest;
         let mut list = div()
@@ -1019,10 +1011,9 @@ impl Composer {
             .max_h(room.max(px(STREAM_FLOOR * z)))
             .overflow_y_scroll()
             .track_scroll(self.stream_bar.handle());
-        for (index, row) in aimed.stream.iter().enumerate() {
+        for (index, row) in rows.into_iter().enumerate() {
             let id = row.wait.wait.id;
             let node = row.node;
-            let on = Some(id) == current && matches!(aimed.aim, Aim::Alert(_));
             let hover = c.surface_hover;
             let chip = if row.wait.wait.kind == api::graph::waits::WaitKind::Question {
                 id.to_string()
@@ -1040,9 +1031,6 @@ impl Composer {
                     .rounded(px(6.0 * z))
                     .cursor_pointer()
                     .hover(move |s| s.bg(hover))
-                    .when(on, |d| {
-                        d.bg(c.accent_wash).font_weight(FontWeight::SEMIBOLD)
-                    })
                     .on_click(cx.listener(move |composer, _, window, cx| {
                         composer.pick(NodeId(node), Aim::Alert(id), window, cx)
                     }))
@@ -1075,7 +1063,7 @@ impl Composer {
             );
         }
         let list = list.child(place::measure(self.stream_box.clone(), cx.entity_id()));
-        self.stream_bar.reserved(list).min_h_0().into_any_element()
+        Some(self.stream_bar.reserved(list).min_h_0().into_any_element())
     }
 
     fn face(
@@ -1134,7 +1122,7 @@ impl Composer {
                 .flex()
                 .flex_col()
                 .gap(px(6.0 * z))
-                .child(self.stream_list(aimed, z, cx))
+                .children(self.stream_list(aimed, z, cx))
                 .children(self.card(aimed, z, cx))
                 .into_any_element()
         });

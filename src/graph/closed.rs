@@ -115,7 +115,7 @@ impl Graph {
 }
 
 fn closed_row(row: &Row) -> rusqlite::Result<ClosedWait> {
-    let wait = super::waits::for_screen(from_json::<HumanWait>(row, 3)?);
+    let wait = super::waits::for_history(from_json::<HumanWait>(row, 3)?);
     let how: Closed = from_json(row, 5)?;
     let chosen = match &how {
         Closed::Answered { text } => wait

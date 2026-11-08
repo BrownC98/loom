@@ -10,6 +10,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Window, div, img, px,
 };
 
+use super::blocks;
 use super::body::{self, Target};
 use super::entry::{self, Choice, Look};
 use super::find::{self, Find};
@@ -831,15 +832,17 @@ fn wait_content(
             }
         });
         body = body.child(prompt_body(answers, wait, prompt, z, find, hints, cx));
-    } else if !wait.wait.text.is_empty() || !wait.wait.parts.is_empty() || wait.wait.doc.is_some() {
+    } else if !wait.wait.text.is_empty() || !wait.wait.blocks.is_empty() || wait.wait.doc.is_some()
+    {
         let owner = answers.clone();
-        body = body.child(div().text_size(px(ui::TEXT * z)).child(body::render(
+        body = body.child(div().text_size(px(ui::TEXT * z)).child(blocks::render(
             ("text", id as usize),
-            &wait.wait.parts,
+            &wait.wait.blocks,
             &wait.wait.text,
             wait.wait.doc.as_ref(),
             entry::tone_of(wait.tone, &c),
             find,
+            ui::TEXT * z,
             cx,
             move |target, cx| owner.update(cx, |answers, cx| answers.follow(id, target, cx)),
         )));

@@ -742,6 +742,7 @@ const ko: typeof en = {
       emptyName: '이름을 입력하십시오.',
       nameTaken: '{{value}}: 부모·형제·자식 노드가 이미 쓰는 이름입니다. 다른 이름을 입력하십시오.',
       reservedName: '{{value}}: 이 이름은 노드 번호와 부모(parent) 표기에 씁니다. 글자가 있고 #으로 시작하지 않는 이름을 쓰십시오.',
+      nameKept: '{{value}}: loom은 뿌리 노드에 loom이 지은 이름(<에이전트>-<번호>)만 한 번 바꿉니다. 이 이름은 그대로 둡니다.',
       tooDeep: '중첩이 너무 깊어 자식을 더 만들 수 없습니다.',
       tooManyChildren: '이 노드에는 자식이 이미 {{value}}개 있습니다. 끝난 자식을 먼저 지우십시오.',
       briefTooLong: '본문이 {{value}}바이트입니다. 줄이고, 긴 자료는 파일 경로로 전달하십시오.',

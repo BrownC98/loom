@@ -93,7 +93,7 @@ impl Graph {
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
             let id = insert(&tx, &name, &agent, None, place)?;
             tx.execute(
-                "UPDATE nodes SET task = ?2, setup = ?3 WHERE id = ?1",
+                "UPDATE nodes SET task = ?2, setup = ?3, default_name = 1 WHERE id = ?1",
                 params![id.0, task, setup],
             )?;
             keep(&tx, id, launched)?;
@@ -838,6 +838,29 @@ impl Graph {
     }
 
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
+        self.rename_if(id, name, |_, _| Ok(()))
+    }
+
+    pub fn name_self(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
+        self.rename_if(id, name, |db, old| {
+            let given: bool = db.query_row(
+                "SELECT parent IS NULL AND default_name = 1 FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )?;
+            match given {
+                true => Ok(()),
+                false => Err(Refusal::NameKept(old.to_owned())),
+            }
+        })
+    }
+
+    fn rename_if(
+        &self,
+        id: NodeId,
+        name: &str,
+        allowed: impl FnOnce(&Connection, &str) -> Result<(), Refusal>,
+    ) -> Result<(), Refusal> {
         let name = checked_name(name)?;
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -847,6 +870,7 @@ impl Graph {
         if old == name {
             return Ok(());
         }
+        allowed(&tx, &old)?;
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != ?1 AND n.name = ?2 AND (
                 n.id = me.parent
@@ -861,7 +885,7 @@ impl Graph {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
         tx.execute(
-            "UPDATE nodes SET name = ?2 WHERE id = ?1",
+            "UPDATE nodes SET name = ?2, default_name = 0 WHERE id = ?1",
             params![id.0, name],
         )?;
         events::write(

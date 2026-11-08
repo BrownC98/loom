@@ -15,6 +15,7 @@ const BATCH_WAIT: Duration = Duration::from_secs(60 * 60);
 pub const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
 for wt in "$common"/loom-batches/*; do
   [ -e "$wt" ] || continue
+  [ "$wt" = "$common/loom-batches/check" ] && continue
   git worktree remove --force "$wt" 2>/dev/null
   rm -rf "$wt"
 done
@@ -32,11 +33,15 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 
 pub const STACK: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3 mark=$4
-shift 4
+wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
+passed=$common/loom-logs/${1%-*}.passed
+shift 3
 mkdir -p "$common/loom-logs" "$common/loom-batches"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
+rm -f "$passed"
+members=$(printf 'member %s %s\n' "$@")
+pass() { printf 'base %s\ntip %s\n%s\n' "$base" "$tip" "$members" > "$passed.new" && mv "$passed.new" "$passed"; }
 clean() { git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"; git worktree prune; }
 clean
 trap clean EXIT
@@ -72,9 +77,11 @@ if [ -f "$wt/scripts/gate/check.sh" ]; then
   key=$(printf %s "$common" | git hash-object --stdin)
   repo=${common%/.git}
   cargo_target=${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target/${repo##*/}-${key:0:12}
+  rm -f "$cargo_target/.rustc_info.json" "$cargo_target"/*/.rustc_info.json
   start=$(date +%s)
   (cd "$wt" && CARGO_TARGET_DIR="$cargo_target" bash scripts/gate/check.sh 9>&-)
   code=$?
+  [ "$code" -eq 0 ] && pass
   echo "check $(($(date +%s) - start))" >&3
   rm -rf "$common/loom-batch-target"
   cap_kib=$((32 * 1024 * 1024))
@@ -85,8 +92,14 @@ if [ -f "$wt/scripts/gate/check.sh" ]; then
   [ "$code" -eq 0 ] || exit 14
 else
   echo "== no scripts/gate/check.sh"
+  pass
 fi
 echo "tip $tip" >&3
+"#;
+
+pub const PASSED: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
+cat "$common/loom-logs/batch-$1.passed" 2>/dev/null
+exit 0
 "#;
 
 pub const PUBLISH: &str = r#"set -u
@@ -273,6 +286,8 @@ pub struct Lines {
     pub conflict: Option<usize>,
     pub check: Option<u64>,
     pub tip: Option<String>,
+    pub base: Option<String>,
+    pub members: Vec<(String, String)>,
 }
 
 impl Lines {
@@ -285,6 +300,10 @@ impl Lines {
                 (Some("conflict"), Some(i), _) => lines.conflict = i.parse().ok(),
                 (Some("check"), Some(secs), _) => lines.check = secs.parse().ok(),
                 (Some("tip"), Some(tip), _) => lines.tip = Some(tip.to_owned()),
+                (Some("base"), Some(base), _) => lines.base = Some(base.to_owned()),
+                (Some("member"), Some(branch), Some(head)) => {
+                    lines.members.push((branch.to_owned(), head.to_owned()))
+                }
                 _ => {}
             }
         }

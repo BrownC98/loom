@@ -136,6 +136,7 @@ struct App {
     leaving: std::sync::Mutex<spent::Leavings>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
+    reclaiming: tokio::sync::Mutex<()>,
     ptys_changed: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
@@ -417,6 +418,7 @@ impl App {
             leaving: Default::default(),
             turn_ends,
             merge_queue: tokio::sync::Notify::new(),
+            reclaiming: tokio::sync::Mutex::new(()),
             ptys_changed: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =

@@ -412,12 +412,9 @@ button.unread:hover { filter: brightness(1.1); }
 .xterm-box .xterm .xterm-viewport { background-color: transparent; }
 .xterm-box .xterm-rows > div { overflow: visible !important; }
 .xterm-box .xterm-rows span[class*="xterm-bg-"], .xterm-box .xterm-rows span[style*="background-color"] { box-sizing: content-box; padding-bottom: 1px; }
-.card-foot { padding: 8px 10px; border-top: 1px solid var(--line); background: var(--surface); }
 .sline { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-2); }
 .sline .sl-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-foot[data-problem] .sl-text { color: var(--err); }
 .sline time { margin-left: auto; flex: none; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.card[data-selected] .card-foot:not([data-problem]) .sl-text { color: var(--accent); }
 .status-pop { position: fixed; z-index: 30; width: 380px; max-width: calc(100vw - 16px); display: grid; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); font-size: 13px; }
 .status-pop .pop-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .status-pop .pop-head > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

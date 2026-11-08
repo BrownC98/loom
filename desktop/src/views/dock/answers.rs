@@ -628,7 +628,7 @@ fn framed(
 ) -> Div {
     let c = ui::colors(cx);
     let id = wait.wait.id.0;
-    let done = matches!(wait.tone, WaitTone::Done) || wait.wait.kind == WaitKind::Stalled;
+    let done = matches!(wait.tone, WaitTone::Done);
     let busy = answers.read(cx).store.read(cx).is_busy(id);
     let dismiss = {
         let answers = answers.clone();

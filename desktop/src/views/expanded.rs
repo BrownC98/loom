@@ -65,7 +65,6 @@ pub fn overlay(
                 })
                 .bg(colors.term)
                 .child(head)
-                .child(div().flex_1().min_h(px(0.0)).child(terminal))
-                .child(card::foot(face, selected, 1.0, &colors)),
+                .child(div().flex_1().min_h(px(0.0)).child(terminal)),
         )
 }

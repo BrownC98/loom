@@ -134,7 +134,7 @@ export function NodeSummary(props: SummaryProps) {
           <ModelText view={view} />
         </div>
       )}
-      <StatusLine view={view} className="sline" />
+      <StatusLine view={view} />
     </div>
   );
 }
@@ -226,7 +226,6 @@ export function NodeCard(
           <div className="term nodrag nowheel" translate="no">
             {props.children}
           </div>
-          <StatusLine view={view} className="card-foot sline" />
         </>
       )}
     </CardShell>

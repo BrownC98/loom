@@ -104,7 +104,6 @@ const ko: typeof en = {
         stopped: '꺼짐',
         stoppedCode: '꺼짐({{code}})',
         limited: '사용 한도',
-        stalled: '멈춤 의심',
         working: '일함',
         children: '자식 대기 {{n}}',
         review: '검토 대기',
@@ -121,7 +120,6 @@ const ko: typeof en = {
       },
       line: {
         limited: '계정을 바꾸면 풀립니다',
-        stalled: '기다릴 것이 없는데 쉽니다',
         review: '리뷰어 {{reviewers}}명 중 {{judged}}명 판정 · {{branch}}',
         answer: '부모의 답을 기다립니다',
         rereview: '새 커밋을 기다립니다 · {{branch}}',
@@ -520,7 +518,6 @@ const ko: typeof en = {
     auth: '로그인·계정 설정',
     input: '입력 요청',
     done: '완료',
-    stalled: '멈춤 의심',
   },
   osNotify: {
     heading: '시스템 알림',

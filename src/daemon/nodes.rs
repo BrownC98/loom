@@ -36,7 +36,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
 
 async fn list_nodes(State(app): State<Arc<App>>) -> Result<Json<Vec<NodeView>>, Problem> {
     app.graph
-        .views(|node| app.tools.of(node), |node| app.watchdog.quiet(node))
+        .views(|node| app.tools.of(node))
         .map(Json)
         .map_err(internal)
 }

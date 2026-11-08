@@ -1,4 +1,4 @@
-use api::graph::waits::{ScreenWait, WaitKind, WaitTone};
+use api::graph::waits::{ScreenWait, WaitTone};
 use api::graph::{NodeView, Status};
 use chrono::Local;
 use gpui::{Div, FontWeight, ParentElement, Rgba, Styled, div, px};
@@ -35,13 +35,13 @@ pub fn wash(color: Rgba, alpha: f32) -> Rgba {
 }
 
 pub fn asking(wait: &ScreenWait) -> bool {
-    matches!(wait.tone, WaitTone::Ask) && wait.wait.kind != WaitKind::Stalled
+    matches!(wait.tone, WaitTone::Ask)
 }
 
 pub fn problem(status: &Status) -> bool {
     matches!(
         status,
-        Status::SetupFailed { .. } | Status::Stopped { .. } | Status::Limited | Status::Stalled
+        Status::SetupFailed { .. } | Status::Stopped { .. } | Status::Limited
     )
 }
 
@@ -59,7 +59,6 @@ pub fn chip(status: &Status, lang: Lang) -> Option<Chip> {
             Tone::Problem,
         ),
         Status::Limited => (text(Str::NodeStatusChipLimited, lang), Tone::Problem),
-        Status::Stalled => (text(Str::NodeStatusChipStalled, lang), Tone::Problem),
         Status::Working { .. } => (text(Str::NodeStatusChipWorking, lang), Tone::Working),
         Status::Children { names } => (
             Str::NodeStatusChipChildren.with(lang, &[("n", &names.len().to_string())]),
@@ -113,7 +112,6 @@ pub fn line(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String>
             })
         }
         Status::Limited => Some(text(Str::NodeStatusLineLimited, lang)),
-        Status::Stalled => Some(text(Str::NodeStatusLineStalled, lang)),
         Status::Working { tool } => tool.clone(),
         Status::Children { names } => Some(names.join(" \u{b7} ")),
         Status::Review {

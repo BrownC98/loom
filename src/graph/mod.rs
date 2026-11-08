@@ -112,8 +112,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id),
     n.session IS NOT NULL,
     (SELECT s.state FROM agent_states s WHERE s.node = n.id),
-    n.limited,
-    (SELECT s.wait FROM stalls s WHERE s.node = n.id AND s.dismissed = 0)";
+    n.limited";
 
 struct Db<'a> {
     conn: MutexGuard<'a, Connection>,
@@ -208,9 +207,8 @@ impl Graph {
     pub fn views(
         &self,
         tool: impl Fn(NodeId) -> Option<String>,
-        quiet: impl Fn(NodeId) -> bool,
     ) -> rusqlite::Result<Vec<NodeView>> {
-        status::views(&self.lock(), self.linked, &tool, &quiet)
+        status::views(&self.lock(), self.linked, &tool)
     }
 
     fn lock(&self) -> Db<'_> {
@@ -339,8 +337,6 @@ fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<No
             .ok()
             .map(|s| s.wait)
     }));
-    let stall: Option<String> = row.get(21)?;
-    waits.extend(stall.and_then(|w| serde_json::from_str::<HumanWait>(&w).ok()));
     let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);

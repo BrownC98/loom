@@ -17,7 +17,7 @@ const oldest = (waits: readonly ScreenWait[]): ScreenWait => waits.reduce((a, b)
 
 export const oldestWait = (v: NodeView): ScreenWait => oldest(v.waits);
 
-export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask' && w.kind !== 'stalled');
+export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask');
 
 export const active = (view: NodeView) => view.state.kind === 'running' && view.process.kind !== 'stopped';
 

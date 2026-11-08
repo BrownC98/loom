@@ -65,6 +65,7 @@ pub struct Delivery {
 }
 
 pub const BATCH_SEPARATOR: &str = "\n\n";
+pub const END_TURN_NOW: &str = "End your turn now.";
 
 impl Delivery {
     pub fn text(&self) -> String {

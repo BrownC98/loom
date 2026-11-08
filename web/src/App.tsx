@@ -61,7 +61,7 @@ import { resolveTarget, type Chosen } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
-import { useSwitchNotice } from './useSwitchNotice';
+import { isAutoSwitch } from './accountSwitch';
 
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
 const REPOS_REFRESH_MS = 5000;
@@ -99,7 +99,6 @@ const EMPTY_SETTINGS: SettingsView = {
   composerPlace: null,
   composerSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
-  closedSwitchNotice: null,
   colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';
@@ -287,10 +286,6 @@ export function App() {
   };
   const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settings));
   const resetSettings = (patch: SettingsPatch) => void sendSettings(patch);
-  const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
-    void readSettings();
-    refreshUsage();
-  });
   const [switching, setSwitching] = useState<{ provider: Provider; distro: string | null; to: AccountId | null; nodes: MovableNode[] } | null>(null);
   const chooseAccount = async (provider: Provider, distro: string | null, to: AccountId | null) => {
     const nodes = await getMovableNodes(provider, distro, to).catch(() => []);
@@ -422,7 +417,10 @@ export function App() {
           break;
         case 'recorded':
           log.onRecord(event.record);
-          notice.onRecord(event.record);
+          if (isAutoSwitch(event.record.entry)) {
+            void readSettings();
+            refreshUsage();
+          }
           break;
         default:
           event satisfies never;
@@ -507,7 +505,7 @@ export function App() {
             {treeView(openNode)}
           </>
         }
-        foot={<StatusBar usage={usage} settings={settings} distro={wslDistro(repo)} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
+        foot={<StatusBar usage={usage} settings={settings} distro={wslDistro(repo)} onChoose={chooseAccount} />}
       />,
     );
   return providers(
@@ -648,7 +646,6 @@ export function App() {
             settings={settings}
             distro={wslDistro(repo)}
             onChoose={chooseAccount}
-            notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
           />
           <UpdateCard updates={updates} />

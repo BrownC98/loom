@@ -85,8 +85,6 @@ pub struct SettingsView {
     /// 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
     pub composer_size: FloatSize,
     pub closed_panes: ClosedPanes,
-    /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
-    pub closed_switch_notice: Option<u32>,
 }
 
 /// 한 위치에서 공급자마다 쓰는 계정. 없으면 시스템 기본이다.

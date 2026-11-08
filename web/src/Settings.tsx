@@ -57,7 +57,6 @@ const RESET_TAB = {
   repo: 'notReset',
   paneWidths: 'notReset',
   closedPanes: 'notReset',
-  closedSwitchNotice: 'notReset',
 } as const satisfies Record<keyof SettingsView, SettingsTab | 'notReset'>;
 const SETTING_KEYS = Object.keys(RESET_TAB) as (keyof SettingsView)[];
 const ALL_SETTINGS = SETTING_KEYS.filter((key) => RESET_TAB[key] !== 'notReset');

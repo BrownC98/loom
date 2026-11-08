@@ -162,15 +162,22 @@ export function ConfirmButton(props: { wait: WaitId; onClose?: () => () => void 
   );
 }
 
-export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boolean }) {
+export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boolean; onClose?: () => () => void }) {
   const { wait } = props;
   const { prompt } = wait;
   const [refusal, setRefusal] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const answerPrompt = (sent: Promise<null>) => {
+  const answerPrompt = (send: () => Promise<null>) => {
     setRefusal(null);
     setChoosing(true);
-    sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
+    const cancel = props.onClose?.();
+    const sent = send();
+    sent
+      .catch((err: Error) => {
+        cancel?.();
+        setRefusal(err.message);
+      })
+      .finally(() => setChoosing(false));
     return sent;
   };
   return (
@@ -190,8 +197,8 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boo
           draft={String(wait.id)}
           busy={choosing}
           hints={props.hints}
-          onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
-          onType={(text, option) => answerPrompt(typeText(wait.id, prompt, text, option))}
+          onPick={(option) => answerPrompt(() => chooseOption(wait.id, prompt, option))}
+          onType={(text, option) => answerPrompt(() => typeText(wait.id, prompt, text, option))}
         />
       )}
       {!prompt && (wait.text || wait.doc) && (

@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use tokio::sync::Notify;
 
 use super::App;
 use super::gate::target_of;
@@ -18,30 +21,26 @@ use api::ids::RepoId;
 
 const MOVE_LIMIT: u32 = 3;
 
-const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
-
 pub(super) async fn run(app: Arc<App>) {
     let mut changes = app.graph.changes();
     tokio::spawn(super::reclaim::run(app.clone()));
     super::deploy::recover(&app);
+    let mut queues: HashMap<RepoId, Arc<Notify>> = HashMap::new();
     loop {
-        recover(&app, CHECK_LOCK).await;
-        'next: loop {
-            let gates = match app.graph.queued_gates() {
-                Ok(gates) => gates,
-                Err(e) => {
-                    crate::log::logln!("loom: merge queue: {e}");
-                    break;
-                }
-            };
-            for (repo, gate) in gates {
-                match batch(&app, repo, gate.as_deref(), CHECK_LOCK).await {
-                    Ok(true) => continue 'next,
-                    Ok(false) => {}
-                    Err(e) => crate::log::logln!("loom: merge queue: {e}"),
+        match app.graph.queue_repos() {
+            Ok(repos) => {
+                for repo in repos {
+                    queues
+                        .entry(repo)
+                        .or_insert_with(|| {
+                            let wake = Arc::new(Notify::new());
+                            tokio::spawn(repo_queue(app.clone(), repo, wake.clone()));
+                            wake
+                        })
+                        .notify_one();
                 }
             }
-            break;
+            Err(e) => crate::log::logln!("loom: merge queue: {e}"),
         }
         tokio::select! {
             () = app.merge_queue.notified() => {}
@@ -52,12 +51,31 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-async fn batch(
-    app: &Arc<App>,
-    repo: RepoId,
-    gate: Option<&str>,
-    lock: &str,
-) -> Result<bool, Refusal> {
+async fn repo_queue(app: Arc<App>, repo: RepoId, wake: Arc<Notify>) {
+    loop {
+        recover(&app, repo).await;
+        'next: loop {
+            let gates = match app.graph.queued_gates(repo) {
+                Ok(gates) => gates,
+                Err(e) => {
+                    crate::log::logln!("loom: merge queue: {e}");
+                    break;
+                }
+            };
+            for gate in gates {
+                match batch(&app, repo, gate.as_deref()).await {
+                    Ok(true) => continue 'next,
+                    Ok(false) => {}
+                    Err(e) => crate::log::logln!("loom: merge queue: {e}"),
+                }
+            }
+            break;
+        }
+        wake.notified().await;
+    }
+}
+
+async fn batch(app: &Arc<App>, repo: RepoId, gate: Option<&str>) -> Result<bool, Refusal> {
     let dir = repo_path(app, repo)?;
     let target = target_of(app.files(), &dir, gate).await?;
     let Some((id, queue)) = app.graph.batch_open(repo, gate, &target)? else {
@@ -69,7 +87,6 @@ async fn batch(
         repo,
         dir,
         target,
-        lock,
     };
     if let Err(e) = run.run(queue.clone()).await {
         fail_all(app, repo, id, &queue, &e.to_string());
@@ -78,8 +95,8 @@ async fn batch(
     Ok(true)
 }
 
-async fn recover(app: &Arc<App>, lock: &str) {
-    let stale = match app.graph.stale_batches() {
+async fn recover(app: &Arc<App>, repo: RepoId) {
+    let stale = match app.graph.stale_batches(repo) {
         Ok(stale) => stale,
         Err(e) => return crate::log::logln!("loom: merge queue recovery: {e}"),
     };
@@ -100,7 +117,6 @@ async fn recover(app: &Arc<App>, lock: &str) {
             repo: stale.repo,
             dir,
             target: stale.target,
-            lock,
         };
         if let Err(e) = script(app.files(), &run.dir, CLEAN, &[]).await {
             crate::log::logln!("loom: merge queue recovery: {e}");
@@ -165,7 +181,6 @@ struct Batch<'a> {
     repo: RepoId,
     dir: PathBuf,
     target: String,
-    lock: &'a str,
 }
 
 enum Dest {
@@ -296,7 +311,6 @@ impl Batch<'_> {
     ) -> Result<Trial, Refusal> {
         let mut args = vec![
             format!("batch-{}-{step}", self.id.0),
-            self.lock.to_owned(),
             base.to_owned(),
             match (into, trial.first().map(|m| m.deploy)) {
                 (Dest::Base, Some(Deploy::Skip)) => format!(" {}", Deploy::SKIP_MARK),

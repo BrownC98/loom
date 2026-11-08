@@ -418,14 +418,24 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    pub fn queued_gates(&self) -> rusqlite::Result<Vec<(RepoId, Option<String>)>> {
+    pub fn queue_repos(&self) -> rusqlite::Result<Vec<RepoId>> {
         self.lock()
             .prepare(&format!(
-                "SELECT repo, {} AS into_worktree FROM gates WHERE {} GROUP BY repo, into_worktree ORDER BY min(seq)",
+                "SELECT repo FROM gates WHERE {} UNION SELECT repo FROM batches b WHERE {STALE}",
+                settled()
+            ))?
+            .query_map([], |r| Ok(RepoId(r.get(0)?)))?
+            .collect()
+    }
+
+    pub fn queued_gates(&self, repo: RepoId) -> rusqlite::Result<Vec<Option<String>>> {
+        self.lock()
+            .prepare(&format!(
+                "SELECT {} AS into_worktree FROM gates WHERE repo = ?1 AND {} GROUP BY into_worktree ORDER BY min(seq)",
                 parent_gate("gates.owner", "worktree"),
                 settled()
             ))?
-            .query_map([], |r| Ok((RepoId(r.get(0)?), r.get(1)?)))?
+            .query_map([repo.0], |r| r.get(0))?
             .collect()
     }
 
@@ -612,14 +622,14 @@ impl Graph {
         close(&self.lock(), id)
     }
 
-    pub fn stale_batches(&self) -> rusqlite::Result<Vec<Stale>> {
+    pub fn stale_batches(&self, repo: RepoId) -> rusqlite::Result<Vec<Stale>> {
         let db = self.lock();
         let mut stale: Vec<Stale> = db
-            .prepare(
+            .prepare(&format!(
                 "SELECT id, repo, target, base, tip FROM batches b
-                 WHERE moved = 0 OR EXISTS (SELECT 1 FROM gates WHERE batch = b.id) ORDER BY id",
-            )?
-            .query_map([], |r| {
+                 WHERE repo = ?1 AND ({STALE}) ORDER BY id"
+            ))?
+            .query_map([repo.0], |r| {
                 Ok(Stale {
                     id: BatchId(r.get(0)?),
                     repo: RepoId(r.get(1)?),
@@ -1504,6 +1514,8 @@ pub(super) fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
         |row| row.get(0),
     )
 }
+
+const STALE: &str = "b.moved = 0 OR EXISTS (SELECT 1 FROM gates WHERE batch = b.id)";
 
 fn settled() -> String {
     let gate = gate_of("gates.owner");

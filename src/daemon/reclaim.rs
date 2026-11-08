@@ -14,6 +14,7 @@ use api::ids::{NodeId, RepoId};
 use api::repos::RepoProblem;
 
 pub(super) async fn run(app: Arc<App>) {
+    let _one = app.reclaiming.lock().await;
     let rounds = match app.graph.reclaim_rounds() {
         Ok(rounds) => rounds,
         Err(e) => return crate::log::logln!("loom: reclaim: {e}"),

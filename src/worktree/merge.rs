@@ -32,8 +32,8 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 
 pub const STACK: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3 mark=$4
-shift 4
+wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
+shift 3
 mkdir -p "$common/loom-logs" "$common/loom-batches"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3

@@ -839,6 +839,10 @@ impl App {
             crate::log::logln!("loom: 노드 {}의 한도 표시를 읽지 못했다: {e}", node.id.0);
             false
         });
+        let working = self.graph.working(node.id).unwrap_or_else(|e| {
+            crate::log::logln!("loom: 노드 {}의 작업 상태를 읽지 못했다: {e}", node.id.0);
+            true
+        });
         let stopped = self.background_commands(&Snapshot::now(), node);
         let cut = self.agent_state(node.id).is_some_and(|s| s.cut());
         let unread = self.graph.unread_mail(node.id).unwrap_or_else(|e| {
@@ -848,7 +852,7 @@ impl App {
         let opens_no_wait = !profile::listens_at_start(profile);
         let first = match limited {
             true => Some(CONTINUE_PROMPT),
-            false => (cut || unread || !stopped.is_empty() || opens_no_wait)
+            false => (working || cut || unread || !stopped.is_empty() || opens_no_wait)
                 .then_some(profile::RESUMED_PROMPT),
         };
         let stopped = (!stopped.is_empty()).then(|| stopped_notice(&stopped));
@@ -948,9 +952,7 @@ fn handoff(from: &AgentId, role: Option<&str>, record: Option<&str>) -> String {
 
 fn stopped_notice(commands: &[String]) -> String {
     let list: String = commands.iter().map(|c| format!("\n- {c}")).collect();
-    format!(
-        "loom relaunched your process and stopped these background commands that you started before:{list}\nStart them again if you still need them."
-    )
+    format!("loom stopped these background commands that you started before:{list}")
 }
 
 fn shown(line: &str) -> String {

@@ -130,7 +130,7 @@ impl App {
         }
         let nudge = nudge?;
         self.turn_ends.stopped(node, ended.turn.as_deref());
-        Ok(nudge.map(str::to_owned))
+        Ok(nudge)
     }
 
     fn opening(

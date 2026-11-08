@@ -216,12 +216,12 @@ pub fn markdown(text: &str) -> Vec<TextPart> {
             continue;
         }
         match event {
-            Event::Start(Tag::Heading { .. } | Tag::Strong) => strong += 1,
+            Event::Start(Tag::Heading { .. } | Tag::Strong | Tag::Emphasis) => strong += 1,
             Event::End(TagEnd::Heading(_)) => {
                 strong -= 1;
                 out.gap = 2;
             }
-            Event::End(TagEnd::Strong) => strong -= 1,
+            Event::End(TagEnd::Strong | TagEnd::Emphasis) => strong -= 1,
             Event::End(TagEnd::Paragraph | TagEnd::BlockQuote(_) | TagEnd::HtmlBlock) => {
                 out.gap = if lists.is_empty() { 2 } else { 1 };
             }
@@ -256,8 +256,17 @@ pub fn markdown(text: &str) -> Vec<TextPart> {
             {
                 link = Some((dest_url.into_string(), String::new()));
             }
-            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
-                out.put(plain(&text[range]));
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                let source = &text[range];
+                let shown = if source.contains(dest_url.as_ref()) {
+                    source.to_owned()
+                } else {
+                    format!("{source}({dest_url})")
+                };
+                match link.as_mut() {
+                    Some((_, label)) => label.push_str(&shown),
+                    None => out.put(plain(shown)),
+                }
                 skip = 1;
             }
             Event::End(TagEnd::Link) => {

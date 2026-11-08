@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Graph;
+use super::gate::{Unjudged, unjudged};
 use super::waits::{put_done, unreported_root};
 use crate::protocol::kind_line;
 use api::graph::events::TurnCheck;
@@ -16,6 +17,7 @@ enum Bit {
     Replied,
     SubmittedInput,
     FirstInput,
+    UnjudgedNudged,
     Status,
 }
 
@@ -33,9 +35,36 @@ const _: () = match Bit::Status {
     | Bit::QuestionBox
     | Bit::Replied
     | Bit::SubmittedInput
-    | Bit::FirstInput => {}
+    | Bit::FirstInput
+    | Bit::UnjudgedNudged => {}
     last @ Bit::Status => assert!((last as u32) < u16::BITS),
 };
+
+const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
+
+pub enum Nudge {
+    QuestionBox,
+    KindLine,
+    Unjudged(Unjudged),
+}
+
+impl Nudge {
+    pub fn check(&self) -> TurnCheck {
+        match self {
+            Nudge::QuestionBox => TurnCheck::QuestionBox,
+            Nudge::KindLine => TurnCheck::KindLine,
+            Nudge::Unjudged(_) => TurnCheck::Unjudged,
+        }
+    }
+
+    fn kept(&self) -> u16 {
+        match self {
+            Nudge::QuestionBox => 0,
+            Nudge::KindLine => Bit::KindNudged.mask(),
+            Nudge::Unjudged(_) => Bit::UnjudgedNudged.mask(),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum TurnMark {
@@ -189,7 +218,7 @@ impl Graph {
         )
     }
 
-    pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<TurnCheck>> {
+    pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<Nudge>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let (flags, reply, heard): (u16, Option<String>, Option<String>) = tx
@@ -203,14 +232,16 @@ impl Graph {
         let has = |bit: Bit| flags & bit.mask() != 0;
         let reply = reply.filter(|_| has(Bit::Replied));
         let check = if has(Bit::QuestionBox) && !has(Bit::Asked) {
-            Some(TurnCheck::QuestionBox)
+            Some(Nudge::QuestionBox)
         } else if !has(Bit::Called)
             && !has(Bit::KindNudged)
             && reply
                 .as_deref()
                 .is_some_and(|text| kind_line(text).is_some())
         {
-            Some(TurnCheck::KindLine)
+            Some(Nudge::KindLine)
+        } else if !has(Bit::UnjudgedNudged) {
+            unjudged(&tx, node)?.map(Nudge::Unjudged)
         } else {
             None
         };
@@ -238,11 +269,9 @@ impl Graph {
              SELECT id, turn FROM nodes WHERE id = ?1 AND turn IS NOT NULL",
             [node.0],
         )?;
-        let nudged = if check == Some(TurnCheck::KindLine) {
-            Bit::KindNudged.mask()
-        } else {
-            0
-        };
+        let kept = check
+            .as_ref()
+            .map_or(0, |nudge| (flags & NUDGED) | nudge.kept());
         let open = if has(Bit::Status) && !has(Bit::Called) {
             Bit::Human.mask()
         } else {
@@ -250,7 +279,7 @@ impl Graph {
         };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, nudged | (flags & (SUBMITTED_INPUT | open))],
+            params![node.0, kept | (flags & (SUBMITTED_INPUT | open))],
         )?;
         tx.commit()?;
         if reported {

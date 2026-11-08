@@ -30,6 +30,19 @@ pub enum WaitSource {
     Screen,
 }
 
+fn preview(text: String) -> String {
+    if text.len() <= PREVIEW_LIMIT_BYTES {
+        return text;
+    }
+    let cut = (0..=PREVIEW_LIMIT_BYTES)
+        .rev()
+        .find(|i| text.is_char_boundary(*i))
+        .unwrap_or(0);
+    format!("{}…", &text[..cut])
+}
+
+const PREVIEW_LIMIT_BYTES: usize = 1024;
+
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
     let parts = match wait.kind {
         WaitKind::Question | WaitKind::Done => markdown(&wait.text),
@@ -39,7 +52,7 @@ pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
     };
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
-        None => parts.iter().map(TextPart::shown).collect(),
+        None => preview(parts.iter().map(TextPart::shown).collect()),
     };
     let tone = match wait.kind {
         WaitKind::Question

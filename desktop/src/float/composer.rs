@@ -77,6 +77,7 @@ pub struct Composer {
     pinned: Option<Stop>,
     seen_selected: Option<u32>,
     seen_node: Option<u32>,
+    last: Option<Chosen>,
     stream_bar: Bar,
     stream_box: Rc<Cell<Size<Pixels>>>,
     scrolled: Option<WaitId>,
@@ -186,6 +187,7 @@ pub fn composer(
             pinned: None,
             seen_selected: None,
             seen_node: None,
+            last: None,
             stream_bar: Bar::new(),
             stream_box: Rc::new(Cell::new(Size::default())),
             scrolled: None,
@@ -313,6 +315,7 @@ impl Composer {
                 self.reaim(cx);
             }
         }
+        self.settle(cx);
         self.follow(window, cx);
         let place = self.store.read(cx).settings().composer_place;
         if place != self.seen_place {
@@ -324,6 +327,37 @@ impl Composer {
                 .update(cx, |pictures, _| pictures.aim(NodeId(node)));
         }
         cx.notify();
+    }
+
+    fn settle(&mut self, cx: &mut Context<Self>) {
+        let Some(aimed) = self.aimed(cx) else { return };
+        if let Some(last) = self.last
+            && let Aim::Alert(id) = last.stop.1
+            && self.pinned.is_none()
+            && !aimed.stream.iter().any(|s| s.wait.wait.id == id)
+            && !self
+                .answers
+                .update(cx, |answers, _| answers.take_acted(id.0))
+        {
+            let same: Vec<&Streamed> = aimed
+                .stream
+                .iter()
+                .filter(|s| s.node == last.stop.0)
+                .collect();
+            let next = last
+                .place
+                .and_then(|at| same.iter().find(|s| s.place() > at))
+                .or(same.first());
+            let stop = next.map_or((last.stop.0, Aim::Prompt), |s| s.stop());
+            self.choose(stop, cx);
+        }
+        let now = self.aimed(cx);
+        self.last = now.and_then(|aimed| match aimed.aim {
+            Aim::Alert(id) if aimed.stream.iter().any(|s| s.wait.wait.id == id) => {
+                Some(aim::chosen((aimed.node, aimed.aim), &aimed.stream))
+            }
+            _ => None,
+        });
     }
 
     fn follow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -656,6 +690,8 @@ impl Composer {
         cx: &mut Context<Self>,
     ) {
         let (ids, paths): (Vec<u32>, Vec<String>) = saved.into_iter().unzip();
+        self.answers
+            .update(cx, |answers, _| answers.mark_acted(wait.0));
         let task = self
             .store
             .update(cx, |store, cx| store.answer_wait(wait, body, paths, cx));
@@ -665,7 +701,12 @@ impl Composer {
                 composer.set_sending(None, cx);
                 match result {
                     Ok(()) => composer.sent(&ids, cx),
-                    Err(error) => composer.refuse(error, cx),
+                    Err(error) => {
+                        composer
+                            .answers
+                            .update(cx, |answers, _| answers.unmark_acted(wait.0));
+                        composer.refuse(error, cx)
+                    }
                 }
             });
         })
@@ -934,7 +975,16 @@ impl Composer {
             note: matches!(aimed.aim, Aim::Prompt)
                 .then(|| ui::say(cx, Str::ComposerNotAnswer).to_owned()),
         };
-        let body = answers::card(&self.answers, NodeId(shown.node), &shown.wait, z, strip, cx);
+        let hints = matches!(aimed.aim, Aim::Alert(_));
+        let body = answers::card(
+            &self.answers,
+            NodeId(shown.node),
+            &shown.wait,
+            z,
+            strip,
+            hints,
+            cx,
+        );
         let node = shown.node;
         Some(
             div()

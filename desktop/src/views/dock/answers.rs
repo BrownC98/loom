@@ -73,6 +73,7 @@ pub(crate) struct Answers {
     images: HashMap<(u32, usize), Arc<Image>>,
     loading: HashSet<(u32, usize)>,
     attached: HashMap<u32, Attach>,
+    acted: HashSet<u32>,
     waiting: HashMap<u32, (Text, Option<Done>)>,
     viewer: Entity<Viewer>,
     zoomed: Option<u32>,
@@ -105,6 +106,7 @@ impl Answers {
             loading: HashSet::new(),
             attached: HashMap::new(),
             waiting: HashMap::new(),
+            acted: HashSet::new(),
             viewer: cx.new(Viewer::new),
             zoomed: None,
             shared: None,
@@ -373,6 +375,18 @@ impl Answers {
         .detach();
     }
 
+    pub(crate) fn mark_acted(&mut self, wait: u32) {
+        self.acted.insert(wait);
+    }
+
+    pub(crate) fn unmark_acted(&mut self, wait: u32) {
+        self.acted.remove(&wait);
+    }
+
+    pub(crate) fn take_acted(&mut self, wait: u32) -> bool {
+        self.acted.remove(&wait)
+    }
+
     fn run(
         &mut self,
         wait: u32,
@@ -383,6 +397,7 @@ impl Answers {
         self.store
             .update(cx, |store, cx| store.set_busy(wait, true, cx));
         self.notes.remove(&wait);
+        self.acted.insert(wait);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -397,6 +412,7 @@ impl Answers {
                         }
                     }
                     Err(error) => {
+                        answers.acted.remove(&wait);
                         answers.notes.insert(wait, error);
                     }
                 }
@@ -590,9 +606,10 @@ pub(crate) fn card(
     wait: &ScreenWait,
     z: f32,
     strip: Strip,
+    hints: bool,
     cx: &mut App,
 ) -> Div {
-    let mut body = wait_content(answers, wait, z, None, true, cx);
+    let mut body = wait_content(answers, wait, z, None, hints, cx);
     if !wait.wait.answerable && wait.wait.prompt.is_none() {
         body = body.child(terminal_link(answers, node, wait.wait.id.0, z, cx));
     }

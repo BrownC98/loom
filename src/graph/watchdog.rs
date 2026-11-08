@@ -32,7 +32,7 @@ const REVIEW: &str = r#"(SELECT json_object('kind', 'review', 'branch', g.branch
      FROM gates g WHERE g.owner = n.id AND g.state = '"ready"' ORDER BY g.opened DESC LIMIT 1)"#;
 
 const MERGE: &str = r#"(SELECT json_object('kind', 'merge', 'branch', g.branch) FROM gates g
-     WHERE g.owner = n.id AND g.state IN ('"passed"', '"failed"') ORDER BY g.opened DESC LIMIT 1)"#;
+     WHERE g.owner = n.id AND g.state IN ('"passed"', '"merging"', '"failed"') ORDER BY g.opened DESC LIMIT 1)"#;
 
 const REREVIEW: &str = r#"CASE WHEN n.review IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gates g
          WHERE g.repo = n.repo AND g.branch = n.review AND g.state = '"ready"'

@@ -175,7 +175,7 @@ impl App {
         self.sleeps.changed();
         self.watchdog.saw(change.node, change.to.as_ref());
         if !matches!(
-            change.to,
+            self.agent_state(change.node),
             Some(AgentState::Turn | AgentState::Blocked { .. })
         ) {
             self.tools.ended(change.node);

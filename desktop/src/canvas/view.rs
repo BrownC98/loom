@@ -612,7 +612,7 @@ impl CanvasView {
             }
             let since = *live.hidden.get_or_insert(now);
             waiting = true;
-            let keep = now - since < HIDDEN_KEEP;
+            let keep = now - since < HIDDEN_KEEP || live.view.read(cx).composing();
             if !keep && focused == Some(*id) {
                 focused = None;
             }
@@ -624,7 +624,7 @@ impl CanvasView {
             && self.focused != Some(id)
             && let Some(live) = self.live.get(&id)
         {
-            live.view.update(cx, |view, cx| view.focus(window, cx));
+            live.view.update(cx, |view, cx| view.refocus(window, cx));
             self.focused = Some(id);
         }
         if waiting {
@@ -1071,7 +1071,11 @@ impl Render for CanvasView {
             let body = self
                 .live
                 .get(&id)
-                .filter(|_| standard && screen.intersects(&viewport) && zoomed != Some(id))
+                .filter(|live| {
+                    standard
+                        && (screen.intersects(&viewport) || live.view.read(cx).composing())
+                        && zoomed != Some(id)
+                })
                 .map(|live| {
                     let scale = snapped(camera.zoom);
                     div()

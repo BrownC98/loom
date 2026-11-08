@@ -19,6 +19,7 @@ use super::terminal::TerminalView;
 use crate::canvas::repos::chosen_repo;
 use crate::store::{ShowEvents, Store};
 use crate::strings::Str;
+use crate::views::compose;
 use crate::views::inputs::Inputs;
 use crate::views::pictures::Shelf;
 
@@ -259,15 +260,23 @@ impl Dock {
         cx.notify();
     }
 
+    fn composing(&self, cx: &Context<Self>) -> Option<u32> {
+        let (held, view) = self.terminal.as_ref()?;
+        view.read(cx).composing().then_some(*held)
+    }
+
     fn docked(&self, cx: &Context<Self>) -> Option<NodeView> {
         let store = self.store.read(cx);
-        let id = store.selected()?;
         let default = store.settings().card_view;
-        store
-            .snapshot()?
-            .nodes
-            .iter()
-            .find(|node| node.id.0 == id && card_view_of(node, default) == CardView::Simple)
+        let nodes = &store.snapshot()?.nodes;
+        [self.composing(cx), store.selected()]
+            .into_iter()
+            .flatten()
+            .find_map(|id| {
+                nodes
+                    .iter()
+                    .find(|node| node.id.0 == id && card_view_of(node, default) == CardView::Simple)
+            })
             .cloned()
     }
 
@@ -287,6 +296,12 @@ impl Render for Dock {
         let c = ui::colors(cx);
         let waiting = self.waiting(cx);
         let docked = self.docked(cx);
+        if self
+            .composing(cx)
+            .is_some_and(|held| self.store.read(cx).selected() != Some(held))
+        {
+            compose::retry(window, cx);
+        }
         let tabs: Vec<Tab> = if docked.is_some() {
             Tab::ALL.to_vec()
         } else {

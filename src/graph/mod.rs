@@ -136,21 +136,30 @@ impl Drop for Db<'_> {
         let Ok(new) = events::after(&self.conn, *self.published) else {
             return;
         };
+        let mut shown = false;
         for record in new {
             *self.published = record.id;
-            if let Entry::ProcessChanged { node, by, .. } = &record.entry
-                && let Some(node) = node.id
-                && let Ok(to) = agent_state::state_of(&self.conn, node)
+            if let Entry::ProcessChanged {
+                node, from, to, by, ..
+            } = &record.entry
             {
-                let _ = self.agent.send(AgentChange {
-                    node,
-                    to,
-                    by: by.clone(),
-                });
+                shown |= from != to;
+                if let Some(node) = node.id
+                    && let Ok(to) = agent_state::state_of(&self.conn, node)
+                {
+                    let _ = self.agent.send(AgentChange {
+                        node,
+                        to,
+                        by: by.clone(),
+                    });
+                }
             }
             let _ = self.events.send(GraphEvent::Recorded {
                 record: Box::new(record),
             });
+        }
+        if shown {
+            let _ = self.events.send(GraphEvent::Nodes);
         }
     }
 }

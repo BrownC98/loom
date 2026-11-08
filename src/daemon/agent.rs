@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, watch};
 use super::idle::Wait;
 use super::relaunch::{FINISH_TURN, profile_of};
 use super::{AgentError, App, for_agent};
-use crate::graph::{Hold, NodeLaunch, WaitSource};
+use crate::graph::{AgentState, Hold, NodeLaunch, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
@@ -17,7 +17,7 @@ use crate::protocol::{
 };
 use api::graph::GraphEvent;
 use api::graph::errors::Refusal;
-use api::graph::events::{AgentEvent, AgentState, Entry, IdleEnd};
+use api::graph::events::{AgentEvent, Entry, IdleEnd};
 use api::graph::messages::Kind;
 use api::ids::NodeId;
 use api::profile::Profile;
@@ -327,11 +327,11 @@ impl App {
         if let Some(arrival) = arrival {
             arrival.arrived();
         }
-        let alive = match self.graph.relations(node) {
-            Ok(relations) => relations.me.alive,
+        let alive = match self.graph.process(node) {
+            Ok(process) => process.is_none(),
             Err(e) => {
                 wait.finish(IdleEnd::Error);
-                return Err(for_agent(e));
+                return Err(for_agent(Refusal::from(e)));
             }
         };
         if !alive {
@@ -495,7 +495,7 @@ async fn state_changed(changes: &mut broadcast::Receiver<GraphEvent>, node: Node
     loop {
         match changes.recv().await {
             Ok(GraphEvent::Recorded { record }) => {
-                if let Entry::AgentStateChanged { node: who, .. } = &record.entry
+                if let Entry::ProcessChanged { node: who, .. } = &record.entry
                     && who.id == Some(node)
                 {
                     return;

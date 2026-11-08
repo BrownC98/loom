@@ -5,17 +5,59 @@ import { AgentMark } from './AgentMark';
 import { steerQueued } from './api';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
+import type { ProcessState } from './gen/ProcessState';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
-import { asking, NoticeChips } from './notice';
+import { asking, chipClass, NoticeChips, stopped } from './notice';
 import { navDirection, type Direction } from './keys';
+
+function processClass(process: ProcessState): string {
+  switch (process.kind) {
+    case 'working':
+      return 'running';
+    case 'stopped':
+      return 'stopped';
+    case 'blocked':
+      return processClass(process.before);
+    case 'idle':
+    case 'asleep':
+      return '';
+  }
+}
 
 export function stateClass(view: NodeView): string {
   if (asking(view).length > 0) return 'waiting';
-  return view.state.kind === 'exited' || view.state.kind === 'setupFailed' ? view.state.kind : '';
+  switch (view.state.kind) {
+    case 'setupFailed':
+      return 'setupFailed';
+    case 'done':
+      return 'done';
+    case 'running':
+      return processClass(view.process);
+  }
 }
 
-export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateLabel(view.state));
+export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateTitle(view));
+
+export const stateTitle = (view: NodeView) => `${stateLabel(view.state)} · ${processLabel(view.process)}`;
+
+export const viewLabel = (view: NodeView) => (view.state.kind === 'setupFailed' ? stateLabel(view.state) : processLabel(view.process));
+
+export function processLabel(process: ProcessState): string {
+  const t = i18next.t;
+  switch (process.kind) {
+    case 'working':
+      return t('node.process.working');
+    case 'idle':
+      return t('node.process.idle');
+    case 'asleep':
+      return t('node.process.asleep');
+    case 'blocked':
+      return t('node.process.blocked');
+    case 'stopped':
+      return process.code === null ? t('node.process.stopped') : t('node.process.stoppedCode', { code: process.code });
+  }
+}
 
 export function stateLabel(state: NodeState): string {
   const t = i18next.t;
@@ -24,20 +66,21 @@ export function stateLabel(state: NodeState): string {
       return t('node.state.running');
     case 'done':
       return t('node.state.done');
-    case 'exited':
-      return t('node.state.exited', { code: state.code ?? '?' });
     case 'setupFailed':
       return t('node.state.setupFailed');
   }
 }
 
-function footText(state: NodeState, parentName: string | null): string | null {
+function footText(view: NodeView, parentName: string | null): string | null {
   const t = i18next.t;
+  const state = view.state;
+  const s = stopped(view);
+  if (s) {
+    if (s.code === null) return t('node.foot.daemonRestarted');
+    if (parentName !== null) return t('node.foot.stoppedSent', { code: s.code, parent: parentName });
+    return t('node.foot.stopped', { code: s.code });
+  }
   switch (state.kind) {
-    case 'exited':
-      if (state.code === null) return t('node.foot.daemonRestarted');
-      if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
-      return t('node.foot.exited', { code: state.code });
     case 'setupFailed':
       return t('node.foot.setupFailed', { code: state.code });
     case 'running':
@@ -98,9 +141,9 @@ function Badges(props: { view: NodeView }) {
         </button>
       )}
       <NoticeChips view={view} />
-      {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
-        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-          {stateLabel(view.state)}
+      {chipClass(view) && (
+        <span className={`state ${chipClass(view)}`} title={stateTitle(view)} aria-live="polite" translate="no">
+          {viewLabel(view)}
         </span>
       )}
     </>
@@ -213,7 +256,7 @@ export function NodeCard(
   },
 ) {
   const { view } = props;
-  const foot = footText(view.state, props.parentName);
+  const foot = footText(view, props.parentName);
   return (
     <CardShell className="card" {...props}>
       {(rename) => (

@@ -53,8 +53,7 @@ function categoryOf(entry: Entry): Category {
     case 'idleOpened':
     case 'idleEnded':
     case 'endpointFailed':
-    case 'agentStateChanged':
-    case 'agentStateDisagreed':
+    case 'processChanged':
     case 'accountSwitched':
     case 'noAccountLeft':
       return 'node';
@@ -98,8 +97,7 @@ function familyOf(entry: Entry): Family | undefined {
     case 'idleOpened':
     case 'idleEnded':
     case 'endpointFailed':
-    case 'agentStateChanged':
-    case 'agentStateDisagreed':
+    case 'processChanged':
     case 'accountSwitched':
     case 'noAccountLeft':
       return undefined;
@@ -233,8 +231,7 @@ function whoOf(entry: Entry): Who[] {
     case 'idleOpened':
     case 'idleEnded':
     case 'endpointFailed':
-    case 'agentStateChanged':
-    case 'agentStateDisagreed':
+    case 'processChanged':
       return [entry.node];
     case 'adopted':
       return [entry.node, ...(entry.from ? [entry.from] : []), ...(entry.to ? [entry.to] : [])];
@@ -253,7 +250,7 @@ export function involved(entry: Entry): NodeId[] {
   return whoOf(entry).flatMap((w) => (w.id === null ? [] : [w.id]));
 }
 
-const HIDDEN = ['idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed'] as const satisfies readonly Entry['kind'][];
+const HIDDEN = ['idleOpened', 'idleEnded', 'endpointFailed', 'processChanged'] as const satisfies readonly Entry['kind'][];
 type Hidden = (typeof HIDDEN)[number];
 const isHidden = (entry: Entry): entry is Extract<Entry, { kind: Hidden }> => (HIDDEN as readonly Entry['kind'][]).includes(entry.kind);
 
@@ -316,8 +313,7 @@ function bodyOf(record: EventRecord, t: TFunction): TextPart[] | null {
     case 'idleOpened':
     case 'idleEnded':
     case 'endpointFailed':
-    case 'agentStateChanged':
-    case 'agentStateDisagreed':
+    case 'processChanged':
     case 'accountSwitched':
     case 'noAccountLeft':
       return null;

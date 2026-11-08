@@ -1,8 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::turns::SUBMITTED_INPUT;
-use super::{Graph, agent_state};
-use api::graph::events::{AgentEvent, AgentState, IdleEnd};
+use super::{AgentState, Graph, agent_state};
+use api::graph::events::{AgentEvent, IdleEnd};
 use api::ids::NodeId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

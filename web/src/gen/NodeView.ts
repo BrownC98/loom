@@ -4,6 +4,7 @@ import type { CardView } from "./CardView";
 import type { NodeId } from "./NodeId";
 import type { NodeState } from "./NodeState";
 import type { Place } from "./Place";
+import type { ProcessState } from "./ProcessState";
 import type { RelaunchOffer } from "./RelaunchOffer";
 import type { ScreenWait } from "./ScreenWait";
 
@@ -11,7 +12,7 @@ export type NodeView = { id: NodeId, name: string,
 /**
  * 카탈로그 에이전트. 명령(기본 셸 포함)이면 없다.
  */
-agent: AgentId | null, parent: NodeId | null, state: NodeState, 
+agent: AgentId | null, parent: NodeId | null, state: NodeState, process: ProcessState, 
 /**
  * 아직 꺼내지 않은 메시지 수(모든 방식).
  */

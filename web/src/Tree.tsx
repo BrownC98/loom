@@ -19,8 +19,8 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { ShortPlaceTag, sshHosts } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
-import { NoticeChips } from './notice';
+import { AgentLine, stateClass, stateText, stateTitle, Unread, viewLabel } from './NodeCard';
+import { chipClass, NoticeChips } from './notice';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './sheet';
 import { useDismiss } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
@@ -82,8 +82,8 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
 
 function StateTag({ view }: { view: NodeView }) {
   if (view.waits.length > 0) return <NoticeChips view={view} />;
-  if (view.state.kind !== 'exited' && view.state.kind !== 'setupFailed') return null;
-  return <span className={`state-tag ${view.state.kind}`}>{stateLabel(view.state)}</span>;
+  if (!chipClass(view)) return null;
+  return <span className={`state-tag ${chipClass(view)}`} title={stateTitle(view)}>{viewLabel(view)}</span>;
 }
 
 function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[], rename: (key: string) => Rename, note: ParentNote, acts: NodeActions): Item[] {

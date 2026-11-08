@@ -9,7 +9,7 @@ use gpui::{
 };
 
 use api::graph::waits::{WaitKind, WaitTone};
-use api::graph::{CardView, NodeState, NodeView};
+use api::graph::{CardView, NodeState, NodeView, ProcessState};
 use api::repos::PlaceView;
 use api::settings::DefaultCardView;
 
@@ -540,22 +540,71 @@ pub fn state_text(state: &NodeState, lang: Lang) -> String {
     match state {
         NodeState::Running => Str::NodeStateRunning.text(lang).to_owned(),
         NodeState::Done => Str::NodeStateDone.text(lang).to_owned(),
-        NodeState::Exited { code } => Str::NodeStateExited.with(
-            lang,
-            &[(
-                "code",
-                &code.map_or_else(|| "?".to_owned(), |c| c.to_string()),
-            )],
-        ),
         NodeState::SetupFailed { .. } => Str::NodeStateSetupFailed.text(lang).to_owned(),
     }
 }
 
-pub fn foot_height(node: &NodeView) -> f32 {
-    match node.state {
-        NodeState::Running | NodeState::Done => 0.0,
-        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => FOOT,
+pub fn process_text(process: &ProcessState, lang: Lang) -> String {
+    match process {
+        ProcessState::Working => Str::NodeProcessWorking.text(lang).to_owned(),
+        ProcessState::Idle => Str::NodeProcessIdle.text(lang).to_owned(),
+        ProcessState::Asleep => Str::NodeProcessAsleep.text(lang).to_owned(),
+        ProcessState::Blocked { .. } => Str::NodeProcessBlocked.text(lang).to_owned(),
+        ProcessState::Stopped { code: None } => Str::NodeProcessStopped.text(lang).to_owned(),
+        ProcessState::Stopped { code: Some(code) } => {
+            Str::NodeProcessStoppedCode.with(lang, &[("code", &code.to_string())])
+        }
     }
+}
+
+pub fn stopped_code(node: &NodeView) -> Option<Option<u32>> {
+    match (&node.state, &node.process) {
+        (NodeState::Running, ProcessState::Stopped { code }) => Some(*code),
+        _ => None,
+    }
+}
+
+pub fn failed(node: &NodeView) -> bool {
+    matches!(node.state, NodeState::SetupFailed { .. }) || stopped_code(node).is_some()
+}
+
+pub fn active(node: &NodeView) -> bool {
+    matches!(node.state, NodeState::Running) && stopped_code(node).is_none()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StateChip {
+    Failed,
+    Asleep,
+}
+
+pub fn chip_of(node: &NodeView) -> Option<StateChip> {
+    if failed(node) {
+        Some(StateChip::Failed)
+    } else if matches!(node.process, ProcessState::Asleep) {
+        Some(StateChip::Asleep)
+    } else {
+        None
+    }
+}
+
+pub fn chip_text(node: &NodeView, lang: Lang) -> String {
+    match node.state {
+        NodeState::SetupFailed { .. } => state_text(&node.state, lang),
+        _ => process_text(&node.process, lang),
+    }
+}
+
+pub fn chip_tip(node: &NodeView, lang: Lang) -> String {
+    format!(
+        "{} \u{00b7} {}",
+        state_text(&node.state, lang),
+        process_text(&node.process, lang)
+    )
+}
+
+pub fn foot_height(node: &NodeView) -> f32 {
+    if failed(node) { FOOT } else { 0.0 }
 }
 
 pub fn body_height(card_height: f32, node: &NodeView) -> f32 {
@@ -563,23 +612,20 @@ pub fn body_height(card_height: f32, node: &NodeView) -> f32 {
 }
 
 pub fn foot_text(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String> {
-    match node.state {
-        NodeState::Exited { code: None } => {
-            Some(Str::NodeFootDaemonRestarted.text(lang).to_owned())
-        }
-        NodeState::Exited { code: Some(code) } => {
+    if let NodeState::SetupFailed { code } = node.state {
+        return Some(Str::NodeFootSetupFailed.with(lang, &[("code", &code.to_string())]));
+    }
+    match stopped_code(node)? {
+        None => Some(Str::NodeFootDaemonRestarted.text(lang).to_owned()),
+        Some(code) => {
             let code = code.to_string();
             Some(match parent {
                 Some(parent) => {
-                    Str::NodeFootExitedSent.with(lang, &[("code", &code), ("parent", parent)])
+                    Str::NodeFootStoppedSent.with(lang, &[("code", &code), ("parent", parent)])
                 }
-                None => Str::NodeFootExited.with(lang, &[("code", &code)]),
+                None => Str::NodeFootStopped.with(lang, &[("code", &code)]),
             })
         }
-        NodeState::SetupFailed { code } => {
-            Some(Str::NodeFootSetupFailed.with(lang, &[("code", &code.to_string())]))
-        }
-        NodeState::Running | NodeState::Done => None,
     }
 }
 
@@ -758,27 +804,25 @@ fn badges(face: &Face, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
             .into_any_element(),
         );
     }
-    if matches!(
-        node.state,
-        NodeState::Exited { .. } | NodeState::SetupFailed { .. }
-    ) {
+    if let Some(chip) = chip_of(node) {
+        let ink = match chip {
+            StateChip::Failed => colors.err,
+            StateChip::Asleep => colors.ink_2,
+        };
         out.push(
             div()
+                .id(("state-chip", node.id.0 as usize))
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap(px(5.0 * zoom))
                 .text_size(text_px(SMALL, zoom))
                 .font_family(fonts::TERMINAL_FAMILY)
-                .text_color(colors.err)
+                .text_color(ink)
                 .whitespace_nowrap()
-                .child(
-                    div()
-                        .size(px((7.0 * zoom).max(1.0)))
-                        .rounded_full()
-                        .bg(colors.err),
-                )
-                .child(state_text(&node.state, lang))
+                .tooltip(tooltip::tip(chip_tip(node, lang)))
+                .child(div().size(px((7.0 * zoom).max(1.0))).rounded_full().bg(ink))
+                .child(chip_text(node, lang))
                 .into_any_element(),
         );
     }

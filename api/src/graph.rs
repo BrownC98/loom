@@ -20,20 +20,34 @@ use crate::start::Start;
 use events::EventRecord;
 use waits::ScreenWait;
 
+/// 노드 일의 상태(일 축).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum NodeState {
     Running,
     Done,
-    /// `code`가 없으면 데몬이 다시 시작했을 때 프로세스가 사라졌던 노드다.
-    Exited {
-        code: Option<u32>,
-    },
     /// `loom spawn --worktree`의 설정 스크립트가 이 코드로 끝나 에이전트를 띄우지 않았다.
     SetupFailed {
         code: u32,
     },
+}
+
+/// 노드 프로세스의 상태(프로세스 축).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum ProcessState {
+    /// 프로세스가 턴 중이거나 막 떴다.
+    Working,
+    /// 턴이 끝났다.
+    Idle,
+    /// 데몬이 완료 노드의 프로세스를 재웠다. 메시지가 오면 다시 띄운다.
+    Asleep,
+    /// 사람의 답을 기다리는 창이 에이전트를 막았다. `before`는 창이 닫히면 돌아갈 상태다(`working`이나 `idle`).
+    Blocked { before: Box<ProcessState> },
+    /// 프로세스가 없다. `code`가 없으면 끝 코드를 모른다: 데몬이 다시 시작했을 때 사라졌거나, 호스트가 없거나, 에이전트를 띄우지 않았다.
+    Stopped { code: Option<u32> },
 }
 
 /// 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
@@ -63,6 +77,7 @@ pub struct NodeView {
     pub agent: Option<AgentId>,
     pub parent: Option<NodeId>,
     pub state: NodeState,
+    pub process: ProcessState,
     /// 아직 꺼내지 않은 메시지 수(모든 방식).
     pub unread: u32,
     /// CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.

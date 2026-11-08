@@ -19,9 +19,17 @@ export const oldestWait = (v: NodeView): ScreenWait => oldest(v.waits);
 
 export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask');
 
+export const active = (view: NodeView) => view.state.kind === 'running' && view.process.kind !== 'stopped';
+
+export const stopped = (view: NodeView) => (view.state.kind === 'running' && view.process.kind === 'stopped' ? view.process : null);
+
+const alarmClass = (view: NodeView): string => (view.state.kind === 'setupFailed' ? 'setupFailed' : stopped(view) ? 'stopped' : '');
+
+export const chipClass = (view: NodeView): string => alarmClass(view) || (view.process.kind === 'asleep' ? 'asleep' : '');
+
 export const minimapClass = (v: NodeView): string => {
   if (v.waits.length > 0) return oldestWait(v).tone;
-  return v.state.kind === 'exited' || v.state.kind === 'setupFailed' ? v.state.kind : '';
+  return alarmClass(v);
 };
 
 const TONES: readonly WaitTone[] = ['ask', 'done'];

@@ -3,12 +3,13 @@ use gpui::{
     MouseMoveEvent, ParentElement, Pixels, Point, Styled, canvas, div, point, px, rgb, size,
 };
 
+use api::graph::NodeView;
 use api::graph::waits::WaitTone;
-use api::graph::{NodeState, NodeView};
 
 use super::layout::Rect;
 use super::view::CanvasView;
 use crate::theme::{Colors, Theme};
+use crate::views::card;
 
 pub const WIDTH: f32 = 200.0;
 pub const HEIGHT: f32 = 150.0;
@@ -209,10 +210,7 @@ fn fill(view: &NodeView, colors: &Colors) -> Option<Hsla> {
             WaitTone::Done => colors.ok.into(),
         });
     }
-    match view.state {
-        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => Some(colors.err.into()),
-        _ => None,
-    }
+    card::failed(view).then(|| colors.err.into())
 }
 
 pub fn view(

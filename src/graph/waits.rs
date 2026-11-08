@@ -14,14 +14,13 @@ use super::mailbox;
 use crate::choices::{choices, offers_choices_without_tail, without_tail};
 use crate::link_text::{bare_link, markdown, parts};
 use crate::protocol::OpenQuestion;
-use api::graph::NodeState;
 use api::graph::errors::Refusal;
 use api::graph::events::{AgentEvent, ClosedBy, Entry};
 use api::graph::messages::{MessageKind, Question};
 use api::graph::text::Block;
 use api::ids::{AgentId, NodeId, WaitId};
 
-use super::{Graph, from_json, parent_of, state_of, to_json};
+use super::{Graph, from_json, parent_of, running_live, to_json};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -549,7 +548,7 @@ fn unanswered(
 }
 
 pub(super) fn unreported_root(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<bool> {
-    if parent_of(db, id)?.is_some() || state_of(db, id)? != NodeState::Running {
+    if parent_of(db, id)?.is_some() || !running_live(db, id)? {
         return Ok(false);
     }
     Ok(stored(db, id)?.is_some_and(|wait| wait.is_none()) && questions(db, id)?.is_empty())

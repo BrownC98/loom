@@ -431,7 +431,7 @@ export function App() {
 
   if (stopped)
     return (
-      <main className="stopped">
+      <main className="daemon-stopped">
         <b>{t('app.stopped')}</b>
         <span>{t('app.stoppedHint')}</span>
       </main>

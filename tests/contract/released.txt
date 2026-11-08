@@ -147,14 +147,6 @@ type AgentEvent|kind=waitClosed	variant
 type AgentEvent|kind=waitClosed.by	: IdleEnd
 type AgentEvent|kind=waitOpened	variant
 type AgentId	= string
-type AgentState	= variants
-type AgentState|kind=blocked	variant
-type AgentState|kind=blocked.before	: AgentState
-type AgentState|kind=deaf	variant
-type AgentState|kind=listening	variant
-type AgentState|kind=mismatch	variant
-type AgentState|kind=starting	variant
-type AgentState|kind=turn	variant
 type AgentSwitch	= {}
 type AgentSwitch.from	: AgentId
 type AgentSwitch.to	: AgentId
@@ -335,16 +327,6 @@ type Entry|kind=adopted.from	: Who | null
 type Entry|kind=adopted.held	: number
 type Entry|kind=adopted.node	: Who
 type Entry|kind=adopted.to	: Who | null
-type Entry|kind=agentStateChanged	variant
-type Entry|kind=agentStateChanged.by	: AgentEvent
-type Entry|kind=agentStateChanged.from	: AgentState | null
-type Entry|kind=agentStateChanged.node	: Who
-type Entry|kind=agentStateChanged.to	: AgentState | null
-type Entry|kind=agentStateDisagreed	variant
-type Entry|kind=agentStateDisagreed.check	: string
-type Entry|kind=agentStateDisagreed.node	: Who
-type Entry|kind=agentStateDisagreed.old	: boolean
-type Entry|kind=agentStateDisagreed.state	: AgentState
 type Entry|kind=answered	variant
 type Entry|kind=answered.images	: number
 type Entry|kind=answered.node	: Who
@@ -399,6 +381,12 @@ type Entry|kind=noAccountLeft.resets_at	: number | null
 type Entry|kind=nudged	variant
 type Entry|kind=nudged.check	: TurnCheck
 type Entry|kind=nudged.node	: Who
+type Entry|kind=processChanged	variant
+type Entry|kind=processChanged.by	: AgentEvent
+type Entry|kind=processChanged.detail	: string
+type Entry|kind=processChanged.from	: ProcessState
+type Entry|kind=processChanged.node	: Who
+type Entry|kind=processChanged.to	: ProcessState
 type Entry|kind=refused	variant
 type Entry|kind=refused.from	: Who
 type Entry|kind=refused.gate	?: GateTrace
@@ -725,8 +713,6 @@ type NewWorktree.branch	: string
 type NodeId	= number
 type NodeState	= variants
 type NodeState|kind=done	variant
-type NodeState|kind=exited	variant
-type NodeState|kind=exited.code	: number | null
 type NodeState|kind=running	variant
 type NodeState|kind=setupFailed	variant
 type NodeState|kind=setupFailed.code	: number
@@ -740,6 +726,7 @@ type NodeView.model	: string | null
 type NodeView.name	: string
 type NodeView.parent	: NodeId | null
 type NodeView.place	: Place
+type NodeView.process	: ProcessState
 type NodeView.relaunch	: RelaunchOffer | null
 type NodeView.reply	: string | null
 type NodeView.state	: NodeState
@@ -794,6 +781,14 @@ type Problem|code=refused	variant
 type Problem|code=refused.value	: Refusal
 type Problem|code=repo	variant
 type Problem|code=repo.value	: RepoProblem
+type ProcessState	= variants
+type ProcessState|kind=asleep	variant
+type ProcessState|kind=blocked	variant
+type ProcessState|kind=blocked.before	: ProcessState
+type ProcessState|kind=idle	variant
+type ProcessState|kind=stopped	variant
+type ProcessState|kind=stopped.code	: number | null
+type ProcessState|kind=working	variant
 type Profile	= variants
 type Profile|antigravity	variant
 type Profile|claude	variant
@@ -850,6 +845,7 @@ type PtyNotice|size.size	: Resize
 type PtyRequest	= variants
 type PtyRequest|borrow	variant
 type PtyRequest|borrow.borrow	: Resize
+type PtyRequest|composing	variant
 type PtyRequest|giveBack	variant
 type PtyRequest|resize	variant
 type PtyRequest|resize.resize	: Resize

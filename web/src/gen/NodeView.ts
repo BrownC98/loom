@@ -48,14 +48,14 @@ waits: Array<ScreenWait>,
  */
 relaunch: RelaunchOffer | null, 
 /**
- * 카드의 상태 칩과 아래 줄.
+ * 카드의 상태 칩과 아래 줄. 이 필드가 없는 옛 데몬의 노드는 `idle`로 읽는다.
  */
 status: Status, 
 /**
- * `status`가 시작된 유닉스 초. 아래 줄의 시간이다.
+ * `status`가 시작된 유닉스 초. 아래 줄의 시간이다. 옛 데몬이면 0이다.
  */
 since: number, 
 /**
- * 내 브랜치의 지금 관문에서 받은 판정 막음 수. 3 이상이면 칩 옆에 보인다.
+ * 내 브랜치의 지금 관문에서 받은 판정 막음 수. 3 이상이면 칩 옆에 보인다. 옛 데몬이면 0이다.
  */
 rework: number, };

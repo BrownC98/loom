@@ -52,7 +52,7 @@ pub enum ProcessState {
 
 /// 카드의 상태 칩과 그 아래 줄. 데몬이 노드를 읽을 때 이미 가진 사실에서 정한다(2026-11-08 목업 docs/mockups/agent-state.html M77 승인, Q2669).
 /// 한 노드에 여럿이 맞으면 사람 → 문제 → 일함 → 대기 → 결과 차례로 앞의 것이다.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum Status {
@@ -71,8 +71,12 @@ pub enum Status {
     /// 끝나지 않은 산 자식이 있다. 자식 이름(만든 차례).
     Children { names: Vec<String> },
     /// 내 브랜치의 관문 차례가 열렸다(`ready`). `judged`는 이 head에 판정한 리뷰어 수다.
-    Review { branch: String, judged: u32, reviewers: u32 },
-    /// 판정이 통과했고 병합 큐에 있다(`passed`, `merging`).
+    Review {
+        branch: String,
+        judged: u32,
+        reviewers: u32,
+    },
+    /// 판정이 통과했고 병합 큐에 있다(`passed`, `merging`). 병합 큐가 실패해 루트의 결정을 기다릴 때(`failed`)도 같다.
     Merge { branch: String },
     /// 부모에게 `loom ask`로 물었고 답이 없다.
     Answer,
@@ -84,7 +88,8 @@ pub enum Status {
     Deploy { target: String, sha: String },
     /// 받을 메시지나 다시 띄우기 계획이 있다. 곧 일한다.
     Mail,
-    /// 쉼. 감시하지 않는 노드(명령 노드)다.
+    /// 쉼. 감시하지 않는 노드(명령 노드, 듣지 못함)이거나 아직 턴을 끝낸 적이 없는 노드(빈 지시문으로 띄운 루트)다.
+    #[default]
     Idle,
     /// `loom done` 뒤다.
     Done,
@@ -138,12 +143,15 @@ pub struct NodeView {
     pub waits: Vec<ScreenWait>,
     /// 노드 메뉴의 다시 띄우기. 없으면 메뉴에 보이지 않는다.
     pub relaunch: Option<RelaunchOffer>,
-    /// 카드의 상태 칩과 아래 줄.
+    /// 카드의 상태 칩과 아래 줄. 이 필드가 없는 옛 데몬의 노드는 `idle`로 읽는다.
+    #[serde(default)]
     pub status: Status,
-    /// `status`가 시작된 유닉스 초. 아래 줄의 시간이다.
+    /// `status`가 시작된 유닉스 초. 아래 줄의 시간이다. 옛 데몬이면 0이다.
+    #[serde(default)]
     #[ts(type = "number")]
     pub since: i64,
-    /// 내 브랜치의 지금 관문에서 받은 판정 막음 수. 3 이상이면 칩 옆에 보인다.
+    /// 내 브랜치의 지금 관문에서 받은 판정 막음 수. 3 이상이면 칩 옆에 보인다. 옛 데몬이면 0이다.
+    #[serde(default)]
     pub rework: u32,
 }
 

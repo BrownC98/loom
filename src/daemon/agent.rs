@@ -33,6 +33,9 @@ impl App {
         req: TakeRequest,
     ) -> Result<Taken, Refusal> {
         self.heard(node);
+        if let Some(tool) = req.tool {
+            self.tools.used(node, tool);
+        }
         if let Some(prompt) = req.prompt_id.as_deref() {
             self.wakes.submitted(&self.wakes.order(), node, prompt);
         }

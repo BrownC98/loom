@@ -4,14 +4,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::Notify;
+use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 
 use super::App;
 use super::relaunch::profile_of;
 use super::sleep::{now, until};
 use crate::graph::AgentState;
+use api::graph::GraphEvent;
 use api::ids::NodeId;
 
-const IDLE_WAKE: Duration = Duration::from_secs(30 * 60);
+const IDLE_WAKE: Duration = Duration::from_secs(5 * 60);
+
+const SETTLE: Duration = Duration::from_millis(300);
 
 const IDLE_NOTE: &str = "You are idle with open work, and nothing will wake you. If a background command or Monitor of your own still runs and will notify you, end the turn. Else continue the task, or report with loom done or loom ask.";
 
@@ -50,15 +54,34 @@ impl Watchdog {
     }
 }
 
+async fn nodes_changed(events: &mut broadcast::Receiver<GraphEvent>) {
+    loop {
+        match events.recv().await {
+            Ok(GraphEvent::Nodes) | Err(RecvError::Lagged(_)) => return,
+            Ok(_) => {}
+            Err(RecvError::Closed) => std::future::pending().await,
+        }
+    }
+}
+
 impl App {
     pub(super) fn watch_idle(self: &Arc<Self>) {
         let app = self.clone();
+        let mut nodes = self.graph.changes();
         tokio::spawn(async move {
             loop {
                 let mut mail = pin!(app.graph.mail_changed());
                 mail.as_mut().enable();
                 let mut changed = pin!(app.watchdog.changed.notified());
                 changed.as_mut().enable();
+                tokio::time::sleep(SETTLE).await;
+                while !matches!(
+                    nodes.try_recv(),
+                    Err(TryRecvError::Empty | TryRecvError::Closed)
+                ) {}
+                if let Err(e) = app.graph.sync_stalls() {
+                    crate::log::logln!("loom: 멈춘 노드의 알림을 맞추지 못했다: {e}");
+                }
                 let next = app.wake_idle().unwrap_or_else(|e| {
                     crate::log::logln!("loom: 일이 남은 채 쉬는 노드를 보지 못했다: {e}");
                     None
@@ -66,6 +89,7 @@ impl App {
                 tokio::select! {
                     () = mail => {}
                     () = changed => {}
+                    () = nodes_changed(&mut nodes) => {}
                     () = until(next) => {}
                 }
             }

@@ -41,6 +41,8 @@ pub struct TakeRequest {
     pub turn: Option<String>,
     #[serde(default)]
     pub prompt_id: Option<String>,
+    #[serde(default)]
+    pub tool: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

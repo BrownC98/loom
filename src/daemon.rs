@@ -27,6 +27,7 @@ pub use crate::graph::NewAgent;
 pub use relaunch::Relaunched;
 mod switch;
 mod system;
+mod tools;
 mod turn_end;
 mod usage_cache;
 mod verbs;
@@ -127,6 +128,7 @@ struct App {
     relaunch_exits: tokio::sync::Notify,
     sleeps: sleep::Sleeps,
     watchdog: watchdog::Watchdog,
+    tools: tools::Tools,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
     repo_list: one_flight::OneFlight<Result<(u64, Vec<RepoView>), String>>,
@@ -287,6 +289,7 @@ impl App {
             }
             app.watch_sleep();
             app.watch_idle();
+            app.show_tools();
             app.watch_agents();
         });
         self.watch_ssh_hosts();
@@ -406,6 +409,7 @@ impl App {
             relaunch_exits: tokio::sync::Notify::new(),
             sleeps: sleep::Sleeps::default(),
             watchdog: watchdog::Watchdog::default(),
+            tools: tools::Tools::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             repo_list: one_flight::OneFlight::default(),

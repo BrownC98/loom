@@ -348,6 +348,10 @@ impl Graph {
             .collect()
     }
 
+    pub fn working(&self, id: NodeId) -> rusqlite::Result<bool> {
+        Ok(state_of(&self.lock(), id)? != NodeState::Done)
+    }
+
     pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;

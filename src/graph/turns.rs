@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Graph;
+use super::gate::{Unjudged, unjudged};
 use super::waits::{put_done, unreported_root};
 use crate::protocol::kind_line;
 use api::graph::events::TurnCheck;
@@ -16,24 +17,52 @@ enum Bit {
     Replied,
     SubmittedInput,
     FirstInput,
+    UnjudgedNudged,
 }
 
 impl Bit {
-    const fn mask(self) -> u8 {
+    const fn mask(self) -> u16 {
         1 << self as u8
     }
 }
 
-const _: () = match Bit::FirstInput {
+const _: () = match Bit::UnjudgedNudged {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
     | Bit::Asked
     | Bit::QuestionBox
     | Bit::Replied
-    | Bit::SubmittedInput => {}
-    last @ Bit::FirstInput => assert!((last as u32) < u8::BITS),
+    | Bit::SubmittedInput
+    | Bit::FirstInput => {}
+    last @ Bit::UnjudgedNudged => assert!((last as u32) < u16::BITS),
 };
+
+const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
+
+pub enum Nudge {
+    QuestionBox,
+    KindLine,
+    Unjudged(Unjudged),
+}
+
+impl Nudge {
+    pub fn check(&self) -> TurnCheck {
+        match self {
+            Nudge::QuestionBox => TurnCheck::QuestionBox,
+            Nudge::KindLine => TurnCheck::KindLine,
+            Nudge::Unjudged(_) => TurnCheck::Unjudged,
+        }
+    }
+
+    fn kept(&self) -> u16 {
+        match self {
+            Nudge::QuestionBox => 0,
+            Nudge::KindLine => Bit::KindNudged.mask(),
+            Nudge::Unjudged(_) => Bit::UnjudgedNudged.mask(),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum TurnMark {
@@ -43,7 +72,7 @@ pub enum TurnMark {
 }
 
 impl TurnMark {
-    fn mask(self) -> u8 {
+    fn mask(self) -> u16 {
         match self {
             TurnMark::Called => Bit::Called,
             TurnMark::Asked => Bit::Asked,
@@ -53,11 +82,11 @@ impl TurnMark {
     }
 }
 
-const REPLIED: u8 = Bit::Replied.mask();
-pub(super) const SUBMITTED_INPUT: u8 = Bit::SubmittedInput.mask();
-const FIRST_INPUT: u8 = Bit::FirstInput.mask();
+const REPLIED: u16 = Bit::Replied.mask();
+pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
+const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
-fn set_flags(db: &Connection, node: NodeId, set: u8, clear: u8) -> rusqlite::Result<()> {
+fn set_flags(db: &Connection, node: NodeId, set: u16, clear: u16) -> rusqlite::Result<()> {
     db.execute(
         "UPDATE nodes SET turn_flags = (turn_flags & ~?3) | ?2 WHERE id = ?1",
         params![node.0, set, clear],
@@ -169,10 +198,10 @@ impl Graph {
         )
     }
 
-    pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<TurnCheck>> {
+    pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<Nudge>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let (flags, reply, heard): (u8, Option<String>, Option<String>) = tx
+        let (flags, reply, heard): (u16, Option<String>, Option<String>) = tx
             .query_row(
                 "SELECT turn_flags, reply, heard FROM nodes WHERE id = ?1",
                 [node.0],
@@ -183,14 +212,16 @@ impl Graph {
         let has = |bit: Bit| flags & bit.mask() != 0;
         let reply = reply.filter(|_| has(Bit::Replied));
         let check = if has(Bit::QuestionBox) && !has(Bit::Asked) {
-            Some(TurnCheck::QuestionBox)
+            Some(Nudge::QuestionBox)
         } else if !has(Bit::Called)
             && !has(Bit::KindNudged)
             && reply
                 .as_deref()
                 .is_some_and(|text| kind_line(text).is_some())
         {
-            Some(TurnCheck::KindLine)
+            Some(Nudge::KindLine)
+        } else if !has(Bit::UnjudgedNudged) {
+            unjudged(&tx, node)?.map(Nudge::Unjudged)
         } else {
             None
         };
@@ -218,11 +249,9 @@ impl Graph {
              SELECT id, turn FROM nodes WHERE id = ?1 AND turn IS NOT NULL",
             [node.0],
         )?;
-        let kept = if check == Some(TurnCheck::KindLine) {
-            Bit::KindNudged.mask()
-        } else {
-            0
-        };
+        let kept = check
+            .as_ref()
+            .map_or(0, |nudge| (flags & NUDGED) | nudge.kept());
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
             params![node.0, kept | (flags & SUBMITTED_INPUT)],

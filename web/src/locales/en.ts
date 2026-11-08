@@ -614,7 +614,7 @@ const en = {
     list: 'Events',
     kind: { created: 'Created', state: 'State', adopted: 'Adopted', removed: 'Removed', renamed: 'Renamed', relaunched: 'Relaunched', accountSwitched: 'Account switch', noAccountLeft: 'No account left', asked: 'Question', reported: 'Done notice', answered: 'Answer', instructed: 'New instruction', unanswered: 'Closed without answer', confirmed: 'Confirmed', nudged: 'Turn-end check', batch: 'Merge batch' },
     how: { queue: 'Queue', steer: 'Steer', interrupt: 'Interrupt' },
-    type: { ask: 'Question', answer: 'Answer', done: 'Done', note: 'Note', ready: 'Review request', verdict: { pass: 'Verdict · pass', block: 'Verdict · block' }, withdrawn: 'Review withdrawn', merged: 'Merged', rework: 'Rework', failed: 'Failed', exited: 'Exited', setupFailed: 'Setup failed', removed: 'Removed', adopted: 'Adopted', humanInput: 'Human input', rulesChanged: 'Rules changed' },
+    type: { ask: 'Question', answer: 'Answer', done: 'Done', note: 'Note', ready: 'Review request', verdict: { pass: 'Verdict · pass', block: 'Verdict · block' }, withdrawn: 'Review withdrawn', merged: 'Merged', rework: 'Rework', failed: 'Failed', exited: 'Exited', setupFailed: 'Setup failed', removed: 'Removed', adopted: 'Adopted', humanInput: 'Human input', idle: 'Idle wake', rulesChanged: 'Rules changed' },
     field: { question: 'Question', file: 'Result file', warning: 'Warning', branch: 'Branch', head: 'Commit', worktree: 'Worktree', target: 'Target', judgment: 'Judgment', findings: 'Findings', reviewer: 'Reviewer', sha: 'Merge commit', cause: 'Cause', log: 'Log', node: 'Node', code: 'Code', parent: 'New parent', skills: 'Skills', commit: 'Build commit' },
     bodyName: { ask: 'Question', answer: 'Answer', done: 'Summary', next: 'Next', output: 'Setup output', human: 'Human text', text: 'Text' },
     code: 'code {{code}}',
@@ -633,7 +633,7 @@ const en = {
     instruction: 'Instruction: {{text}}',
     images: '{{n}} images',
     closedBy: { human: 'closed by the human', agent: 'closed by the agent', restart: 'restarted', exit: 'exited' },
-    turnCheck: { unreported: 'ended without ask or done', kindLine: 'wrote a kind-word line only', questionBox: 'asked in its own question box' },
+    turnCheck: { unreported: 'ended without ask or done', kindLine: 'wrote a kind-word line only', questionBox: 'asked in its own question box', unjudged: 'ended an open round without a verdict' },
   },
   composer: {
     heading: 'Input bar',

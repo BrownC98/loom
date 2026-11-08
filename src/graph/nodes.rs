@@ -93,7 +93,7 @@ impl Graph {
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
             let id = insert(&tx, &name, &agent, None, place)?;
             tx.execute(
-                "UPDATE nodes SET task = ?2, setup = ?3 WHERE id = ?1",
+                "UPDATE nodes SET task = ?2, setup = ?3, default_name = 1 WHERE id = ?1",
                 params![id.0, task, setup],
             )?;
             keep(&tx, id, launched)?;
@@ -843,13 +843,12 @@ impl Graph {
 
     pub fn name_self(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
         self.rename_if(id, name, |db, old| {
-            let (parent, agent): (Option<u32>, Option<AgentId>) = db.query_row(
-                "SELECT parent, agent FROM nodes WHERE id = ?1",
+            let given: bool = db.query_row(
+                "SELECT default_name FROM nodes WHERE id = ?1",
                 [id.0],
-                |row| Ok((row.get(0)?, from_json(row, 1)?)),
+                |row| row.get(0),
             )?;
-            let prefix = agent.as_ref().map_or(SHELL_NAME, |a| &a.0);
-            match parent.is_none() && is_root_name(old, prefix) {
+            match given {
                 true => Ok(()),
                 false => Err(Refusal::NameKept(old.to_owned())),
             }
@@ -886,7 +885,7 @@ impl Graph {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
         tx.execute(
-            "UPDATE nodes SET name = ?2 WHERE id = ?1",
+            "UPDATE nodes SET name = ?2, default_name = 0 WHERE id = ?1",
             params![id.0, name],
         )?;
         events::write(
@@ -1260,12 +1259,6 @@ fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
         }
         number += 1;
     }
-}
-
-fn is_root_name(name: &str, prefix: &str) -> bool {
-    name.strip_prefix(prefix)
-        .and_then(|rest| rest.strip_prefix('-'))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn checked_name(name: &str) -> Result<&str, Refusal> {

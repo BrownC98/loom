@@ -23,7 +23,7 @@ pub enum Refusal {
     NameTaken(String),
     /// `#`으로 시작하는 이름, 숫자만인 이름, `parent`. 받는 쪽 이름에서 노드 번호와 부모를 가리킨다.
     ReservedName(String),
-    /// `loom rename`은 loom이 지은 뿌리 이름(`<에이전트>-<번호>`)만 바꾼다. 값은 지금 이름이다.
+    /// `loom rename`은 loom이 지은 뿌리 이름(`<에이전트>-<번호>`)을 한 번만 바꾼다. 사람이나 에이전트가 이미 바꾼 이름은 거절한다. 값은 지금 이름이다.
     NameKept(String),
     TooDeep,
     /// 값은 자식 수 상한이다.
@@ -193,7 +193,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NameKept(name) => write!(
                 f,
-                "{name}: loom renames only the first name of a root node (<agent>-<N>). Keep this name."
+                "{name}: loom renames only the name that loom gave a root node (<agent>-<N>), and only once. Keep this name."
             ),
             Refusal::TooDeep => write!(
                 f,

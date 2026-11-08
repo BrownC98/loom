@@ -182,7 +182,7 @@ fn open_with(
 }
 
 impl TerminalView {
-    pub(crate) fn new(
+    fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
         window: &mut Window,
         cx: &mut Context<Self>,

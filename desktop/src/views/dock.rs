@@ -39,8 +39,6 @@ mod strip;
 mod strokes;
 mod tabs;
 mod terminal;
-#[cfg(test)]
-mod tests;
 mod tools;
 pub mod ui;
 

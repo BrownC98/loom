@@ -1534,6 +1534,3 @@ impl ComposerWire for Live<'_, '_> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

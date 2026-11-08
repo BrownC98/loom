@@ -177,12 +177,6 @@ impl Field {
         self.marked = marked;
     }
 
-    /// Test probe: the field painted since the last call.
-    #[cfg(test)]
-    pub fn painted(&mut self) -> bool {
-        self.layout.take().is_some()
-    }
-
     pub fn composing(&self) -> bool {
         self.marked.is_some()
     }

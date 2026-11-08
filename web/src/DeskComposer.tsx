@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, Image as ImageIcon, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
+import { ArrowUp, ChevronDown, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type DOMAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait } from './api';
@@ -174,23 +174,10 @@ export function DeskFace(props: {
           <ChevronDown aria-hidden="true" />
         </button>
         <div className="composer-field">
-          <label className="attach image" title={t('composer.attachImage')}>
-            <ImageIcon aria-hidden="true" />
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              aria-label={t('composer.attachImage')}
-              onChange={(e) => {
-                props.onFiles([...(e.target.files ?? [])]);
-                e.target.value = '';
-              }}
-            />
-          </label>
+          <FilePick onFiles={props.onFiles} />
           <textarea {...props.field} rows={1} aria-label={t('composer.label', { name: props.name })} placeholder={t(PLACEHOLDER[props.route])} autoComplete="off" autoCapitalize="off" spellCheck={false} />
           <span className="composer-keys">{t('composer.keys')}</span>
         </div>
-        {props.route === 'prompt' && <FilePick onFiles={props.onFiles} />}
         <button type="submit" className="send" aria-label={t('composer.send')} title={t('composer.send')} disabled={!props.sendable}>
           <ArrowUp aria-hidden="true" />
         </button>

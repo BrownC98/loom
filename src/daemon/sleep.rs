@@ -257,7 +257,7 @@ impl App {
     pub(super) fn draft_ended(self: &Arc<Self>, id: NodeId) {
         match self.graph.end_draft(id) {
             Ok(true) if self.held(id) => self.recover(id),
-            Ok(_) => {}
+            Ok(_) => self.sleeps.changed(),
             Err(e) => crate::log::logln!("loom: 노드 {}의 입력 중 표시를 지우지 못했다: {e}", id.0),
         }
     }

@@ -340,7 +340,7 @@ impl Graph {
     pub fn sleepable(&self) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare(
-                "SELECT id FROM nodes WHERE process IS NULL AND wait IS NULL
+                "SELECT id FROM nodes WHERE process IS NULL AND wait IS NULL AND drafted = 0
                  AND state ->> 'kind' = 'done'
                  AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = nodes.id) ORDER BY id",
             )?

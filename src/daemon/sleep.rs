@@ -100,11 +100,11 @@ impl Sleeps {
     }
 }
 
-fn now() -> Instant {
+pub(super) fn now() -> Instant {
     tokio::time::Instant::now().into_std()
 }
 
-async fn until(at: Option<Instant>) {
+pub(super) async fn until(at: Option<Instant>) {
     match at {
         Some(at) => tokio::time::sleep_until(at.into()).await,
         None => std::future::pending().await,
@@ -155,6 +155,7 @@ impl App {
 
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
+        self.watchdog.saw(change.node, change.to.as_ref());
         self.give_kept_keys(change.node);
         match change.to {
             Some(AgentState::Deaf) => {}

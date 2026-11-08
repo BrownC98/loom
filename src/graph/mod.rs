@@ -11,6 +11,7 @@ mod relaunch_plans;
 mod token;
 mod turns;
 mod waits;
+mod watchdog;
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};

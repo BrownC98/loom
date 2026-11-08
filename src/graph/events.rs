@@ -89,6 +89,7 @@ fn shown_from_loom(what: &MessageKind) -> bool {
         | MessageKind::SetupFailed { .. }
         | MessageKind::Removed { .. }
         | MessageKind::Adopted { .. }
+        | MessageKind::Idle
         | MessageKind::RulesChanged { .. } => true,
         MessageKind::Ask
         | MessageKind::Answer { .. }

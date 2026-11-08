@@ -8,7 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, px,
 };
 
-use super::body;
+use super::blocks;
 use super::entry::{self, Choice, Look};
 use super::find::{self, Find};
 use super::questions::kind_label;
@@ -264,14 +264,19 @@ impl Dock {
             );
         }
         if !wait.text.is_empty() || wait.doc.is_some() {
-            row = row.child(div().text_size(px(ui::TEXT)).child(body::text(
+            row = row.child(div().text_size(px(ui::TEXT)).child(blocks::render(
                 ("history-text", seq),
-                &wait.parts,
+                &wait.blocks,
                 &wait.text,
                 wait.doc.as_ref(),
                 entry::tone_of(tone, &c),
                 find,
+                ui::TEXT,
                 cx,
+                {
+                    let owner = cx.entity();
+                    move |target, cx| owner.update(cx, |dock, cx| dock.follow(target, cx))
+                },
             )));
         }
         if !wait.choices.is_empty() {

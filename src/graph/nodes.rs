@@ -27,7 +27,6 @@ pub struct NewChild<'a> {
     pub review: Option<&'a str>,
 }
 
-const SHELL_NAME: &str = "shell";
 const NO_PARENT: &str = "(none)";
 
 pub struct Launched {
@@ -57,34 +56,38 @@ impl Graph {
         place: &Place,
         agent: Option<AgentId>,
         task: Option<&str>,
+        word: &str,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
-        self.insert_root(place, agent, task, false, launched, start)
+        self.insert_root(place, agent, task, false, word, launched, start)
     }
 
     pub fn add_setup(
         &self,
         place: &Place,
+        word: &str,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
-        self.insert_root(place, None, None, true, launched, start)
+        self.insert_root(place, None, None, true, word, launched, start)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
         task: Option<&str>,
         setup: bool,
+        word: &str,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let id = {
             let mut db = self.lock();
             let tx = db.transaction()?;
-            let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
+            let name = root_name(&tx, place.repo.0, word, None)?;
             let id = insert(&tx, &name, &agent, None, place)?;
             tx.execute(
                 "UPDATE nodes SET task = ?2, setup = ?3, default_name = 1 WHERE id = ?1",
@@ -172,10 +175,6 @@ impl Graph {
         db.query_row("SELECT task FROM nodes WHERE id = ?1", [id.0], |row| {
             row.get(0)
         })
-    }
-
-    pub fn next_root_name(&self, agent: Option<&AgentId>) -> rusqlite::Result<String> {
-        root_name(&self.lock(), agent.map_or(SHELL_NAME, |a| &a.0))
     }
 
     fn started(
@@ -836,28 +835,39 @@ impl Graph {
     }
 
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
-        self.rename_if(id, name, |_, _| Ok(()))
-    }
-
-    pub fn name_self(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
-        self.rename_if(id, name, |db, old| {
-            let given: bool = db.query_row(
-                "SELECT parent IS NULL AND default_name = 1 FROM nodes WHERE id = ?1",
-                [id.0],
-                |row| row.get(0),
-            )?;
-            match given {
-                true => Ok(()),
-                false => Err(Refusal::NameKept(old.to_owned())),
-            }
+        self.rename_with(id, name, |db| {
+            db.execute("UPDATE nodes SET default_name = 0 WHERE id = ?1", [id.0])
         })
     }
 
-    fn rename_if(
+    pub fn name_roots(&self, lead: &str, shell: &str) -> Result<(), Refusal> {
+        let roots = self
+            .lock()
+            .prepare(
+                "SELECT n.id, n.repo, n.agent IS NOT NULL AND n.agent != 'null'
+                 FROM nodes n JOIN repos r ON r.id = n.repo
+                 WHERE n.parent IS NULL AND n.default_name = 1 ORDER BY n.id",
+            )?
+            .query_map([], |row| {
+                Ok((NodeId(row.get(0)?), row.get(1)?, row.get(2)?))
+            })?
+            .collect::<rusqlite::Result<Vec<(NodeId, u32, bool)>>>()?;
+        for (id, repo, agent) in roots {
+            let word = if agent { lead } else { shell };
+            let name = root_name(&self.lock(), repo, word, Some(id))?;
+            match self.rename_with(id, &name, |_| Ok(0)) {
+                Ok(()) | Err(Refusal::NameTaken(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    fn rename_with(
         &self,
         id: NodeId,
         name: &str,
-        allowed: impl FnOnce(&Connection, &str) -> Result<(), Refusal>,
+        also: impl FnOnce(&Connection) -> rusqlite::Result<usize>,
     ) -> Result<(), Refusal> {
         let name = checked_name(name)?;
         let mut db = self.lock();
@@ -868,7 +878,6 @@ impl Graph {
         if old == name {
             return Ok(());
         }
-        allowed(&tx, &old)?;
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != ?1 AND n.name = ?2 AND (
                 n.id = me.parent
@@ -883,9 +892,10 @@ impl Graph {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
         tx.execute(
-            "UPDATE nodes SET name = ?2, default_name = 0 WHERE id = ?1",
+            "UPDATE nodes SET name = ?2 WHERE id = ?1",
             params![id.0, name],
         )?;
+        also(&tx)?;
         events::write(
             &tx,
             &Entry::Renamed {
@@ -1240,20 +1250,31 @@ fn children_where(
     .collect()
 }
 
-fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
-    let mut number = 1;
-    loop {
-        let name = format!("{prefix}-{number}");
+fn root_name(
+    db: &Connection,
+    repo: u32,
+    word: &str,
+    me: Option<NodeId>,
+) -> rusqlite::Result<String> {
+    let path: String = db.query_row("SELECT path FROM repos WHERE id = ?1", [repo], |row| {
+        row.get(0)
+    })?;
+    let base = format!("{} {word}", super::folder_name(&path));
+    for number in 1.. {
+        let name = match number {
+            1 => base.clone(),
+            n => format!("{base} {n}"),
+        };
         let taken: bool = db.query_row(
-            "SELECT EXISTS (SELECT 1 FROM nodes WHERE parent IS NULL AND name = ?1)",
-            [&name],
+            "SELECT EXISTS (SELECT 1 FROM nodes WHERE parent IS NULL AND name = ?1 AND id IS NOT ?2)",
+            params![&name, me.map(|m| m.0)],
             |row| row.get(0),
         )?;
         if !taken {
             return Ok(name);
         }
-        number += 1;
     }
+    unreachable!("1.. does not end")
 }
 
 fn checked_name(name: &str) -> Result<&str, Refusal> {

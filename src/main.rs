@@ -211,8 +211,6 @@ enum Cli {
     Adopt { name: String },
     /// `name` 노드(이름이나 `#번호`)의 부모를 비워 다시 뿌리 노드로 만든다. 그 노드의 이후 질문은 사람 받은편지함으로 간다.
     Detach { name: String },
-    /// 뿌리 노드가 loom이 지은 이름(`<에이전트>-<번호>`)을 한 번 바꾼다. 사람이나 에이전트가 이미 바꾼 이름은 거절한다. 이름은 다른 뿌리 노드와 겹치지 않아야 한다.
-    Rename { name: String },
     /// 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 노드의 자식은 이 노드가 데려간다.
     Rm { name: String },
     /// 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다.
@@ -360,7 +358,6 @@ fn main() -> ExitCode {
         } => cli::verdict(branch, head, judgment, findings.map(wsl::from_caller)),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Detach { name } => cli::detach(name),
-        Cli::Rename { name } => cli::rename(name),
         Cli::Rm { name } => cli::remove(name),
         Cli::Relaunch {
             name,

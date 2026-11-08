@@ -640,7 +640,6 @@ async fn agent_command(
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
 - loom spawn <name> --role <role> [--worktree <branch>] [--agent <agent-id>] [--model <model>] [--effort <effort>]: create a child. Pick the role by its duty from loom roles. The role's settings choose its agent, model and effort; give --agent, --model or --effort (each replaces the role's value) only when the human or your brief names them. Write the brief to a file and give --file <path>. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. With no parent, each child needs --worktree or is a reviewer of your own branch.
 - loom status: your ID, parent and children, each with its work state and process state. loom status --all lists every node.
-- loom rename <name>: with no parent, run it once in your first turn: <repository> <role>, in the human's language (for example \"loom 총괄\").
 ", crate::message_usage!(), "- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
 - loom adopt <name>, loom detach <name>, loom rm <target>, loom relaunch [<target>] [--agent <agent-id>]: become a node's parent, make it a root, remove it, or restart an agent process. Details: loom <command> --help.
 All commands return at once. loom picks receivers.

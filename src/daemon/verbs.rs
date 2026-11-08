@@ -617,20 +617,6 @@ pub(super) async fn agent_detach(
     traced(&app, caller, Attempt::verb(&req.name), &via, detached)
 }
 
-pub(super) async fn agent_rename(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<RenameRequest>,
-) -> Result<Json<()>, AgentError> {
-    let caller = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/rename");
-    let renamed = app
-        .graph
-        .name_self(caller, &req.name)
-        .map_err(Problem::from);
-    traced(&app, caller, Attempt::verb(&req.name), &via, renamed)
-}
-
 pub(super) async fn agent_remove(
     State(app): State<Arc<App>>,
     headers: HeaderMap,

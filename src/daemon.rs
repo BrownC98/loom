@@ -37,8 +37,8 @@ mod watchdog;
 use api::graph::errors::{IMAGE_EXTENSIONS, LaunchError, Problem, Refusal};
 pub use commands::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked, DetachRequest,
-    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, RenameRequest,
-    Reported, ShowRequest, SpawnRequest, SpawnRun, WaitRequest,
+    DoneRequest, GuardRequest, NoteRequest, RelaunchRequest, RemoveRequest, Reported, ShowRequest,
+    SpawnRequest, SpawnRun, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -106,7 +106,7 @@ use api::settings::update::UpdateView;
 use api::start::Start;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
-    agent_note, agent_remove, agent_rename, agent_set_role, agent_spawn, endpoint_spawn, traced,
+    agent_note, agent_remove, agent_set_role, agent_spawn, endpoint_spawn, traced,
 };
 
 #[derive(Embed)]
@@ -442,6 +442,10 @@ impl App {
         };
         app.adopt_address_files(&pty_dir)
             .map_err(std::io::Error::other)?;
+        let words = app.settings.name_words().map_err(std::io::Error::other)?;
+        if let Err(e) = app.graph.name_roots(words.lead, words.shell) {
+            crate::log::logln!("loom: 뿌리 노드 이름을 규칙대로 바꾸지 못했다: {e}");
+        }
         Ok(app)
     }
 }

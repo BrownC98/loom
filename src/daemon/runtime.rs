@@ -23,12 +23,16 @@ impl App {
         start: &Start,
     ) -> Result<NodeId, Problem> {
         let cwd = std::path::Path::new(&place.worktree);
+        let words = self.settings.name_words().map_err(internal)?;
+        let word = match start.agent() {
+            Some(_) => words.lead,
+            None => words.shell,
+        };
         let made = match start.agent() {
-            Some(agent) => {
+            Some(_) => {
                 let repo = self.repos.path(place.repo)?;
-                let name = self.graph.next_root_name(Some(&agent)).map_err(internal)?;
                 let tasks = self.tasks_for(&place.worktree).await?;
-                Some(tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?)
+                Some(tasks.new_dir(&task::base(&repo, word)).map_err(internal)?)
             }
             None => None,
         };
@@ -44,6 +48,7 @@ impl App {
                 place,
                 start.agent(),
                 dir.map(|d| d.folder.as_str()),
+                word,
                 &prepared.launched(),
                 |id| {
                     if let Some(dir) = dir {
@@ -146,8 +151,11 @@ impl App {
             .prepare(&start, None, cwd, Position::Root, None, token)
             .await?;
         let discard = prepared.discarder();
+        let word = self.settings.name_words().map_err(internal)?.shell;
         self.graph
-            .add_setup(place, &prepared.launched(), |id| self.launch(id, prepared))
+            .add_setup(place, word, &prepared.launched(), |id| {
+                self.launch(id, prepared)
+            })
             .inspect_err(|_| discard())?;
         Ok(())
     }

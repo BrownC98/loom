@@ -82,7 +82,7 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-const ALLOWED: [&str; 21] = [
+const ALLOWED: [&str; 20] = [
     "Bash(loom guard)",
     "Bash(loom note:*)",
     "Bash(loom answer:*)",
@@ -100,7 +100,6 @@ const ALLOWED: [&str; 21] = [
     "Bash(loom answered:*)",
     "Bash(loom adopt:*)",
     "Bash(loom detach:*)",
-    "Bash(loom rename:*)",
     "Bash(loom rm:*)",
     "Bash(loom ready:*)",
     "Bash(loom verdict:*)",

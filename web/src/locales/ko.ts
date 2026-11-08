@@ -627,7 +627,7 @@ const ko: typeof en = {
     list: '이벤트 목록',
     kind: { created: '생성', state: '상태', adopted: '입양', removed: '제거', renamed: '이름 변경', relaunched: '다시 띄움', accountSwitched: '계정 전환', noAccountLeft: '남은 계정 없음', asked: '질문', reported: '완료 알림', answered: '답', instructed: '추가 지시', unanswered: '답 없이 닫힘', confirmed: '확인', nudged: '턴 끝 검사', batch: '병합 묶음' },
     how: { queue: '큐', steer: '조정', interrupt: '중단' },
-    type: { ask: '질문', answer: '답', done: '완료', note: '메모', ready: '검토 요청', verdict: { pass: '판정 · 통과', block: '판정 · 막음' }, withdrawn: '검토 중단', merged: '병합됨', rework: '재작업', failed: '실패', exited: '종료', setupFailed: '설정 실패', removed: '지워짐', adopted: '입양', humanInput: '사람 입력', rulesChanged: '규칙 바뀜' },
+    type: { ask: '질문', answer: '답', done: '완료', note: '메모', ready: '검토 요청', verdict: { pass: '판정 · 통과', block: '판정 · 막음' }, withdrawn: '검토 중단', merged: '병합됨', rework: '재작업', failed: '실패', exited: '종료', setupFailed: '설정 실패', removed: '지워짐', adopted: '입양', humanInput: '사람 입력', idle: '쉬는 노드 깨움', rulesChanged: '규칙 바뀜' },
     field: { question: '질문', file: '결과 파일', warning: '경고', branch: '브랜치', head: '커밋', worktree: '워크트리', target: '대상', judgment: '판정', findings: '결함 파일', reviewer: '검토', sha: '병합 커밋', cause: '원인', log: '로그', node: '노드', code: '코드', parent: '새 부모', skills: '스킬', commit: '빌드 커밋' },
     bodyName: { ask: '질문', answer: '답', done: '요약', next: '다음', output: '설정 출력', human: '사람 원문', text: '본문' },
     code: '코드 {{code}}',

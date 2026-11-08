@@ -162,6 +162,8 @@ pub enum MessageKind {
     HumanInput {
         node: String,
     },
+    /// 일이 남은 노드가 오래 쉬고, 그 노드를 깨울 것이 없다. loom이 한 번 깨운다.
+    Idle,
     /// 옛 데몬이 바뀐 내장 스킬로 시작할 때 보낸 알림. 지금 데몬은 보내지 않고 시작 글이 바뀐 노드를 턴 끝에 다시 띄운다.
     /// 옛 메시지와 이벤트 기록을 읽으려고 남긴다.
     RulesChanged {
@@ -280,6 +282,7 @@ impl MessageKind {
             MessageKind::Removed { .. } => "removed",
             MessageKind::Adopted { .. } => "adopted",
             MessageKind::HumanInput { .. } => "human-input",
+            MessageKind::Idle => "idle",
             MessageKind::RulesChanged { .. } => "rules-changed",
         }
     }
@@ -301,6 +304,7 @@ impl MessageKind {
             | MessageKind::Removed { .. }
             | MessageKind::Adopted { .. }
             | MessageKind::HumanInput { .. }
+            | MessageKind::Idle
             | MessageKind::RulesChanged { .. } => true,
         }
     }
@@ -327,7 +331,7 @@ impl MessageKind {
             fields
         };
         match self {
-            MessageKind::Ask | MessageKind::Note => Vec::new(),
+            MessageKind::Ask | MessageKind::Note | MessageKind::Idle => Vec::new(),
             MessageKind::Answer { question } => vec![(Field::Question, question.to_string())],
             MessageKind::Done { file, warning } => some(Field::File, file)
                 .into_iter()

@@ -137,6 +137,7 @@ fn kind_label(what: &MessageKind, how: Kind, c: &Ctx) -> String {
         MessageKind::Removed { .. } => c.t(Str::EventsTypeRemoved),
         MessageKind::Adopted { .. } => c.t(Str::EventsTypeAdopted),
         MessageKind::HumanInput { .. } => c.t(Str::EventsTypeHumanInput),
+        MessageKind::Idle => c.t(Str::EventsTypeIdle),
         MessageKind::RulesChanged { .. } => c.t(Str::EventsTypeRulesChanged),
     }
 }
@@ -169,7 +170,8 @@ pub fn summary(what: &MessageKind, c: &Ctx) -> Option<String> {
         | MessageKind::Answer { .. }
         | MessageKind::Done { .. }
         | MessageKind::Note
-        | MessageKind::HumanInput { .. } => None,
+        | MessageKind::HumanInput { .. }
+        | MessageKind::Idle => None,
     }
 }
 
@@ -190,6 +192,7 @@ pub fn body_name(what: &MessageKind) -> Str {
         | MessageKind::Exited { .. }
         | MessageKind::Removed { .. }
         | MessageKind::Adopted { .. }
+        | MessageKind::Idle
         | MessageKind::RulesChanged { .. } => Str::EventsBodyNameText,
     }
 }

@@ -128,6 +128,7 @@ function kindFamily(what: MessageKind): Family | undefined {
     case 'removed':
     case 'adopted':
     case 'humanInput':
+    case 'idle':
     case 'rulesChanged':
       return undefined;
   }
@@ -152,6 +153,7 @@ function kindLabel(what: MessageKind, how: Kind, t: TFunction): string {
     case 'removed':
     case 'adopted':
     case 'humanInput':
+    case 'idle':
     case 'rulesChanged':
       return t(`events.type.${what.kind}`);
   }
@@ -181,6 +183,7 @@ function kindSummary(what: MessageKind, t: TFunction): string | null {
     case 'done':
     case 'note':
     case 'humanInput':
+    case 'idle':
       return null;
   }
 }
@@ -206,6 +209,7 @@ function bodyName(what: MessageKind): 'ask' | 'answer' | 'done' | 'next' | 'outp
     case 'exited':
     case 'removed':
     case 'adopted':
+    case 'idle':
     case 'rulesChanged':
       return 'text';
   }
@@ -499,6 +503,7 @@ function stepNote(what: MessageKind, id: number, step: Step, t: TFunction): stri
     case 'removed':
     case 'adopted':
     case 'humanInput':
+    case 'idle':
     case 'rulesChanged':
       return stepText;
   }

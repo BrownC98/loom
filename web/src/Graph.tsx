@@ -29,6 +29,7 @@ import { DownLine, PlaceTag, Reaches, unreachedAt } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
+import { WakeButton } from './WakeButton';
 import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
 import { attachCards, groupParents, groupsOf, inGroup, splitChips, type Group, type GroupKind } from './repos';
@@ -364,6 +365,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
         headAction={
           <>
             {data.unreached && <span className="unreached-tag">{t('place.unreachedCard')}</span>}
+            <WakeButton view={data.view} />
             <BookmarkButton view={data.view} />
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
@@ -408,6 +410,7 @@ function Simple({ data }: NodeProps<SimpleNode>) {
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
             {data.unreached && <span className="unreached-tag">{t('place.unreachedCard')}</span>}
+            <WakeButton view={data.view} />
             <BookmarkButton view={data.view} />
             <NodeMenu view={data.view} defaultView={data.defaultView} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
@@ -1353,6 +1356,7 @@ export function Graph(props: {
             onDoubleClickHead={() => setExpanded(null)}
             headAction={
               <>
+                <WakeButton view={zoomedView} />
                 <BookmarkButton view={zoomedView} />
                 <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
                   <Minimize2 />

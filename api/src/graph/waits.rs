@@ -208,7 +208,7 @@ pub enum Closed {
     Answered {
         text: String,
     },
-    /// 사람이 완료 줄에서 이어서 맡겼다.
+    /// 사람이 완료 줄이나 노드 터미널에서 이어서 맡겼다.
     Instructed {
         text: String,
     },

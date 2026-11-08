@@ -246,6 +246,10 @@ impl TerminalView {
         window.focus(&self.focus, cx);
     }
 
+    pub fn focused(&self, window: &Window) -> bool {
+        self.focus.is_focused(window)
+    }
+
     pub fn set_scale(&mut self, scale: f32) {
         if scale != self.scale {
             self.scale = scale;

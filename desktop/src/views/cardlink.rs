@@ -36,6 +36,10 @@ pub fn relaunch(base: &str, node: u32) -> Result<(), Failure> {
     link::post::<Value>(base, &format!("/api/nodes/{node}/relaunch"), None).map(|_| ())
 }
 
+pub fn wake(base: &str, node: u32) -> Result<(), Failure> {
+    link::post::<Value>(base, &format!("/api/nodes/{node}/wake"), None).map(|_| ())
+}
+
 pub fn remove_node(base: &str, node: u32) -> Result<(), Failure> {
     link::delete(base, &format!("/api/nodes/{node}"))
 }

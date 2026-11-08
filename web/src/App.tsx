@@ -28,6 +28,7 @@ import { exit } from '@tauri-apps/plugin-process';
 import { settingsPatch, type SettingsPatch } from './settingsPatch';
 import { Graph, type GraphHandle, type Lit } from './Graph';
 import { CameraProvider, flowId } from './camera';
+import { StatusLinks } from './status';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors, NO_COLOR, useColorMode } from './uiColors';
@@ -193,6 +194,7 @@ export function App() {
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
+  const [eventQuery, setEventQuery] = useState('');
   useEffect(() => {
     if (!dockOpen || shownTab !== 'events') setHighlight(null);
   }, [dockOpen, shownTab]);
@@ -217,6 +219,11 @@ export function App() {
   const openSide = (open: boolean) => {
     setSideOpen(open);
     focusToggle(SIDE_TOGGLE);
+  };
+  const showEvents = (name: string) => {
+    setEventQuery(name);
+    setTab('events');
+    setDockOpen(true);
   };
   const openDock = (open: boolean) => {
     setDockOpen(open);
@@ -480,7 +487,11 @@ export function App() {
       <XtermFont.Provider value={font}>
         <ReactFlowProvider>
           <CameraProvider>
-            <Reaches.Provider value={reaches}>{children}</Reaches.Provider>
+            <Reaches.Provider value={reaches}>
+              <StatusLinks views={nodes} onSelect={selectNode} onEvents={showEvents}>
+                {children}
+              </StatusLinks>
+            </Reaches.Provider>
           </CameraProvider>
         </ReactFlowProvider>
       </XtermFont.Provider>
@@ -615,7 +626,7 @@ export function App() {
                 </>
               }
             >
-              {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} graphRepos={shown.map((r) => r.id)} onRepo={selectRepo} highlight={highlight} onHighlight={setHighlight} />}
+              {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} graphRepos={shown.map((r) => r.id)} onRepo={selectRepo} highlight={highlight} onHighlight={setHighlight} query={eventQuery} onQuery={setEventQuery} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
               {shownTab === 'docs' && <DocList />}
               {shownTab === 'questions' && <InboxTabs waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}

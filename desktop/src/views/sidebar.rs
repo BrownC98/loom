@@ -23,7 +23,7 @@ use super::scrollbar::Bar;
 use super::shell::OpenSettings;
 use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
 pub use tree::Dot;
-use tree::{Body, Built, Found, Key, Row, Tag, Tone};
+use tree::{Body, Built, Found, Key, Row, Tag};
 
 use api::graph::Place;
 use api::ids::RepoId;
@@ -39,6 +39,7 @@ use crate::theme::{Colors, Theme};
 use crate::views::anchor::Anchors;
 use crate::views::cardlink;
 use crate::views::dotted;
+use crate::views::status::pill;
 use crate::views::tooltip::tip;
 use crate::views::worktree::{Closed, DeleteWorktreeView, Doomed, NewWorktreeView};
 
@@ -569,33 +570,11 @@ pub fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
 }
 
 fn tag(tag: &Tag, id: SharedString, c: &Colors) -> impl IntoElement {
-    let (fill, ink, edge) = match tag.tone {
-        Tone::Ask => (Some(c.warn), c.warn_ink, c.warn),
-        Tone::Done => (Some(c.ok), c.accent_ink, c.ok),
-        Tone::Failed => (None, c.err, c.err),
-        Tone::Neutral => (None, c.ink_2, c.ink_2),
-    };
-    let mut el = div()
-        .id(id)
-        .flex_none()
-        .px(px(7.0))
-        .h(px(18.0))
-        .rounded(px(9.0))
-        .border_1()
-        .border_color(edge)
-        .text_size(px(11.0))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(ink)
-        .flex()
-        .items_center()
-        .child(tag.text.clone());
-    if let Some(tip_text) = &tag.tip {
-        el = el.tooltip(tip(tip_text.clone()));
+    let pill = pill(tag.text.clone(), tag.tone, 1.0, c);
+    match &tag.tip {
+        Some(text) => pill.id(id).tooltip(tip(text.clone())).into_any_element(),
+        None => pill.into_any_element(),
     }
-    if let Some(fill) = fill {
-        el = el.bg(fill);
-    }
-    el
 }
 
 fn chevron(open: bool, c: &Colors) -> impl IntoElement {

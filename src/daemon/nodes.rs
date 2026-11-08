@@ -1,5 +1,6 @@
 use futures_util::Sink;
 
+use api::graph::events::EventRecord;
 use api::graph::pty::{PtyNotice, PtyRequest, Resize};
 use api::graph::{NewNode, RenameNode};
 
@@ -26,6 +27,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
             put(set_card_view).delete(clear_card_view),
         )
         .route("/api/nodes/{id}/pty", get(pty))
+        .route("/api/nodes/{id}/process-log", get(process_log))
         .route(
             "/api/pastes/{name}",
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
@@ -33,7 +35,20 @@ pub(super) fn routes() -> Router<Arc<App>> {
 }
 
 async fn list_nodes(State(app): State<Arc<App>>) -> Result<Json<Vec<NodeView>>, Problem> {
-    app.graph.views().map(Json).map_err(internal)
+    app.graph
+        .views(|node| app.tools.of(node))
+        .map(Json)
+        .map_err(internal)
+}
+
+async fn process_log(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<Vec<EventRecord>>, Problem> {
+    app.graph
+        .process_log(NodeId(id))
+        .map(Json)
+        .map_err(internal)
 }
 
 #[derive(Deserialize)]

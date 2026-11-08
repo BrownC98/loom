@@ -37,6 +37,9 @@ impl App {
             self.wakes.submitted(&self.wakes.order(), node, prompt);
         }
         self.idle.turn_started(node, req.step);
+        if let Some(tool) = req.tool {
+            self.tools.used(node, tool);
+        }
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
         let messages = self.graph.take(

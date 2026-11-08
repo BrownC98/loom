@@ -22,6 +22,7 @@ use crate::theme::Theme;
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
 use crate::views::scrollbar::Bar;
+use crate::views::status::pop::{self as status_pop, StatusView};
 use crate::views::worktree::{self, Closed, DeleteWorktreeView, Doomed, NewWorktreeView};
 
 const WIDTH: f32 = 340.0;
@@ -626,6 +627,31 @@ pub fn new_node(
         view.into(),
         anchor,
         (WIDTH, HEIGHT),
+        vec![closed],
+        cx,
+    );
+}
+
+pub fn status(
+    canvas: &mut CanvasView,
+    node: u32,
+    anchor: Anchor,
+    window: &mut Window,
+    cx: &mut Context<CanvasView>,
+) {
+    let key = format!("status:{node}");
+    if toggled(canvas, &key, cx) {
+        return;
+    }
+    let store = canvas.store.clone();
+    let view = cx.new(|cx| StatusView::new(store, node, window, cx));
+    let closed = cx.subscribe(&view, |this, _, _: &Closed, cx| dismiss(this, cx));
+    show(
+        canvas,
+        key,
+        view.into(),
+        anchor,
+        (status_pop::WIDTH, status_pop::HEIGHT),
         vec![closed],
         cx,
     );

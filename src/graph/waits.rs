@@ -58,7 +58,7 @@ pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
 
 fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
     match kind {
-        WaitKind::Question | WaitKind::Done => markdown(text),
+        WaitKind::Question | WaitKind::Done | WaitKind::Stalled => markdown(text),
         WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
             Block::paragraph(parts(text))
         }
@@ -75,7 +75,8 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
         | WaitKind::Approval
         | WaitKind::Trust
         | WaitKind::Auth
-        | WaitKind::Input => WaitTone::Ask,
+        | WaitKind::Input
+        | WaitKind::Stalled => WaitTone::Ask,
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
@@ -86,7 +87,8 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
             | WaitKind::Trust
             | WaitKind::Auth
             | WaitKind::Input
-            | WaitKind::Done => Vec::new(),
+            | WaitKind::Done
+            | WaitKind::Stalled => Vec::new(),
         },
         ..wait
     };
@@ -462,6 +464,7 @@ impl Graph {
                     };
                     events::write(&tx, &entry, None)?;
                 }
+                Err(Refusal::NoWait(_)) if dismiss_stall(&tx, wait)? => {}
                 Err(Refusal::NoWait(_)) => {
                     let node = tx
                         .query_row(
@@ -545,6 +548,14 @@ pub(super) fn put_done(
     events::write(db, &entry, None)
 }
 
+fn dismiss_stall(db: &rusqlite::Connection, wait: WaitId) -> rusqlite::Result<bool> {
+    let dismissed = db.execute(
+        "UPDATE stalls SET dismissed = 1 WHERE wait ->> 'id' = ?1 AND dismissed = 0",
+        [wait.0],
+    )?;
+    Ok(dismissed > 0)
+}
+
 pub(super) fn drop_questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
     let how = Closed::Unanswered { by: ClosedBy::Exit };
     for wait in closed::close_all(db, Open::Question, id, &how)? {
@@ -589,7 +600,7 @@ fn stored(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Option<Opti
     Ok(text.map(|t| t.and_then(|t| serde_json::from_str(&t).ok())))
 }
 
-fn new_wait(
+pub(super) fn new_wait(
     db: &rusqlite::Connection,
     kind: WaitKind,
     text: String,

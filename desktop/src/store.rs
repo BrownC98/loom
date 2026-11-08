@@ -70,6 +70,12 @@ pub struct NodeMenu {
     pub button: Option<Bounds<Pixels>>,
 }
 
+pub struct NodeStatus {
+    pub node: u32,
+    pub at: gpui::Point<Pixels>,
+    pub button: Option<Bounds<Pixels>>,
+}
+
 #[derive(Clone)]
 pub enum Target {
     Nodes(Vec<u32>),
@@ -78,6 +84,8 @@ pub enum Target {
 }
 
 pub struct Show(pub Target);
+
+pub struct ShowEvents(pub String);
 pub struct DraftChanged(pub u32, pub Slot);
 
 pub struct BusyChanged;
@@ -86,6 +94,8 @@ impl EventEmitter<GraphEvent> for Store {}
 impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
 impl EventEmitter<NodeMenu> for Store {}
+impl EventEmitter<NodeStatus> for Store {}
+impl EventEmitter<ShowEvents> for Store {}
 impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
@@ -338,6 +348,21 @@ impl Store {
         cx: &mut Context<Self>,
     ) {
         cx.emit(NodeMenu { node, at, button });
+    }
+
+    pub fn show_events(&mut self, name: String, cx: &mut Context<Self>) {
+        self.set_pane_open("dock", true, cx);
+        cx.emit(ShowEvents(name));
+    }
+
+    pub fn open_node_status(
+        &mut self,
+        node: u32,
+        at: gpui::Point<Pixels>,
+        button: Option<Bounds<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(NodeStatus { node, at, button });
     }
 
     pub fn go(&mut self, node: u32, cx: &mut Context<Self>) {

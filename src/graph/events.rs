@@ -152,6 +152,18 @@ pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     })
 }
 
+const PROCESS_LOG: u32 = 5;
+
+pub(super) fn process_log(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<EventRecord>> {
+    db.prepare(&format!(
+        "{RECORD_COLUMNS} WHERE CASE WHEN json_valid(e.entry) THEN e.entry ->> 'kind' = 'processChanged'
+         AND e.entry ->> '$.node.id' = ?1 AND e.entry -> '$.from' != e.entry -> '$.to' END
+         ORDER BY e.id DESC LIMIT ?2"
+    ))?
+    .query_map(params![node.0, PROCESS_LOG], record_from_row)?
+    .collect()
+}
+
 pub(super) fn after(db: &Connection, after: u32) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!(
         "{RECORD_COLUMNS} WHERE e.id > ?1 AND json_valid(e.entry) ORDER BY e.id"

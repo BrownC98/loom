@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use api::graph::waits::{WaitKind, WaitTone};
+use api::graph::waits::WaitTone;
 use api::graph::{NodeState, NodeView, ProcessState};
 use api::profile::AgentView;
 use api::repos::PlaceView;
@@ -10,7 +10,8 @@ use crate::canvas::repos::{
 };
 use crate::link::Snapshot;
 use crate::strings::{Lang, Str};
-use crate::views::card::{StateChip, chip_of, chip_text, chip_tip};
+use crate::views::dock::questions::kind_label;
+use crate::views::status::{self, Tone};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Key {
@@ -36,14 +37,6 @@ pub enum Dot {
     Idle,
     Done,
     Failed,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Tone {
-    Ask,
-    Done,
-    Failed,
-    Neutral,
 }
 
 pub struct Tag {
@@ -132,7 +125,7 @@ struct Item {
 }
 
 fn dot_of(view: &NodeView) -> Dot {
-    if view.waits.iter().any(|w| matches!(w.tone, WaitTone::Ask)) {
+    if view.waits.iter().any(status::asking) {
         return Dot::Waiting;
     }
     match view.state {
@@ -151,41 +144,17 @@ fn process_dot(process: &ProcessState) -> Dot {
     }
 }
 
-fn kind_text(kind: &WaitKind) -> Str {
-    match kind {
-        WaitKind::Question => Str::WaitQuestion,
-        WaitKind::Approval => Str::WaitApproval,
-        WaitKind::Trust => Str::WaitTrust,
-        WaitKind::Auth => Str::WaitAuth,
-        WaitKind::Input => Str::WaitInput,
-        WaitKind::Done => Str::WaitDone,
-    }
-}
-
 fn tags(view: &NodeView, lang: Lang) -> Vec<Tag> {
-    let asks: Vec<_> = view
+    let asks: Vec<_> = view.waits.iter().filter(|w| status::asking(w)).collect();
+    let dones = view
         .waits
         .iter()
-        .filter(|w| matches!(w.tone, WaitTone::Ask))
-        .collect();
-    let dones = view.waits.len() - asks.len();
-    if view.waits.is_empty() {
-        return chip_of(view)
-            .map(|chip| Tag {
-                text: chip_text(view, lang),
-                tone: match chip {
-                    StateChip::Failed => Tone::Failed,
-                    StateChip::Asleep => Tone::Neutral,
-                },
-                tip: Some(chip_tip(view, lang)),
-            })
-            .into_iter()
-            .collect();
-    }
+        .filter(|w| matches!(w.tone, WaitTone::Done))
+        .count();
     let mut out = Vec::new();
     if let Some(oldest) = asks.iter().min_by_key(|w| w.wait.since) {
         out.push(Tag {
-            text: format!("{} {}", kind_text(&oldest.wait.kind).text(lang), asks.len()),
+            text: format!("{} {}", kind_label(oldest.wait.kind).text(lang), asks.len()),
             tone: Tone::Ask,
             tip: None,
         });
@@ -197,6 +166,13 @@ fn tags(view: &NodeView, lang: Lang) -> Vec<Tag> {
             tip: None,
         });
     }
+    let label = Str::NodeStatusPopLabel.with(lang, &[("name", &view.name)]);
+    let state = status::chip(&view.status, lang).map(|c| Tag {
+        text: c.text,
+        tone: c.tone,
+        tip: Some(label),
+    });
+    out.extend(state);
     out
 }
 

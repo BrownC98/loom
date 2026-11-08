@@ -1,0 +1,5 @@
+CREATE TABLE stalls (
+    node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+    wait TEXT NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0
+);

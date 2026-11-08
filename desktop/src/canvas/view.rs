@@ -33,7 +33,7 @@ use super::repos::GroupKind;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
 use crate::link;
-use crate::store::{NodeMenu, Show, Store, Target, ZoomTo};
+use crate::store::{NodeMenu, NodeStatus, Show, Store, Target, ZoomTo};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::anchor::Anchors;
@@ -144,6 +144,10 @@ impl CanvasView {
         .detach();
         cx.subscribe(&store, |this, _, event: &NodeMenu, cx| {
             this.open_menu(event.node, event.at, event.button, cx)
+        })
+        .detach();
+        cx.subscribe_in(&store, window, |this, _, event: &NodeStatus, window, cx| {
+            this.open_status(event.node, event.at, event.button, window, cx)
         })
         .detach();
         cx.observe_window_activation(window, |_, window, _| {
@@ -1072,9 +1076,7 @@ impl Render for CanvasView {
                     let scale = snapped(camera.zoom);
                     div()
                         .w(px((placed.rect.size.width as f32) * scale))
-                        .h(px(
-                            card::body_height(placed.rect.size.height as f32, node) * scale
-                        ))
+                        .h(px(card::body_height(placed.rect.size.height as f32) * scale))
                         .child(live.view.clone())
                         .into_any_element()
                 });

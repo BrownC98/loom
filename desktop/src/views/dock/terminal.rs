@@ -195,6 +195,11 @@ impl Dock {
             wake: press(|this, id, _, _, cx| {
                 this.card_call(cx, move |base| cardlink::wake(base, id))
             }),
+            status: press(|this, id, e, _, cx| {
+                let (at, button) = (e.position, this.anchors.get(&format!("status:{id}")));
+                this.store
+                    .update(cx, |store, cx| store.open_node_status(id, at, button, cx))
+            }),
             expand: press(|this, id, _, _, cx| this.store.update(cx, |store, cx| store.go(id, cx))),
             menu: press(|this, id, e, _, cx| {
                 let (at, button) = (e.position, this.anchors.get(&format!("menu:{id}")));

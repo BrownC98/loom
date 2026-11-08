@@ -50,6 +50,53 @@ pub enum ProcessState {
     Stopped { code: Option<u32> },
 }
 
+/// 카드의 상태 칩과 그 아래 줄. 데몬이 노드를 읽을 때 이미 가진 사실에서 정한다(2026-11-08 목업 docs/mockups/agent-state.html M77 승인, Q2669).
+/// 한 노드에 여럿이 맞으면 사람 → 문제 → 일함 → 대기 → 결과 차례로 앞의 것이다.
+#[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Status {
+    /// 사람의 답·승인을 기다린다. 글과 시각은 `waits`의 가장 오랜 `ask` 대기가 준다.
+    Human,
+    /// `NodeState::SetupFailed`와 같다.
+    SetupFailed { code: u32 },
+    /// 일이 남았는데 프로세스가 없다. `ProcessState::Stopped`와 같다.
+    Stopped { code: Option<u32> },
+    /// 사용 한도에 걸렸다. 계정을 바꾸면 풀린다.
+    Limited,
+    /// 쉬는데 깨울 것이 없다(감시견 조건). 받은편지함에 `WaitKind::Stalled` 대기도 연다.
+    Stalled,
+    /// 턴 중이다. `tool`은 마지막으로 부른 도구와 대상(`Edit · web/src/NodeCard.tsx`)이다. 도구를 알리지 않는 에이전트이거나 아직 부르지 않았으면 없다.
+    Working { tool: Option<String> },
+    /// 끝나지 않은 산 자식이 있다. 자식 이름(만든 차례).
+    Children { names: Vec<String> },
+    /// 내 브랜치의 관문 차례가 열렸다(`ready`). `judged`는 이 head에 판정한 리뷰어 수다.
+    Review {
+        branch: String,
+        judged: u32,
+        reviewers: u32,
+    },
+    /// 판정이 통과했고 병합 큐에 있다(`passed`, `merging`). 병합 큐가 실패해 루트의 결정을 기다릴 때(`failed`)도 같다.
+    Merge { branch: String },
+    /// 부모에게 `loom ask`로 물었고 답이 없다.
+    Answer,
+    /// 리뷰어로서 이 head에 이미 판정했다. 새 커밋을 기다린다.
+    Rereview { branch: String },
+    /// 턴 끝 글이 「⏳ 」로 시작한다(loom 규칙: 기다릴 때 쓰는 글). 글은 `reply`가 준다.
+    Job,
+    /// 이 노드가 루트인 배포가 끝나지 않았다.
+    Deploy { target: String, sha: String },
+    /// 받을 메시지나 다시 띄우기 계획이 있다. 곧 일한다.
+    Mail,
+    /// 쉼. 감시하지 않는 노드(명령 노드, 듣지 못함)이거나 아직 턴을 끝낸 적이 없는 노드(빈 지시문으로 띄운 루트)다.
+    #[default]
+    Idle,
+    /// `loom done` 뒤다.
+    Done,
+    /// 내 브랜치가 병합됐다.
+    Merged { target: String, sha: String },
+}
+
 /// 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +143,16 @@ pub struct NodeView {
     pub waits: Vec<ScreenWait>,
     /// 노드 메뉴의 다시 띄우기. 없으면 메뉴에 보이지 않는다.
     pub relaunch: Option<RelaunchOffer>,
+    /// 카드의 상태 칩과 아래 줄. 이 필드가 없는 옛 데몬의 노드는 `idle`로 읽는다.
+    #[serde(default)]
+    pub status: Status,
+    /// `status`가 시작된 유닉스 초. 아래 줄의 시간이다. 옛 데몬이면 0이다.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub since: i64,
+    /// 내 브랜치의 지금 관문에서 받은 판정 막음 수. 3 이상이면 칩 옆에 보인다. 옛 데몬이면 0이다.
+    #[serde(default)]
+    pub rework: u32,
 }
 
 /// 노드 메뉴가 보이는 다시 띄우기. 데몬이 읽을 때 노드 상태, 에이전트의 메시지 연동, 남은 세션, 다시 띄우기 계획에서 정한다.

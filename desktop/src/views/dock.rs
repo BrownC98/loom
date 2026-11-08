@@ -17,7 +17,7 @@ use super::icons::Lucide;
 use super::scrollbar::Bar;
 use super::terminal::TerminalView;
 use crate::canvas::repos::chosen_repo;
-use crate::store::Store;
+use crate::store::{ShowEvents, Store};
 use crate::strings::Str;
 use crate::views::inputs::Inputs;
 use crate::views::pictures::Shelf;
@@ -222,6 +222,14 @@ pub fn dock(
             }));
         dock.subscriptions
             .push(cx.subscribe(&store, |dock, _, event, cx| dock.feed(event, cx)));
+        dock.subscriptions
+            .push(cx.subscribe(&store, |dock, _, event: &ShowEvents, cx| {
+                dock.choose_tab(Tab::Events, cx);
+                dock.events.query().update(cx, |field, cx| {
+                    field.clear(cx);
+                    field.set_text(&event.0, cx);
+                });
+            }));
         dock.sync(cx);
         dock
     })

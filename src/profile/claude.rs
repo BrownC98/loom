@@ -536,6 +536,7 @@ impl HookEvent for Hook {
             },
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
+            tool: self.event.tool(),
             reports: reported_model(&self.event, self.transcript_path.as_deref())
                 .map(Report::Model)
                 .into_iter()
@@ -663,6 +664,33 @@ pub enum Event {
 const NOTIFICATION_TAG: &str = "<task-notification>";
 const RATE_LIMIT_ERROR: &str = "rate_limit";
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
+const TOOL_TARGETS: [&str; 6] = [
+    "file_path",
+    "notebook_path",
+    "command",
+    "pattern",
+    "url",
+    "query",
+];
+const TOOL_TARGET_CHARS: usize = 80;
+
+fn short_target(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let cwd = std::env::current_dir().ok();
+    let line = cwd
+        .as_ref()
+        .and_then(|dir| line.strip_prefix(dir.to_str()?))
+        .and_then(|rest| rest.strip_prefix(['/', '\\']))
+        .unwrap_or(line);
+    match line.char_indices().nth(TOOL_TARGET_CHARS) {
+        Some((cut, _)) => format!("{}…", &line[..cut]),
+        None => line.to_owned(),
+    }
+}
 
 impl Event {
     pub(super) fn name(&self) -> &'static str {
@@ -766,6 +794,24 @@ impl Event {
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
+    }
+
+    fn tool(&self) -> Option<String> {
+        let Event::PreToolUse {
+            tool_name,
+            tool_input,
+        } = self
+        else {
+            return None;
+        };
+        let target = TOOL_TARGETS
+            .iter()
+            .find_map(|key| tool_input[key].as_str())
+            .map(short_target);
+        Some(match target {
+            Some(target) if !target.is_empty() => format!("{tool_name} · {target}"),
+            _ => tool_name.clone(),
+        })
     }
 
     pub fn rate_limited(&self) -> bool {

@@ -18,7 +18,7 @@ pub enum TextPart {
     Doc {
         label: String,
     },
-    /// Markdown 굵은 글(`**…**`)과 제목.
+    /// Markdown 강조(`**…**`, `*…*`)와 제목.
     Strong {
         text: String,
     },

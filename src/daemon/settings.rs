@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use api::settings::accounts::{AccountView, LoginId, LoginState, LoginTarget, PlaceUsage};
 
-use super::nodes::{Typed, serve_pty};
+use super::nodes::{PtyInput, Typed, serve_pty};
 use super::origin::ViaRemote;
 use super::ssh_hosts::{self, Reach};
 use super::{App, internal};
@@ -419,7 +419,10 @@ async fn login_pty(
         via,
         app,
         |app| &app.logins.host,
-        |_, _, _, _| Typed::Write,
+        PtyInput {
+            typed: |_, _, _, _| Typed::Write,
+            composing: |_, _| {},
+        },
         LoginId(id),
     )
 }

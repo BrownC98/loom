@@ -101,8 +101,6 @@ struct Aimed {
 }
 
 impl Aimed {
-    /// The wait that the card shows: the current wait, or the oldest wait of the node
-    /// while the text goes to the node and not to a wait.
     fn shown(&self) -> Option<&Streamed> {
         match self.aim {
             Aim::Alert(id) => self.stream.iter().find(|s| s.wait.wait.id == id),
@@ -328,7 +326,6 @@ impl Composer {
         cx.notify();
     }
 
-    /// The graph selection follows the current wait when it moves to another node.
     fn follow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(aimed) = self.aimed(cx) else { return };
         let moved = self.seen_node.is_some_and(|node| node != aimed.node);
@@ -345,7 +342,6 @@ impl Composer {
         }
     }
 
-    /// Selecting a node moves the focus away; the field takes it back after a short delay.
     fn focus_later(&self, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(FOCUS_DELAY).await;
@@ -726,7 +722,6 @@ impl Composer {
         self.follow(window, cx);
     }
 
-    /// Closes every open done wait of the stream, as [확인] on each one does.
     fn confirm_all(&mut self, cx: &mut Context<Self>) {
         let ids: Vec<u32> = self
             .stream(cx)
@@ -741,7 +736,6 @@ impl Composer {
         });
     }
 
-    /// Alt+1 … Alt+9: answers with that choice of the current card.
     fn answer_nth(&mut self, nth: usize, cx: &mut Context<Self>) -> bool {
         let Some(aimed) = self.aimed(cx) else {
             return false;
@@ -963,11 +957,9 @@ impl Composer {
         )
     }
 
-    /// Every remaining wait of the stream as one row; the current wait is bold.
     fn stream_list(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> AnyElement {
         let c = ui::colors(cx);
         let current = aimed.shown().map(|s| s.wait.wait.id);
-        // The list grows with the waits until the composer fills the pane; then it scrolls.
         let rest = self.boxed.get().height - self.stream_box.get().height;
         let room = self.pane.get().height - px(2.0 * MARGIN) - rest;
         let mut list = div()

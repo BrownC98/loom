@@ -44,21 +44,16 @@ impl Kind {
     }
 }
 
-/// A stop of the composer: the node it speaks to and what it answers there.
 pub type Stop = (u32, Aim);
 
-/// The stop that the human chose, with the place of its wait in the stream.
-/// The place lets the composer find the next wait after this one closes.
 #[derive(Clone, Copy, Debug)]
 pub struct Chosen {
     pub stop: Stop,
     pub place: Option<Place>,
 }
 
-/// Time order of a wait in the stream: `since`, then the wait number.
 pub type Place = (i64, u32);
 
-/// One open wait of the loom-wide stream, with the node and repository it belongs to.
 #[derive(Clone)]
 pub struct Streamed {
     pub node: u32,
@@ -77,7 +72,6 @@ impl Streamed {
     }
 }
 
-/// All open waits of all nodes, oldest first.
 pub fn stream_of(snapshot: &Snapshot) -> Vec<Streamed> {
     let mut stream: Vec<Streamed> = snapshot
         .nodes
@@ -112,9 +106,6 @@ pub fn chosen(stop: Stop, stream: &[Streamed]) -> Chosen {
     Chosen { stop, place }
 }
 
-/// The stop that is current. A pinned stop wins. Then the stop that the human chose.
-/// If that wait closed, the next wait in time order is current (the oldest one after the last).
-/// With no choice, the oldest wait is current.
 pub fn resolve(
     held: Option<Stop>,
     chosen: Option<Chosen>,
@@ -157,7 +148,6 @@ pub fn kind_of(aim: Aim, stream: &[Streamed]) -> Kind {
     }
 }
 
-/// Steps through the stream; the last stop is the instruction to the current node.
 pub fn cycle(current: Stop, stream: &[Streamed], by: isize) -> Stop {
     let stops: Vec<Stop> = stream
         .iter()

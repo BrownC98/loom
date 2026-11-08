@@ -504,8 +504,6 @@ impl Answers {
         self.run(wait, None, task, cx);
     }
 
-    /// Answers with the `nth` (0-based) choice of the card, as a click on its button does.
-    /// Returns false if the card has no such choice.
     pub(crate) fn choose_nth(
         &mut self,
         wait: &ScreenWait,
@@ -578,7 +576,6 @@ pub(crate) fn entry(
     framed(answers, wait, z, find, body, None, cx)
 }
 
-/// The head of the composer's alert card: where the wait comes from and what remains.
 pub(crate) struct Strip {
     pub repo: String,
     pub node: String,

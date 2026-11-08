@@ -61,3 +61,31 @@ export function followingWait(stream: readonly StreamWait[], gone: ScreenWait): 
   const next = stream.find((s) => byStream(s.wait, gone) > 0) ?? stream[0];
   return next ? { node: next.view.id, key: next.wait.id } : null;
 }
+
+const CLOSING_MS = 10_000;
+
+type Closing = { place: ScreenWait; ids: ReadonlySet<WaitId>; followed: boolean; at: number };
+
+let closing: Closing | null = null;
+
+export function startClosing(place: ScreenWait, ids: readonly WaitId[]): () => void {
+  const mine: Closing = { place, ids: new Set(ids), followed: false, at: Date.now() };
+  closing = mine;
+  return () => {
+    if (closing === mine) closing = null;
+  };
+}
+
+export function followClosed(stream: readonly StreamWait[]): Chosen | null {
+  const c = closing;
+  if (!c) return null;
+  if (Date.now() - c.at > CLOSING_MS) {
+    closing = null;
+    return null;
+  }
+  const open = (id: WaitId) => stream.some((s) => s.wait.id === id);
+  const placeGone = !c.followed && !open(c.place.id);
+  if (placeGone) c.followed = true;
+  if (![...c.ids].some(open)) closing = null;
+  return placeGone ? followingWait(stream.filter((s) => !c.ids.has(s.wait.id)), c.place) : null;
+}

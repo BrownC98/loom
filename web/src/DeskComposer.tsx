@@ -1,10 +1,10 @@
 import { ArrowUp, ChevronDown, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type DOMAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { answerWait } from './api';
+import { answerWait, chooseOption } from './api';
 import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
-import { followingWait, PROMPT, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
+import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
@@ -12,6 +12,7 @@ import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { Prompt } from './gen/Prompt';
 import type { ScreenWait } from './gen/ScreenWait';
 import type { RepoView } from './gen/RepoView';
 import { useNodeInput } from './nodeInputs';
@@ -66,7 +67,13 @@ export function DeskComposer(props: DeskProps) {
       props.onReaim();
       throw new Error(t('composer.targetClosed'));
     }
-    return target.route.kind === 'prompt' ? typeInto(node)(text, paths) : answerWith(target.route.wait.id)(text, paths);
+    if (target.route.kind === 'prompt') return typeInto(node)(text, paths);
+    const { wait } = target.route;
+    const cancel = startClosing(wait, [wait.id]);
+    return Promise.resolve(answerWith(wait.id)(text, paths)).catch((err) => {
+      cancel();
+      throw err;
+    });
   };
   const composer = useComposer({ node, keys: props.keys, deliver });
   const focusField = () => float.current?.querySelector('textarea')?.focus();
@@ -83,13 +90,9 @@ export function DeskComposer(props: DeskProps) {
     if (id === node) focusField();
     else focusOnMount = id;
   };
-  const shown = useRef<ScreenWait | null>(null);
   useEffect(() => {
-    const was = shown.current;
-    shown.current = target.key === PROMPT ? null : target.card;
-    if (!was || target.lost || target.stream.some((s) => s.wait.id === was.id)) return;
-    const next = followingWait(target.stream, was);
-    if (next) pick(next.node, next.key);
+    const next = followClosed(target.stream);
+    if (next && !target.lost) pick(next.node, next.key);
   }, [target.stream]);
   useEffect(() => {
     const wanted = focusOnMount === node;
@@ -115,20 +118,42 @@ export function DeskComposer(props: DeskProps) {
     const wait = target.card;
     if (!wait) return;
     composer.setRefusal(null);
+    const cancel = startClosing(wait, [wait.id]);
     void composer.images
       .paths(node)
       .then((saved) => answerWait(wait.id, key, saved.paths).then(() => composer.images.forget(saved.ids)))
-      .catch((err: Error) => composer.setRefusal(err.message));
+      .catch((err: Error) => {
+        cancel();
+        composer.setRefusal(err.message);
+      });
+  };
+  const choosePrompt = (wait: ScreenWait, prompt: Prompt, option: number) => {
+    composer.setRefusal(null);
+    const cancel = startClosing(wait, [wait.id]);
+    chooseOption(wait.id, prompt, option).catch((err: Error) => {
+      cancel();
+      composer.setRefusal(err.message);
+    });
+  };
+  const keyAction = (n: number): (() => void) | null => {
+    const wait = target.card;
+    if (!wait || listing || target.key === PROMPT) return null;
+    if (wait.answerable) {
+      const choice = wait.tone !== 'done' ? wait.choices?.[n - 1] : undefined;
+      return choice ? () => choose(choice.key) : null;
+    }
+    const { prompt } = wait;
+    return prompt && prompt.options[n - 1] && !prompt.options[n - 1].writes ? () => choosePrompt(wait, prompt, n - 1) : null;
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.nativeEvent.isComposing) return;
     const digit = /^Digit([1-9])$/.exec(e.code);
-    const choice = digit && !listing && target.card?.answerable && target.card.tone !== 'done' ? target.card.choices?.[Number(digit[1]) - 1] : undefined;
+    const keyed = digit ? keyAction(Number(digit[1])) : null;
     if (e.code === 'KeyL') toggleList();
     else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) {
       const next = stepTo(target, e.code === 'ArrowUp' ? -1 : 1);
       pick(next.node, next.key);
-    } else if (choice) choose(choice.key);
+    } else if (keyed) keyed();
     else return;
     e.preventDefault();
   };

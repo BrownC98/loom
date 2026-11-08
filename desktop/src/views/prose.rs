@@ -573,6 +573,7 @@ impl Prose {
                         if let (Some(down), Some(up)) = (press.down.take(), found)
                             && down == up
                         {
+                            cx.stop_propagation();
                             (clicks.call)(up, window, cx);
                         }
                     }

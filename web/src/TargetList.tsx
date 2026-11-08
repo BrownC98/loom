@@ -4,35 +4,48 @@ import { useTranslation } from 'react-i18next';
 import { PROMPT, type TargetKey } from './alertTarget';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { RepoView } from './gen/RepoView';
 import type { ScreenWait } from './gen/ScreenWait';
 import type { WaitTone } from './gen/WaitTone';
 import { clockTime } from './i18n';
 import { bySince, ICON, NoticeBadges, showsId } from './notice';
 import { useEscapeClose, useOutsidePress } from './popover';
-import { openMatches } from './waitSearch';
+import { openMatches, waitSearch } from './waitSearch';
 
 type Current = { node: NodeId; key: TargetKey };
 type Row = { node: NodeView; key: TargetKey; wait: ScreenWait | null };
-type Group = { node: NodeView; rows: Row[] };
+type Repo = Pick<RepoView, 'id' | 'name'>;
+type Head = { kind: 'node'; node: NodeView } | { kind: 'repo'; repo: Repo };
+type Group = { head: Head; rows: Row[] };
 
 const KINDS: readonly (WaitTone | null)[] = [null, 'ask', 'done'];
 const CHIP: Record<'all' | WaitTone, 'composer.chipAll' | 'composer.chipQuestion' | 'composer.chipDone'> = { all: 'composer.chipAll', ask: 'composer.chipQuestion', done: 'composer.chipDone' };
 
 const promptRow = (node: NodeView): Row => ({ node, key: PROMPT, wait: null });
+const live = (node: NodeView) => node.state.kind === 'running' || node.state.kind === 'done';
+const groupKey = (head: Head) => (head.kind === 'node' ? `n${head.node.id}` : `r${head.repo.id}`);
 
-function groupsOf(waiting: readonly NodeView[], query: string, kind: WaitTone | null, extra: NodeView): Group[] {
+function groupsOf(waiting: readonly NodeView[], query: string, kind: WaitTone | null, nodes: readonly NodeView[], repos: readonly Repo[], current: NodeId): Group[] {
   const groups = openMatches([...waiting], query)
     .map((v) => ({ node: waiting.find((w) => w.id === v.id) ?? v, waits: v.waits.filter((w) => kind === null || w.tone === kind) }))
     .filter((g) => g.waits.length > 0)
-    .map((g) => ({ node: g.node, rows: [...g.waits.sort(bySince).map((wait): Row => ({ node: g.node, key: wait.id, wait })), promptRow(g.node)] }));
-  if (query.trim() === '' && kind === null && !groups.some((g) => g.node.id === extra.id)) groups.push({ node: extra, rows: [promptRow(extra)] });
+    .map((g): Group => ({ head: { kind: 'node', node: g.node }, rows: [...g.waits.sort(bySince).map((wait): Row => ({ node: g.node, key: wait.id, wait })), promptRow(g.node)] }));
+  if (kind !== null) return groups;
+  const listed = new Set(groups.map((g) => g.rows[0].node.id));
+  const words = waitSearch(query)?.words;
+  const others = nodes.filter((v) => !listed.has(v.id) && (live(v) || v.id === current) && (!words || v.name.toLowerCase().includes(words)));
+  for (const repo of repos) {
+    const rows = others.filter((v) => v.place.repo === repo.id).map(promptRow);
+    if (rows.length > 0) groups.push({ head: { kind: 'repo', repo }, rows });
+  }
   return groups;
 }
 
 export function TargetList(props: {
   waiting: readonly NodeView[];
+  nodes: readonly NodeView[];
+  repos: readonly Repo[];
   current: Current;
-  currentView: NodeView;
   anchor: RefObject<HTMLElement | null>;
   room: number;
   onPick: (node: NodeId, key: TargetKey) => void;
@@ -48,7 +61,7 @@ export function TargetList(props: {
   const matched = openMatches([...props.waiting], query);
   const counts = { all: matched.reduce((n, v) => n + v.waits.length, 0), ask: 0, done: 0 };
   for (const w of matched.flatMap((v) => v.waits)) counts[w.tone] += 1;
-  const groups = groupsOf(props.waiting, query, kind, props.currentView);
+  const groups = groupsOf(props.waiting, query, kind, props.nodes, props.repos, props.current.node);
   const rows = groups.flatMap((g) => g.rows);
   const isCurrent = (r: Row) => r.node.id === props.current.node && r.key === props.current.key;
   const [cursor, setCursor] = useState(() => Math.max(0, rows.findIndex(isCurrent)));
@@ -63,14 +76,20 @@ export function TargetList(props: {
     <div ref={box} className="target-list" style={{ maxHeight: props.room }} role="dialog" aria-label={t('composer.pickTarget')}>
       <div id={`${id}-list`} className="tl-rows" role="listbox" aria-label={t('composer.pickTarget')}>
         {groups.map((g) => (
-          <div key={g.node.id} role="group" aria-labelledby={`${id}-g${g.node.id}`}>
-            <h3 id={`${id}-g${g.node.id}`}>
-              <b>{g.node.name}</b>
-              <NoticeBadges waits={g.node.waits} />
+          <div key={groupKey(g.head)} role="group" aria-labelledby={`${id}-${groupKey(g.head)}`}>
+            <h3 id={`${id}-${groupKey(g.head)}`}>
+              {g.head.kind === 'node' ? (
+                <>
+                  <b>{g.head.node.name}</b>
+                  <NoticeBadges waits={g.head.node.waits} />
+                </>
+              ) : (
+                g.head.repo.name
+              )}
             </h3>
             {g.rows.map((r) => {
               const index = (n += 1);
-              return <TargetRow key={r.key} id={option(index)} row={r} selected={index === at} current={isCurrent(r)} onMove={() => setCursor(index)} onPick={() => choose(r)} />;
+              return <TargetRow key={`${r.node.id}-${r.key}`} id={option(index)} row={r} selected={index === at} current={isCurrent(r)} onMove={() => setCursor(index)} onPick={() => choose(r)} />;
             })}
           </div>
         ))}

@@ -20,6 +20,7 @@ import { TargetList } from './TargetList';
 
 const COMPOSER_ROOM = '--composer-room';
 const COMPOSER_WIDTH = 680;
+const MIN_STREAM = 75;
 
 const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
 const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
@@ -53,6 +54,8 @@ export function DeskComposer(props: DeskProps) {
   const [listing, setListing] = useState(false);
   const pane = useSize(layer);
   const box = useSize(float);
+  const streamBox = useRef<HTMLDivElement>(null);
+  const stream = useSize(streamBox);
   const fullWidth = pane ? Math.min(COMPOSER_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : null;
   const fullBox = box && fullWidth !== null ? { w: fullWidth, h: box.h } : null;
   const drag = useFloatDrag(float, pane, fullBox, props.onPlace);
@@ -107,6 +110,7 @@ export function DeskComposer(props: DeskProps) {
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const { route } = target;
+  const streamRoom = pane && box ? Math.max(MIN_STREAM, (pane.h - 2 * FLOAT_MARGIN - box.h + (stream?.h ?? 0)) / floatZoom(props.size)) : null;
   const choose = (key: string) => {
     const wait = target.card;
     if (!wait) return;
@@ -143,7 +147,7 @@ export function DeskComposer(props: DeskProps) {
           target={{ ref: targetButton, open: listing, onToggle: toggleList }}
           float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null) }}
         >
-          <StreamList stream={target.stream} current={target.card?.id ?? null} onPick={(entry) => pick(entry.view.id, entry.wait.id)} />
+          <StreamList box={streamBox} room={streamRoom} stream={target.stream} current={target.card?.id ?? null} onPick={(entry) => pick(entry.view.id, entry.wait.id)} />
           <AlertCard
             target={target}
             repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}

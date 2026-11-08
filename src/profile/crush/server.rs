@@ -494,7 +494,7 @@ async fn run(server: &Server, port: &dyn Port, brief: String) -> Result<(), Stri
                         turn: None,
                         prompt_id: None,
                         tool: None,
-                        jobs: 0,
+                        background: None,
                     }).map_err(|e| e.to_string())?;
                     active = true;
                     if let Some(future) = idle.take()

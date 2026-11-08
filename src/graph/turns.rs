@@ -21,6 +21,7 @@ enum Bit {
     Status,
     Typed,
     HumanReply,
+    Background,
 }
 
 impl Bit {
@@ -29,7 +30,7 @@ impl Bit {
     }
 }
 
-const _: () = match Bit::HumanReply {
+const _: () = match Bit::Background {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
@@ -40,8 +41,9 @@ const _: () = match Bit::HumanReply {
     | Bit::FirstInput
     | Bit::UnjudgedNudged
     | Bit::Status
-    | Bit::Typed => {}
-    last @ Bit::HumanReply => assert!((last as u32) < u16::BITS),
+    | Bit::Typed
+    | Bit::HumanReply => {}
+    last @ Bit::Background => assert!((last as u32) < u16::BITS),
 };
 
 const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
@@ -92,6 +94,7 @@ const REPLIED: u16 = Bit::Replied.mask();
 pub(super) const STATUS: u16 = Bit::Status.mask();
 pub(super) const HUMAN_REPLY: u16 = Bit::HumanReply.mask();
 pub(super) const TYPED: u16 = Bit::Typed.mask();
+pub(super) const BACKGROUND: u16 = Bit::Background.mask();
 pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
 const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
@@ -292,7 +295,7 @@ impl Graph {
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
             params![
                 node.0,
-                kept | human_reply | (flags & (SUBMITTED_INPUT | STATUS | open))
+                kept | human_reply | (flags & (SUBMITTED_INPUT | STATUS | BACKGROUND | open))
             ],
         )?;
         tx.commit()?;
@@ -317,9 +320,19 @@ impl Graph {
                 | STATUS
                 | HUMAN_REPLY
                 | TYPED
+                | BACKGROUND
                 | FIRST_INPUT,
         )?;
         tx.commit()
+    }
+
+    pub fn background(&self, node: NodeId, running: bool) -> rusqlite::Result<()> {
+        let (set, clear) = if running {
+            (BACKGROUND, 0)
+        } else {
+            (0, BACKGROUND)
+        };
+        set_flags(&self.lock(), node, set, clear)
     }
 
     pub fn first_input_sent(&self, node: NodeId) -> rusqlite::Result<()> {

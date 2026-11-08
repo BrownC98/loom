@@ -174,12 +174,6 @@ impl App {
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
         self.sleeps.changed();
         self.watchdog.saw(change.node, change.to.as_ref());
-        if matches!(
-            change.by,
-            AgentEvent::Relaunched | AgentEvent::Exited | AgentEvent::Slept
-        ) {
-            self.watchdog.forget_jobs(change.node);
-        }
         let mark = self.tools.mark(change.node);
         if !matches!(
             self.agent_state(change.node),

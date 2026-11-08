@@ -44,7 +44,7 @@ pub struct TakeRequest {
     #[serde(default)]
     pub tool: Option<String>,
     #[serde(default)]
-    pub jobs: i32,
+    pub background: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

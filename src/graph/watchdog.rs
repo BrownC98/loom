@@ -1,6 +1,6 @@
 use rusqlite::OptionalExtension;
 
-use super::turns::{HUMAN_REPLY, STATUS};
+use super::turns::{BACKGROUND, HUMAN_REPLY, STATUS};
 use super::{Graph, mailbox};
 use api::graph::messages::{Kind, MessageKind};
 use api::ids::NodeId;
@@ -54,8 +54,9 @@ fn waited() -> String {
 
 fn reason() -> String {
     format!(
-        r#"coalesce({}, CASE WHEN (n.turn_flags & {STATUS}) != 0 THEN '{{"kind":"job"}}' END)"#,
-        waited()
+        r#"coalesce({}, CASE WHEN (n.turn_flags & {}) != 0 THEN '{{"kind":"job"}}' END)"#,
+        waited(),
+        STATUS | BACKGROUND
     )
 }
 

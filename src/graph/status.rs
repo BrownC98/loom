@@ -9,12 +9,6 @@ use api::ids::{AgentId, NodeId};
 use super::waits::new_wait;
 use super::{Graph, VIEW_COLUMNS, optional_json, to_json, view_from_row, watchdog};
 
-pub enum Quiet {
-    Short,
-    Job,
-    Long,
-}
-
 const STALL_TEXT: &str = "기다릴 것이 없는데 쉽니다.";
 
 struct Derived {
@@ -69,7 +63,7 @@ pub(super) fn views(
     db: &Connection,
     linked: fn(&AgentId) -> bool,
     tool: &dyn Fn(NodeId) -> Option<String>,
-    quiet: &dyn Fn(NodeId) -> Quiet,
+    quiet: &dyn Fn(NodeId) -> bool,
 ) -> rusqlite::Result<Vec<NodeView>> {
     let since = since_of(db)?;
     let mut views = with_status(db, linked, tool, quiet)?;
@@ -88,7 +82,7 @@ fn with_status(
     db: &Connection,
     linked: fn(&AgentId) -> bool,
     tool: &dyn Fn(NodeId) -> Option<String>,
-    quiet: &dyn Fn(NodeId) -> Quiet,
+    quiet: &dyn Fn(NodeId) -> bool,
 ) -> rusqlite::Result<Vec<NodeView>> {
     db.prepare(&query())?
         .query_map([], |row| {
@@ -122,7 +116,7 @@ fn status(
     view: &NodeView,
     derived: Derived,
     tool: &dyn Fn(NodeId) -> Option<String>,
-    quiet: &dyn Fn(NodeId) -> Quiet,
+    quiet: &dyn Fn(NodeId) -> bool,
 ) -> Status {
     let running = view.state == NodeState::Running;
     if asks_human(view).next().is_some() {
@@ -146,15 +140,14 @@ fn status(
     if view.state == NodeState::Done {
         return derived.merged.unwrap_or(Status::Done);
     }
-    match (derived.idle, quiet(view.id)) {
-        (Some(Status::Stalled), Quiet::Job) => Status::Job,
-        (Some(Status::Stalled), Quiet::Short) if !derived.flagged => Status::Idle,
-        (idle, _) => idle.unwrap_or(Status::Idle),
-    }
+    derived
+        .idle
+        .filter(|idle| *idle != Status::Stalled || derived.flagged || quiet(view.id))
+        .unwrap_or(Status::Idle)
 }
 
 impl Graph {
-    pub fn sync_stalls(&self, quiet: impl Fn(NodeId) -> Quiet) -> rusqlite::Result<()> {
+    pub fn sync_stalls(&self, quiet: impl Fn(NodeId) -> bool) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let stalled: Vec<NodeId> = with_status(&tx, self.linked, &|_| None, &quiet)?

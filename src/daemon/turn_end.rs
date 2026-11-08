@@ -64,6 +64,12 @@ impl TurnEnds {
         }
     }
 
+    pub fn background(&self, node: NodeId, running: bool) {
+        if let Err(e) = self.graph.background(node, running) {
+            crate::log::logln!("loom: 노드 {}의 백그라운드 작업을 쓰지 못했다: {e}", node.0);
+        }
+    }
+
     pub fn called(&self, node: NodeId) {
         self.mark(node, TurnMark::Called);
     }

@@ -538,7 +538,7 @@ impl HookEvent for Hook {
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
             tool: self.event.tool(),
-            jobs: if main { self.event.jobs() } else { 0 },
+            background: self.event.background().filter(|_| main),
             reports: reported_model(&self.event, self.transcript_path.as_deref())
                 .map(Report::Model)
                 .into_iter()
@@ -665,6 +665,7 @@ pub enum Event {
 
 const NOTIFICATION_TAG: &str = "<task-notification>";
 const MONITOR_TOOL: &str = "Monitor";
+const TASK_ID_TAG: &str = "<task-id>";
 const RATE_LIMIT_ERROR: &str = "rate_limit";
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 const TOOL_TARGETS: [&str; 6] = [
@@ -817,16 +818,19 @@ impl Event {
         })
     }
 
-    fn jobs(&self) -> i32 {
+    fn background(&self) -> Option<bool> {
         match self {
-            Event::PreToolUse {
+            Event::PostToolUse {
                 tool_name,
                 tool_input,
-            } if tool_name == MONITOR_TOOL || tool_input["run_in_background"] == true => 1,
-            Event::UserPromptSubmit { prompt } => {
-                -i32::try_from(prompt.matches(NOTIFICATION_TAG).count()).unwrap_or(i32::MAX)
+                ..
+            } if tool_name == MONITOR_TOOL || tool_input["run_in_background"] == true => Some(true),
+            Event::UserPromptSubmit { prompt }
+                if prompt.starts_with(NOTIFICATION_TAG) && prompt.contains(TASK_ID_TAG) =>
+            {
+                Some(false)
             }
-            _ => 0,
+            _ => None,
         }
     }
 

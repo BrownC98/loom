@@ -44,22 +44,27 @@ fn preview(text: String) -> String {
 const PREVIEW_LIMIT_BYTES: usize = 1024;
 
 pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
-    screen(wait, true)
+    let text = match wait.kind {
+        WaitKind::Question => without_tail(&wait.text).unwrap_or(&wait.text),
+        _ => &wait.text,
+    };
+    let parts = text_parts(wait.kind, text);
+    screen(wait, parts)
 }
 
 pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
-    screen(wait, false)
+    let parts = text_parts(wait.kind, &wait.text);
+    screen(wait, parts)
 }
 
-fn screen(wait: HumanWait, buttons: bool) -> ScreenWait {
-    let text = match wait.kind {
-        WaitKind::Question if buttons => without_tail(&wait.text).unwrap_or(&wait.text),
-        _ => &wait.text,
-    };
-    let parts = match wait.kind {
+fn text_parts(kind: WaitKind, text: &str) -> Vec<TextPart> {
+    match kind {
         WaitKind::Question | WaitKind::Done => markdown(text),
         WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => parts(text),
-    };
+    }
+}
+
+fn screen(wait: HumanWait, parts: Vec<TextPart>) -> ScreenWait {
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
         None => preview(parts.iter().map(TextPart::shown).collect()),

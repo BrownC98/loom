@@ -110,19 +110,19 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
   const setRefusal = (message: string | null) => refusals.set(DRAFT_KEY, message);
   const [dragging, setDragging] = useState(false);
   const images = useImages(DRAFT_KEY, props.node, setRefusal);
-  const area = useRef<HTMLTextAreaElement>(null);
+  const [area, setArea] = useState<HTMLTextAreaElement | null>(null);
   const composition = useRef<Composition | null>(null);
   useEffect(() => {
-    if (!area.current) return;
-    const watched = watchComposition(area.current);
+    if (!area) return;
+    const watched = watchComposition(area);
     composition.current = watched;
     return () => {
       watched.dispose();
       composition.current = null;
     };
-  }, []);
+  }, [area]);
   useLayoutEffect(() => {
-    const el = area.current;
+    const el = area;
     if (!el) return;
     const fit = () => {
       el.style.height = 'auto';
@@ -137,13 +137,13 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
     });
     resized.observe(el);
     return () => resized.disconnect();
-  }, [text]);
+  }, [text, area]);
   const filing = uploads.use(DRAFT_KEY).length;
   const sending = sendings.use(DRAFT_KEY);
   const ready = text.trim() !== '' || images.list.length > 0 || filing > 0 || props.keys.blank !== null;
 
   const insertPath = (path: string) => {
-    const el = area.current;
+    const el = area;
     let caret: number | null = null;
     editDraft(DRAFT_KEY, (now) => {
       const at = el?.isConnected && el.value === now ? el.selectionStart : now.length;
@@ -227,7 +227,7 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
     },
   };
   const field: Pick<ComponentProps<'textarea'>, 'ref' | 'value' | 'readOnly' | 'onChange' | 'onKeyDown' | 'onPaste'> = {
-    ref: area,
+    ref: setArea,
     value: text,
     readOnly: sending,
     onChange: (e) => {

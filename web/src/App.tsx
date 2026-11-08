@@ -590,9 +590,8 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {target && (!settings.composerOff || target.stream.length > 0) && (
+            {target && (!settings.composerOff || target.stream.length > 0 || draftFilled) && (
               <DeskComposer
-                key={target.view.id}
                 target={target}
                 waiting={waiting}
                 nodes={[...nodes.values()]}

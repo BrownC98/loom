@@ -466,7 +466,7 @@ function What({ entry, facts, names, agents, t }: { entry: Entry; facts: Message
         <>
           <span className="kind">{t(`events.kind.${entry.kind}`)}</span>
           {t(`switch.provider.${entry.provider}`)}
-          {entry.kind === 'accountSwitched' && <span className="note">{t('switch.notice.counts', { moved: entry.moved, later: entry.later, failed: entry.failed })}</span>}
+          {entry.kind === 'accountSwitched' && <span className="note">{t('switch.counts', { moved: entry.moved, later: entry.later, failed: entry.failed })}</span>}
         </>
       );
   }

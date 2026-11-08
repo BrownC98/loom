@@ -649,7 +649,7 @@ pub fn what(record: &EventRecord, c: &Ctx) -> Vec<Seg> {
             Seg::Text(provider_text(*provider, c)),
             Seg::Note(
                 c.with(
-                    Str::SwitchNoticeCounts,
+                    Str::SwitchCounts,
                     &[
                         ("moved", &moved.to_string()),
                         ("later", &later.to_string()),

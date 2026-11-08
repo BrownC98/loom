@@ -109,8 +109,4 @@ composerPlace: FloatPlace | null,
 /**
  * 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
  */
-composerSize: FloatSize, closedPanes: ClosedPanes, 
-/**
- * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
- */
-closedSwitchNotice: number | null, };
+composerSize: FloatSize, closedPanes: ClosedPanes, };

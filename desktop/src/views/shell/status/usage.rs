@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use api::graph::GraphEvent;
-use api::graph::events::{Entry, EventLog, EventRecord, SwitchCause};
+use api::graph::events::{Entry, SwitchCause};
 use api::ids::AccountId;
 use api::profile::Provider;
 use api::repos::PlaceView;
@@ -27,13 +27,10 @@ use crate::views::icons::{Lucide, agent_mark, icon};
 use crate::views::tooltip::tip;
 use crate::views::usage::{
     self, ACCOUNTS, AccountsChanged, PROVIDERS, REFRESH, Switching, account_name, active_index,
-    provider_label,
 };
 
 const CURSOR: &str = "/api/usage/cursor";
-const EVENTS: &str = "/api/events/log";
 const NAME_W: f32 = 220.0;
-const NOTICE_W: f32 = 520.0;
 const METER_W: f32 = 36.0;
 const MARK: f32 = 14.0;
 
@@ -48,7 +45,6 @@ pub struct Usage {
     open: bool,
     expanded: Option<Provider>,
     switching: Option<Switching>,
-    latest: Option<EventRecord>,
     focus: FocusHandle,
     dialog_focus: FocusHandle,
     restore: Option<FocusHandle>,
@@ -73,7 +69,6 @@ impl Usage {
             open: false,
             expanded: None,
             switching: None,
-            latest: None,
             focus: cx.focus_handle(),
             dialog_focus: cx.focus_handle(),
             restore: None,
@@ -88,7 +83,6 @@ impl Usage {
             }
         })
         .detach();
-        usage.load_latest(cx);
         usage
     }
 
@@ -127,48 +121,14 @@ impl Usage {
         .detach();
     }
 
-    fn load_latest(&self, cx: &mut Context<Self>) {
-        let Some(base) = self.base(cx) else {
-            return;
-        };
-        cx.spawn(async move |this, cx| {
-            let log = cx
-                .background_spawn(async move { link::read::<EventLog>(&base, EVENTS) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Ok(log) = log
-                    && let Some(record) = log.records.into_iter().find(|r| is_switch(&r.entry))
-                {
-                    this.latest.get_or_insert(record);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-    }
-
     fn feed(&mut self, event: &GraphEvent, cx: &mut Context<Self>) {
         let GraphEvent::Recorded { record } = event else {
             return;
         };
-        if !is_switch(&record.entry) {
-            return;
-        }
-        self.latest = Some((**record).clone());
         if matches!(&record.entry, Entry::AccountSwitched { why, .. } if *why != SwitchCause::Manual)
         {
             self.refresh(cx);
         }
-        cx.notify();
-    }
-
-    fn close_notice(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.latest.as_ref().map(|r| r.id) else {
-            return;
-        };
-        let patch = serde_json::json!({ "closedSwitchNotice": id });
-        self.store
-            .update(cx, |store, cx| store.save_settings(patch, cx));
     }
 
     fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -347,102 +307,6 @@ impl Usage {
         })
         .detach();
     }
-
-    fn name_of(
-        &self,
-        provider: Provider,
-        distro: Option<&str>,
-        id: Option<&AccountId>,
-        cx: &App,
-    ) -> String {
-        match self
-            .own(provider, distro)
-            .into_iter()
-            .find(|a| a.id.as_ref() == id)
-        {
-            Some(account) => account_name(account, cx),
-            None => usage::unnamed(id.is_none(), cx),
-        }
-    }
-
-    fn notice_text(&self, record: &EventRecord, cx: &App) -> (String, bool) {
-        let lang = *cx.global::<Lang>();
-        let say = |text: Str, args: &[(&str, &str)]| text.with(lang, args);
-        match &record.entry {
-            Entry::NoAccountLeft {
-                provider,
-                resets_at,
-                ..
-            } => {
-                let head = say(
-                    Str::SwitchNoticeNoneLeft,
-                    &[("provider", provider_label(*provider, cx))],
-                );
-                let text = match resets_at {
-                    Some(at) => {
-                        let time = usage::weekday_time(*at, lang);
-                        let tail = say(Str::SwitchNoticeResetsAt, &[("time", &time)]);
-                        format!("{head} \u{00B7} {tail}")
-                    }
-                    None => head,
-                };
-                (text, true)
-            }
-            Entry::AccountSwitched {
-                provider,
-                distro,
-                from,
-                to,
-                why,
-                moved,
-                later,
-                failed,
-            } => {
-                let place = distro.as_deref();
-                let label = provider_label(*provider, cx);
-                let to_name = self.name_of(*provider, place, to.as_ref(), cx);
-                let head = match why {
-                    SwitchCause::Manual => say(
-                        Str::SwitchNoticeManual,
-                        &[("provider", label), ("to", &to_name)],
-                    ),
-                    SwitchCause::RateLimit => {
-                        let from_name = self.name_of(*provider, place, from.as_ref(), cx);
-                        say(
-                            Str::SwitchNoticeAuto,
-                            &[
-                                ("provider", label),
-                                ("from", &from_name),
-                                ("to", &to_name),
-                                ("cause", Str::SwitchNoticeCauseRateLimit.text(lang)),
-                            ],
-                        )
-                    }
-                };
-                let counts = [
-                    (*moved, Str::SwitchNoticeMoved),
-                    (*later, Str::SwitchNoticeLater),
-                    (*failed, Str::SwitchNoticeFailed),
-                ]
-                .into_iter()
-                .filter(|(n, _)| *n > 0)
-                .map(|(n, text)| say(text, &[("n", &n.to_string())]));
-                let text = std::iter::once(head)
-                    .chain(counts)
-                    .collect::<Vec<_>>()
-                    .join(" \u{00B7} ");
-                (text, false)
-            }
-            _ => (String::new(), false),
-        }
-    }
-}
-
-fn is_switch(entry: &Entry) -> bool {
-    matches!(
-        entry,
-        Entry::AccountSwitched { .. } | Entry::NoAccountLeft { .. }
-    )
 }
 
 fn text(label: impl Into<SharedString>) -> Div {
@@ -599,37 +463,6 @@ impl Render for Usage {
             }))
             .child(icon(Lucide::RotateCw, MARK, c.ink_2));
 
-        let notice = self.latest.as_ref().and_then(|record| {
-            let closed = self.store.read(cx).settings().closed_switch_notice;
-            if closed == Some(record.id) {
-                return None;
-            }
-            let (message, warn) = self.notice_text(record, cx);
-            let tone = if warn { c.warn } else { c.ink };
-            let close = div()
-                .id("usage-notice-close")
-                .px(px(4.0))
-                .cursor_pointer()
-                .text_color(c.ink_3)
-                .tooltip(tip(say(cx, Str::SwitchNoticeClose).to_owned()))
-                .on_click(cx.listener(|this, _, _, cx| this.close_notice(cx)))
-                .child("\u{00D7}");
-            Some(
-                div()
-                    .min_w_0()
-                    .max_w(px(NOTICE_W))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .px(px(10.0))
-                    .border_l_1()
-                    .border_color(c.line)
-                    .text_color(tone)
-                    .child(div().min_w_0().truncate().child(message))
-                    .child(close),
-            )
-        });
-
         let mut host = div()
             .relative()
             .h_full()
@@ -657,8 +490,7 @@ impl Render for Usage {
                         .size_full(),
                     ),
             )
-            .child(refresh)
-            .children(notice);
+            .child(refresh);
         if open && self.accounts.is_some() {
             host = host.child(self.backdrop(window, cx)).child(self.popover(
                 distro.as_deref(),

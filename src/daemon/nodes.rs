@@ -16,6 +16,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/nodes/{id}/detach", post(detach_node))
         .route("/api/nodes/{id}/name", put(rename_node))
         .route("/api/nodes/{id}/steer-queued", post(steer_queued))
+        .route("/api/nodes/{id}/wake", post(wake_node))
         .route(
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
@@ -157,6 +158,11 @@ async fn pty(
         composing: live_composing,
     };
     serve_pty(ws, via, app, |app| &app.host, input, id)
+}
+
+async fn wake_node(State(app): State<Arc<App>>, Path(id): Path<u32>) -> Json<()> {
+    app.sleeps.knocked(NodeId(id));
+    Json(())
 }
 
 fn live_composing(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>) {

@@ -73,6 +73,7 @@ const en = {
     steerQueued: 'Click to deliver now',
     terminal: 'Terminal',
     expand: 'Expand',
+    wake: 'Wake',
     expandTitle: 'Expand (or double-click the header)',
     resetSize: 'Reset to default size',
     collapse: 'Collapse',

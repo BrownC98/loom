@@ -169,6 +169,9 @@ impl Dock {
                     .is_some_and(|n| n.bookmark.is_none());
                 this.card_call(cx, move |base| crate::link::set_bookmark(base, id, on))
             }),
+            wake: press(|this, id, _, _, cx| {
+                this.card_call(cx, move |base| cardlink::wake(base, id))
+            }),
             expand: press(|this, id, _, _, cx| this.store.update(cx, |store, cx| store.go(id, cx))),
             menu: press(|this, id, e, _, cx| {
                 let (at, button) = (e.position, this.anchors.get(&format!("menu:{id}")));

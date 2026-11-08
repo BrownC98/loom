@@ -47,6 +47,7 @@ impl CanvasView {
             anchors: self.anchors.clone(),
             steer: press(|this, id, _, _, cx| this.steer(id, cx)),
             bookmark: press(|this, id, _, _, cx| this.bookmark(id, cx)),
+            wake: press(|this, id, _, _, cx| this.call(cx, move |base| cardlink::wake(base, id))),
             expand: if collapse {
                 press(|this, _, _, _, cx| this.collapse(cx))
             } else {

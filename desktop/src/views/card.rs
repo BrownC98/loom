@@ -505,6 +505,7 @@ pub struct Actions {
     pub anchors: Anchors,
     pub steer: Press,
     pub bookmark: Press,
+    pub wake: Press,
     pub expand: Press,
     pub menu: Press,
     pub rename: Press,
@@ -946,6 +947,20 @@ fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElem
                 .text_color(colors.ink_3)
                 .child(Str::PlaceUnreachedCard.text(lang))
                 .into_any_element(),
+        );
+    }
+    if matches!(face.node.process, ProcessState::Asleep) {
+        out.push(
+            ghost(
+                ElementId::NamedInteger("wake".into(), node as u64),
+                None,
+                Lucide::AlarmClock,
+                Str::NodeWake.text(lang),
+                &face.actions.wake,
+                zoom,
+                colors,
+            )
+            .into_any_element(),
         );
     }
     out.push(bookmark_button(face, zoom, colors).into_any_element());

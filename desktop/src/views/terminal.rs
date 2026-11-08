@@ -247,7 +247,6 @@ impl TerminalView {
         window.focus(&self.focus, cx);
     }
 
-    /// Focus that no human asked for: waits while an IME composition is open.
     pub fn refocus(&self, window: &mut Window, cx: &mut App) -> bool {
         compose::refocus(&self.focus, window, cx)
     }

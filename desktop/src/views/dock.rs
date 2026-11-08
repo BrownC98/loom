@@ -260,7 +260,6 @@ impl Dock {
         cx.notify();
     }
 
-    /// The node whose terminal holds an open IME composition: the panel keeps it.
     fn composing(&self, cx: &Context<Self>) -> Option<u32> {
         let (held, view) = self.terminal.as_ref()?;
         view.read(cx).composing().then_some(*held)

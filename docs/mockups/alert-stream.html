@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M75 loom 통합 입력·알림 개선안 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(#fff, oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; padding-bottom: 24px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.flow span { padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.cmp { border-collapse: collapse; font-size: 13px; max-width: 1100px; }
+table.cmp th, table.cmp td { border: 1px solid var(--line-strong); padding: 6px 10px; text-align: left; vertical-align: top; }
+table.cmp th { background: var(--panel); }
+
+/* product drawing */
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.page { position: relative; width: 1360px; height: 640px; display: grid; grid-template-rows: 32px 1fr 26px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.page.tall { height: 760px; }
+.bar { display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; font-weight: 600; }
+.main { display: flex; min-height: 0; }
+.side { width: 210px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 14px); border-radius: 6px; white-space: nowrap; }
+.row.on { background: var(--accent-wash); }
+.row .b { font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.canvas { position: relative; flex: 1; min-width: 0; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.card { position: absolute; width: 290px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { border-radius: var(--radius) var(--radius) 0 0; display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.state { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 9px; background: color-mix(in oklch, var(--warn) 18%, transparent); }
+.term { padding: 8px 10px; font: 11.5px/1.45 var(--mono); height: 54px; border-radius: 0 0 var(--radius) var(--radius); }
+.term .dim { color: var(--ink-3); }
+.dock { width: 250px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs button { height: 34px; padding: 0 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font-size: 13px; }
+.tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.dock .empty { padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--panel); font: 11px var(--mono); color: var(--ink-2); }
+.tcount { font-size: 11px; padding: 0 6px; border-radius: 9px; }
+.tcount.q { background: var(--warn); color: var(--warn-ink); } .tcount.d { background: var(--ok); color: var(--warn-ink); }
+.q-ico { color: var(--warn); } .ok-ico { color: var(--ok); }
+.qid { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font: 600 11px/18px var(--mono); color: var(--ink); }
+.donechip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; background: color-mix(in oklch, var(--ok) 18%, transparent); font-size: 11px; color: var(--ink); }
+.kb { display: inline-flex; align-items: center; height: 17px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; font: 11px var(--mono); color: var(--ink-3); background: var(--panel); white-space: nowrap; }
+
+.composer { position: absolute; left: 24px; bottom: 14px; width: 720px; display: grid; gap: 14px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.composer.slim { gap: 0; }
+.composer.r { left: auto; right: 24px; }
+.acard { display: grid; gap: 9px; padding: 9px 12px; border: 1.5px solid var(--warn); border-radius: 10px; background: var(--surface); }
+.acard.d { border-color: var(--ok); }
+.ah { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-3); }
+.ah .pos, .chead .pos { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.nl { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-wash); color: var(--ink); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.nl .rp { font-weight: 400; color: var(--ink-3); }
+.nlm { flex: none; font-size: 11.5px; font-weight: 600; color: var(--ink); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atext { font-size: 13.5px; font-weight: 600; }
+.ins, .nochoice { font-size: 12.5px; color: var(--ink-2); }
+.choices { display: flex; width: fit-content; flex-wrap: wrap; gap: 6px; }
+.choice { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 5px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12.5px; }
+.choice .key { font-weight: 700; }
+.choice[data-rec] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.choice .mark { font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: color-mix(in oklch, var(--warn) 18%, transparent); }
+.next { display: flex; align-items: center; gap: 6px; padding: 0 4px; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.sep { border: 0; border-top: 1px dashed var(--line-strong); margin: 0; }
+.next .kb { margin-left: auto; }
+.sent { display: flex; width: fit-content; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.tray { display: flex; align-items: center; gap: 8px; padding: 2px 4px; font-size: 12.5px; color: var(--ink-2); }
+.bulk { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--ok); border-radius: 6px; background: color-mix(in oklch, var(--ok) 12%, var(--surface)); font-size: 12.5px; font-weight: 600; }
+.tray .bulk { margin-left: auto; }
+.bulk.sm { height: 24px; font-size: 12px; }
+.bulk.xs { height: 22px; padding: 0 7px; font-size: 11.5px; gap: 4px; }
+.ah .pos + .bulk { margin-left: 4px; }
+
+.line { display: flex; align-items: center; gap: 6px; }
+.tbtn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border: 0; border-radius: 8px; background: var(--warn); color: var(--warn-ink); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.tbtn.d { background: var(--ok); } .tbtn.p { background: var(--accent); color: var(--accent-ink); }
+.field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border: 1.5px solid var(--warn); border-radius: 8px; background: var(--surface); font-size: 13px; }
+.field.d { border-color: var(--ok); } .field.p { border-color: var(--accent); }
+.field .ph { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.typed { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.clipi { color: var(--ink-2); }
+.keys-in { flex: none; margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.send { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+
+.picker { position: absolute; left: 24px; bottom: 70px; width: 720px; display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px var(--shadow); font-size: 12.5px; }
+.picker .sec { padding: 4px 14px 2px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.picker .grp { padding: 4px 14px 0; font-size: 12px; }
+.picker .it { display: flex; align-items: center; gap: 8px; height: 26px; margin: 0 8px; padding: 0 10px; border-radius: 6px; white-space: nowrap; }
+.picker .it.prompt { margin-left: 20px; color: var(--ink-2); }
+.picker .it.cur { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.it .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.it .tm, .crow .tm, .ah time { font-variant-numeric: tabular-nums; }
+.it .tm, .crow .tm { flex: none; color: var(--ink-3); font-size: 11px; }
+.pbot { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); }
+.search { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); }
+.cbtn { display: inline-flex; align-items: center; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--surface); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+
+.bpanel { position: absolute; left: 24px; top: 104px; width: 860px; height: 520px; display: grid; grid-template-columns: 380px 1fr; border: 1px solid var(--line-strong); border-radius: 12px 12px 0 0; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); }
+.blist { display: flex; flex-direction: column; border-right: 1px solid var(--line); font-size: 12.5px; padding-bottom: 6px; }
+.bhead { padding: 8px 14px 4px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.blist .it { display: flex; align-items: center; gap: 7px; height: 30px; margin: 0 6px; padding: 0 8px; border-radius: 6px; white-space: nowrap; }
+.blist .it.cur { background: var(--accent-wash); font-weight: 600; }
+.blist .it.more { color: var(--ink-3); }
+.bfoot { margin: auto 8px 0; padding-top: 6px; border-top: 1px solid var(--line); }
+.bdetail { padding: 14px 16px; min-width: 0; }
+.bdi { display: grid; gap: 10px; }
+.brows { display: flex; flex-direction: column; }
+.blist { min-width: 0; }
+.composer.bl { left: 24px; width: 860px; bottom: 14px; border-radius: 0 0 14px 14px; }
+
+.clist { display: flex; flex-direction: column; gap: 3px; }
+.chead { display: flex; align-items: center; gap: 8px; padding: 2px 6px 4px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.chead .pos { margin-left: auto; font-weight: 400; }
+.crow { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12.5px; white-space: nowrap; }
+.crow .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crow.open { display: grid; height: auto; gap: 7px; padding: 9px 12px; border: 1.5px solid var(--warn); white-space: normal; }
+.crow.more { border: 0; background: none; color: var(--ink-3); height: 24px; }
+.cbtns { flex: none; display: inline-flex; gap: 4px; }
+.mini { height: 24px; min-width: 28px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); font-size: 12px; font-weight: 700; }
+.mini[data-rec] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style>
+</head>
+<body data-ui=".choice, .mini, .bulk, .tbtn, .send, .cbtn, .tabs button, .kb">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+<symbol id="clip" viewBox="0 0 24 24"><path d="m16 6-8.4 8.6a2 2 0 0 0 2.8 2.8l8.4-8.6a4 4 0 0 0-5.7-5.6l-8.4 8.6a6 6 0 1 0 8.5 8.4L21 12"/></symbol>
+<symbol id="term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+<symbol id="more" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ask" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M75</b></span><span>응답할 곳: <b>코디 · 코디 통합입력목업</b></span><span>연 담당: <b>코디 · 코디 통합입력목업</b></span><span>v1 · 2026-11-08</span></div>
+  <h1>통합 입력·알림 개선안</h1>
+  <p class="lead">사람 지시: 「통합 입력 + 알림 ui/ux 개선안 목업 만들어줘, 해당 부분에서 모든 노드의 질문 응답이 손쉽고 직관적으로 가능해야함」, 「알림은 노드별로 구분해서 띄우는게 아니라, loom전역 단위로 수집된 알림을 순서대로 보여주는 구조로 (기존 알림 알약처럼)」. 세 안 모두 모든 저장소·노드의 알림을 시간 순서 한 줄로 세우고, 알림마다 노드 이름표를 붙입니다. 화면은 저장소 2개, 노드 5개, 알림 15개(질문 9, 완료 6)입니다. 클립 아이콘, 알림을 누르면 그 노드로 이동, 대상 목록의 모든 노드는 진행 중인 클립첨부 작업 그대로 그렸습니다.</p>
+  <div class="flow"><span>알림이 시간 순서로 선다</span>→<span>카드가 가장 오래된 알림의 전문과 노드 이름표를 보인다</span>→<span>Alt+A 또는 글+Enter로 답한다</span>→<span>다음 알림으로 간다(노드가 바뀌어도)</span>→<span>완료는 넘기거나 한 번에 확인한다</span></div>
+<h2 style="margin-top:8px">안 A · 차례 넘기기</h2>
+<div class="fig"><h2>① 차례 넘기기: 알림 15개 중 질문에 답함 <span class="tag">안 A · Alt+A 한 번</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">ktasearch-총괄</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="composer r"><div data-n="1" class="mk new next">다음 <span class="donechip">완료</span> ktasearch-총괄 · 직접 라벨링하신 52쪽을 정답으로 넣었습니다. <span class="kb">Alt+↓</span></div><div class="acard q"><div data-n="2" class="mk new ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2590</span><span class="nl"><span class="rp">ktasearch ›</span> ktasearch-총괄</span><time>09:02</time><span class="pos">남은 알림 15 · 질문 9 · 완료 6</span><button class="bulk xs"><svg class="i " aria-hidden="true"><use href="#check"/></svg>완료 6 모두 확인</button></div><p class="atext">보강 QAT 판정 결과를 반영할까요?</p><div data-n="3" class="mk new choices"><button class="choice" data-rec><span class="kb">Alt+A</span><span class="key">A</span>반영<span class=mark>권장</span></button><button class="choice"><span class="kb">Alt+B</span><span class="key">B</span>다시 학습</button><button class="choice"><span class="kb">Alt+C</span><span class="key">C</span>보류</button></div></div><div class="line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>ktasearch-총괄에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="ph">답변 입력, 그림 붙여넣기, Enter로 보내기</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>ktasearch-총괄</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>1</b><span>다음 차례. 모든 노드의 알림이 시간 순서 한 줄에 섭니다.</span></div><div><b>2</b><span>저장소·노드 이름표와 남은 알림 수. 누가 묻는지 바로 봅니다.</span></div><div><b>3</b><span>Alt+A·B·C로 답합니다. 답하면 다음 차례로 갑니다.</span></div></div></div>
+<section class="decision" id="D2" data-for="3"><h3><span class="did">D2</span>선택지 질문에 키 하나로 답하는 방법</h3><div class="opts">
+<div class="opt" data-recommended><span class="key">A</span><span class="label">Alt+글자(Alt+A = A안)<span class="mark">권장</span><span class="sub">지금: A 쓰고 Enter(두 번) → 바뀐 뒤: Alt+A 한 번 · 비용: 키 처리 한 곳 · 위험: 낮음(글 칸과 겹치지 않음) · 되돌리기: 키를 뺌</span></span></div>
+<div class="opt"><span class="key">B</span><span class="label">글 칸이 비었을 때 글자 하나(A만 누르면 바로 답)<span class="sub">가장 짧음 · 위험: 「A로 하되…」처럼 글을 쓰기 시작하면 A로 바로 보냄</span></span></div>
+<div class="opt"><span class="key">C</span><span class="label">지금 그대로(A 쓰고 Enter, 또는 단추 누르기)<span class="sub">비용 없음 · 키 두 번</span></span></div>
+</div><ul class="why"><li>Alt+L·Alt+↑↓와 같은 Alt 묶음이라 외울 규칙이 하나입니다.</li><li>글로 답하기는 그대로 둡니다: 글 칸에 쓰고 Enter.</li></ul></section>
+<div class="fig"><h2>② 차례 넘기기: 글로 답함 <span class="tag">안 A · 글을 쓰고 Enter</span></h2>
+<div class="page"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">코디 데몬끊김</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="composer"><div class="next">다음 <span class="donechip">완료</span> 코디 라벨링 · 라벨 270개를 파일로 저장했습니다. <span class="kb">Alt+↓</span></div><div class="acard q"><div data-n="4" class="mk new sent"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg>보냄 · <span class="qid">Q2601</span> claude-1에 A(승인)</div><hr class="sep"><div class="ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2603</span><span class="nl"><span class="rp">loom ›</span> 코디 데몬끊김</span><time>09:22</time><span class="pos">남은 알림 7 · 질문 4 · 완료 3</span><button class="bulk xs"><svg class="i " aria-hidden="true"><use href="#check"/></svg>완료 3 모두 확인</button></div><p class="atext">Windows 시험 데몬 포트를 몇 번으로 둘까요?</p><p class="nochoice">선택지가 없는 질문입니다. 글로 답합니다.</p></div><div data-n="5" class="mk new line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>코디 데몬끊김에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="typed">7431로 두고, 쓰고 있으면 빈 포트를 고르게 해</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 4개 · 완료 3개</p></aside></div><div class="statusbar"><span>코디 데몬끊김</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>4</b><span>보낸 답을 한 줄로 남깁니다. 다음 알림이 이미 떴어도 무엇을 어디에 보냈는지 봅니다.</span></div><div><b>5</b><span>선택지가 없거나 다르게 답하려면 글을 쓰고 Enter. 대상은 지금 카드의 질문입니다.</span></div></div></div>
+<div class="fig"><h2>③ 차례 넘기기: 아무 노드에 새 지시 <span class="tag">안 A · Alt+L, 이름 몇 글자, Enter</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">워커 클립첨부</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="picker"><div data-n="6" class="mk new psec"><div class="sec">알림 · 시간 순서</div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">워커 클립첨부</span><span class="tx">그림 단추를 클립 아이콘으로 바꾸고 시험을 통과했습니다.</span><span class="tm">09:18</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2605</span><span class="nlm">워커 클립첨부</span><span class="tx">파일 크기 상한 32MB를 그대로 둘까요?</span><span class="tm">09:33</span></div></div><div data-n="7" class="mk new psec"><div class="sec">노드에 지시</div><div class="grp"><b>loom</b></div><div class="it prompt"><svg class="i " aria-hidden="true"><use href="#term"/></svg>claude-1에게 지시</div><div class="it prompt"><svg class="i " aria-hidden="true"><use href="#term"/></svg>코디 데몬끊김에게 지시</div><div class="it prompt cur"><svg class="i " aria-hidden="true"><use href="#term"/></svg>워커 클립첨부에게 지시</div><div class="grp"><b>ktasearch</b></div><div class="it prompt"><svg class="i " aria-hidden="true"><use href="#term"/></svg>ktasearch-총괄에게 지시</div><div class="it prompt"><svg class="i " aria-hidden="true"><use href="#term"/></svg>코디 라벨링에게 지시</div></div><div class="pbot"><span class="search"><svg class="i " aria-hidden="true"><use href="#search"/></svg><span class="typed">클립</span><span class="keys-in">↑↓ · Enter 고르기 · Esc 닫기</span></span><span class="cbtn">전체 2</span><span class="cbtn">질문 1</span><span class="cbtn">완료 1</span></div></div><div class="composer slim"><div class="line"><button class="tbtn p"><svg class="i " aria-hidden="true"><use href="#term"/></svg>워커 클립첨부에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field p"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="ph">메시지를 입력하거나 그림·파일을 끌어다 놓으십시오</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>워커 클립첨부</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>6</b><span>찾은 알림도 시간 순서 한 줄에 노드 이름표를 붙여 보입니다.</span></div><div><b>7</b><span>알림이 없는 노드까지 모든 노드를 저장소 아래에 둡니다. 고르면 그 노드에 지시합니다.</span></div></div></div>
+<div class="fig"><h2>④ 차례 넘기기: 완료 정리 <span class="tag">안 A · 넘기면 확인, 또는 한 번에 모두</span></h2>
+<div class="page"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">ktasearch-총괄</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="composer"><div data-n="8" class="mk new next">다음 <span class="qid">Q2593</span> 코디 라벨링 · 15쪽은 영역 없음으로 둘까요? <span class="kb">Alt+↓ 넘기면 이 완료는 확인</span></div><div class="acard d"><div class="ah"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nl"><span class="rp">ktasearch ›</span> ktasearch-총괄</span><time>09:05</time><span class="pos">남은 알림 14 · 질문 8 · 완료 6</span><button data-n="9" class="mk new bulk xs"><svg class="i " aria-hidden="true"><use href="#check"/></svg>완료 6 모두 확인</button></div><p class="ins">지시: 사람이 라벨링 하겠음</p><p class="atext">직접 라벨링하신 52쪽을 정답으로 넣었습니다. 15쪽은 영역 없음으로 반영했습니다.</p></div><div data-n="10" class="mk new line"><button class="tbtn d"><svg class="i " aria-hidden="true"><use href="#check"/></svg>ktasearch-총괄에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field d"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="ph">추가 지시 입력, 그림 붙여넣기, Enter로 보내기</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 8개 · 완료 6개</p></aside></div><div class="statusbar"><span>ktasearch-총괄</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>8</b><span>완료는 읽고 Alt+↓로 넘기면 확인됩니다(「기록」으로 감). [확인]을 따로 누르지 않습니다.</span></div><div><b>9</b><span>완료가 있으면 카드 머리에 늘 있습니다. 읽지 않아도 되면 한 번에 모두 확인합니다.</span></div><div><b>10</b><span>완료에 이어서 맡기려면 글을 쓰고 Enter. 지금과 같습니다.</span></div></div></div>
+<section class="decision" id="D3" data-for="8 9"><h3><span class="did">D3</span>완료 알림을 닫는 방법</h3><div class="opts">
+<div class="opt" data-recommended><span class="key">A</span><span class="label">넘기면 확인 + [완료 n개 모두 확인]<span class="mark">권장</span><span class="sub">지금: 완료마다 [확인] → 바뀐 뒤: 읽고 Alt+↓, 또는 단추 한 번 · 위험: 넘긴 완료를 다시 보려면 「기록」 탭 · 되돌리기: 넘기기의 확인을 끔</span></span></div>
+<div class="opt"><span class="key">B</span><span class="label">[완료 n개 모두 확인] 단추만 더함<span class="sub">넘겨도 완료가 남아 차례에 다시 섭니다</span></span></div>
+<div class="opt"><span class="key">C</span><span class="label">지금 그대로(하나씩 [확인])</span></div>
+</div><ul class="why"><li>사람 원칙: 사람은 결정만 하고 나머지는 시스템이 합니다. 완료에는 결정이 없습니다.</li><li>닫힌 완료는 「알림 › 기록」에 30일 남습니다.</li></ul></section>
+
+<h2 style="margin-top:8px">안 B · 목록+본문</h2>
+<div class="fig"><h2>⑤ 목록+본문: 알림 15개 중 질문에 답함 <span class="tag">안 B · 왼쪽 목록, 오른쪽 전문</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">코디 데몬끊김</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="bpanel"><div class="blist"><div class="bhead">알림 15 · 시간 순서</div><div data-n="11" class="mk new brows"><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2590</span><span class="nlm">ktasearch-총괄</span><span class="tx">보강 QAT 판정 결과를 반영…</span><span class="tm">09:02</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">ktasearch-총괄</span><span class="tx">직접 라벨링하신 52쪽을 정답…</span><span class="tm">09:05</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2593</span><span class="nlm">코디 라벨링</span><span class="tx">15쪽은 영역 없음으로 둘까요…</span><span class="tm">09:08</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 데몬끊김</span><span class="tx">노드 토큰을 실행 범위 요청마…</span><span class="tm">09:11</span></div><div class="it cur"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2598</span><span class="nlm">코디 데몬끊김</span><span class="tx">노드 토큰 정리를 지금 배포할…</span><span class="tm">09:12</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2599</span><span class="nlm">코디 라벨링</span><span class="tx">학습 세트에서 흐린 쪽 8개를…</span><span class="tm">09:15</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">워커 클립첨부</span><span class="tx">그림 단추를 클립 아이콘으로…</span><span class="tm">09:18</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2601</span><span class="nlm">claude-1</span><span class="tx">통합 입력 개선안 v1을 승인…</span><span class="tm">09:20</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2603</span><span class="nlm">코디 데몬끊김</span><span class="tx">Windows 시험 데몬 포트…</span><span class="tm">09:22</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 라벨링</span><span class="tx">라벨 270개를 파일로 저장했…</span><span class="tm">09:25</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2596</span><span class="nlm">ktasearch-총괄</span><span class="tx">판정 기준 mAP 하한을 얼마…</span><span class="tm">09:27</span></div><div class="it more">4개 더 · 아래로 넘김</div></div></div><div class="bdetail"><div data-n="12" class="mk new bdi"><div class="ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2598</span><span class="nl"><span class="rp">loom ›</span> 코디 데몬끊김</span><time>09:12</time><span class=pos>5 / 15</span></div><p class="atext">노드 토큰 정리를 지금 배포할까요?</p><div class="choices"><button class="choice"><span class="kb">Alt+A</span><span class="key">A</span>지금</button><button class="choice" data-rec><span class="kb">Alt+B</span><span class="key">B</span>밤에<span class=mark>권장</span></button></div></div></div></div><div class="composer bl"><div class="line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>코디 데몬끊김에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="ph">답변 입력, 그림 붙여넣기, Enter로 보내기</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>코디 데몬끊김</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>11</b><span>모든 알림을 시간 순서 한 목록에 늘 펴 둡니다. Alt+↑↓로 줄을 옮깁니다.</span></div><div><b>12</b><span>고른 줄의 전문과 선택지. 답하면 목록의 다음 줄로 갑니다.</span></div></div></div>
+<div class="fig"><h2>⑥ 목록+본문: 글로 답하고 완료 정리 <span class="tag">안 B</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">ktasearch-총괄</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="bpanel"><div class="blist"><div class="bhead">알림 15 · 시간 순서</div><div class="brows"><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2590</span><span class="nlm">ktasearch-총괄</span><span class="tx">보강 QAT 판정 결과를 반영…</span><span class="tm">09:02</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">ktasearch-총괄</span><span class="tx">직접 라벨링하신 52쪽을 정답…</span><span class="tm">09:05</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2593</span><span class="nlm">코디 라벨링</span><span class="tx">15쪽은 영역 없음으로 둘까요…</span><span class="tm">09:08</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 데몬끊김</span><span class="tx">노드 토큰을 실행 범위 요청마…</span><span class="tm">09:11</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2598</span><span class="nlm">코디 데몬끊김</span><span class="tx">노드 토큰 정리를 지금 배포할…</span><span class="tm">09:12</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2599</span><span class="nlm">코디 라벨링</span><span class="tx">학습 세트에서 흐린 쪽 8개를…</span><span class="tm">09:15</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">워커 클립첨부</span><span class="tx">그림 단추를 클립 아이콘으로…</span><span class="tm">09:18</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2601</span><span class="nlm">claude-1</span><span class="tx">통합 입력 개선안 v1을 승인…</span><span class="tm">09:20</span></div><div class="it"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2603</span><span class="nlm">코디 데몬끊김</span><span class="tx">Windows 시험 데몬 포트…</span><span class="tm">09:22</span></div><div class="it"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 라벨링</span><span class="tx">라벨 270개를 파일로 저장했…</span><span class="tm">09:25</span></div><div class="it cur"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2596</span><span class="nlm">ktasearch-총괄</span><span class="tx">판정 기준 mAP 하한을 얼마…</span><span class="tm">09:27</span></div><div class="it more">4개 더 · 아래로 넘김</div></div><div class="bfoot"><button data-n="13" class="mk new bulk"><svg class="i " aria-hidden="true"><use href="#check"/></svg>완료 6개 모두 확인</button></div></div><div class="bdetail"><div class="bdi"><div class="ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2596</span><span class="nl"><span class="rp">ktasearch ›</span> ktasearch-총괄</span><time>09:27</time><span class=pos>11 / 15</span></div><p class="atext">판정 기준 mAP 하한을 얼마로 둘까요?</p><p class="nochoice">선택지가 없는 질문입니다. 글로 답합니다.</p></div></div></div><div class="composer bl"><div data-n="14" class="mk new line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>ktasearch-총괄에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="typed">0.62로 두고, 넘지 못한 쪽 목록을 붙여 줘</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>ktasearch-총괄</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>13</b><span>목록 아래 단추가 완료를 한 번에 확인합니다.</span></div><div><b>14</b><span>글 칸은 고른 줄로 보냅니다. 새 지시는 안 A와 같이 Alt+L 목록에서 노드를 고릅니다.</span></div></div></div>
+
+<h2 style="margin-top:8px">안 C · 줄마다 바로 답</h2>
+<div class="fig"><h2>⑦ 줄마다 바로 답: 알림 15개 <span class="tag">안 C · 줄의 단추를 누르면 그 질문에 답</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">코디 데몬끊김</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="composer"><div class="clist"><div class="chead">알림 15 · 시간 순서<span class="pos">질문 9 · 완료 6</span></div><div class="crow"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2593</span><span class="nlm">코디 라벨링</span><span class="tx">15쪽은 영역 없음으로 둘까요?</span><span class="cbtns"><button class="mini" data-rec>A</button><button class="mini">B</button></span><span class="tm">09:08</span></div><div data-n="15" class="mk new crow"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 데몬끊김</span><span class="tx">노드 토큰을 실행 범위 요청마다 다시 맞추게 고쳤습니다. 관문을 통과했습니다.</span><span class="cbtns"><button class="mini">확인</button></span><span class="tm">09:11</span></div><div data-n="16" class="mk new crow open"><div class="ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2598</span><span class="nl"><span class="rp">loom ›</span> 코디 데몬끊김</span><time>09:12</time></div><p class="atext">노드 토큰 정리를 지금 배포할까요?</p><div class="choices"><button class="choice"><span class="kb">Alt+A</span><span class="key">A</span>지금</button><button class="choice" data-rec><span class="kb">Alt+B</span><span class="key">B</span>밤에<span class=mark>권장</span></button></div></div><div class="crow"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2599</span><span class="nlm">코디 라벨링</span><span class="tx">학습 세트에서 흐린 쪽 8개를 뺄까요?</span><span class="cbtns"><button class="mini" data-rec>A</button><button class="mini">B</button></span><span class="tm">09:15</span></div><div class="crow"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">워커 클립첨부</span><span class="tx">그림 단추를 클립 아이콘으로 바꾸고 시험을 통과했습니다.</span><span class="cbtns"><button class="mini">확인</button></span><span class="tm">09:18</span></div><div class="crow"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2601</span><span class="nlm">claude-1</span><span class="tx">통합 입력 개선안 v1을 승인할까요?</span><span class="cbtns"><button class="mini" data-rec>A</button><button class="mini">B</button></span><span class="tm">09:20</span></div><div class="crow more">9개 더 · 아래로 넘김</div></div><div class="line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>코디 데몬끊김에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="ph">답변 입력, 그림 붙여넣기, Enter로 보내기</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>코디 데몬끊김</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>15</b><span>줄마다 선택지 단추와 [확인]이 있습니다. 대상을 바꾸지 않고 눌러 답합니다.</span></div><div><b>16</b><span>글 칸의 대상 줄만 펼쳐 전문을 보입니다. Alt+↑↓로 대상 줄을 옮기고 Alt+A로 답합니다.</span></div></div></div>
+<div class="fig"><h2>⑧ 줄마다 바로 답: 글로 답하고 완료 정리 <span class="tag">안 C</span></h2>
+<div class="page tall"><div class="bar">loom</div><div class="main"><aside class="side"><h3>저장소</h3><div class="row"><span class="b">loom</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>claude-1<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row on" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 데몬끊김<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">2</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>워커 클립첨부<span style="margin-left:auto"><span class="tcount q">1</span> <span class="tcount d">1</span></span></div><div class="row"><span class="b">ktasearch</span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>ktasearch-총괄<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div><div class="row" style="--d:1"><span class="dot" style="background:var(--warn)"></span>코디 라벨링<span style="margin-left:auto"><span class="tcount q">2</span> <span class="tcount d">1</span></span></div></aside><div class="canvas"><div class="card" data-selected style="left:24px; top:18px"><div class="card-head"><span class="name">코디 데몬끊김</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● 질문을 받은편지함에 걸었습니다.</span></div></div><div class="card" style="left:329px; top:18px"><div class="card-head"><span class="name">claude-1</span><span class="state">응답 대기</span></div><div class="term"><span class="dim">● loom ask 질문 2개 대기</span></div></div><div class="composer"><div class="clist"><div class="chead">알림 15 · 시간 순서<span class="pos">질문 4 · 완료 6</span><button data-n="17" class="mk new bulk sm"><svg class="i " aria-hidden="true"><use href="#check"/></svg>완료 6개 모두 확인</button></div><div class="crow open"><div class="ah"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2603</span><span class="nl"><span class="rp">loom ›</span> 코디 데몬끊김</span><time>09:22</time></div><p class="atext">Windows 시험 데몬 포트를 몇 번으로 둘까요?</p><p class="nochoice">선택지가 없는 질문입니다. 글로 답합니다.</p></div><div class="crow"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 라벨링</span><span class="tx">라벨 270개를 파일로 저장했습니다.</span><span class="cbtns"><button class="mini">확인</button></span><span class="tm">09:25</span></div><div class="crow"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2596</span><span class="nlm">ktasearch-총괄</span><span class="tx">판정 기준 mAP 하한을 얼마로 둘까요?</span><span class="cbtns"><span class="tm">글로 답</span></span><span class="tm">09:27</span></div><div class="crow"><svg class="i ok-ico" aria-hidden="true"><use href="#check"/></svg><span class="donechip">완료</span><span class="nlm">코디 데몬끊김</span><span class="tx">시험 데몬을 정리했습니다.</span><span class="cbtns"><button class="mini">확인</button></span><span class="tm">09:30</span></div><div class="crow"><svg class="i q-ico" aria-hidden="true"><use href="#ask"/></svg><span class="qid">Q2605</span><span class="nlm">워커 클립첨부</span><span class="tx">파일 크기 상한 32MB를 그대로 둘까요?</span><span class="cbtns"><button class="mini" data-rec>A</button><button class="mini">B</button></span><span class="tm">09:33</span></div><div class="crow more">2개 더 · 아래로 넘김</div></div><div data-n="18" class="mk new line"><button class="tbtn"><svg class="i " aria-hidden="true"><use href="#ask"/></svg>코디 데몬끊김에게<svg class="i " aria-hidden="true"><use href="#more"/></svg></button><div class="field"><svg class="i clipi" aria-hidden="true"><use href="#clip"/></svg><span class="typed">7431로 두고, 쓰고 있으면 빈 포트를 고르게 해</span><span class="keys-in">Enter 보내기 · Alt+L 목록</span></div><button class="send" aria-label="보내기"><svg class="i " aria-hidden="true"><use href="#up"/></svg></button></div></div></div><aside class="dock"><div class="tabs"><button>기록</button><button>문서</button><button class="on">알림</button><button>터미널</button></div><p class="empty">질문 9개 · 완료 6개</p></aside></div><div class="statusbar"><span>코디 데몬끊김</span><span>노드 5 · 저장소 2</span></div></div>
+<div class="calls"><div><b>17</b><span>목록 머리 단추가 완료를 한 번에 확인합니다.</span></div><div><b>18</b><span>글 답은 펼친 줄로 갑니다. 새 지시는 안 A와 같이 Alt+L 목록에서 노드를 고릅니다.</span></div></div></div>
+
+<h2>세 안 비교 <span class="tag">질문 9개 · 완료 6개 · 노드 5개 · 저장소 2개</span></h2>
+<table class="cmp"><thead><tr><th></th><th>지금</th><th>A 차례 넘기기</th><th>B 목록+본문</th><th>C 줄마다 바로 답</th></tr></thead><tbody>
+<tr><td>질문 9개 답하기(선택지)</td><td>노드 5번 바꿈 + 답 9번</td><td>Alt+A 9번</td><td>Alt+A 9번</td><td>단추 9번 누르기</td></tr>
+<tr><td>완료 6개 닫기</td><td>[확인] 6번</td><td>Alt+↓ 6번 또는 단추 1번</td><td>단추 1번</td><td>단추 1번</td></tr>
+<tr><td>누가 묻는지</td><td>카드 머리의 노드</td><td>카드 이름표 + 다음 한 줄</td><td>목록 전체</td><td>목록 전체</td></tr>
+<tr><td>그래프를 가리는 높이</td><td>카드 1개</td><td>카드 1개</td><td>그래프 칸의 약 70%</td><td>줄 6개 + 카드 1개</td></tr>
+</tbody></table>
+<section class="decision" id="D1" data-for="1 3 11 15"><h3><span class="did">D1</span>통합 입력·알림 영역의 꼴</h3><div class="opts">
+<div class="opt" data-recommended><span class="key">A</span><span class="label">차례 넘기기(카드 하나 + 전체 시간 순서 + 다음 한 줄)<span class="mark">권장</span><span class="sub">지금: 노드마다 대상 다시 고르기 → 바뀐 뒤: 질문 9개를 Alt+A·Alt+B 9번(노드 바꿈 0번) · 비용: 작음(지금 카드·목록을 고침) · 위험: 전체를 한눈에 보려면 Alt+L · 되돌리기: 같은 노드 다음으로 돌림</span></span></div>
+<div class="opt"><span class="key">B</span><span class="label">목록+본문(목록과 전문을 늘 펴 둠)<span class="sub">한눈에 모두 봄 · 비용: 큼(새 판) · 위험: 그래프의 절반을 늘 가림</span></span></div>
+<div class="opt"><span class="key">C</span><span class="label">줄마다 바로 답(줄마다 선택지 단추)<span class="sub">마우스로 한 번 누르기 · 비용: 중간 · 위험: 한 줄로 자른 질문을 전문 없이 답함</span></span></div>
+</div><ul class="why"><li>지금 카드·대상 단추·Alt 키를 그대로 쓰고, 순서만 노드에서 전체 시간 순서로 바꿉니다. 새 부품이 가장 적습니다.</li><li>답하기 전에 늘 전문 하나를 봅니다. 짧게 자른 질문에 잘못 답하지 않습니다.</li><li>카드 높이가 지금과 같아 그래프를 가리지 않습니다.</li></ul></section>
+
+<ul class="note"><li>세 안에서 그대로인 것: 글 칸 왼쪽 「&lt;노드&gt;에게」 단추와 색, 글을 쓰기 시작하면 대상 고정, 그림·파일 첨부, 「알림」 탭과 기록, 시스템 알림, 사람이 터미널에 「Q12: A」로 답하기.</li><li>지우는 것: 노드로 묶은 대상 목록의 알림 부분(시간 순서 한 줄로 바뀜), 「이 노드 i / n」 표시(전체 자리로 바뀜).</li></ul>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

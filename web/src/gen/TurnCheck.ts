@@ -3,4 +3,4 @@
 /**
  * 다시 일하게 한 턴 끝 검사(`graph::turns`).
  */
-export type TurnCheck = "unreported" | "kindLine" | "questionBox";
+export type TurnCheck = "unreported" | "kindLine" | "questionBox" | "unjudged";

@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
 use super::App;
-use crate::graph::{Graph, TurnMark};
-use api::graph::events::{Entry, TurnCheck};
+use crate::graph::{Graph, Nudge, TurnMark, Unjudged};
+use api::graph::events::Entry;
 use api::ids::NodeId;
 
 const KIND_NUDGE: &str = "Your last reply has a line that starts with a kind word (QUESTION, ANSWER, STATUS, DONE, READY, MERGED, USER DIRECTION, ...), but you called no loom verb in this turn. Text in the terminal reaches nobody. If you meant a message, send it now with its verb: loom ask, loom answer, loom done, loom note, or a gate verb (see loom --help). Otherwise reply with a few words without that line. Then end your turn.";
+
+fn unjudged_nudge(Unjudged { branch, head }: &Unjudged) -> String {
+    format!(
+        "Your gate round for branch {branch} is open, but you did not judge its head {head}. A loom note or a findings file is not a verdict, and the round waits for yours. Write your findings file, then run `loom verdict {branch} {head} pass|block`. If you wait for an answer to your own loom ask, end your turn."
+    )
+}
 
 const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. The human answers only loom ask, and loom keeps no record of that box or its answer. Ask the same question again with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskQuestion again.";
 
@@ -71,29 +77,30 @@ impl TurnEnds {
     }
 }
 
-fn nudge_text(check: TurnCheck) -> Option<&'static str> {
-    match check {
-        TurnCheck::Unreported => None,
-        TurnCheck::KindLine => Some(KIND_NUDGE),
-        TurnCheck::QuestionBox => Some(QUESTION_BOX_NUDGE),
+fn nudge_text(nudge: &Nudge) -> String {
+    match nudge {
+        Nudge::KindLine => KIND_NUDGE.to_owned(),
+        Nudge::QuestionBox => QUESTION_BOX_NUDGE.to_owned(),
+        Nudge::Unjudged(round) => unjudged_nudge(round),
     }
 }
 
 impl App {
-    pub(super) fn turn_end(&self, node: NodeId) -> rusqlite::Result<Option<&'static str>> {
-        let nudge = self.graph.end_turn(node)?;
-        let Some((check, text)) = nudge
+    pub(super) fn turn_end(&self, node: NodeId) -> rusqlite::Result<Option<String>> {
+        let Some(nudge) = self
+            .graph
+            .end_turn(node)?
             .filter(|_| !self.relaunch_planned(node))
-            .and_then(|check| Some((check, nudge_text(check)?)))
         else {
             return Ok(None);
         };
+        let check = nudge.check();
         if let Err(e) = self
             .graph
             .record_about(node, |node| Entry::Nudged { node, check })
         {
             crate::log::logln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
         }
-        Ok(Some(text))
+        Ok(Some(nudge_text(&nudge)))
     }
 }

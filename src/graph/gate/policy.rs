@@ -293,6 +293,6 @@ pub(super) fn first_round_step(branch: &str, head: &str, target: &str) -> String
 
 const SHORT_HEAD: usize = 12;
 
-fn short(head: &str) -> &str {
+pub(super) fn short(head: &str) -> &str {
     head.get(..SHORT_HEAD).unwrap_or(head)
 }

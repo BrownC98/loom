@@ -28,13 +28,13 @@ use api::ids::{AgentId, NodeId, RepoId};
 
 pub use agent_state::AgentChange;
 pub use deploys::Deploy;
-pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round};
+pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round, Unjudged};
 pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, ParentWork, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
 pub use token::{NodeLaunch, NodeToken};
-pub use turns::TurnMark;
+pub use turns::{Nudge, TurnMark};
 pub use waits::{HUMAN, WaitSource};
 
 use crate::db::Database;

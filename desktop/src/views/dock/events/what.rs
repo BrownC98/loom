@@ -473,6 +473,7 @@ pub fn what(record: &EventRecord, c: &Ctx) -> Vec<Seg> {
                         TurnCheck::Unreported => Str::EventsTurnCheckUnreported,
                         TurnCheck::KindLine => Str::EventsTurnCheckKindLine,
                         TurnCheck::QuestionBox => Str::EventsTurnCheckQuestionBox,
+                        TurnCheck::Unjudged => Str::EventsTurnCheckUnjudged,
                     }),
                     false,
                 ),

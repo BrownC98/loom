@@ -1066,7 +1066,8 @@ span.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
 .tl-row[aria-current] { box-shadow: inset 2px 0 0 var(--accent); }
 .tl-row .kind-mark, .al-row .kind-mark { flex: none; width: 14px; height: 14px; color: var(--warn); }
 .tl-row[data-tone="done"] .kind-mark, .al-row[data-tone="done"] .kind-mark { color: var(--ok); }
-.tl-row[data-prompt] { color: var(--ink-2); }
+.tl-row[data-prompt] { color: var(--ink-2); padding-left: calc(8px + var(--depth, 0) * 14px); }
+.tl-row[data-context] { color: var(--ink-3); }
 .tl-row[data-prompt] .kind-mark { color: var(--ink-2); }
 .al-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .al-time { flex: none; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }

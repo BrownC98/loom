@@ -248,7 +248,7 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .page .side-foot .btn { justify-content: flex-start; }
 
 
-.page { --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); }
+.page { --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); --err-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); }
 .page .app.one { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 900px 22px; }
 .page .app.two { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 700px 22px; }
 .page .app.three { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: 520px 22px; }
@@ -268,12 +268,11 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .page .row .state-tag, .page .row .st { flex: none; }
 .page .state-tag { flex: none; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
 .page .state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
-.page .st { display: inline-flex; align-items: center; gap: 5px; font: 12px/16px var(--mono); color: var(--ink-2); white-space: nowrap; flex: none; }
-.page .st::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.page .st.run { color: var(--run); }
-.page .st.ok { color: var(--ok); }
-.page .st.err { color: var(--err); }
-.page .st.wait { color: var(--ink-2); }
+.page .st { display: inline-flex; align-items: center; flex: none; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.page .st.run { color: var(--run); border-color: color-mix(in oklch, var(--run) 45%, transparent); background: color-mix(in oklch, var(--run) 10%, transparent); }
+.page .st.ok { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 10%, transparent); }
+.page .st.err { color: var(--err-ink); border-color: var(--err); background: var(--err); }
+.page .st.wait { color: var(--ink-2); border-color: var(--line-strong); background: var(--surface); }
 .page .dot.stopped { background: var(--err); }
 .page .card.simple { padding: 8px 6px 8px 12px; background: var(--surface); display: grid; gap: 2px; }
 .page .srow { display: flex; align-items: center; gap: 8px; min-height: 24px; }
@@ -320,12 +319,12 @@ td code { font: 12px var(--mono); }
 .cat { white-space: nowrap; font-weight: 600; }
 .sample { white-space: nowrap; }
 .sample .state-tag { padding: 0 7px; border: 1px solid var(--warn); border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; background: var(--warn); color: light-dark(#fff, oklch(20.5% 0 0)); }
-.sample .st { display: inline-flex; align-items: center; gap: 5px; font: 12px/16px var(--mono); }
-.sample .st::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.sample .st.run { color: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); }
-.sample .st.ok { color: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); }
-.sample .st.err { color: var(--err); }
-.sample .st.wait { color: var(--ink-2); }
+.sample { --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255)); --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); --err-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); }
+.sample .st { display: inline-flex; align-items: center; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.sample .st.run { color: var(--run); border-color: color-mix(in oklch, var(--run) 45%, transparent); background: color-mix(in oklch, var(--run) 10%, transparent); }
+.sample .st.ok { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 10%, transparent); }
+.sample .st.err { color: var(--err-ink); border-color: var(--err); background: var(--err); }
+.sample .st.wait { color: var(--ink-2); border-color: var(--line-strong); background: var(--surface); }
 .new-tag { font-size: 11px; font-weight: 600; color: var(--ink-3); }
 
 </style>
@@ -333,7 +332,7 @@ td code { font: 12px var(--mono); }
 <body data-ui=".ibtn, .btn, .find, .state-tag, .st">
 
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M77</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 상태표시</b></span><span>v2 · 2026-11-08</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M77</b></span><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>코디 · 코디 상태표시</b></span><span>v3 · 2026-11-08</span></div>
   <h1>노드 카드의 상태 칩과 상태 줄</h1>
   <p class="lead">사람 질문: 「사용자 경험을 향상시키기 위해서는 각 에이전트의 어떤 상태들을 보여줘야 할까?」 원칙: 사람은 결정만 합니다. 그래서 사람이 할 일이 있는 노드를 가장 먼저 보이고, loom이 혼자 하는 일은 조용히 둡니다. 지금 카드는 쉬는 노드가 무엇을 기다리는지 보이지 않습니다. 이 목업은 카드마다 칩 하나와 줄 하나를 둡니다. 데몬이 이미 가진 사실로 정하므로 토큰을 쓰지 않습니다.</p>
   <ol class="flow"><li>카드의 칩 색으로 사람 일·문제를 먼저 봄</li><li>아래 줄에서 무엇을 기다리는지와 시간을 봄</li><li>칩을 눌러 자세한 사실을 봄</li></ol>
@@ -344,37 +343,18 @@ td code { font: 12px var(--mono); }
     <div class="calls">
       <div><b>1</b><span>사람이 답할 질문이 있는 카드는 지금처럼 노란 테두리입니다. 아래 줄에 질문 글과 기다린 시간이 보입니다.</span></div>
       <div><b>2</b><span>쉬는 노드는 기다리는 것을 칩에, 사실과 시간을 아래 줄에 씁니다.</span></div>
-      <div><b>3</b><span>기다릴 것 없이 쉬면 「멈춤 의심」입니다.</span></div>
+      <div><b>3</b><span>기다릴 것 없이 쉬면 「멈춤 의심」이고, 받은편지함에도 알립니다.</span></div>
       <div><b>4</b><span>끝나고 잠든 노드는 흐리게 보입니다. 결과 칩(병합됨)과 지금의 깨우기 단추는 그대로 남습니다.</span></div>
       <div><b>5</b><span>왼쪽 트리에도 같은 칩이 보입니다.</span></div>
     </div>
   </div>
-  <section class="decision" id="D1" data-for="2 6">
-    <h3><span class="did">D1</span>시간과 자세한 사실은 어디에 보이는가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">칩은 상태 이름만, 사실과 시간은 카드 아래 줄<span class="mark">권장</span><span class="sub">지금: 칩 없음(일함·쉼은 보이지 않음) → 바뀐 뒤: 머리 「검토 대기」, 아래 줄 「리뷰어 2명 중 1명 판정 · 7분」 · 비용: 표준 카드에 줄 하나(16px) · 되돌리기: 줄만 숨김</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">한 칩에 모두: 「쉼 · 검토 대기 · 12분」<span class="sub">줄을 더하지 않음 · 머리가 좁아 이름이 잘림 · 시간이 바뀔 때마다 칩 폭이 바뀜</span></span></div>
-    </div>
-    <ul class="why"><li>카드 머리에는 이미 이름, 에이전트, 모델, 단추 셋이 있습니다.</li><li>표준 카드 아래 줄은 지금도 「꺼짐」 글에 씁니다. 같은 자리를 늘 씁니다.</li><li>「쉼」은 대기 사유가 이미 말합니다. 칩에서 뺍니다.</li></ul>
-  </section>
-  <section class="decision" id="D2" data-for="1 3 5 7">
-    <h3><span class="did">D2</span>칩 색은 몇 가지인가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">다섯 가지: 사람 노랑(지금 그대로), 문제 빨강, 일함 파랑, 대기 회색, 결과 초록<span class="mark">권장</span><span class="sub">지금: 노랑·빨강만 칩 → 바뀐 뒤: 모든 카드에 칩 · 비용: 지금 토큰만 씀(<code>--run</code>, <code>--ok</code>) · 되돌리기: 색 토큰 하나</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">세 가지: 노랑, 빨강, 나머지 모두 회색<span class="sub">더 조용함 · 일하는 노드와 기다리는 노드를 글로만 가림</span></span></div>
-    </div>
-    <ul class="why"><li>노랑과 빨강만 강한 색이라 사람 일과 문제가 먼저 보입니다. 파랑·초록은 점과 글자에만 씁니다.</li><li>문제 카드는 빨간 테두리를 더합니다. 노란 테두리(질문)와 겹치면 노랑이 이깁니다.</li></ul>
-  </section>
-  <section class="decision" id="D3" data-for="3">
-    <h3><span class="did">D3</span>「멈춤 의심」을 받은편지함에도 알리는가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">칩은 곧바로, 받은편지함은 loom의 30분 깨우기가 듣지 않았을 때만<span class="mark">권장</span><span class="sub">지금: 30분 뒤 loom이 한 번 깨우고, 다시 멈추면 아무도 모름 → 바뀐 뒤: 그때 받은편지함에 「api: 멈춤」 한 줄 · 비용: 알림 종류 하나 · 되돌리기: 알림만 끔</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">칩만 보임<span class="sub">알림 없음 · 다시 멈춘 노드는 사람이 그래프를 볼 때만 앎</span></span></div>
-      <div class="opt"><span class="key">C</span><span class="label">칩이 뜰 때 곧바로 받은편지함에도<span class="sub">턴이 막 끝난 짧은 틈에도 알림이 옴 · 대부분 loom이 30분에 혼자 고침</span></span></div>
-    </div>
-    <ul class="why"><li>감시견은 깨우기를 한 번만 보냅니다. 마지막 메시지가 그 깨우기면 다시 깨우지 않습니다(src/graph/watchdog.rs). 그 뒤는 사람만 풀 수 있습니다.</li><li>첫 30분은 loom이 혼자 풀므로 사람 일이 아닙니다.</li></ul>
-  </section>
-
+  <h2>정한 것(Q2669)</h2>
+  <ul class="note">
+    <li>D1: 모든 상태를 카드 머리의 알약 칩 하나로 보입니다. 사실과 시간은 카드 아래 줄에 둡니다.</li>
+    <li>D2: 다섯 색. 사람(노랑)과 문제(빨강)는 칠한 알약, 일함(파랑)·결과(초록)·대기(회색)는 연한 알약입니다.</li>
+    <li>D3: 「멈춤 의심」은 칩과 함께 받은편지함에도 곧바로 알립니다. loom이 쉬는 노드를 깨우는 간격은 30분에서 5분으로 줄입니다.</li>
+    <li>D4: 자세히 창에는 토큰·메모리를 두지 않습니다.</li>
+  </ul>
   <div class="fig">
     <h2>② 그래프: 표준 카드 보기 <span class="tag">갈래마다 카드 하나</span></h2>
     <div class="page"><div class="titlebar"><span class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="1.5" width="4" height="2"/><rect x="6.5" y="0.5" width="2" height="4"/><rect x="10.5" y="1.5" width="4" height="2"/><rect x="1.5" y="5.5" width="2" height="4"/><rect x="5.5" y="6.5" width="4" height="2"/><rect x="11.5" y="5.5" width="2" height="4"/><rect x="0.5" y="11.5" width="4" height="2"/><rect x="6.5" y="10.5" width="2" height="4"/><rect x="10.5" y="11.5" width="4" height="2"/></svg><b>loom</b><span>모든 저장소</span></span><span class="drag"></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></span><span class="caption"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div><div class="app two"><aside class="side"><div class="side-top"><span class="find"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 노드와 워크트리 찾기</span><button class="ibtn lg" aria-label="사이드바 접기"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button></div><div class="tree"><div class="sec" style="padding-left:6px">저장소<span class="sp"></span><button class="ibtn" aria-label="저장소 더하기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>loom</b><span class="sub">~/src/loom</span></div><div class="row node" style="--d:1"><span class="dot waiting"></span><span class="l1"><b>리뷰-1</b><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span></span><span class="l2">gpt-5.5-codex · high</span></div><div class="row node" style="--d:1"><span class="dot running"></span><span class="l1"><b>워커-화면</b><span class="sp"></span><span class="st run">일함</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot "></span><span class="l1"><b>워커-데몬</b><span class="sp"></span><span class="st wait">검토 대기</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row" style="--d:0"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><b>todo-app</b><span class="sub">~/src/todo-app</span></div><div class="row node" style="--d:1"><span class="dot done"></span><span class="l1"><b>store</b><span class="sp"></span><span class="st ok">병합됨</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>cli</b><span class="sp"></span><span class="st err">꺼짐(1)</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div><div class="row node" style="--d:1"><span class="dot stopped"></span><span class="l1"><b>api</b><span class="sp"></span><span class="st err">멈춤 의심</span></span><span class="l2">claude-sonnet-5-5 · medium</span></div></div></aside><section class="canvas" aria-label="그래프"><div class="grid2"><div class="cell"><div class="card" data-waiting><div class="card-head"><span class="name">리뷰-1</span><span class="agent">X</span><span class="model">gpt-5.5-codex · high</span><span class="sp"></span><span class="state-tag" data-tone="ask">승인 요청</span><button class="ibtn" aria-label="북마크"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button><button class="ibtn" aria-label="크게 보기"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg></button><button class="ibtn" aria-label="노드 메뉴"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div><div class="term"><span class="g">●</span> Bash(cargo test --test contract)
@@ -401,7 +381,7 @@ td code { font: 12px var(--mono); }
   정리합니다.
 
 <span class="d">✻ Worked for 3m · done 1:28 PM</span>
-&gt; <span class="cur"> </span></div><div class="card-foot err"><span class="sline "><span class="sl-text">기다리는 것이 없는데 쉽니다 · 30분에 loom이 깨움</span><time>34분</time></span></div></div></div></div></section><footer class="statusbar"><span class="conn"><span class="dot done"></span>127.0.0.1:7420</span><span class="sbtn">데몬에 연결됨</span><span class="sp"></span><span class="ver">v0.1.2290</span></footer></div></div>
+&gt; <span class="cur"> </span></div><div class="card-foot err"><span class="sline "><span class="sl-text">기다리는 것이 없는데 쉽니다 · 받은편지함에 알림</span><time>34분</time></span></div></div></div></div></section><footer class="statusbar"><span class="conn"><span class="dot done"></span>127.0.0.1:7420</span><span class="sbtn">데몬에 연결됨</span><span class="sp"></span><span class="ver">v0.1.2290</span></footer></div></div>
     <div class="calls">
       <div><b>6</b><span>표준 카드도 터미널 아래 줄에 같은 사실과 시간을 씁니다.</span></div>
       <div><b>7</b><span>문제 카드는 빨간 테두리입니다. 지금 아래 줄의 꺼짐 글은 그대로 둡니다.</span></div>
@@ -422,18 +402,10 @@ td code { font: 12px var(--mono); }
       <div><b>11</b><span>최근 상태 바뀜과 시각을 보입니다.</span></div>
     </div>
   </div>
-  <section class="decision" id="D4" data-for="9 11">
-    <h3><span class="did">D4</span>자세히 창에 토큰·메모리도 보이는가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">보이지 않음: 기다리는 것과 최근 상태만<span class="mark">권장</span><span class="sub">지금: 자세히 창 없음 → 바뀐 뒤: 칩을 누르면 ③ · 비용: 지금 있는 사실과 이벤트 기록만 씀 · 되돌리기: 창을 빼면 칩만 남음</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">토큰·메모리 줄을 더함<span class="sub">데몬에 지금 노드별 토큰·메모리 값이 없음 · 에이전트마다 새로 모아야 함 · 그 값으로 사람이 정할 일이 없음</span></span></div>
-    </div>
-    <ul class="why"><li>사람이 이 창에서 정할 것은 「기다려도 되는가」입니다. 기다리는 것 목록이 그 답을 줍니다.</li><li>토큰·메모리는 사람이 고를 일이 생길 때 더합니다.</li></ul>
-  </section>
 
   <h2>모든 상태: 칩, 아래 줄, 데이터</h2>
   <p class="note">한 노드에 여러 상태가 맞으면 위 갈래가 이깁니다(1 사람 → 2 문제 → 3 일함 → 4 대기 → 5 결과). 시간은 그 상태가 시작된 뒤 흐른 시간입니다. 숨기는 것: 계정 바꿈, 전달 방식, 턴 번호. 대기 사유는 감시견 조건(<code>NO_WAKE_SOURCE</code>)의 줄마다 이름을 붙인 것이고, 그 줄이 하나도 맞지 않으면 「멈춤 의심」입니다.</p>
-  <table><thead><tr><th>갈래</th><th>칩</th><th>아래 줄(예)</th><th>언제</th><th>데몬에 이미 있는 것</th><th>새로 만들 것</th></tr></thead><tbody><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">질문 1</span></td><td>Q42 질문 글 · 기다린 시간</td><td>부모 없는 노드의 열린 <code>loom ask</code></td><td><code>waits</code>(질문, <code>since</code>)</td><td>없음</td></tr><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">승인 요청</span></td><td>창의 요약 · 시간</td><td>창이 에이전트를 막음(<code>blocked</code>)</td><td><code>waits</code>의 신호 대기</td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">꺼짐(1)</span></td><td>지금 카드 아래 줄 그대로</td><td>진행 중에 프로세스가 0이 아닌 코드로 끝남</td><td><code>process: stopped</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">설정 실패</span></td><td>지금 카드 아래 줄 그대로</td><td>설정 스크립트 실패</td><td><code>state: setupFailed</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">사용 한도</span></td><td>모든 Claude 계정 한도 · 14:20에 풀림</td><td>바꿀 계정이 남지 않음</td><td>이벤트 <code>noAccountLeft</code>, 계정별 풀리는 시각</td><td>노드에 「한도」 사실을 붙임</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">멈춤 의심</span></td><td>기다리는 것이 없는데 쉽니다 · 시간</td><td>쉼이고 아래 대기 사유가 하나도 없음</td><td>감시견 조건 <code>NO_WAKE_SOURCE</code>(src/graph/watchdog.rs)</td><td>같은 조건을 노드 목록 읽기에서도 계산</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">재작업 3</span></td><td>칩 옆 작은 표시, 본 칩은 그대로</td><td>같은 브랜치 판정 막음 3회 이상</td><td>관문 판정 기록</td><td>브랜치별 막음 수 세기</td></tr><tr><td class="cat">3 일함</td><td class="sample"><span class="st run">일함</span></td><td>도구 · 대상(예: Edit · NodeCard.tsx) · 시간</td><td>턴 중</td><td><code>process: working</code>, Claude 훅 <code>PreToolUse</code>의 <code>tool_name</code></td><td>마지막 도구 이름·대상을 노드별로 기억(메모리, 저장 안 함). 훅이 없는 에이전트는 시간만</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">자식 대기 3</span></td><td>자식 이름과 칩</td><td>끝나지 않은 산 자식이 있음</td><td><code>nodes.parent</code>, 자식 상태</td><td>없음(조건만 이름 붙임)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">검토 대기</span></td><td>리뷰어 n명 중 m명 판정 · 브랜치</td><td>내 브랜치 관문이 <code>ready</code></td><td><code>gates</code>, <code>gate_votes</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">병합 대기</span></td><td>병합 큐 차례</td><td>관문이 <code>passed</code>·<code>merging</code></td><td><code>gates.state</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">답 대기</span></td><td>부모에게 물음 · 시간</td><td>부모에게 한 <code>loom ask</code>에 답이 없음</td><td><code>messages</code>(ask 뒤 답 없음)</td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">재검토 대기</span></td><td>새 커밋을 기다림</td><td>리뷰어가 이 head에 이미 판정함</td><td><code>gate_votes.head</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">작업 대기</span></td><td>턴 끝 글(⏳ …) 그대로</td><td>턴 끝 글이 「⏳ 」로 시작(loom 규칙이 요구하는 글)</td><td><code>reply</code></td><td>없음(글 앞머리만 봄)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">배포 대기</span></td><td>대상 브랜치와 커밋</td><td>내가 루트인 배포가 아직 끝나지 않음</td><td><code>deploys</code> 테이블(끝나면 지움)</td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">완료</span></td><td>마지막 턴 끝 글</td><td><code>loom done</code> 뒤</td><td><code>state: done</code>, <code>reply</code></td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">병합됨</span></td><td>대상과 병합 커밋</td><td>내 브랜치 관문이 <code>merged</code></td><td><code>gates.state</code></td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">배포됨</span></td><td>대상과 커밋 · 시간</td><td>그 병합을 담은 배포가 성공함</td><td>배포 성공은 지금 남지 않음(줄을 지움)</td><td>배포 성공 사실 저장(관문 줄에 한 칸)</td></tr></tbody></table>
+  <table><thead><tr><th>갈래</th><th>칩</th><th>아래 줄(예)</th><th>언제</th><th>데몬에 이미 있는 것</th><th>새로 만들 것</th></tr></thead><tbody><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">질문 1</span></td><td>Q42 질문 글 · 기다린 시간</td><td>부모 없는 노드의 열린 <code>loom ask</code></td><td><code>waits</code>(질문, <code>since</code>)</td><td>없음</td></tr><tr><td class="cat">1 사람</td><td class="sample"><span class="state-tag" data-tone="ask">승인 요청</span></td><td>창의 요약 · 시간</td><td>창이 에이전트를 막음(<code>blocked</code>)</td><td><code>waits</code>의 신호 대기</td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">꺼짐(1)</span></td><td>지금 카드 아래 줄 그대로</td><td>진행 중에 프로세스가 0이 아닌 코드로 끝남</td><td><code>process: stopped</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">설정 실패</span></td><td>지금 카드 아래 줄 그대로</td><td>설정 스크립트 실패</td><td><code>state: setupFailed</code></td><td>없음</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">사용 한도</span></td><td>계정을 바꾸면 풀립니다</td><td>사용 한도에 걸림</td><td><code>nodes.limited</code></td><td>없음(<code>nodes.limited</code>)</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">멈춤 의심</span></td><td>기다리는 것이 없는데 쉽니다 · 시간</td><td>쉼이고 아래 대기 사유가 하나도 없음</td><td>감시견 조건 <code>NO_WAKE_SOURCE</code>(src/graph/watchdog.rs)</td><td>같은 조건을 노드 목록 읽기에서도 계산, 받은편지함 대기 「멈춤」, 감시 간격 5분</td></tr><tr><td class="cat">2 문제</td><td class="sample"><span class="st err">재작업 3</span></td><td>칩 옆 작은 표시, 본 칩은 그대로</td><td>같은 브랜치 판정 막음 3회 이상</td><td>관문 판정 기록</td><td>브랜치별 막음 수 세기</td></tr><tr><td class="cat">3 일함</td><td class="sample"><span class="st run">일함</span></td><td>도구 · 대상(예: Edit · NodeCard.tsx) · 시간</td><td>턴 중</td><td><code>process: working</code>, Claude 훅 <code>PreToolUse</code>의 <code>tool_name</code></td><td>마지막 도구 이름·대상을 노드별로 기억(메모리, 저장 안 함). 훅이 없는 에이전트는 시간만</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">자식 대기 3</span></td><td>자식 이름과 칩</td><td>끝나지 않은 산 자식이 있음</td><td><code>nodes.parent</code>, 자식 상태</td><td>없음(조건만 이름 붙임)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">검토 대기</span></td><td>리뷰어 n명 중 m명 판정 · 브랜치</td><td>내 브랜치 관문이 <code>ready</code></td><td><code>gates</code>, <code>gate_votes</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">병합 대기</span></td><td>병합 큐 차례</td><td>관문이 <code>passed</code>·<code>merging</code></td><td><code>gates.state</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">답 대기</span></td><td>부모에게 물음 · 시간</td><td>부모에게 한 <code>loom ask</code>에 답이 없음</td><td><code>messages</code>(ask 뒤 답 없음)</td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">재검토 대기</span></td><td>새 커밋을 기다림</td><td>리뷰어가 이 head에 이미 판정함</td><td><code>gate_votes.head</code></td><td>없음</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">작업 대기</span></td><td>턴 끝 글(⏳ …) 그대로</td><td>턴 끝 글이 「⏳ 」로 시작(loom 규칙이 요구하는 글)</td><td><code>reply</code></td><td>없음(글 앞머리만 봄)</td></tr><tr><td class="cat">4 대기</td><td class="sample"><span class="st wait">배포 대기</span></td><td>대상 브랜치와 커밋</td><td>내가 루트인 배포가 아직 끝나지 않음</td><td><code>deploys</code> 테이블(끝나면 지움)</td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">완료</span></td><td>마지막 턴 끝 글</td><td><code>loom done</code> 뒤</td><td><code>state: done</code>, <code>reply</code></td><td>없음</td></tr><tr><td class="cat">5 결과</td><td class="sample"><span class="st ok">병합됨</span></td><td>대상과 병합 커밋</td><td>내 브랜치 관문이 <code>merged</code></td><td><code>gates.state</code></td><td>없음</td></tr></tbody></table>
 </main>
 <button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
 

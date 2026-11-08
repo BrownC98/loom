@@ -617,7 +617,10 @@ a { color: var(--accent); }
 .wait-body .full h2 { font-size: 15px; }
 .wait-body .full h3 { font-size: 14px; }
 .wait-body .full :is(ul, ol) { display: grid; gap: 2px; padding-left: 20px; }
-.wait-body .full li { display: grid; gap: 2px; }
+.wait-body .full ul { list-style: disc; }
+.wait-body .full ul ul { list-style: circle; }
+.wait-body .full ul ul ul { list-style: square; }
+.wait-body .full li > * + * { margin-top: 2px; }
 .wait-body .full li::marker { color: var(--ink-2); }
 .wait-body .full blockquote { display: grid; gap: 6px; padding-left: 10px; border-left: 3px solid var(--line-strong); color: var(--ink-2); }
 .wait-body .full hr { border: 0; border-top: 1px solid var(--line-strong); }

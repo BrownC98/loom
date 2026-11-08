@@ -28,6 +28,8 @@ const MERGED: &str = r#"CASE WHEN n.state ->> 'kind' = 'done' THEN
 
 const REWORK: &str = "(SELECT count(*) FROM gates g JOIN messages m ON m.recipient = g.owner
     AND m.what ->> 'kind' = 'verdict' AND m.what ->> 'judgment' = 'block' AND m.what ->> 'branch' = g.branch
+    AND m.id > coalesce((SELECT max(x.id) FROM messages x WHERE x.recipient = g.owner
+        AND x.what ->> 'kind' = 'merged' AND x.what ->> 'branch' = g.branch), 0)
     WHERE g.owner = n.id AND g.opened = (SELECT max(o.opened) FROM gates o WHERE o.owner = n.id))";
 
 const SINCE: &str = "SELECT entry ->> '$.node.id',

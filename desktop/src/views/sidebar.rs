@@ -533,7 +533,9 @@ fn box_key(key: &Key) -> Option<String> {
 fn dot_color(dot: Dot, c: &Colors) -> Rgba {
     match dot {
         Dot::Waiting => c.ask,
-        Dot::Running | Dot::Done => c.ink_3,
+        Dot::Working => c.run,
+        Dot::Idle => c.ink_3,
+        Dot::Done => c.ok,
         Dot::Failed => c.err,
     }
 }
@@ -566,13 +568,15 @@ pub fn dot(dot: Dot, c: &Colors) -> impl IntoElement {
     }
 }
 
-fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
+fn tag(tag: &Tag, id: SharedString, c: &Colors) -> impl IntoElement {
     let (fill, ink, edge) = match tag.tone {
         Tone::Ask => (Some(c.warn), c.warn_ink, c.warn),
         Tone::Done => (Some(c.ok), c.accent_ink, c.ok),
         Tone::Failed => (None, c.err, c.err),
+        Tone::Neutral => (None, c.ink_2, c.ink_2),
     };
     let mut el = div()
+        .id(id)
         .flex_none()
         .px(px(7.0))
         .h(px(18.0))
@@ -585,6 +589,9 @@ fn tag(tag: &Tag, c: &Colors) -> impl IntoElement {
         .flex()
         .items_center()
         .child(tag.text.clone());
+    if let Some(tip_text) = &tag.tip {
+        el = el.tooltip(tip(tip_text.clone()));
+    }
     if let Some(fill) = fill {
         el = el.bg(fill);
     }
@@ -1042,12 +1049,11 @@ impl Sidebar {
                             .child(lang_unread(*unread))
                     }))
                     .children((!tags.is_empty()).then(|| {
-                        div()
-                            .flex()
-                            .flex_none()
-                            .gap(px(4.0))
-                            .ml_auto()
-                            .children(tags.iter().map(|t| tag(t, c)))
+                        div().flex().flex_none().gap(px(4.0)).ml_auto().children(
+                            tags.iter().enumerate().map(|(i, t)| {
+                                tag(t, SharedString::from(format!("{id}-tag{i}")), c)
+                            }),
+                        )
                     }));
                 let second = div()
                     .flex()

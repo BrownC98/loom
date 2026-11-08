@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertLine } from './AlertLine';
 import { PROMPT, streamOf, type TargetKey } from './alertTarget';
 import type { NodeId } from './gen/NodeId';
+import { active } from './notice';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { ScreenWait } from './gen/ScreenWait';
@@ -20,7 +21,7 @@ const KINDS: readonly (WaitTone | null)[] = [null, 'ask', 'done'];
 const CHIP: Record<'all' | WaitTone, 'composer.chipAll' | 'composer.chipQuestion' | 'composer.chipDone'> = { all: 'composer.chipAll', ask: 'composer.chipQuestion', done: 'composer.chipDone' };
 
 const MAX_DEPTH = 6;
-const live = (node: NodeView) => node.state.kind === 'running' || node.state.kind === 'done';
+const live = (node: NodeView) => node.state.kind === 'done' || active(node);
 
 function treeRows(own: readonly NodeView[], hits: ReadonlySet<NodeId>): Row[] {
   const ids = new Set(own.map((v) => v.id));

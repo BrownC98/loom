@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use api::graph::waits::{WaitKind, WaitTone};
-use api::graph::{NodeState, NodeView};
+use api::graph::{NodeState, NodeView, ProcessState};
 use api::profile::AgentView;
 use api::repos::PlaceView;
 
@@ -10,6 +10,7 @@ use crate::canvas::repos::{
 };
 use crate::link::Snapshot;
 use crate::strings::{Lang, Str};
+use crate::views::card::{StateChip, chip_of, chip_text, chip_tip};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Key {
@@ -31,7 +32,8 @@ impl Key {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Dot {
     Waiting,
-    Running,
+    Working,
+    Idle,
     Done,
     Failed,
 }
@@ -41,11 +43,13 @@ pub enum Tone {
     Ask,
     Done,
     Failed,
+    Neutral,
 }
 
 pub struct Tag {
     pub text: String,
     pub tone: Tone,
+    pub tip: Option<String>,
 }
 
 pub enum Body {
@@ -132,9 +136,18 @@ fn dot_of(view: &NodeView) -> Dot {
         return Dot::Waiting;
     }
     match view.state {
-        NodeState::Running => Dot::Running,
+        NodeState::Running => process_dot(&view.process),
         NodeState::Done => Dot::Done,
-        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => Dot::Failed,
+        NodeState::SetupFailed { .. } => Dot::Failed,
+    }
+}
+
+fn process_dot(process: &ProcessState) -> Dot {
+    match process {
+        ProcessState::Working => Dot::Working,
+        ProcessState::Idle | ProcessState::Asleep => Dot::Idle,
+        ProcessState::Blocked { before } => process_dot(before),
+        ProcessState::Stopped { .. } => Dot::Failed,
     }
 }
 
@@ -149,21 +162,6 @@ fn kind_text(kind: &WaitKind) -> Str {
     }
 }
 
-pub fn state_text(state: &NodeState, lang: Lang) -> String {
-    match state {
-        NodeState::Running => Str::NodeStateRunning.text(lang).to_owned(),
-        NodeState::Done => Str::NodeStateDone.text(lang).to_owned(),
-        NodeState::Exited { code } => Str::NodeStateExited.with(
-            lang,
-            &[(
-                "code",
-                &code.map_or_else(|| "?".to_owned(), |c| c.to_string()),
-            )],
-        ),
-        NodeState::SetupFailed { .. } => Str::NodeStateSetupFailed.text(lang).to_owned(),
-    }
-}
-
 fn tags(view: &NodeView, lang: Lang) -> Vec<Tag> {
     let asks: Vec<_> = view
         .waits
@@ -172,25 +170,31 @@ fn tags(view: &NodeView, lang: Lang) -> Vec<Tag> {
         .collect();
     let dones = view.waits.len() - asks.len();
     if view.waits.is_empty() {
-        return match view.state {
-            NodeState::Exited { .. } | NodeState::SetupFailed { .. } => vec![Tag {
-                text: state_text(&view.state, lang),
-                tone: Tone::Failed,
-            }],
-            _ => Vec::new(),
-        };
+        return chip_of(view)
+            .map(|chip| Tag {
+                text: chip_text(view, lang),
+                tone: match chip {
+                    StateChip::Failed => Tone::Failed,
+                    StateChip::Asleep => Tone::Neutral,
+                },
+                tip: Some(chip_tip(view, lang)),
+            })
+            .into_iter()
+            .collect();
     }
     let mut out = Vec::new();
     if let Some(oldest) = asks.iter().min_by_key(|w| w.wait.since) {
         out.push(Tag {
             text: format!("{} {}", kind_text(&oldest.wait.kind).text(lang), asks.len()),
             tone: Tone::Ask,
+            tip: None,
         });
     }
     if dones > 0 {
         out.push(Tag {
             text: Str::TreeDone.with(lang, &[("n", &dones.to_string())]),
             tone: Tone::Done,
+            tip: None,
         });
     }
     out

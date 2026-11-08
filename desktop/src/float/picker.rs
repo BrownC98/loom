@@ -2,9 +2,9 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use api::graph::NodeView;
 use api::graph::search::WaitSearch;
 use api::graph::waits::{WaitKind, WaitTone};
-use api::graph::{NodeState, NodeView};
 use api::ids::{NodeId, WaitId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -18,6 +18,7 @@ use super::place;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::Colors;
+use crate::views::card;
 use crate::views::dock::entry;
 use crate::views::dock::questions::kind_label;
 use crate::views::dock::ui;
@@ -180,10 +181,6 @@ pub fn picker(
     })
 }
 
-fn live(state: &NodeState) -> bool {
-    matches!(state, NodeState::Running | NodeState::Done)
-}
-
 fn tree_rows(own: &[&NodeView], hits: &HashSet<NodeId>) -> Vec<Row> {
     let ids: HashSet<NodeId> = own.iter().map(|n| n.id).collect();
     let mut rows = Vec::new();
@@ -255,7 +252,7 @@ impl Picker {
         let listed: HashMap<NodeId, &NodeView> = snapshot
             .nodes
             .iter()
-            .filter(|n| live(&n.state) || n.id == self.current.0)
+            .filter(|n| !card::failed(n) || n.id == self.current.0)
             .map(|n| (n.id, n))
             .collect();
         let hits: HashSet<NodeId> = listed

@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use api::graph::NodeState;
 use api::graph::search::WaitSearch;
 use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::NodeId;
@@ -17,6 +16,7 @@ use super::ui::{self, GAP};
 use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
 use crate::strings::Str;
+use crate::views::card;
 use crate::views::widgets::{Label, segmented_wide};
 
 pub fn kind_label(kind: WaitKind) -> Str {
@@ -67,10 +67,7 @@ pub(crate) fn groups_of(snapshot: &Snapshot) -> Vec<Group> {
             waits.sort_by_key(|w| w.wait.since);
             let mood = if waits.iter().any(|w| matches!(w.tone, WaitTone::Ask)) {
                 Mood::Waiting
-            } else if matches!(
-                n.state,
-                NodeState::Exited { .. } | NodeState::SetupFailed { .. }
-            ) {
+            } else if card::failed(n) {
                 Mood::Failed
             } else {
                 Mood::Plain

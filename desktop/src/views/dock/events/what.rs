@@ -70,8 +70,7 @@ pub fn hidden(entry: &Entry) -> bool {
         Entry::IdleOpened { .. }
             | Entry::IdleEnded { .. }
             | Entry::EndpointFailed { .. }
-            | Entry::AgentStateChanged { .. }
-            | Entry::AgentStateDisagreed { .. }
+            | Entry::ProcessChanged { .. }
     )
 }
 
@@ -240,8 +239,7 @@ pub fn who_of(entry: &Entry) -> Vec<&Who> {
         | Entry::IdleOpened { node }
         | Entry::IdleEnded { node, .. }
         | Entry::EndpointFailed { node, .. }
-        | Entry::AgentStateChanged { node, .. }
-        | Entry::AgentStateDisagreed { node, .. } => vec![node],
+        | Entry::ProcessChanged { node, .. } => vec![node],
         Entry::Adopted { node, from, to, .. } => [Some(node), from.as_ref(), to.as_ref()]
             .into_iter()
             .flatten()
@@ -323,10 +321,6 @@ fn state_label(state: &NodeState, c: &Ctx) -> String {
     match state {
         NodeState::Running => c.t(Str::NodeStateRunning),
         NodeState::Done => c.t(Str::NodeStateDone),
-        NodeState::Exited { code } => {
-            let code = code.map_or_else(|| "?".to_owned(), |code| code.to_string());
-            c.with(Str::NodeStateExited, &[("code", &code)])
-        }
         NodeState::SetupFailed { .. } => c.t(Str::NodeStateSetupFailed),
     }
 }
@@ -664,7 +658,6 @@ pub fn what(record: &EventRecord, c: &Ctx) -> Vec<Seg> {
         Entry::IdleOpened { .. }
         | Entry::IdleEnded { .. }
         | Entry::EndpointFailed { .. }
-        | Entry::AgentStateChanged { .. }
-        | Entry::AgentStateDisagreed { .. } => Vec::new(),
+        | Entry::ProcessChanged { .. } => Vec::new(),
     }
 }

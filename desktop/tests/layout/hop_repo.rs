@@ -285,6 +285,7 @@ fn node_view(v: &ViewIn) -> NodeView {
         "agent": null,
         "parent": v.parent,
         "state": {"kind": "running"},
+        "process": {"kind": "working"},
         "unread": 0,
         "model": null,
         "effort": null,

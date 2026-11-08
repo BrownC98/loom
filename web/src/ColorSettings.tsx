@@ -85,7 +85,7 @@ export function ColorsSection({ colors, theme, onColors }: Props) {
         <span className="dot waiting" />
         <span className="dot running" />
         <span className="dot done" />
-        <span className="dot exited" />
+        <span className="dot stopped" />
         <span className="mini" aria-hidden="true">
           <span className="g">
             <span className="c" />

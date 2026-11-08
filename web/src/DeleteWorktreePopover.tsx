@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { deleteWorktree, getWorktreeChanges } from './api';
+import { active } from './notice';
 import type { NodeView } from './gen/NodeView';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
@@ -15,7 +16,7 @@ export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const running = props.views.filter((v) => v.state.kind === 'running');
+  const running = props.views.filter(active);
 
   useEffect(() => {
     getWorktreeChanges(props.repo, group.path).then(setChanges, (err: Error) => setError(err.message));

@@ -132,7 +132,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dot.waiting { background: var(--ask); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ask) 25%, transparent); }
 .dot.running { background: var(--run); }
 .dot.done { background: var(--ok); }
-.dot.exited, .dot.setupFailed { background: var(--err); }
+.dot.stopped, .dot.setupFailed { background: var(--err); }
 .row-acts { --row-base: var(--panel); position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-wash, transparent) 16px), linear-gradient(to right, transparent, var(--row-base) 16px); }
 .tree-line:is(:hover, :focus-within) > .row-acts { display: flex; }
 .tree-line:is(:hover, :focus-within) > .tree-row .unread { visibility: hidden; }
@@ -203,7 +203,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.ask { fill: var(--warn); }
 .react-flow__minimap-node.done { fill: var(--ok); }
-.react-flow__minimap-node.exited, .react-flow__minimap-node.setupFailed { fill: var(--err); }
+.react-flow__minimap-node.stopped, .react-flow__minimap-node.setupFailed { fill: var(--err); }
 .react-flow__node.hl .card { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), 0 0 0 1px var(--accent); }
 .react-flow__node.dim, .react-flow__edge.dim { opacity: 0.4; }
 .react-flow__node.hl .group { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
@@ -390,7 +390,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-reply { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.state.exited, .state.setupFailed { color: var(--err); }
+.state.stopped, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 button.unread { border: 0; font-family: inherit; cursor: pointer; }
 button.unread:hover { filter: brightness(1.1); }
@@ -692,9 +692,9 @@ dialog::backdrop { background: var(--scrim); }
 ::highlight(settings-search) { background: color-mix(in oklch, var(--warn) 35%, transparent); }
 .dialog nav .reset-all { margin-top: auto; justify-content: flex-start; }
 .dialog nav .stop { justify-content: flex-start; }
-.stopped { height: 100vh; display: grid; place-content: center; gap: 6px; text-align: center; background: var(--bg); }
-.stopped b { font-size: 16px; }
-.stopped span { font-size: 12px; color: var(--ink-3); }
+.daemon-stopped { height: 100vh; display: grid; place-content: center; gap: 6px; text-align: center; background: var(--bg); }
+.daemon-stopped b { font-size: 16px; }
+.daemon-stopped span { font-size: 12px; color: var(--ink-3); }
 .dialog nav h2 { font-size: 15px; padding: 0 8px 10px; }
 .tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; color: var(--ink-2); }
 .tab:hover { background: var(--surface-hover); }
@@ -908,7 +908,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
 span.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
 .chips .state-tag { margin-left: 0; }
-.state-tag:is(.exited, .setupFailed) { color: var(--err); }
+.state-tag:is(.stopped, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
 .sheet-body > .btn svg { width: 18px; height: 18px; }
 .sheet-body > .btn .mark { margin-left: auto; }

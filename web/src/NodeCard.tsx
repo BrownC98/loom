@@ -8,7 +8,8 @@ import type { NodeView } from './gen/NodeView';
 import type { ProcessState } from './gen/ProcessState';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
-import { asking, chipClass, NoticeChips, stopped } from './notice';
+import { asking, asleep } from './notice';
+import { chipLabel, isProblem, StatusChips, StatusLine } from './status';
 import { navDirection, type Direction } from './keys';
 
 function processClass(process: ProcessState): string {
@@ -37,27 +38,7 @@ export function stateClass(view: NodeView): string {
   }
 }
 
-export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateTitle(view));
-
-export const stateTitle = (view: NodeView) => `${stateLabel(view.state)} · ${processLabel(view.process)}`;
-
-export const viewLabel = (view: NodeView) => (view.state.kind === 'setupFailed' ? stateLabel(view.state) : processLabel(view.process));
-
-export function processLabel(process: ProcessState): string {
-  const t = i18next.t;
-  switch (process.kind) {
-    case 'working':
-      return t('node.process.working');
-    case 'idle':
-      return t('node.process.idle');
-    case 'asleep':
-      return t('node.process.asleep');
-    case 'blocked':
-      return t('node.process.blocked');
-    case 'stopped':
-      return process.code === null ? t('node.process.stopped') : t('node.process.stoppedCode', { code: process.code });
-  }
-}
+export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : chipLabel(view.status));
 
 export function stateLabel(state: NodeState): string {
   const t = i18next.t;
@@ -68,24 +49,6 @@ export function stateLabel(state: NodeState): string {
       return t('node.state.done');
     case 'setupFailed':
       return t('node.state.setupFailed');
-  }
-}
-
-function footText(view: NodeView, parentName: string | null): string | null {
-  const t = i18next.t;
-  const state = view.state;
-  const s = stopped(view);
-  if (s) {
-    if (s.code === null) return t('node.foot.daemonRestarted');
-    if (parentName !== null) return t('node.foot.stoppedSent', { code: s.code, parent: parentName });
-    return t('node.foot.stopped', { code: s.code });
-  }
-  switch (state.kind) {
-    case 'setupFailed':
-      return t('node.foot.setupFailed', { code: state.code });
-    case 'running':
-    case 'done':
-      return null;
   }
 }
 
@@ -140,12 +103,7 @@ function Badges(props: { view: NodeView }) {
           {t('node.unreadShort', { n: view.unread })}
         </button>
       )}
-      <NoticeChips view={view} />
-      {chipClass(view) && (
-        <span className={`state ${chipClass(view)}`} title={stateTitle(view)} aria-live="polite" translate="no">
-          {viewLabel(view)}
-        </span>
-      )}
+      <StatusChips view={view} />
     </>
   );
 }
@@ -176,11 +134,7 @@ export function NodeSummary(props: SummaryProps) {
           <ModelText view={view} />
         </div>
       )}
-      {view.reply && (
-        <p className="summary-reply" title={view.reply}>
-          {view.reply}
-        </p>
-      )}
+      <StatusLine view={view} className="sline" />
     </div>
   );
 }
@@ -216,6 +170,8 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
       data-waiting={asking(props.view).length > 0 || undefined}
+      data-problem={isProblem(props.view) || undefined}
+      data-asleep={asleep(props.view) || undefined}
       onMouseDown={(e) => {
         if (!isControl(e.target)) props.onSelect();
       }}
@@ -249,14 +205,12 @@ export function SimpleCard(props: ShellProps & { agentLabel: string; actions: Re
 export function NodeCard(
   props: ShellProps & {
     agentLabel: string;
-    parentName: string | null;
     onDoubleClickHead?: () => void;
     headAction: ReactNode;
     children: ReactNode;
   },
 ) {
   const { view } = props;
-  const foot = footText(view, props.parentName);
   return (
     <CardShell className="card" {...props}>
       {(rename) => (
@@ -272,7 +226,7 @@ export function NodeCard(
           <div className="term nodrag nowheel" translate="no">
             {props.children}
           </div>
-          {foot !== null && <div className="card-foot">{foot}</div>}
+          <StatusLine view={view} className="card-foot sline" />
         </>
       )}
     </CardShell>

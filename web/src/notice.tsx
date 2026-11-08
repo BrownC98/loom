@@ -17,7 +17,7 @@ const oldest = (waits: readonly ScreenWait[]): ScreenWait => waits.reduce((a, b)
 
 export const oldestWait = (v: NodeView): ScreenWait => oldest(v.waits);
 
-export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask');
+export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'ask' && w.kind !== 'stalled');
 
 export const active = (view: NodeView) => view.state.kind === 'running' && view.process.kind !== 'stopped';
 
@@ -26,8 +26,6 @@ export const asleep = (view: Pick<NodeView, 'process'>) => view.process.kind ===
 export const stopped = (view: NodeView) => (view.state.kind === 'running' && view.process.kind === 'stopped' ? view.process : null);
 
 const alarmClass = (view: NodeView): string => (view.state.kind === 'setupFailed' ? 'setupFailed' : stopped(view) ? 'stopped' : '');
-
-export const chipClass = (view: NodeView): string => alarmClass(view) || (view.process.kind === 'asleep' ? 'asleep' : '');
 
 export const minimapClass = (v: NodeView): string => {
   if (v.waits.length > 0) return oldestWait(v).tone;
@@ -54,13 +52,12 @@ export function NoticeBadges(props: { waits: readonly ScreenWait[] }) {
   );
 }
 
-export function NoticeChips(props: { view: NodeView }) {
+export function NoticeTags(props: { view: NodeView }) {
   const { t } = useTranslation();
   const asks = asking(props.view);
-  const dones = props.view.waits.length - asks.length;
-  if (asks.length + dones === 0) return null;
+  const dones = props.view.waits.filter((w) => w.tone === 'done').length;
   return (
-    <span className="chips">
+    <>
       {asks.length > 0 && (
         <span className="state-tag" data-tone="ask">
           {t(`wait.${oldest(asks).kind}`)} {asks.length}
@@ -71,7 +68,7 @@ export function NoticeChips(props: { view: NodeView }) {
           {t('tree.done', { n: dones })}
         </span>
       )}
-    </span>
+    </>
   );
 }
 

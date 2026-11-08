@@ -201,7 +201,7 @@ type GroupData = {
 };
 type Chip = { path: string; label: string; className: string | undefined; creating: boolean; deleting: boolean };
 type CardBase = { view: NodeView; unreached: boolean; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
-type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
+type CardData = CardBase & { ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
 type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
@@ -357,7 +357,6 @@ function Card({ id, data }: NodeProps<CardNode>) {
       <NodeCard
         view={data.view}
         agentLabel={data.agentLabel}
-        parentName={data.parentName}
         selected={data.selected}
         onSelect={data.onSelect}
         onNavigate={data.onNavigate}
@@ -452,10 +451,6 @@ function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Directi
     if (score < bestScore) [best, bestScore] = [id, score];
   }
   return best;
-}
-
-function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): string | null {
-  return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
 function cover(contents: readonly Box[], inset: { top: number; side: number }): Box {
@@ -939,7 +934,6 @@ export function Graph(props: {
             resizeFrom.current = null;
           },
           onResetSize: () => resetSizes([view.id]),
-          parentName: parentName(props.views, view),
           ownsPty: zoomed !== view.id,
           onExpand: () => {
             setSelected(view.id);
@@ -1349,7 +1343,6 @@ export function Graph(props: {
           <NodeCard
             view={zoomedView}
             agentLabel={agentLabel(props.agents, zoomedView.agent)}
-            parentName={parentName(props.views, zoomedView)}
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
             onNavigate={() => {}}

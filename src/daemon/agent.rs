@@ -104,6 +104,7 @@ impl App {
         if let Some(text) = prompt
             && !injected
         {
+            self.graph.instructed(node, text)?;
             self.graph.human_typed(node, text)?;
         }
         Ok(profile::questions_note(&self.graph.open_questions(node)?))

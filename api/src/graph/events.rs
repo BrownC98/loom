@@ -156,7 +156,7 @@ pub enum Entry {
         text: String,
         images: u32,
     },
-    /// 사람이 받은편지함의 완료 줄에서 이어서 맡겼다. 그 완료는 닫혔다.
+    /// 사람이 완료 줄이나 노드 터미널에서 이어서 맡겼다. 그 완료는 닫혔다.
     Instructed {
         node: Who,
         wait: WaitId,

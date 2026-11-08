@@ -4,11 +4,12 @@ use std::rc::Rc;
 use api::graph::waits::WaitTone;
 use api::ids::{NodeId, WaitId};
 use api::settings::{FloatPlace, FloatSize};
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent, Size, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, point, px,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, deferred, div, point, px,
 };
 
 use super::aim::{self, Aim, Chosen, Kind, Stop, Streamed};
@@ -81,6 +82,7 @@ pub struct Composer {
     stream_box: Rc<Cell<Size<Pixels>>>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
+    bulk_open: Cell<Option<u32>>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -138,7 +140,9 @@ pub fn composer(
             |composer: &mut Composer, _, event: &FieldEvent, window, cx| match event {
                 FieldEvent::Enter => composer.send(cx),
                 FieldEvent::Escape => {
-                    if let Some(node) = composer.node(cx) {
+                    if composer.bulk_open.take().is_some() {
+                        cx.notify();
+                    } else if let Some(node) = composer.node(cx) {
                         let registry = composer.inputs.clone();
                         registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
                     }
@@ -190,6 +194,7 @@ pub fn composer(
             stream_box: Rc::new(Cell::new(Size::default())),
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
+            bulk_open: Cell::new(None),
             subscriptions: vec![typed, heard],
         };
         composer.subscriptions.push(cx.observe_in(
@@ -761,6 +766,7 @@ impl Composer {
     }
 
     fn confirm_all(&mut self, cx: &mut Context<Self>) {
+        self.bulk_open.set(None);
         let ids: Vec<u32> = self
             .stream(cx)
             .iter()
@@ -925,20 +931,87 @@ impl Render for Composer {
 }
 
 impl Composer {
-    fn bulk(&self, done: usize, z: f32, cx: &mut Context<Self>) -> AnyElement {
-        let text = ui::say_with(cx, Str::ComposerConfirmAll, &[("count", &done.to_string())]);
-        ui::button_at("composer-confirm-all", z, cx)
+    fn bulk_for(
+        &self,
+        shown: &Streamed,
+        done: usize,
+        z: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let wait = shown.wait.wait.id.0;
+        let shows = done > 1 && matches!(shown.wait.tone, WaitTone::Done);
+        if !shows || self.bulk_open.get().is_some_and(|open| open != wait) {
+            self.bulk_open.set(None);
+        }
+        shows.then(|| self.bulk(wait, done, z, cx))
+    }
+
+    fn bulk(&self, wait: u32, done: usize, z: f32, cx: &mut Context<Self>) -> AnyElement {
+        let c = ui::colors(cx);
+        let open = self.bulk_open.get() == Some(wait);
+        let arrow = ui::button_at("composer-confirm-more", z, cx)
             .flex_none()
-            .whitespace_nowrap()
+            .px(px(4.0 * z))
+            .ml(px(-1.0))
+            .rounded_l(px(0.0))
+            .when(open, |arrow| arrow.bg(c.surface_hover))
             .on_mouse_down(MouseButton::Left, place::stop)
-            .on_click(cx.listener(|composer, _, _, cx| composer.confirm_all(cx)))
-            .child(text)
+            .on_click(cx.listener(move |composer, _, _, cx| {
+                composer.bulk_open.set((!open).then_some(wait));
+                cx.notify();
+            }))
+            .child(icon(Lucide::ChevronDown, 14.0 * z, c.ink));
+        let menu = open.then(|| {
+            let text = ui::say_with(cx, Str::ComposerConfirmAll, &[("count", &done.to_string())]);
+            let hover = c.surface_hover;
+            let item = div()
+                .id("composer-confirm-all")
+                .flex()
+                .items_center()
+                .gap(px(8.0 * z))
+                .h(px(30.0 * z))
+                .px(px(8.0 * z))
+                .rounded(px(6.0 * z))
+                .whitespace_nowrap()
+                .text_size(px(13.0 * z))
+                .text_color(c.ink)
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover))
+                .on_mouse_down(MouseButton::Left, place::stop)
+                .on_click(cx.listener(|composer, _, _, cx| composer.confirm_all(cx)))
+                .child(icon(Lucide::CircleCheck, 14.0 * z, c.ok))
+                .child(text);
+            let panel = div()
+                .absolute()
+                .top(px(30.0 * z))
+                .right_0()
+                .p(px(6.0 * z))
+                .rounded(px(10.0 * z))
+                .bg(c.surface)
+                .shadow_lg()
+                .occlude()
+                .on_mouse_down_out(cx.listener(|composer, _, _, cx| {
+                    composer.bulk_open.set(None);
+                    cx.notify();
+                }))
+                .child(item);
+            deferred(panel).with_priority(2)
+        });
+        div()
+            .relative()
+            .flex_none()
+            .flex()
+            .child(arrow)
+            .children(menu)
             .into_any_element()
     }
 
     fn card(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = ui::colors(cx);
-        let shown = aimed.shown()?;
+        let Some(shown) = aimed.shown() else {
+            self.bulk_open.set(None);
+            return None;
+        };
         let ask = aimed.asks();
         let done = aimed.stream.len() - ask;
         let counts = ui::say_with(
@@ -954,7 +1027,7 @@ impl Composer {
             repo: shown.repo.clone(),
             node: shown.name.clone(),
             counts,
-            bulk: (done > 0).then(|| self.bulk(done, z, cx)),
+            bulk: self.bulk_for(shown, done, z, cx),
             note: (matches!(aimed.aim, Aim::Prompt) && !matches!(shown.wait.tone, WaitTone::Done))
                 .then(|| ui::say(cx, Str::ComposerNotAnswer).to_owned()),
         };
@@ -1117,6 +1190,9 @@ impl Composer {
             cx,
         )
         .map(IntoElement::into_any_element);
+        if aimed.stream.is_empty() {
+            self.bulk_open.set(None);
+        }
         let alerts = (!aimed.stream.is_empty()).then(|| {
             div()
                 .flex()

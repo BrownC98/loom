@@ -666,6 +666,7 @@ const ko: typeof en = {
     pickTarget: '보낼 곳 고르기 (Alt+L)',
     keys: 'Enter 보내기 · Alt+L 목록',
     alertTotal: '남은 알림 {{total}} · 질문 {{ask}} · 완료 {{done}}',
+    confirmMenu: '완료 모두 확인 메뉴',
     confirmAll: '완료 {{count}}개 모두 확인',
     sectionNodes: '노드에 지시',
     sectionAlerts: '알림',

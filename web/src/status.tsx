@@ -62,7 +62,6 @@ export const STATUS_TONE = {
   setupFailed: 'err',
   stopped: 'err',
   limited: 'err',
-  stalled: 'err',
   working: 'run',
   children: 'wait',
   review: 'wait',
@@ -108,7 +107,6 @@ export function chipLabel(status: Status): string {
       return t('node.status.chip.children', { n: status.names.length });
     case 'setupFailed':
     case 'limited':
-    case 'stalled':
     case 'working':
     case 'review':
     case 'merge':
@@ -138,7 +136,6 @@ export function statusLine(view: NodeView, parent: string | null): string | null
       if (status.code === null) return t('node.foot.daemonRestarted');
       return parent === null ? t('node.foot.stopped', { code: status.code }) : t('node.foot.stoppedSent', { code: status.code, parent });
     case 'limited':
-    case 'stalled':
     case 'answer':
       return t(`node.status.line.${status.kind}`);
     case 'working':
@@ -171,11 +168,11 @@ function useStatusLine(view: NodeView): { text: string | null; time: string | nu
   return { text: statusLine(view, parent), time: view.since > 0 ? duration(Math.max(0, clock - view.since * 1000)) : null };
 }
 
-export function StatusLine(props: { view: NodeView; className: string }) {
+export function StatusLine(props: { view: NodeView }) {
   const { text, time } = useStatusLine(props.view);
   if (text === null) return null;
   return (
-    <div className={props.className} data-problem={isProblem(props.view) || undefined}>
+    <div className="sline">
       <span className="sl-text" title={text}>
         {text}
       </span>

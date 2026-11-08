@@ -116,7 +116,7 @@ export function WaitHead(props: { wait: ScreenWait; children?: ReactNode }) {
       <WaitTitle wait={wait} />
       <Published wait={wait} />
       {props.children}
-      {wait.tone === 'done' || wait.kind === 'stalled' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
+      {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
     </div>
   );
 }

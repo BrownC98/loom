@@ -58,7 +58,7 @@ pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
 
 fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
     match kind {
-        WaitKind::Question | WaitKind::Done | WaitKind::Stalled => markdown(text),
+        WaitKind::Question | WaitKind::Done => markdown(text),
         WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
             Block::paragraph(parts(text))
         }
@@ -75,8 +75,7 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
         | WaitKind::Approval
         | WaitKind::Trust
         | WaitKind::Auth
-        | WaitKind::Input
-        | WaitKind::Stalled => WaitTone::Ask,
+        | WaitKind::Input => WaitTone::Ask,
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
@@ -87,8 +86,7 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
             | WaitKind::Trust
             | WaitKind::Auth
             | WaitKind::Input
-            | WaitKind::Done
-            | WaitKind::Stalled => Vec::new(),
+            | WaitKind::Done => Vec::new(),
         },
         ..wait
     };
@@ -464,7 +462,6 @@ impl Graph {
                     };
                     events::write(&tx, &entry, None)?;
                 }
-                Err(Refusal::NoWait(_)) if dismiss_stall(&tx, wait)? => {}
                 Err(Refusal::NoWait(_)) => {
                     let node = tx
                         .query_row(
@@ -546,14 +543,6 @@ pub(super) fn put_done(
         doc,
     };
     events::write(db, &entry, None)
-}
-
-fn dismiss_stall(db: &rusqlite::Connection, wait: WaitId) -> rusqlite::Result<bool> {
-    let dismissed = db.execute(
-        "UPDATE stalls SET dismissed = 1 WHERE wait ->> 'id' = ?1 AND dismissed = 0",
-        [wait.0],
-    )?;
-    Ok(dismissed > 0)
 }
 
 pub(super) fn drop_questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {

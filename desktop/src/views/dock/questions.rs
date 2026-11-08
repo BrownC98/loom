@@ -27,7 +27,6 @@ pub fn kind_label(kind: WaitKind) -> Str {
         WaitKind::Auth => Str::WaitAuth,
         WaitKind::Input => Str::WaitInput,
         WaitKind::Done => Str::WaitDone,
-        WaitKind::Stalled => Str::WaitStalled,
     }
 }
 

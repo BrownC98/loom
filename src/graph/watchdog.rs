@@ -52,19 +52,11 @@ fn waited() -> String {
     format!("coalesce({MAIL}, {CHILDREN}, {ANSWER}, {REVIEW}, {MERGE}, {REREVIEW}, {DEPLOY})")
 }
 
-fn reason() -> String {
+pub(super) fn idle_status() -> String {
     format!(
         r#"coalesce({}, CASE WHEN (n.turn_flags & {}) != 0 THEN '{{"kind":"job"}}' END)"#,
         waited(),
         STATUS | BACKGROUND
-    )
-}
-
-pub(super) fn idle_status() -> String {
-    format!(
-        r#"coalesce({}, CASE WHEN {} THEN '{{"kind":"stalled"}}' END)"#,
-        reason(),
-        quiet()
     )
 }
 

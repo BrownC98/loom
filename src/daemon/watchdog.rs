@@ -37,13 +37,6 @@ impl Watchdog {
         self.changed.notify_one();
     }
 
-    pub fn quiet(&self, node: NodeId) -> bool {
-        let listening = self.listening.lock().unwrap();
-        listening
-            .get(&node)
-            .is_some_and(|&since| since + IDLE_WAKE <= now())
-    }
-
     fn due(&self, listening: &[NodeId], now: Instant) -> (Vec<NodeId>, Option<Instant>) {
         let mut since = self.listening.lock().unwrap();
         since.retain(|id, _| listening.contains(id));
@@ -90,9 +83,6 @@ impl App {
                     crate::log::logln!("loom: 일이 남은 채 쉬는 노드를 보지 못했다: {e}");
                     None
                 });
-                if let Err(e) = app.graph.sync_stalls(|node| app.watchdog.quiet(node)) {
-                    crate::log::logln!("loom: 멈춘 노드의 알림을 맞추지 못했다: {e}");
-                }
                 tokio::select! {
                     () = mail => {}
                     () = changed => {}

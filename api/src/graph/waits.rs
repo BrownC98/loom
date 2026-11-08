@@ -24,8 +24,6 @@ pub enum WaitKind {
     Input,
     /// 사람이 띄운 노드가 맡은 일을 끝냈다(`loom done --asked`). 사람은 [확인]하거나 이어서 맡긴다.
     Done,
-    /// 노드가 쉬는데 깨울 것이 없다(`Status::Stalled`). 노드가 다시 일하거나 기다릴 것이 생기면 데몬이 닫는다. 사람은 [확인]하거나 그 터미널에 쓴다.
-    Stalled,
 }
 
 /// 질문·완료에 붙은 문서(user-doc 목업·보고서 HTML). 화면은 ID와 제목만 받고 문서 페이지 `/docs/{id}`로 연다. 파일 경로는 데몬의 문서 ID 표(`user_doc::doc_file`)만 안다.

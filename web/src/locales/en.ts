@@ -102,7 +102,6 @@ const en = {
         stopped: 'Stopped',
         stoppedCode: 'Stopped ({{code}})',
         limited: 'Usage limit',
-        stalled: 'Stalled?',
         working: 'Working',
         children: 'Children {{n}}',
         review: 'In review',
@@ -119,7 +118,6 @@ const en = {
       },
       line: {
         limited: 'Switch the account to continue',
-        stalled: 'Idle with nothing to wait for',
         review: '{{judged}} of {{reviewers}} reviewers judged · {{branch}}',
         answer: 'Waiting for the parent\'s answer',
         rereview: 'Waiting for a new commit · {{branch}}',
@@ -518,7 +516,6 @@ const en = {
     auth: 'Login or account setup',
     input: 'Input',
     done: 'Done',
-    stalled: 'Stalled',
   },
   osNotify: {
     heading: 'System notifications',

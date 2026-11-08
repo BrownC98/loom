@@ -26,7 +26,6 @@ use crate::views::status::{self, Tone, chip, pill, rework, wash};
 use crate::views::tooltip;
 
 pub const HEAD: f32 = 35.0;
-pub const FOOT: f32 = 29.0;
 const BUTTON: f32 = 26.0;
 const BUTTON_ROUND: f32 = 6.0;
 const ICON: f32 = 14.0;
@@ -571,7 +570,7 @@ pub fn active(node: &NodeView) -> bool {
 }
 
 pub fn body_height(card_height: f32) -> f32 {
-    card_height - HEAD - FOOT - 2.0
+    card_height - HEAD - 2.0
 }
 
 fn button(id: impl Into<ElementId>, size: f32, zoom: f32) -> Stateful<Div> {
@@ -1031,17 +1030,15 @@ fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
                     .child(model),
             )
         })
-        .child(foot_line(face, false, zoom, colors).when(asleep(face.node), |d| d.opacity(ASLEEP)))
+        .child(status_line(face, zoom, colors).when(asleep(face.node), |d| d.opacity(ASLEEP)))
 }
 
-fn foot_line(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
+fn status_line(face: &Face, zoom: f32, colors: &Colors) -> Div {
     let node = face.node;
     let text = status::line(node, face.parent, face.lang);
     let time = status::since_short(node.since, face.lang);
     let ink = if status::problem(&node.status) {
         colors.err
-    } else if selected {
-        colors.accent
     } else {
         colors.ink_2
     };
@@ -1071,20 +1068,6 @@ fn foot_line(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
         }))
 }
 
-pub fn foot(face: &Face, selected: bool, zoom: f32, colors: &Colors) -> Div {
-    div()
-        .w_full()
-        .h(px(FOOT * zoom))
-        .px(px(10.0 * zoom))
-        .flex()
-        .flex_none()
-        .items_center()
-        .border_t(px(zoom.max(0.5)))
-        .border_color(colors.line)
-        .when(asleep(face.node), |d| d.opacity(ASLEEP))
-        .child(foot_line(face, selected, zoom, colors).flex_1())
-}
-
 pub fn card(
     face: &Face,
     look: Look,
@@ -1100,7 +1083,6 @@ pub fn card(
     } = look;
     let node = face.node;
     let head_h = px(HEAD * zoom);
-    let foot = (!simple).then(|| foot(face, selected, zoom, colors));
     let waiting = node.waits.iter().any(status::asking);
     let lit = mark == Mark::Lit;
     let (border, rings) = if waiting {
@@ -1156,7 +1138,6 @@ pub fn card(
                 .when(asleep(node), |d| d.opacity(ASLEEP))
                 .child(body)
         }))
-        .children(foot.map(|row| row.absolute().bottom_0().left_0()))
 }
 
 pub fn current(bounds: Bounds<Pixels>, zoom: f32, group: bool, colors: &Colors) -> Div {

@@ -50,7 +50,7 @@ function useAppUpdates(): Updates {
     return (err: unknown) => setStep({ kind: 'error', message: String(err), retry });
   }
 
-  async function find(): Promise<Release | null> {
+  async function find(loud = false): Promise<Release | null> {
     clearTimeout(next.current);
     try {
       const offered = await check();
@@ -61,7 +61,7 @@ function useAppUpdates(): Updates {
       next.current = setTimeout(find, CHECK_EVERY_MS);
       return found;
     } catch (err) {
-      fail(find)(err);
+      if (loud) fail(() => find(true).catch(() => {}))(err);
       next.current = setTimeout(find, RETRY_AFTER_MS);
       throw err;
     }
@@ -97,7 +97,7 @@ function useAppUpdates(): Updates {
       params.delete(UPDATE_QUERY);
       const query = params.toString();
       history.replaceState(null, '', `${location.pathname}${query && `?${query}`}${location.hash}`);
-      find().then((found) => found && download(found, install), () => {});
+      find(true).then((found) => found && download(found, install), () => {});
     } else {
       find().catch(() => {});
     }

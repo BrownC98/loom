@@ -831,9 +831,14 @@ impl Composer {
         };
         let wait = &aimed.waits[index];
         let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, label, cx);
+        let node = aimed.node;
         Some(
             div()
                 .id("composer-card")
+                .cursor_pointer()
+                .on_click(cx.listener(move |composer, _, _, cx| {
+                    composer.store.update(cx, |store, cx| store.go(node, cx));
+                }))
                 .max_h(px(CARD_ROOM * z))
                 .overflow_y_scroll()
                 .px(px(10.0 * z))
@@ -959,7 +964,7 @@ pub trait ComposerWire {
     fn reset(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
-    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
+    fn attach(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
@@ -1033,12 +1038,12 @@ pub fn face<W: ComposerWire>(
         .note
         .clone()
         .map(|text| div().text_size(px(12.0 * z)).text_color(c.err).child(text));
-    let image = wire.image(
-        tool("composer-image", 22.0)
+    let attach = wire.attach(
+        tool("composer-attach", 22.0)
             .absolute()
             .left(px(4.0 * z))
             .top(px(4.0 * z))
-            .child(icon(Lucide::Image, 16.0 * z, c.ink_2)),
+            .child(icon(Lucide::Paperclip, 16.0 * z, c.ink_2)),
     );
     let keys = view.keys.clone().map(|text| {
         div()
@@ -1065,7 +1070,7 @@ pub fn face<W: ComposerWire>(
                 .min_w_0()
                 .on_mouse_down(MouseButton::Left, place::stop)
                 .child(field)
-                .child(image)
+                .child(attach)
                 .children(keys),
         )
         .child(
@@ -1200,8 +1205,8 @@ impl ComposerWire for Live<'_, '_> {
             .on_click(self.cx.listener(|composer, _, _, cx| composer.reset(cx)))
     }
 
-    fn image(&self, el: Stateful<Div>) -> Stateful<Div> {
-        self.tool(el, Str::ComposerAttachImage)
+    fn attach(&self, el: Stateful<Div>) -> Stateful<Div> {
+        self.tool(el, Str::ComposerAttachFile)
             .on_click(self.cx.listener(move |composer, _, _, cx| {
                 composer
                     .pictures

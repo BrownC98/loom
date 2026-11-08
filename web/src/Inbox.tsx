@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type MouseEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
 import { ImageList, MB, useImages, ZoomImage } from './attachments';
@@ -64,15 +64,17 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
   );
 }
 
+export const entryClick = (run: () => void) => (e: MouseEvent<HTMLElement>) => {
+  if (!(e.target instanceof Element) || e.target.closest('button, input, textarea, a, label')) return;
+  if (window.getSelection()?.toString()) return;
+  run();
+};
+
 function WaitRow(props: { node: NodeId; wait: ScreenWait; onGo: () => void; onFocus: () => void }) {
   return (
     <li
       className="wait-row"
-      onClick={(e) => {
-        if (!(e.target instanceof Element) || e.target.closest('button, input, textarea, a, label')) return;
-        if (window.getSelection()?.toString()) return;
-        props.onFocus();
-      }}
+      onClick={entryClick(props.onFocus)}
     >
       <WaitEntry node={props.node} wait={props.wait} onGo={props.onGo} />
     </li>

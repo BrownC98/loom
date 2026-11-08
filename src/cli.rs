@@ -13,8 +13,8 @@ use crate::daemon::{
 };
 use crate::graph::{Kept, Listed, Relations, Sent};
 use crate::protocol::{
-    AckRequest, ChoiceRequest, Delivery, IdleReply, IdleRequest, MessageId, NODE_CALLS,
-    NODE_CALLS_HEADER, Report,
+    AckRequest, ChoiceRequest, Delivery, END_TURN_NOW, IdleReply, IdleRequest, MessageId,
+    NODE_CALLS, NODE_CALLS_HEADER, Report,
 };
 use crate::roles::SetRole;
 use crate::task;
@@ -382,7 +382,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         let open: Vec<String> = asked.open.iter().map(WaitId::to_string).collect();
         println!("Open questions: {}.", open.join(", "));
     }
-    println!("End your turn now. Do not write the question again in the terminal.");
+    println!("{END_TURN_NOW} Do not write the question again in the terminal.");
     Ok(())
 }
 
@@ -460,11 +460,11 @@ pub fn done(
             keep,
         },
     )?;
-    println!("Reported. Do not write the report again in the terminal.");
-    if let Some(warning) = reported.warning {
-        println!(
-            "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
-        );
+    match reported.warning {
+        None => println!("Reported. {END_TURN_NOW} Do not write the report again in the terminal."),
+        Some(warning) => println!(
+            "Reported. Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
+        ),
     }
     if !reported.removed.is_empty() {
         println!(
@@ -521,7 +521,9 @@ pub fn verdict(
             findings,
         },
     )?;
-    println!("Recorded the verdict. {branch} is now {state:?}. loom told the receivers.");
+    println!(
+        "Recorded the verdict. {branch} is now {state:?}. loom told the receivers. {END_TURN_NOW}"
+    );
     Ok(())
 }
 

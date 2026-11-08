@@ -16,7 +16,7 @@ use crate::screen::Screen;
 use api::graph::events::{AgentEvent, AgentState, IdleEnd};
 use api::ids::NodeId;
 
-const DONE_GRACE: Duration = Duration::from_secs(600);
+const DONE_GRACE: Duration = Duration::from_secs(120);
 const KEPT_KEYS_LIMIT: usize = 4096;
 const SUBMIT: u8 = b'\r';
 
@@ -414,12 +414,12 @@ impl App {
     }
 
     fn sleep_resting(self: &Arc<Self>) -> rusqlite::Result<Option<Instant>> {
-        let children = self.graph.done_children()?;
+        let sleepable = self.graph.sleepable()?;
         let resting: Vec<Active> = self
             .graph
             .active()?
             .into_iter()
-            .filter(|n| children.contains(&n.id) && self.resting(n))
+            .filter(|n| sleepable.contains(&n.id) && self.resting(n))
             .collect();
         let ids: Vec<NodeId> = resting.iter().map(|n| n.id).collect();
         let now = now();
@@ -471,8 +471,8 @@ impl App {
         let id = node.id;
         let still = || {
             self.graph
-                .done_children()
-                .is_ok_and(|done| done.contains(&id))
+                .sleepable()
+                .is_ok_and(|sleepable| sleepable.contains(&id))
                 && self.listening(id)
         };
         let stopped = match still() {

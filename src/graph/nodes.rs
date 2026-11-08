@@ -337,11 +337,12 @@ impl Graph {
             .collect()
     }
 
-    pub fn done_children(&self) -> rusqlite::Result<Vec<NodeId>> {
+    pub fn sleepable(&self) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare(
-                "SELECT id FROM nodes WHERE process IS NULL AND parent IS NOT NULL
-                 AND wait IS NULL AND state ->> 'kind' = 'done' ORDER BY id",
+                "SELECT id FROM nodes WHERE process IS NULL AND wait IS NULL
+                 AND state ->> 'kind' = 'done'
+                 AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = nodes.id) ORDER BY id",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
             .collect()

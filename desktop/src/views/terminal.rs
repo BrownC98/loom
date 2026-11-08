@@ -550,6 +550,12 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.marked.is_none()
+            && !new_text.is_empty()
+            && let Some(pty) = &self.pty
+        {
+            pty.composing();
+        }
         self.marked = (!new_text.is_empty()).then(|| new_text.to_owned());
         cx.notify();
     }

@@ -63,7 +63,7 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
       </div>
       {wait.instruction && <Instruction text={wait.instruction} />}
       <div className="wait-body" data-tone={wait.tone}>
-        <WaitContent node={target.view.id} wait={wait} hints={keyed} />
+        <WaitContent node={target.view.id} wait={wait} hints={keyed} onClose={() => startClosing(wait, [wait.id])} />
         {wait.answerable ? wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints={keyed} /> : <ToTerminal onGo={props.onGo} />}
       </div>
     </div>

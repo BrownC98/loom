@@ -142,7 +142,7 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
 pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     let records = db
         .prepare(&format!(
-            "{RECORD_COLUMNS} WHERE CASE WHEN json_valid(e.entry) THEN e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') END ORDER BY e.id DESC LIMIT ?1"
+            "{RECORD_COLUMNS} WHERE CASE WHEN json_valid(e.entry) THEN e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'endpointFailed', 'processChanged') END ORDER BY e.id DESC LIMIT ?1"
         ))?
         .query_map([RECENT], record_from_row)?
         .collect::<rusqlite::Result<_>>()?;

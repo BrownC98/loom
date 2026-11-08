@@ -8,7 +8,7 @@ use tokio::sync::Notify;
 use super::App;
 use super::relaunch::profile_of;
 use super::sleep::{now, until};
-use api::graph::events::AgentState;
+use crate::graph::AgentState;
 use api::ids::NodeId;
 
 const IDLE_WAKE: Duration = Duration::from_secs(30 * 60);

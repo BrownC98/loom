@@ -12,7 +12,7 @@ use ts_rs::TS;
 
 use super::{AgentError, App, RelaunchRequest, for_agent, internal};
 use crate::accounts::Site;
-use crate::graph::{Active, NewAgent, Next, Phase, Plan, ProcessOutcome};
+use crate::graph::{Active, AgentState, NewAgent, Next, Phase, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
 use crate::profile;
 use crate::profile::adapter::{Carry, ResumeError};
@@ -20,7 +20,7 @@ use crate::profile::process::Served;
 use crate::protocol::{Model, Session};
 use crate::screen::Screen;
 use api::graph::errors::{Problem, Refusal};
-use api::graph::events::{AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, Who};
+use api::graph::events::{AgentEvent, AgentSwitch, Entry, IdleEnd, Who};
 use api::ids::{AgentId, NodeId};
 use api::profile::{ModelRule, Profile, Provider};
 use api::settings::SettingsView;

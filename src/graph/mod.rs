@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 
-use api::graph::{GraphEvent, NodeState, NodeView, Place, RelaunchOffer, Toward};
+use api::graph::{GraphEvent, NodeState, NodeView, Place, ProcessState, RelaunchOffer, Toward};
 use api::ids::{AgentId, NodeId, RepoId};
 
-pub use agent_state::AgentChange;
+pub use agent_state::{AgentChange, AgentState};
 pub use deploys::Deploy;
 pub use gate::{BatchId, Ended, GateChoice, Merge, Outcome, Queued, Reclaim, Round, Unjudged};
 pub use idle::IdleId;
@@ -68,16 +68,21 @@ pub enum ProcessOutcome {
 fn node_state(work: Work, process: Option<ProcessOutcome>) -> NodeState {
     match (work, process) {
         (Work::Done { .. }, _) => NodeState::Done,
-        (Work::Running, None | Some(ProcessOutcome::Asleep | ProcessOutcome::HostGone)) => {
-            NodeState::Running
-        }
-        (Work::Running, Some(ProcessOutcome::Exited { code })) => {
-            NodeState::Exited { code: Some(code) }
-        }
-        (Work::Running, Some(ProcessOutcome::Lost)) => NodeState::Exited { code: None },
         (Work::Running, Some(ProcessOutcome::SetupFailed { code })) => {
             NodeState::SetupFailed { code }
         }
+        (Work::Running, _) => NodeState::Running,
+    }
+}
+
+fn process_state(process: Option<ProcessOutcome>, agent: Option<&AgentState>) -> ProcessState {
+    match process {
+        Some(ProcessOutcome::Asleep) => ProcessState::Asleep,
+        Some(ProcessOutcome::Exited { code }) => ProcessState::Stopped { code: Some(code) },
+        Some(
+            ProcessOutcome::Lost | ProcessOutcome::HostGone | ProcessOutcome::SetupFailed { .. },
+        ) => ProcessState::Stopped { code: None },
+        None => agent.map_or(ProcessState::Working, AgentState::shown),
     }
 }
 
@@ -102,7 +107,8 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id),
     n.card_view, n.reply, n.process,
     EXISTS(SELECT 1 FROM relaunch_plans p WHERE p.node = n.id),
-    n.session IS NOT NULL
+    n.session IS NOT NULL,
+    (SELECT s.state FROM agent_states s WHERE s.node = n.id)
     FROM nodes n";
 
 struct Db<'a> {
@@ -132,13 +138,13 @@ impl Drop for Db<'_> {
         };
         for record in new {
             *self.published = record.id;
-            if let Entry::AgentStateChanged { node, from, to, by } = &record.entry
+            if let Entry::ProcessChanged { node, by, .. } = &record.entry
                 && let Some(node) = node.id
+                && let Ok(to) = agent_state::state_of(&self.conn, node)
             {
                 let _ = self.agent.send(AgentChange {
                     node,
-                    from: from.clone(),
-                    to: to.clone(),
+                    to,
                     by: by.clone(),
                 });
             }
@@ -283,11 +289,21 @@ impl Graph {
 
 fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
-    let state = node_state(from_json(row, 4)?, optional_json(row, 16)?);
+    let outcome = optional_json(row, 16)?;
+    let state = node_state(from_json(row, 4)?, outcome);
+    let process = process_state(outcome, optional_json::<AgentState>(row, 19)?.as_ref());
     let agent: Option<AgentId> = from_json(row, 2)?;
-    let resumable = match state {
-        NodeState::Running | NodeState::Done => true,
-        NodeState::Exited { .. } | NodeState::SetupFailed { .. } => row.get(18)?,
+    let resumable = match (&state, outcome) {
+        (NodeState::Done, _) => true,
+        (
+            _,
+            Some(
+                ProcessOutcome::Exited { .. }
+                | ProcessOutcome::Lost
+                | ProcessOutcome::SetupFailed { .. },
+            ),
+        ) => row.get(18)?,
+        _ => true,
     };
     let offered = agent.as_ref().is_some_and(linked) && resumable;
     let relaunch = offered.then_some(match row.get(17)? {
@@ -315,6 +331,7 @@ fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<No
         agent,
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
         state,
+        process,
         unread: row.get(5)?,
         model: row.get(6)?,
         effort: row.get(7)?,
@@ -436,6 +453,14 @@ fn finish_work(db: &Connection, id: NodeId) -> rusqlite::Result<()> {
         |row| row.get(0),
     )?;
     set_work(db, id, &Work::Done { kept })
+}
+
+fn running_live(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
+    db.query_row(
+        &format!("SELECT state ->> 'kind' = 'running' AND {REACHABLE} FROM nodes WHERE id = ?1"),
+        [id.0],
+        |row| row.get(0),
+    )
 }
 
 fn note_state(db: &Connection, id: NodeId, from: NodeState) -> rusqlite::Result<()> {

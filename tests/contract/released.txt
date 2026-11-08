@@ -168,6 +168,11 @@ type AgentView.places	: Array<AgentAt>
 type AgentView.profile	: Profile
 type AgentView.provider	: Provider | null
 type AgentView.serves	: boolean
+type Align	= variants
+type Align|center	variant
+type Align|left	variant
+type Align|none	variant
+type Align|right	variant
 type AlwaysOn	= {}
 type AlwaysOn.oMode	: boolean
 type AlwaysOn.raptor3	: boolean
@@ -198,6 +203,24 @@ type BatchResult|kind=interrupted	variant
 type BatchResult|kind=passed	variant
 type BatchResult|kind=targetDirty	variant
 type BatchResult|kind=targetMoved	variant
+type Block	= variants
+type Block|block=code	variant
+type Block|block=code.text	: string
+type Block|block=heading	variant
+type Block|block=heading.level	: number
+type Block|block=heading.parts	: Array<TextPart>
+type Block|block=list	variant
+type Block|block=list.items	: Array<Array<Block>>
+type Block|block=list.start	: number | null
+type Block|block=paragraph	variant
+type Block|block=paragraph.parts	: Array<TextPart>
+type Block|block=quote	variant
+type Block|block=quote.blocks	: Array<Block>
+type Block|block=rule	variant
+type Block|block=table	variant
+type Block|block=table.align	: Array<Align>
+type Block|block=table.head	: Array<Array<TextPart>>
+type Block|block=table.rows	: Array<Array<Array<TextPart>>>
 type CardSize	= {}
 type CardSize.height	: number
 type CardSize.node	: NodeId
@@ -642,6 +665,7 @@ type MessageKind|kind=failed.head	: string
 type MessageKind|kind=failed.log	: string | null
 type MessageKind|kind=humanInput	variant
 type MessageKind|kind=humanInput.node	: string
+type MessageKind|kind=idle	variant
 type MessageKind|kind=merged	variant
 type MessageKind|kind=merged.branch	: string
 type MessageKind|kind=merged.head	: string
@@ -1047,13 +1071,13 @@ type Role.name	: string
 type Roles	= Array<Role>
 type ScreenWait	= {}
 type ScreenWait.answerable	: boolean
+type ScreenWait.blocks	?: Array<Block>
 type ScreenWait.choices	?: Array<Choice>
 type ScreenWait.doc	: WaitDoc | null
 type ScreenWait.id	: WaitId
 type ScreenWait.images	: Array<string>
 type ScreenWait.instruction	?: string
 type ScreenWait.kind	: WaitKind
-type ScreenWait.parts	?: Array<TextPart>
 type ScreenWait.prompt	?: Prompt
 type ScreenWait.since	: number
 type ScreenWait.summary	: string
@@ -1133,11 +1157,17 @@ type TerminalTheme.dark	: string | null
 type TerminalTheme.light	: string | null
 type TerminalTheme.matchDark	: boolean
 type TextPart	= variants
+type TextPart|part=code	variant
+type TextPart|part=code.text	: string
 type TextPart|part=doc	variant
 type TextPart|part=doc.label	: string
+type TextPart|part=emphasis	variant
+type TextPart|part=emphasis.text	: string
 type TextPart|part=link	variant
 type TextPart|part=link.href	: string
 type TextPart|part=link.label	: string
+type TextPart|part=strong	variant
+type TextPart|part=strong.text	: string
 type TextPart|part=text	variant
 type TextPart|part=text.text	: string
 type Theme	= variants
@@ -1156,6 +1186,7 @@ type TreeLimits.maxDepth	: number | null
 type TurnCheck	= variants
 type TurnCheck|kindLine	variant
 type TurnCheck|questionBox	variant
+type TurnCheck|unjudged	variant
 type TurnCheck|unreported	variant
 type TypeText	= {}
 type TypeText.option	?: number

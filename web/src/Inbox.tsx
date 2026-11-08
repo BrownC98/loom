@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type 
 import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
 import { ImageList, MB, useImages, ZoomImage } from './attachments';
-import { DocText } from './DocText';
+import { DocBlocks } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { Choice } from './gen/Choice';
@@ -202,9 +202,9 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boo
         />
       )}
       {!prompt && (wait.text || wait.doc) && (
-        <p className="full" data-find>
-          <DocText parts={wait.parts ?? []} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
-        </p>
+        <div className="full" data-find>
+          <DocBlocks blocks={wait.blocks ?? []} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
+        </div>
       )}
       {refusal && (
         <p className="refusal" role="alert">

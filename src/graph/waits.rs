@@ -18,7 +18,7 @@ use api::graph::NodeState;
 use api::graph::errors::Refusal;
 use api::graph::events::{AgentEvent, ClosedBy, Entry};
 use api::graph::messages::{MessageKind, Question};
-use api::graph::text::TextPart;
+use api::graph::text::Block;
 use api::ids::{AgentId, NodeId, WaitId};
 
 use super::{Graph, from_json, parent_of, state_of, to_json};
@@ -48,26 +48,28 @@ pub(super) fn for_screen(wait: HumanWait) -> ScreenWait {
         WaitKind::Question => without_tail(&wait.text).unwrap_or(&wait.text),
         _ => &wait.text,
     };
-    let parts = text_parts(wait.kind, text);
-    screen(wait, parts)
+    let blocks = text_blocks(wait.kind, text);
+    screen(wait, blocks)
 }
 
 pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
-    let parts = text_parts(wait.kind, &wait.text);
-    screen(wait, parts)
+    let blocks = text_blocks(wait.kind, &wait.text);
+    screen(wait, blocks)
 }
 
-fn text_parts(kind: WaitKind, text: &str) -> Vec<TextPart> {
+fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
     match kind {
         WaitKind::Question | WaitKind::Done => markdown(text),
-        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => parts(text),
+        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
+            Block::paragraph(parts(text))
+        }
     }
 }
 
-fn screen(wait: HumanWait, parts: Vec<TextPart>) -> ScreenWait {
+fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
     let summary = match &wait.prompt {
         Some(prompt) => prompt.summary.clone(),
-        None => preview(parts.iter().map(TextPart::shown).collect()),
+        None => preview(Block::shown(&blocks)),
     };
     let tone = match wait.kind {
         WaitKind::Question
@@ -78,7 +80,7 @@ fn screen(wait: HumanWait, parts: Vec<TextPart>) -> ScreenWait {
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
-        parts,
+        blocks,
         choices: match wait.kind {
             WaitKind::Question => choices(&wait.text),
             WaitKind::Approval
@@ -582,7 +584,7 @@ fn new_wait(
         instruction: None,
         images: Vec::new(),
         prompt: None,
-        parts: Vec::new(),
+        blocks: Vec::new(),
         choices: Vec::new(),
     })
 }

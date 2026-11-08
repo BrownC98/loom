@@ -6,8 +6,8 @@ use api::graph::text::TextPart;
 use api::graph::waits::WaitDoc;
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, FontWeight, HighlightStyle, InteractiveElement,
-    IntoElement, ParentElement, Rgba, StatefulInteractiveElement, Styled, Task, UnderlineStyle,
-    div, px,
+    IntoElement, MouseButton, ParentElement, Rgba, StatefulInteractiveElement, Styled, Task,
+    UnderlineStyle, div, px,
 };
 
 use super::Dock;
@@ -133,6 +133,7 @@ pub fn render(
             )))
             .child(format!("{} {}", doc.id, doc.title))
             .child(icon(Lucide::ExternalLink, 12.0, color))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(move |_, _, cx| follow(target.clone(), cx))
     });
     let highlight = HighlightStyle {

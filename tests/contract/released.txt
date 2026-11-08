@@ -906,6 +906,10 @@ type Refusal|code=noLink.value	: {}
 type Refusal|code=noLink.value.agent	: string
 type Refusal|code=noLink.value.linked	: Array<string>
 type Refusal|code=noRepo	variant
+type Refusal|code=noResult	variant
+type Refusal|code=noResult.value	: {}
+type Refusal|code=noResult.value.branch	: string
+type Refusal|code=noResult.value.path	: string
 type Refusal|code=noResume	variant
 type Refusal|code=noResume.value	: string
 type Refusal|code=noRound	variant
@@ -1068,7 +1072,6 @@ type SettingsView.autoSwitch	: boolean
 type SettingsView.bypassOff	: Array<AgentId>
 type SettingsView.cardView	: DefaultCardView
 type SettingsView.closedPanes	: ClosedPanes
-type SettingsView.closedSwitchNotice	: number | null
 type SettingsView.colors	: UiColors
 type SettingsView.composerOff	: boolean
 type SettingsView.composerPlace	: FloatPlace | null

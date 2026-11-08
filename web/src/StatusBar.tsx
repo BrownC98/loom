@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
 import { Fragment, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
@@ -7,9 +7,6 @@ import type { PlaceUsage } from './gen/PlaceUsage';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
-import { noticeOf } from './accountSwitch';
-import { weekdayAndTime } from './i18n';
-import type { SwitchRecord } from './useSwitchNotice';
 import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, oldestRead, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { Sheet, usePhone } from './sheet';
@@ -29,7 +26,6 @@ export function StatusBar(props: {
   distro: string | null;
   onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
   onManage?: () => void;
-  notice: { record: SwitchRecord | null; onClose: () => void };
 }) {
   const { t } = useTranslation();
   const phone = usePhone();
@@ -94,7 +90,6 @@ export function StatusBar(props: {
       <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
         <RotateCw />
       </button>
-      {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (phone ? <Sheet label={t('statusBar.usage')} onClose={() => setOpen(false)}>{body}</Sheet> : <UsagePopover anchor={button} onClose={() => setOpen(false)}>{body}</UsagePopover>)}
     </footer>
@@ -114,24 +109,6 @@ function Segment(props: { name: string; limits: Limits }) {
       <InlineWindows limits={limits} />
       {limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
     </>
-  );
-}
-
-function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | null; onClose: () => void }) {
-  const { t } = useTranslation();
-  const name = (provider: Provider, id: AccountId | null) => {
-    const a = props.accounts?.find((x) => x.provider === provider && x.distro === props.record.entry.distro && x.id === id);
-    return a ? accountName(a) : t(id === null ? 'usage.systemDefault' : 'usage.notLoggedIn');
-  };
-  const { text, warn } = noticeOf(props.record.entry, name, (at) => weekdayAndTime(at * 1000), t);
-  return (
-    <span className="notice" data-warn={warn || undefined} role="status">
-      {!warn && <ArrowLeftRight aria-hidden="true" />}
-      {text}
-      <button className="x" aria-label={t('switch.notice.close')} onClick={props.onClose}>
-        ×
-      </button>
-    </span>
   );
 }
 

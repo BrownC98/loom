@@ -498,6 +498,10 @@ pub fn view_of(node: &NodeView, setting: DefaultCardView) -> CardView {
     node.card_view.unwrap_or_else(|| base_view(node, setting))
 }
 
+pub fn asleep(node: &NodeView) -> bool {
+    matches!(node.process, ProcessState::Asleep)
+}
+
 pub type Press = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
 
 #[derive(Clone)]
@@ -949,7 +953,7 @@ fn actions(face: &Face, expand: bool, zoom: f32, colors: &Colors) -> Vec<AnyElem
                 .into_any_element(),
         );
     }
-    if matches!(face.node.process, ProcessState::Asleep) {
+    if asleep(face.node) {
         out.push(
             ghost(
                 ElementId::NamedInteger("wake".into(), node as u64),

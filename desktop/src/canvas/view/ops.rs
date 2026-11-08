@@ -47,7 +47,7 @@ impl CanvasView {
             anchors: self.anchors.clone(),
             steer: press(|this, id, _, _, cx| this.steer(id, cx)),
             bookmark: press(|this, id, _, _, cx| this.bookmark(id, cx)),
-            wake: press(|this, id, _, _, cx| this.call(cx, move |base| cardlink::wake(base, id))),
+            wake: press(|this, id, _, _, cx| this.wake(id, cx)),
             expand: if collapse {
                 press(|this, _, _, _, cx| this.collapse(cx))
             } else {
@@ -77,6 +77,10 @@ impl CanvasView {
 
     fn steer(&mut self, id: u32, cx: &mut Context<Self>) {
         self.call(cx, move |base| cardlink::steer_queued(base, id));
+    }
+
+    pub(super) fn wake(&mut self, id: u32, cx: &mut Context<Self>) {
+        self.call(cx, move |base| cardlink::wake(base, id));
     }
 
     fn bookmark(&mut self, id: u32, cx: &mut Context<Self>) {

@@ -283,7 +283,11 @@ impl Graph {
         } else {
             0
         };
-        let human_reply = if has(Bit::Typed) { HUMAN_REPLY } else { 0 };
+        let human_reply = if has(Bit::Typed) && !has(Bit::Status) {
+            HUMAN_REPLY
+        } else {
+            0
+        };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
             params![

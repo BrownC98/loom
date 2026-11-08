@@ -40,6 +40,9 @@ impl App {
         if let Some(tool) = req.tool {
             self.tools.used(node, tool);
         }
+        if req.jobs != 0 {
+            self.watchdog.jobs(node, req.jobs);
+        }
         self.turn_ends.stepped(node, req.turn.as_deref());
         self.keep_session(token, req.session.as_ref())?;
         let messages = self.graph.take(

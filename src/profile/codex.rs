@@ -714,6 +714,7 @@ async fn human_input(
         turn: None,
         prompt_id: None,
         tool: None,
+        jobs: 0,
     };
     let note = match port.take(req) {
         Ok(taken) => taken.note,

@@ -9,7 +9,7 @@ use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 use super::App;
 use super::relaunch::profile_of;
 use super::sleep::{now, until};
-use crate::graph::AgentState;
+use crate::graph::{AgentState, Quiet};
 use api::graph::GraphEvent;
 use api::ids::NodeId;
 
@@ -22,6 +22,7 @@ const IDLE_NOTE: &str = "You are idle with open work, and nothing will wake you.
 #[derive(Default)]
 pub struct Watchdog {
     listening: Mutex<HashMap<NodeId, Instant>>,
+    jobs: Mutex<HashMap<NodeId, u32>>,
     changed: Notify,
 }
 
@@ -37,11 +38,32 @@ impl Watchdog {
         self.changed.notify_one();
     }
 
-    pub fn quiet(&self, node: NodeId) -> bool {
+    pub fn quiet(&self, node: NodeId) -> Quiet {
+        if self.jobs.lock().unwrap().contains_key(&node) {
+            return Quiet::Job;
+        }
         let listening = self.listening.lock().unwrap();
-        listening
-            .get(&node)
-            .is_some_and(|&since| since + IDLE_WAKE <= now())
+        match listening.get(&node) {
+            Some(&since) if since + IDLE_WAKE <= now() => Quiet::Long,
+            _ => Quiet::Short,
+        }
+    }
+
+    pub fn jobs(&self, node: NodeId, delta: i32) {
+        let mut jobs = self.jobs.lock().unwrap();
+        let count = jobs.get(&node).map_or(0, |&n| i64::from(n)) + i64::from(delta);
+        match u32::try_from(count) {
+            Ok(n) if n > 0 => jobs.insert(node, n),
+            _ => jobs.remove(&node),
+        };
+        drop(jobs);
+        self.changed.notify_one();
+    }
+
+    pub fn forget_jobs(&self, node: NodeId) {
+        if self.jobs.lock().unwrap().remove(&node).is_some() {
+            self.changed.notify_one();
+        }
     }
 
     fn due(&self, listening: &[NodeId], now: Instant) -> (Vec<NodeId>, Option<Instant>) {
@@ -111,6 +133,7 @@ impl App {
             .filter(|n| profile_of(n).is_some())
             .map(|n| n.id)
             .filter(|&id| self.agent_state(id) == Some(AgentState::Listening))
+            .filter(|&id| !matches!(self.watchdog.quiet(id), Quiet::Job))
             .collect();
         let (due, next) = self.watchdog.due(&listening, now());
         for id in due {

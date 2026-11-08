@@ -36,6 +36,7 @@ pub use idle::IdleId;
 pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
+pub use status::Quiet;
 pub use token::{NodeLaunch, NodeToken};
 pub use turns::{Nudge, TurnMark};
 pub use waits::{HUMAN, WaitSource};
@@ -208,7 +209,7 @@ impl Graph {
     pub fn views(
         &self,
         tool: impl Fn(NodeId) -> Option<String>,
-        quiet: impl Fn(NodeId) -> bool,
+        quiet: impl Fn(NodeId) -> Quiet,
     ) -> rusqlite::Result<Vec<NodeView>> {
         status::views(&self.lock(), self.linked, &tool, &quiet)
     }

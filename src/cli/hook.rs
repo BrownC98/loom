@@ -217,6 +217,7 @@ fn take_request(signals: &Signals, kinds: &[Kind]) -> TakeRequest {
         turn: signals.turn.clone(),
         prompt_id: signals.prompt_id.clone(),
         tool: signals.tool.clone(),
+        jobs: signals.jobs,
     }
 }
 

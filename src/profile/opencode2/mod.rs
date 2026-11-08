@@ -16,6 +16,7 @@ use super::adapter::{Chosen, Facts, LaunchAt, Logins, Port, Record, Started, Tur
 use super::process::Served;
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, MessageId, Model, Report, Session, TakeRequest,
+    TurnReply,
 };
 use crate::screen::{Dialog, Grammar};
 use crate::skills::Launch;
@@ -647,7 +648,10 @@ async fn drive(node: Arc<Node>, mut turns: mpsc::UnboundedReceiver<Seen>, port: 
             },
             Some(Seen::Succeeded(reply)) => {
                 busy = None;
-                turn_end = Some(EndedTurn { reply, turn: None });
+                turn_end = Some(EndedTurn {
+                    reply: reply.map(TurnReply::Answer),
+                    turn: None,
+                });
             }
             Some(Seen::Stopped) => busy = None,
             None => {}

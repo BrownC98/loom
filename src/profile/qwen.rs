@@ -12,7 +12,7 @@ use super::process::Served;
 use super::{Handed, HookEvent, Shown, Signals, Take};
 use crate::distro::Distro;
 use crate::place::Files;
-use crate::protocol::{Model, Report, Session};
+use crate::protocol::{Model, Report, Session, TurnReply};
 use crate::screen::{Dialog, Grammar};
 use api::graph::errors::LaunchError;
 use api::profile::ModelRule;
@@ -310,7 +310,7 @@ impl HookEvent for Hook {
             human_input: !waking && self.event.prompt().is_some_and(|prompt| !prompt.is_empty()),
             prompt_id: self.prompt_id.clone().filter(|_| !waking),
             turn_end: (main && matches!(self.event, Event::Stop))
-                .then(|| self.last_assistant_message.clone()),
+                .then(|| self.last_assistant_message.clone().map(TurnReply::Answer)),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
             reports: model.into_iter().collect(),
             ..Signals::default()

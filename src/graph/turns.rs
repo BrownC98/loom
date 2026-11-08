@@ -16,23 +16,25 @@ enum Bit {
     Replied,
     SubmittedInput,
     FirstInput,
+    Status,
 }
 
 impl Bit {
-    const fn mask(self) -> u8 {
-        1 << self as u8
+    const fn mask(self) -> u16 {
+        1 << self as u16
     }
 }
 
-const _: () = match Bit::FirstInput {
+const _: () = match Bit::Status {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
     | Bit::Asked
     | Bit::QuestionBox
     | Bit::Replied
-    | Bit::SubmittedInput => {}
-    last @ Bit::FirstInput => assert!((last as u32) < u8::BITS),
+    | Bit::SubmittedInput
+    | Bit::FirstInput => {}
+    last @ Bit::Status => assert!((last as u32) < u16::BITS),
 };
 
 #[derive(Clone, Copy)]
@@ -43,7 +45,7 @@ pub enum TurnMark {
 }
 
 impl TurnMark {
-    fn mask(self) -> u8 {
+    fn mask(self) -> u16 {
         match self {
             TurnMark::Called => Bit::Called,
             TurnMark::Asked => Bit::Asked,
@@ -53,16 +55,25 @@ impl TurnMark {
     }
 }
 
-const REPLIED: u8 = Bit::Replied.mask();
-pub(super) const SUBMITTED_INPUT: u8 = Bit::SubmittedInput.mask();
-const FIRST_INPUT: u8 = Bit::FirstInput.mask();
+const REPLIED: u16 = Bit::Replied.mask();
+const STATUS: u16 = Bit::Status.mask();
+pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
+const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
-fn set_flags(db: &Connection, node: NodeId, set: u8, clear: u8) -> rusqlite::Result<()> {
+fn set_flags(db: &Connection, node: NodeId, set: u16, clear: u16) -> rusqlite::Result<()> {
     db.execute(
         "UPDATE nodes SET turn_flags = (turn_flags & ~?3) | ?2 WHERE id = ?1",
         params![node.0, set, clear],
     )
     .map(drop)
+}
+
+fn keep_reply(db: &Connection, node: NodeId, text: &str) -> rusqlite::Result<bool> {
+    Ok(!text.is_empty()
+        && db.execute(
+            "UPDATE nodes SET reply = ?2 WHERE id = ?1 AND reply IS NOT ?2",
+            params![node.0, text],
+        )? > 0)
 }
 
 fn late(db: &Connection, node: NodeId, turn: &str) -> rusqlite::Result<bool> {
@@ -128,14 +139,23 @@ impl Graph {
         }
         let text = text.trim();
         if text.is_empty() {
-            set_flags(&tx, node, 0, REPLIED)?;
+            set_flags(&tx, node, 0, REPLIED | STATUS)?;
             return tx.commit();
         }
-        set_flags(&tx, node, REPLIED, 0)?;
-        let changed = tx.execute(
-            "UPDATE nodes SET reply = ?2 WHERE id = ?1 AND reply IS NOT ?2",
-            params![node.0, text],
-        )? > 0;
+        set_flags(&tx, node, REPLIED, STATUS)?;
+        let changed = keep_reply(&tx, node, text)?;
+        tx.commit()?;
+        if changed {
+            self.publish_nodes();
+        }
+        Ok(())
+    }
+
+    pub fn status(&self, node: NodeId, text: &str) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        set_flags(&tx, node, STATUS, REPLIED)?;
+        let changed = keep_reply(&tx, node, text.trim())?;
         tx.commit()?;
         if changed {
             self.publish_nodes();
@@ -172,7 +192,7 @@ impl Graph {
     pub fn end_turn(&self, node: NodeId) -> rusqlite::Result<Option<TurnCheck>> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let (flags, reply, heard): (u8, Option<String>, Option<String>) = tx
+        let (flags, reply, heard): (u16, Option<String>, Option<String>) = tx
             .query_row(
                 "SELECT turn_flags, reply, heard FROM nodes WHERE id = ?1",
                 [node.0],
@@ -218,14 +238,19 @@ impl Graph {
              SELECT id, turn FROM nodes WHERE id = ?1 AND turn IS NOT NULL",
             [node.0],
         )?;
-        let kept = if check == Some(TurnCheck::KindLine) {
+        let nudged = if check == Some(TurnCheck::KindLine) {
             Bit::KindNudged.mask()
+        } else {
+            0
+        };
+        let open = if has(Bit::Status) && !has(Bit::Called) {
+            Bit::Human.mask()
         } else {
             0
         };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept | (flags & SUBMITTED_INPUT)],
+            params![node.0, nudged | (flags & (SUBMITTED_INPUT | open))],
         )?;
         tx.commit()?;
         if reported {
@@ -243,7 +268,7 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | FIRST_INPUT,
+            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | STATUS | FIRST_INPUT,
         )?;
         tx.commit()
     }

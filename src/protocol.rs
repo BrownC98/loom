@@ -8,7 +8,7 @@ pub use agent::{Model, StartDigests};
 use api::graph::messages::{Field, Kind, MessageKind};
 pub use link::{
     AckRequest, AdapterRecord, ChoiceRequest, EndedTurn, Handoff, IdleReply, IdleRequest, ListenAt,
-    ListenRequest, Report, Session, TakeRequest, Taken, WakeReply,
+    ListenRequest, Report, Session, TakeRequest, Taken, TurnReply, WakeReply,
 };
 pub use waits::OpenQuestion;
 

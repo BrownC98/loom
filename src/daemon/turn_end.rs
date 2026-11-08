@@ -30,6 +30,12 @@ impl TurnEnds {
         }
     }
 
+    pub fn status(&self, node: NodeId, text: &str) {
+        if let Err(e) = self.graph.status(node, text) {
+            crate::log::logln!("loom: 노드 {}의 상태 줄을 남기지 못했다: {e}", node.0);
+        }
+    }
+
     pub fn stepped(&self, node: NodeId, turn: Option<&str>) {
         if let Some(turn) = turn
             && let Err(e) = self.graph.stepped(node, turn)

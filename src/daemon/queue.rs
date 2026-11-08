@@ -11,8 +11,8 @@ use crate::graph::{BatchId, Ended, Merge, Outcome, Queued};
 use crate::protocol::{self, Deploy};
 use crate::worktree;
 use crate::worktree::merge::{
-    self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
-    base_branch, bringing_merge, merge_commit, script,
+    self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PASSED, PUBLISH, STACK,
+    SYNC, UNDO, base_branch, bringing_merge, merge_commit, script,
 };
 use api::graph::errors::Refusal;
 use api::graph::events::{BatchMember, BatchResult, Entry};
@@ -122,8 +122,12 @@ async fn recover(app: &Arc<App>, repo: RepoId) {
             crate::log::logln!("loom: merge queue recovery: {e}");
         }
         run.record(0, &stale.members, None, BatchResult::Interrupted, None);
-        let done = match (stale.base, stale.tip) {
-            (Some(base), Some(tip)) if !stale.members.is_empty() => {
+        let checked = match (stale.base, stale.tip) {
+            (Some(base), Some(tip)) => Some((base, tip)),
+            _ => run.passed(&stale.members).await,
+        };
+        let done = match checked {
+            Some((base, tip)) if !stale.members.is_empty() => {
                 run.resume(&stale.members, &base, &tip).await
             }
             _ => {
@@ -421,6 +425,30 @@ impl Batch<'_> {
             }
         }
         self.publish_into(members, base, tip, 0, &into).await
+    }
+
+    async fn passed(&self, members: &[Queued]) -> Option<(String, String)> {
+        let args = [self.id.0.to_string()];
+        let (_, out) = script(self.app.files(), &self.dir, PASSED, &args)
+            .await
+            .ok()?;
+        let lines = Lines::read(&out);
+        let (base, tip) = (lines.base?, lines.tip?);
+        let same = lines.members.len() == members.len()
+            && members.iter().all(|m| {
+                lines
+                    .members
+                    .iter()
+                    .any(|(branch, head)| *branch == m.branch && *head == m.head)
+            });
+        let branches: Vec<&str> = members.iter().map(|m| m.branch.as_str()).collect();
+        let checked = same
+            && self
+                .app
+                .graph
+                .batch_checked(self.id, &base, &tip, &branches)
+                .ok()?;
+        checked.then_some((base, tip))
     }
 
     async fn screen(&self, member: &Queued) -> Result<bool, Refusal> {

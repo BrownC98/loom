@@ -297,9 +297,9 @@ fn run(
             (Handed::Taken { messages, note }, Some(CALL_LIMIT))
         }
         Step::Last(request, end) => {
-            let Taken { messages, note } = call("take", &request, Some(CALL_LIMIT))?;
+            let Taken { messages, note } = call_once("take", &request, Some(CALL_LIMIT))?;
             let handed = match messages.is_empty() && note.is_none() {
-                true => match call("listen", &end, Some(CALL_LIMIT)) {
+                true => match call_once("listen", &end, Some(CALL_LIMIT)) {
                     Ok(reply) => handed(reply),
                     Err(e) => {
                         eprintln!("loom: could not report the turn end to loom: {e}");

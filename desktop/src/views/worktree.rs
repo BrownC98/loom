@@ -1,4 +1,3 @@
-use api::graph::NodeState;
 use api::ids::RepoId;
 use api::repos::RepoView;
 use gpui::prelude::FluentBuilder;
@@ -13,6 +12,7 @@ use crate::link::Snapshot;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
+use crate::views::card;
 use crate::views::cardlink;
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
@@ -424,7 +424,7 @@ impl Doomed {
             .filter(|n| n.place.repo == repo && n.place.worktree == path)
             .map(|n| Member {
                 name: n.name.clone(),
-                running: matches!(n.state, NodeState::Running),
+                running: card::active(n),
             })
             .collect();
         Doomed {

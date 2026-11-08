@@ -5,21 +5,58 @@ import { AgentMark } from './AgentMark';
 import { steerQueued } from './api';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
+import type { ProcessState } from './gen/ProcessState';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
-import { alarmClass, asking, NoticeChips, stopped } from './notice';
+import { asking, chipClass, NoticeChips, stopped } from './notice';
 import { navDirection, type Direction } from './keys';
+
+function processClass(process: ProcessState): string {
+  switch (process.kind) {
+    case 'working':
+      return 'running';
+    case 'stopped':
+      return 'stopped';
+    case 'blocked':
+      return processClass(process.before);
+    case 'idle':
+    case 'asleep':
+      return '';
+  }
+}
 
 export function stateClass(view: NodeView): string {
   if (asking(view).length > 0) return 'waiting';
-  return alarmClass(view);
+  switch (view.state.kind) {
+    case 'setupFailed':
+      return 'setupFailed';
+    case 'done':
+      return 'done';
+    case 'running':
+      return processClass(view.process);
+  }
 }
 
-export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : viewLabel(view));
+export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateTitle(view));
 
-export function viewLabel(view: NodeView): string {
-  const s = stopped(view);
-  return s ? i18next.t('node.state.exited', { code: s.code ?? '?' }) : stateLabel(view.state);
+export const stateTitle = (view: NodeView) => `${stateLabel(view.state)} · ${processLabel(view.process)}`;
+
+export const viewLabel = (view: NodeView) => (view.state.kind === 'setupFailed' ? stateLabel(view.state) : processLabel(view.process));
+
+export function processLabel(process: ProcessState): string {
+  const t = i18next.t;
+  switch (process.kind) {
+    case 'working':
+      return t('node.process.working');
+    case 'idle':
+      return t('node.process.idle');
+    case 'asleep':
+      return t('node.process.asleep');
+    case 'blocked':
+      return t('node.process.blocked');
+    case 'stopped':
+      return process.code === null ? t('node.process.stopped') : t('node.process.stoppedCode', { code: process.code });
+  }
 }
 
 export function stateLabel(state: NodeState): string {
@@ -40,8 +77,8 @@ function footText(view: NodeView, parentName: string | null): string | null {
   const s = stopped(view);
   if (s) {
     if (s.code === null) return t('node.foot.daemonRestarted');
-    if (parentName !== null) return t('node.foot.exitedSent', { code: s.code, parent: parentName });
-    return t('node.foot.exited', { code: s.code });
+    if (parentName !== null) return t('node.foot.stoppedSent', { code: s.code, parent: parentName });
+    return t('node.foot.stopped', { code: s.code });
   }
   switch (state.kind) {
     case 'setupFailed':
@@ -104,8 +141,8 @@ function Badges(props: { view: NodeView }) {
         </button>
       )}
       <NoticeChips view={view} />
-      {alarmClass(view) && (
-        <span className={`state ${alarmClass(view)}`} aria-live="polite" translate="no">
+      {chipClass(view) && (
+        <span className={`state ${chipClass(view)}`} title={stateTitle(view)} aria-live="polite" translate="no">
           {viewLabel(view)}
         </span>
       )}

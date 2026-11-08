@@ -4,7 +4,7 @@
 use api::graph::events::{Entry, EventRecord};
 use gpui::{
     Context, Div, Entity, EventEmitter, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, Styled, Window, div, px,
+    KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use super::{Tone, chip, line, pill, rework, since_short};
@@ -109,6 +109,7 @@ impl Render for StatusView {
         let Some(node) = node else {
             return shell(&c, WIDTH).id("status-pop").track_focus(&self.focus);
         };
+        let name = node.name.clone();
         let state = chip(&node.status, lang);
         let waiting = state
             .as_ref()
@@ -171,5 +172,17 @@ impl Render for StatusView {
             .children(waits)
             .children(recent)
             .children(failed)
+            .child(
+                div().flex().justify_end().child(
+                    ui::button("status-events", cx)
+                        .child(ui::say(cx, Str::NodeStatusPopEvents))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let name = name.clone();
+                            this.store
+                                .update(cx, |store, cx| store.show_events(name, cx));
+                            cx.emit(Closed);
+                        })),
+                ),
+            )
     }
 }

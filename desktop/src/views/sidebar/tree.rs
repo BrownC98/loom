@@ -125,7 +125,7 @@ struct Item {
 }
 
 fn dot_of(view: &NodeView) -> Dot {
-    if view.waits.iter().any(|w| matches!(w.tone, WaitTone::Ask)) {
+    if view.waits.iter().any(status::asking) {
         return Dot::Waiting;
     }
     match view.state {
@@ -145,12 +145,12 @@ fn process_dot(process: &ProcessState) -> Dot {
 }
 
 fn tags(view: &NodeView, lang: Lang) -> Vec<Tag> {
-    let asks: Vec<_> = view
+    let asks: Vec<_> = view.waits.iter().filter(|w| status::asking(w)).collect();
+    let dones = view
         .waits
         .iter()
-        .filter(|w| matches!(w.tone, WaitTone::Ask))
-        .collect();
-    let dones = view.waits.len() - asks.len();
+        .filter(|w| matches!(w.tone, WaitTone::Done))
+        .count();
     let mut out = Vec::new();
     if let Some(oldest) = asks.iter().min_by_key(|w| w.wait.since) {
         out.push(Tag {

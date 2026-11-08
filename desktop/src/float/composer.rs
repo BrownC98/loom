@@ -110,7 +110,14 @@ impl Aimed {
     fn asks(&self) -> usize {
         self.stream
             .iter()
-            .filter(|s| matches!(s.wait.tone, WaitTone::Ask))
+            .filter(|s| crate::views::status::asking(&s.wait))
+            .count()
+    }
+
+    fn dones(&self) -> usize {
+        self.stream
+            .iter()
+            .filter(|s| matches!(s.wait.tone, WaitTone::Done))
             .count()
     }
 }
@@ -940,7 +947,7 @@ impl Composer {
         let c = ui::colors(cx);
         let shown = aimed.shown()?;
         let ask = aimed.asks();
-        let done = aimed.stream.len() - ask;
+        let done = aimed.dones();
         let counts = ui::say_with(
             cx,
             Str::ComposerAlertTotal,

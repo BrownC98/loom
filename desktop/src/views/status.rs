@@ -1,7 +1,7 @@
 //! 노드의 상태 칩(알약), 아래 줄, 짧은 시간. 카드·사이드바 줄·자세히 창이 함께 쓴다.
 //! 목업 docs/mockups/agent-state.html M77 v3, 문구는 web/src/locales의 `node.status.*`.
 
-use api::graph::waits::WaitTone;
+use api::graph::waits::{ScreenWait, WaitKind, WaitTone};
 use api::graph::{NodeView, Status};
 use chrono::Local;
 use gpui::{Div, FontWeight, ParentElement, Rgba, Styled, div, px};
@@ -43,6 +43,11 @@ pub struct Chip {
 
 pub fn wash(color: Rgba, alpha: f32) -> Rgba {
     Rgba { a: alpha, ..color }
+}
+
+/// 사람의 답을 기다리는 대기(노랑 칩·테두리·사람 상태). 멈춤 의심은 사람에게 묻는 것이 아니라서 뺀다(웹 `asking`).
+pub fn asking(wait: &ScreenWait) -> bool {
+    matches!(wait.tone, WaitTone::Ask) && wait.wait.kind != WaitKind::Stalled
 }
 
 /// 빨간 테두리와 빨간 아래 줄이 붙는 상태.
@@ -107,7 +112,7 @@ pub fn line(node: &NodeView, parent: Option<&str>, lang: Lang) -> Option<String>
         Status::Human => node
             .waits
             .iter()
-            .filter(|w| matches!(w.tone, WaitTone::Ask))
+            .filter(|w| asking(w))
             .min_by_key(|w| w.wait.since)
             .map(|w| w.summary.clone()),
         Status::SetupFailed { code } => {

@@ -692,12 +692,12 @@ fn badges(face: &Face, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
                 .into_any_element(),
         );
     }
-    let asks: Vec<_> = node
+    let asks: Vec<_> = node.waits.iter().filter(|w| status::asking(w)).collect();
+    let dones = node
         .waits
         .iter()
-        .filter(|w| matches!(w.tone, WaitTone::Ask))
-        .collect();
-    let dones = node.waits.len() - asks.len();
+        .filter(|w| matches!(w.tone, WaitTone::Done))
+        .count();
     if let Some(oldest) = asks.iter().min_by_key(|w| w.wait.since) {
         out.push(
             pill(
@@ -1102,7 +1102,7 @@ pub fn card(
     let node = face.node;
     let head_h = px(HEAD * zoom);
     let foot = (!simple).then(|| foot(face, selected, zoom, colors));
-    let waiting = !node.waits.is_empty();
+    let waiting = node.waits.iter().any(status::asking);
     let lit = mark == Mark::Lit;
     let (border, rings) = if waiting {
         (

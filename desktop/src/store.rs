@@ -85,6 +85,9 @@ pub enum Target {
 }
 
 pub struct Show(pub Target);
+
+/// 이벤트 탭을 열고 이 이름으로 거른다(상태 자세히 창의 「이벤트 기록에서 보기」).
+pub struct ShowEvents(pub String);
 pub struct DraftChanged(pub u32, pub Slot);
 
 pub struct BusyChanged;
@@ -94,6 +97,7 @@ impl EventEmitter<Arrange> for Store {}
 impl EventEmitter<ZoomTo> for Store {}
 impl EventEmitter<NodeMenu> for Store {}
 impl EventEmitter<NodeStatus> for Store {}
+impl EventEmitter<ShowEvents> for Store {}
 impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
@@ -346,6 +350,11 @@ impl Store {
         cx: &mut Context<Self>,
     ) {
         cx.emit(NodeMenu { node, at, button });
+    }
+
+    pub fn show_events(&mut self, name: String, cx: &mut Context<Self>) {
+        self.set_pane_open("dock", true, cx);
+        cx.emit(ShowEvents(name));
     }
 
     pub fn open_node_status(

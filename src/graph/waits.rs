@@ -305,9 +305,6 @@ impl Graph {
 
     pub fn instructed(&self, node: NodeId, text: &str) -> rusqlite::Result<()> {
         let text = text.trim();
-        if text.is_empty() {
-            return Ok(());
-        }
         let mut db = self.lock();
         let tx = db.transaction()?;
         let how = Closed::Instructed {

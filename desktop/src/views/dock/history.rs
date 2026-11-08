@@ -314,7 +314,8 @@ impl Dock {
         }
         let said = match &closed.how {
             Closed::Answered { text } | Closed::Instructed { text }
-                if closed.chosen.map(String::from).as_deref() != Some(text.as_str()) =>
+                if !text.is_empty()
+                    && closed.chosen.map(String::from).as_deref() != Some(text.as_str()) =>
             {
                 Some(text.clone())
             }

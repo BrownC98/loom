@@ -101,10 +101,12 @@ impl App {
         }
         self.draft_ended(node);
         self.turn_ends.human(node, prompt);
+        if !injected {
+            self.graph.instructed(node, prompt.unwrap_or_default())?;
+        }
         if let Some(text) = prompt
             && !injected
         {
-            self.graph.instructed(node, text)?;
             self.graph.human_typed(node, text)?;
         }
         Ok(profile::questions_note(&self.graph.open_questions(node)?))

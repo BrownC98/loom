@@ -56,9 +56,9 @@ import { shortcut } from './platform';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
-import { deskKeys, useDraftFilled } from './Composer';
+import { deskKeys, useComposerHeld } from './Composer';
 import { DeskComposer } from './DeskComposer';
-import { resolveTarget, type Chosen } from './alertTarget';
+import { resolveTarget, type Chosen, type Pin } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
@@ -183,14 +183,14 @@ export function App() {
   const dockedView = simpleNode(selected);
   const tabs: readonly DockTab[] = dockedView ? ['questions', 'docs', 'events', 'commits', 'terminal'] : ['questions', 'docs', 'events', 'commits'];
   const waiting = waitingNodes(nodes);
-  const [pinned, setPinned] = useState<Chosen | null>(null);
-  const draftFilled = useDraftFilled();
+  const [pinned, setPinned] = useState<Pin | null>(null);
+  const held = useComposerHeld();
   const target = resolveTarget(nodes, waiting, selected, chosen, pinned);
   useEffect(() => {
-    if (!draftFilled) {
+    if (!held) {
       if (pinned) setPinned(null);
-    } else if (target && !pinned) setPinned({ node: target.view.id, key: target.key });
-  }, [draftFilled, pinned, target?.view.id, target?.key]);
+    } else if (target && !pinned) setPinned({ view: target.view, key: target.key });
+  }, [held, pinned, target?.view.id, target?.key]);
   const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
@@ -590,7 +590,7 @@ export function App() {
               direction={direction}
               ref={graph}
             />}
-            {target && (!settings.composerOff || target.stream.length > 0 || draftFilled) && (
+            {target && (!settings.composerOff || target.stream.length > 0 || held) && (
               <DeskComposer
                 target={target}
                 waiting={waiting}

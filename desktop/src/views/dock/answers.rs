@@ -725,12 +725,7 @@ fn framed(
             None,
         ),
     };
-    let mut entry = div()
-        .flex()
-        .flex_col()
-        .gap(px(GAP * z))
-        .opacity(if busy { 0.6 } else { 1.0 })
-        .child(top);
+    let mut entry = div().flex().flex_col().gap(px(GAP * z));
     if let Some(text) = &wait.wait.instruction {
         entry = entry.child(
             div()
@@ -756,7 +751,21 @@ fn framed(
     if let Some(note) = refused {
         entry = entry.child(div().text_size(px(SMALL * z)).text_color(c.err).child(note));
     }
-    entry
+    let frame = div()
+        .flex()
+        .flex_col()
+        .gap(px(GAP * z))
+        .opacity(if busy { 0.6 } else { 1.0 });
+    if carded {
+        frame.min_h_0().child(top.flex_none()).child(
+            entry
+                .id(("card-rest", id as usize))
+                .min_h_0()
+                .overflow_y_scroll(),
+        )
+    } else {
+        frame.child(top).child(entry)
+    }
 }
 
 fn wait_content(

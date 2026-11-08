@@ -1049,8 +1049,9 @@ impl Composer {
                 .on_click(cx.listener(move |composer, _, _, cx| {
                     composer.store.update(cx, |store, cx| store.go(node, cx));
                 }))
+                .flex()
+                .flex_col()
                 .max_h(px(CARD_ROOM * z))
-                .overflow_y_scroll()
                 .px(px(10.0 * z))
                 .py(px(8.0 * z))
                 .rounded(px(10.0 * z))

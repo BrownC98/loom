@@ -1058,9 +1058,10 @@ span.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
 .composer-line textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-keys { flex: none; color: var(--ink-3); font-size: 11px; line-height: 28px; white-space: nowrap; pointer-events: none; }
 @container (max-width: 340px) { .composer-keys { display: none; } }
-.composer .alert-card { padding: 8px 10px; border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; cursor: pointer; }
+.composer .alert-card { padding: 0 10px 8px; border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; cursor: pointer; }
 .alert-card .published { margin-left: 0; }
 .alert-card .top { flex-wrap: wrap; row-gap: 2px; }
+.composer .alert-card > .top { position: sticky; top: 0; z-index: 1; margin-bottom: -6px; padding: 8px 0 6px; background: var(--surface); }
 .alert-aside { flex: none; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .alert-stream { display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
 .al-row { flex: none; display: flex; align-items: center; gap: 7px; height: 25px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }

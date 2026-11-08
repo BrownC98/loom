@@ -586,6 +586,8 @@ export function App() {
                 key={target.view.id}
                 target={target}
                 waiting={waiting}
+                nodes={[...nodes.values()]}
+                repos={repos}
                 keys={deskKeys(() => focusNode(target.view.id))}
                 place={settings.composerPlace}
                 size={settings.composerSize}

@@ -11,6 +11,7 @@ import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { RepoView } from './gen/RepoView';
 import { useNodeInput } from './nodeInputs';
 import { ICON } from './notice';
 import { TargetList } from './TargetList';
@@ -26,6 +27,8 @@ let focusOnMount: NodeId | null = null;
 type DeskProps = {
   target: Target;
   waiting: NodeView[];
+  nodes: readonly NodeView[];
+  repos: readonly RepoView[];
   keys: ComposerKeys;
   place: FloatPlace | null;
   size: FloatSize;
@@ -143,7 +146,7 @@ export function DeskComposer(props: DeskProps) {
         </DeskFace>
         {listing && space && (
           <div className="target-list-at" data-above={space.above || undefined}>
-            <TargetList waiting={props.waiting} current={{ node, key: target.key }} currentView={target.view} anchor={targetButton} room={space.room / floatZoom(props.size)} onPick={pick} onClose={() => setListing(false)} onEscape={closeList} />
+            <TargetList waiting={props.waiting} nodes={props.nodes} repos={props.repos} current={{ node, key: target.key }} anchor={targetButton} room={space.room / floatZoom(props.size)} onPick={pick} onClose={() => setListing(false)} onEscape={closeList} />
           </div>
         )}
       </div>

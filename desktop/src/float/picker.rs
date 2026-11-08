@@ -1,8 +1,10 @@
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use api::graph::search::WaitSearch;
 use api::graph::waits::{WaitKind, WaitTone};
+use api::graph::{NodeState, NodeView};
 use api::ids::{NodeId, WaitId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -61,13 +63,25 @@ impl Item {
     }
 }
 
-struct Section {
+enum Head {
+    Node {
+        name: String,
+        mood: Mood,
+        asks: usize,
+        dones: usize,
+    },
+    Repo(String),
+}
+
+struct Row {
     node: NodeId,
     name: String,
-    mood: Mood,
-    asks: usize,
-    dones: usize,
-    items: Vec<Item>,
+    item: Item,
+}
+
+struct Section {
+    head: Head,
+    rows: Vec<Row>,
 }
 
 struct Listing {
@@ -81,7 +95,7 @@ impl Listing {
     fn flat(&self) -> Vec<(NodeId, Aim)> {
         self.sections
             .iter()
-            .flat_map(|s| s.items.iter().map(|item| (s.node, item.aim())))
+            .flat_map(|s| s.rows.iter().map(|row| (row.node, row.item.aim())))
             .collect()
     }
 
@@ -90,10 +104,10 @@ impl Listing {
         let mut heads = 0;
         for section in &self.sections {
             heads += 1;
-            if at < before + section.items.len() {
+            if at < before + section.rows.len() {
                 break;
             }
-            before += section.items.len();
+            before += section.rows.len();
         }
         heads + at
     }
@@ -166,7 +180,8 @@ fn section_of(group: Group) -> Section {
         .filter(|w| matches!(w.tone, WaitTone::Ask))
         .count();
     let dones = group.waits.len() - asks;
-    let items = group
+    let (node, name) = (group.node, group.name);
+    let rows = group
         .waits
         .into_iter()
         .map(|w| Item::Alert {
@@ -177,15 +192,25 @@ fn section_of(group: Group) -> Section {
             since: w.wait.since,
         })
         .chain(std::iter::once(Item::Prompt))
+        .map(|item| Row {
+            node,
+            name: name.clone(),
+            item,
+        })
         .collect();
     Section {
-        node: group.node,
-        name: group.name,
-        mood: group.mood,
-        asks,
-        dones,
-        items,
+        head: Head::Node {
+            name,
+            mood: group.mood,
+            asks,
+            dones,
+        },
+        rows,
     }
+}
+
+fn live(state: &NodeState) -> bool {
+    matches!(state, NodeState::Running | NodeState::Done)
 }
 
 impl Picker {
@@ -226,7 +251,6 @@ impl Picker {
             .filter(|w| matches!(w.tone, WaitTone::Ask))
             .count();
         let all: usize = groups.iter().map(|g| g.waits.len()).sum();
-        let narrowed = search.is_some() || self.chip != Chip::All;
         if self.chip != Chip::All {
             let keep = |tone: WaitTone| match self.chip {
                 Chip::Ask => matches!(tone, WaitTone::Ask),
@@ -237,23 +261,42 @@ impl Picker {
                 group.waits.retain(|w| keep(w.tone));
             }
         }
-        if narrowed {
-            groups.retain(|g| !g.waits.is_empty());
-        } else if !groups.iter().any(|g| g.node == self.current.0)
-            && let Some(node) = snapshot.nodes.iter().find(|n| n.id == self.current.0)
-        {
-            groups.insert(
-                0,
-                Group {
-                    node: node.id,
-                    name: node.name.clone(),
-                    mood: Mood::Plain,
-                    waits: Vec::new(),
-                },
-            );
+        groups.retain(|g| !g.waits.is_empty());
+        let mut sections: Vec<Section> = groups.into_iter().map(section_of).collect();
+        if self.chip == Chip::All {
+            let listed: HashSet<NodeId> = sections
+                .iter()
+                .flat_map(|s| s.rows.iter().map(|r| r.node))
+                .collect();
+            let shown = |n: &&NodeView| {
+                !listed.contains(&n.id)
+                    && (live(&n.state) || n.id == self.current.0)
+                    && search
+                        .as_ref()
+                        .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
+            };
+            for repo in &snapshot.repos {
+                let rows: Vec<Row> = snapshot
+                    .nodes
+                    .iter()
+                    .filter(shown)
+                    .filter(|n| n.place.repo == repo.id)
+                    .map(|n| Row {
+                        node: n.id,
+                        name: n.name.clone(),
+                        item: Item::Prompt,
+                    })
+                    .collect();
+                if !rows.is_empty() {
+                    sections.push(Section {
+                        head: Head::Repo(repo.name.clone()),
+                        rows,
+                    });
+                }
+            }
         }
         Listing {
-            sections: groups.into_iter().map(section_of).collect(),
+            sections,
             all,
             asks,
             dones: all - asks,
@@ -338,16 +381,9 @@ impl Picker {
             .child(ui::say_with(cx, label, &[("count", &count.to_string())]))
     }
 
-    fn row(
-        &self,
-        n: usize,
-        section: &Section,
-        item: &Item,
-        c: &Colors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn row(&self, n: usize, row: &Row, c: &Colors, cx: &mut Context<Self>) -> impl IntoElement {
         let z = self.zoom;
-        let (node, aim) = (section.node, item.aim());
+        let (node, aim) = (row.node, row.item.aim());
         let current = (node, aim) == self.current;
         let hover = c.surface_hover;
         let base = div()
@@ -368,7 +404,7 @@ impl Picker {
                 }
             }))
             .on_click(cx.listener(move |_, _, _, cx| cx.emit(PickerEvent::Pick(node, aim))));
-        match item {
+        match &row.item {
             Item::Alert {
                 id,
                 kind,
@@ -402,36 +438,48 @@ impl Picker {
                 .child(div().min_w_0().truncate().child(ui::say_with(
                     cx,
                     Str::ComposerInstruct,
-                    &[("name", &section.name)],
+                    &[("name", &row.name)],
                 ))),
         }
     }
 
-    fn head(&self, section: &Section, c: &Colors) -> impl IntoElement {
+    fn head(&self, head: &Head, c: &Colors) -> impl IntoElement {
         let z = self.zoom;
-        let dot = match section.mood {
-            Mood::Waiting => c.ask,
-            Mood::Failed => c.err,
-            Mood::Plain => c.ink_3,
-        };
-        div()
+        let line = div()
             .flex()
             .items_center()
             .gap(px(6.0 * z))
             .px(px(8.0 * z))
             .pt(px(6.0 * z))
             .pb(px(2.0 * z))
-            .text_size(px(12.0 * z))
-            .child(div().flex_none().size(px(7.0 * z)).rounded_full().bg(dot))
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c.ink)
-                    .child(section.name.clone()),
-            )
-            .children(entry::notice_badges(section.asks, section.dones, z, c))
+            .text_size(px(12.0 * z));
+        match head {
+            Head::Node {
+                name,
+                mood,
+                asks,
+                dones,
+            } => {
+                let dot = match mood {
+                    Mood::Waiting => c.ask,
+                    Mood::Failed => c.err,
+                    Mood::Plain => c.ink_3,
+                };
+                line.child(div().flex_none().size(px(7.0 * z)).rounded_full().bg(dot))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.ink)
+                            .child(name.clone()),
+                    )
+                    .children(entry::notice_badges(*asks, *dones, z, c))
+            }
+            Head::Repo(name) => line
+                .text_color(c.ink_3)
+                .child(div().min_w_0().truncate().child(name.clone())),
+        }
     }
 }
 
@@ -452,9 +500,9 @@ impl Render for Picker {
             .pb(px(6.0 * z));
         let mut n = 0;
         for section in &listing.sections {
-            list = list.child(self.head(section, &c));
-            for item in &section.items {
-                list = list.child(self.row(n, section, item, &c, cx));
+            list = list.child(self.head(&section.head, &c));
+            for row in &section.rows {
+                list = list.child(self.row(n, row, &c, cx));
                 n += 1;
             }
         }

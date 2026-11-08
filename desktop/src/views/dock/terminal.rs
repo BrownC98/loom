@@ -2,7 +2,8 @@ use std::rc::Rc;
 
 use api::graph::NodeView;
 use gpui::{
-    Context, Div, Entity, MouseDownEvent, ParentElement, Styled, Subscription, Window, div,
+    Context, Div, Entity, InteractiveElement, KeyDownEvent, MouseDownEvent, ParentElement, Styled,
+    Subscription, Window, div,
 };
 
 use super::Dock;
@@ -124,6 +125,28 @@ impl Dock {
         .detach();
     }
 
+    fn wake_by_key(
+        &mut self,
+        id: u32,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let asleep = self
+            .store
+            .read(cx)
+            .snapshot()
+            .is_some_and(|s| s.nodes.iter().any(|n| n.id.0 == id && card::asleep(n)));
+        let typing = self
+            .terminal
+            .as_ref()
+            .is_some_and(|(held, view)| *held == id && view.read(cx).focused(window));
+        if card::wake_key(event) && asleep && typing {
+            self.card_call(cx, move |base| cardlink::wake(base, id));
+            cx.stop_propagation();
+        }
+    }
+
     pub(super) fn terminal_panel(
         &mut self,
         node: &NodeView,
@@ -169,6 +192,9 @@ impl Dock {
                     .is_some_and(|n| n.bookmark.is_none());
                 this.card_call(cx, move |base| crate::link::set_bookmark(base, id, on))
             }),
+            wake: press(|this, id, _, _, cx| {
+                this.card_call(cx, move |base| cardlink::wake(base, id))
+            }),
             expand: press(|this, id, _, _, cx| this.store.update(cx, |store, cx| store.go(id, cx))),
             menu: press(|this, id, e, _, cx| {
                 let (at, button) = (e.position, this.anchors.get(&format!("menu:{id}")));
@@ -192,10 +218,18 @@ impl Dock {
             unreached: self.store.read(cx).is_unreached(node),
         };
         let head = card::dock_head(&face, &c);
-        div().size_full().flex().flex_col().child(head).children(
-            self.terminal
-                .as_ref()
-                .map(|(_, view)| div().flex_1().min_h_0().child(view.clone())),
-        )
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .capture_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                this.wake_by_key(id, e, window, cx)
+            }))
+            .child(head)
+            .children(
+                self.terminal
+                    .as_ref()
+                    .map(|(_, view)| div().flex_1().min_h_0().child(view.clone())),
+            )
     }
 }

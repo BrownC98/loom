@@ -6,6 +6,7 @@ import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
 import { DockSummary } from './NodeCard';
 import { NodeMenu } from './NodeMenu';
+import { WakeButton } from './WakeButton';
 import { SizingTerminal } from './Terminal';
 import type { Direction } from './keys';
 
@@ -19,6 +20,7 @@ export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardVi
       <div className="dock-head">
         <DockSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={
             <>
+              <WakeButton view={view} />
               <BookmarkButton view={view} />
               <NodeMenu
                 view={view}

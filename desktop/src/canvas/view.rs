@@ -396,6 +396,20 @@ impl CanvasView {
             cx.stop_propagation();
             return;
         }
+        if card::wake_key(event)
+            && let Some(id) = self.store.read(cx).selected().filter(|&id| {
+                self.asleep(id, cx)
+                    && (canvas_focused
+                        || self
+                            .live
+                            .get(&id)
+                            .is_some_and(|live| live.view.read(cx).focused(window)))
+            })
+        {
+            self.wake(id, cx);
+            cx.stop_propagation();
+            return;
+        }
         if canvas_focused && event.keystroke.key == "escape" && self.store.read(cx).has_picked() {
             self.store
                 .update(cx, |store, cx| store.set_picked(None, cx));
@@ -453,6 +467,13 @@ impl CanvasView {
                         .child(text)
                 })),
         )
+    }
+
+    fn asleep(&self, id: u32, cx: &App) -> bool {
+        self.store
+            .read(cx)
+            .snapshot()
+            .is_some_and(|s| s.nodes.iter().any(|n| n.id.0 == id && card::asleep(n)))
     }
 
     fn zoomed(&self, cx: &App) -> Option<u32> {

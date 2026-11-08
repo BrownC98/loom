@@ -21,6 +21,8 @@ export const asking = (view: NodeView) => view.waits.filter((w) => w.tone === 'a
 
 export const active = (view: NodeView) => view.state.kind === 'running' && view.process.kind !== 'stopped';
 
+export const asleep = (view: Pick<NodeView, 'process'>) => view.process.kind === 'asleep';
+
 export const stopped = (view: NodeView) => (view.state.kind === 'running' && view.process.kind === 'stopped' ? view.process : null);
 
 const alarmClass = (view: NodeView): string => (view.state.kind === 'setupFailed' ? 'setupFailed' : stopped(view) ? 'stopped' : '');

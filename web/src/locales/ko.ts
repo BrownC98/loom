@@ -480,6 +480,7 @@ const ko: typeof en = {
     auth: '로그인·계정 설정',
     input: '입력 요청',
     done: '완료',
+    stalled: '멈춤 의심',
   },
   osNotify: {
     heading: '시스템 알림',

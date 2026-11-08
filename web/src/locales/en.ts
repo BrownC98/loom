@@ -478,6 +478,7 @@ const en = {
     auth: 'Login or account setup',
     input: 'Input',
     done: 'Done',
+    stalled: 'Stalled',
   },
   osNotify: {
     heading: 'System notifications',

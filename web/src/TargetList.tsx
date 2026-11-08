@@ -1,5 +1,5 @@
 import { Search, SquareTerminal } from 'lucide-react';
-import { useId, useLayoutEffect, useState, type RefObject } from 'react';
+import { useId, useLayoutEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertLine } from './AlertLine';
 import { PROMPT, streamOf, type TargetKey } from './alertTarget';
@@ -12,23 +12,38 @@ import { useEscapeClose, useOutsidePress } from './popover';
 import { openMatches, waitSearch } from './waitSearch';
 
 type Current = { node: NodeId; key: TargetKey };
-type Row = { node: NodeView; key: TargetKey; wait: ScreenWait | null };
+type Row = { node: NodeView; key: TargetKey; wait: ScreenWait | null; depth: number; context: boolean };
 type Repo = Pick<RepoView, 'id' | 'name'>;
 type Group = { repo: Repo; rows: Row[] };
 
 const KINDS: readonly (WaitTone | null)[] = [null, 'ask', 'done'];
 const CHIP: Record<'all' | WaitTone, 'composer.chipAll' | 'composer.chipQuestion' | 'composer.chipDone'> = { all: 'composer.chipAll', ask: 'composer.chipQuestion', done: 'composer.chipDone' };
 
-const promptRow = (node: NodeView): Row => ({ node, key: PROMPT, wait: null });
+const MAX_DEPTH = 6;
 const live = (node: NodeView) => node.state.kind === 'running' || node.state.kind === 'done';
+
+function treeRows(own: readonly NodeView[], hits: ReadonlySet<NodeId>): Row[] {
+  const ids = new Set(own.map((v) => v.id));
+  const walk = (parent: NodeId | null, depth: number): Row[] =>
+    own
+      .filter((v) => (parent === null ? v.parent === null || !ids.has(v.parent) : v.parent === parent))
+      .sort((a, b) => a.id - b.id)
+      .flatMap((v) => [{ node: v, key: PROMPT, wait: null, depth, context: !hits.has(v.id) }, ...walk(v.id, depth + 1)]);
+  return walk(null, 0);
+}
 
 function nodeGroups(nodes: readonly NodeView[], repos: readonly Repo[], query: string, current: NodeId): Group[] {
   const words = waitSearch(query)?.words;
-  const shown = nodes.filter((v) => (live(v) || v.waits.length > 0 || v.id === current) && (!words || v.name.toLowerCase().includes(words)));
-  return repos.map((repo) => ({ repo, rows: shown.filter((v) => v.place.repo === repo.id).map(promptRow) })).filter((g) => g.rows.length > 0);
+  const listed = nodes.filter((v) => live(v) || v.waits.length > 0 || v.id === current);
+  const byId = new Map(listed.map((v) => [v.id, v]));
+  const hits = new Set(listed.filter((v) => !words || v.name.toLowerCase().includes(words)).map((v) => v.id));
+  const kept = new Set<NodeId>();
+  for (const id of hits) for (let v = byId.get(id); v && !kept.has(v.id); v = v.parent === null ? undefined : byId.get(v.parent)) kept.add(v.id);
+  const shown = listed.filter((v) => kept.has(v.id));
+  return repos.map((repo) => ({ repo, rows: treeRows(shown.filter((v) => v.place.repo === repo.id), hits) })).filter((g) => g.rows.length > 0);
 }
 
-const alertRows = (waiting: readonly NodeView[], query: string): Row[] => streamOf(openMatches([...waiting], query)).map((s) => ({ node: s.view, key: s.wait.id, wait: s.wait }));
+const alertRows = (waiting: readonly NodeView[], query: string): Row[] => streamOf(openMatches([...waiting], query)).map((s) => ({ node: s.view, key: s.wait.id, wait: s.wait, depth: 0, context: false }));
 
 export function TargetList(props: {
   waiting: readonly NodeView[];
@@ -54,8 +69,8 @@ export function TargetList(props: {
   const alerts = found.filter((r) => kind === null || r.wait?.tone === kind);
   const rows = [...groups.flatMap((g) => g.rows), ...alerts];
   const isCurrent = (r: Row) => r.node.id === props.current.node && r.key === props.current.key;
-  const [cursor, setCursor] = useState(() => Math.max(0, rows.findIndex(isCurrent)));
-  const at = Math.min(cursor, Math.max(rows.length - 1, 0));
+  const [cursor, setCursor] = useState<number | null>(() => Math.max(0, rows.findIndex(isCurrent)));
+  const at = Math.min(cursor ?? Math.max(0, rows.findIndex((r) => !r.context)), Math.max(rows.length - 1, 0));
   const option = (n: number) => `${id}-${n}`;
   useLayoutEffect(() => {
     document.getElementById(option(at))?.scrollIntoView({ block: 'nearest' });
@@ -104,7 +119,7 @@ export function TargetList(props: {
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
-                setCursor(0);
+                setCursor(null);
               }}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing) return;
@@ -134,13 +149,13 @@ function TargetRow(props: { id: string; row: Row; selected: boolean; current: bo
   const { t } = useTranslation();
   const { wait, node } = props.row;
   return (
-    <div id={props.id} className="tl-row" role="option" data-prompt={wait ? undefined : true} data-tone={wait?.tone} aria-selected={props.selected} aria-current={props.current || undefined} onPointerDown={(e) => e.preventDefault()} onPointerMove={() => !props.selected && props.onMove()} onClick={props.onPick}>
+    <div id={props.id} className="tl-row" role="option" style={{ '--depth': Math.min(props.row.depth, MAX_DEPTH) } as CSSProperties} aria-label={wait ? undefined : t('composer.instruct', { name: node.name })} data-prompt={wait ? undefined : true} data-context={props.row.context || undefined} data-tone={wait?.tone} aria-selected={props.selected} aria-current={props.current || undefined} onPointerDown={(e) => e.preventDefault()} onPointerMove={() => !props.selected && props.onMove()} onClick={props.onPick}>
       {wait ? (
         <AlertLine view={node} wait={wait} />
       ) : (
         <>
           <SquareTerminal className="kind-mark" aria-hidden="true" />
-          <span className="al-text">{t('composer.instruct', { name: node.name })}</span>
+          <span className="al-text">{node.name}</span>
         </>
       )}
     </div>

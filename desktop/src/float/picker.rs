@@ -1,9 +1,10 @@
 use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use api::graph::NodeState;
 use api::graph::search::WaitSearch;
 use api::graph::waits::{WaitKind, WaitTone};
+use api::graph::{NodeState, NodeView};
 use api::ids::{NodeId, WaitId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -28,6 +29,8 @@ const SHADOW_BLUR: f32 = 14.0;
 const SHADOW_DROP: f32 = 4.0;
 const TIME: &str = "%H:%M";
 const HINT_ROOM: f32 = 480.0;
+const MAX_DEPTH: usize = 6;
+const DEPTH_STEP: f32 = 14.0;
 
 pub enum PickerEvent {
     Pick(NodeId, Aim),
@@ -71,6 +74,8 @@ struct Row {
     node: NodeId,
     name: String,
     item: Item,
+    depth: usize,
+    context: bool,
 }
 
 struct Section {
@@ -91,6 +96,14 @@ impl Listing {
             .iter()
             .flat_map(|s| s.rows.iter().map(|row| (row.node, row.item.aim())))
             .collect()
+    }
+
+    fn first_hit(&self) -> usize {
+        self.sections
+            .iter()
+            .flat_map(|s| &s.rows)
+            .position(|row| !row.context)
+            .unwrap_or(0)
     }
 
     fn child_of(&self, at: usize) -> usize {
@@ -171,6 +184,35 @@ fn live(state: &NodeState) -> bool {
     matches!(state, NodeState::Running | NodeState::Done)
 }
 
+fn tree_rows(own: &[&NodeView], hits: &HashSet<NodeId>) -> Vec<Row> {
+    let ids: HashSet<NodeId> = own.iter().map(|n| n.id).collect();
+    let mut rows = Vec::new();
+    let mut roots: Vec<&NodeView> = own
+        .iter()
+        .copied()
+        .filter(|n| n.parent.is_none_or(|p| !ids.contains(&p)))
+        .collect();
+    roots.sort_by_key(|n| n.id.0);
+    let mut stack: Vec<(&NodeView, usize)> = roots.into_iter().rev().map(|n| (n, 0)).collect();
+    while let Some((node, depth)) = stack.pop() {
+        rows.push(Row {
+            node: node.id,
+            name: node.name.clone(),
+            item: Item::Prompt,
+            depth,
+            context: !hits.contains(&node.id),
+        });
+        let mut children: Vec<&NodeView> = own
+            .iter()
+            .copied()
+            .filter(|n| n.parent == Some(node.id))
+            .collect();
+        children.sort_by_key(|n| n.id.0);
+        stack.extend(children.into_iter().rev().map(|n| (n, depth + 1)));
+    }
+    rows
+}
+
 impl Picker {
     pub fn place(&mut self, zoom: f32, width: f32, room: f32, above: bool, cx: &mut Context<Self>) {
         self.zoom = zoom;
@@ -210,25 +252,39 @@ impl Picker {
             Chip::Done => matches!(s.wait.tone, WaitTone::Done),
         });
         let mut sections = Vec::new();
-        let shown = |n: &&api::graph::NodeView| {
-            (live(&n.state) || n.id == self.current.0)
-                && search
+        let listed: HashMap<NodeId, &NodeView> = snapshot
+            .nodes
+            .iter()
+            .filter(|n| live(&n.state) || n.id == self.current.0)
+            .map(|n| (n.id, n))
+            .collect();
+        let hits: HashSet<NodeId> = listed
+            .values()
+            .filter(|n| {
+                search
                     .as_ref()
                     .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
-        };
+            })
+            .map(|n| n.id)
+            .collect();
+        let mut kept = HashSet::new();
+        for id in &hits {
+            let mut next = listed.get(id);
+            while let Some(n) = next {
+                if !kept.insert(n.id) {
+                    break;
+                }
+                next = n.parent.and_then(|p| listed.get(&p));
+            }
+        }
         let mut nodes = Vec::new();
         for repo in &snapshot.repos {
-            let rows: Vec<Row> = snapshot
+            let own: Vec<&NodeView> = snapshot
                 .nodes
                 .iter()
-                .filter(shown)
-                .filter(|n| n.place.repo == repo.id)
-                .map(|n| Row {
-                    node: n.id,
-                    name: n.name.clone(),
-                    item: Item::Prompt,
-                })
+                .filter(|n| kept.contains(&n.id) && n.place.repo == repo.id)
                 .collect();
+            let rows = tree_rows(&own, &hits);
             if !rows.is_empty() {
                 nodes.push(Section {
                     head: Head::Repo(repo.name.clone()),
@@ -258,6 +314,8 @@ impl Picker {
                             text: s.wait.summary,
                             since: s.wait.wait.since,
                         },
+                        depth: 0,
+                        context: false,
                     })
                     .collect(),
             });
@@ -279,7 +337,7 @@ impl Picker {
     }
 
     fn restart(&mut self, cx: &mut Context<Self>) {
-        self.at = 0;
+        self.at = self.listing(cx).first_hit();
         self.reveal(cx);
     }
 
@@ -415,13 +473,10 @@ impl Picker {
                         .child(ui::clock(*since, TIME)),
                 ),
             Item::Prompt => base
-                .text_color(c.ink_2)
+                .pl(px((8.0 + row.depth.min(MAX_DEPTH) as f32 * DEPTH_STEP) * z))
+                .text_color(if row.context { c.ink_3 } else { c.ink_2 })
                 .child(icon(Lucide::SquareTerminal, 14.0 * z, c.ink_3))
-                .child(div().min_w_0().truncate().child(ui::say_with(
-                    cx,
-                    Str::ComposerInstruct,
-                    &[("name", &row.name)],
-                ))),
+                .child(div().min_w_0().truncate().child(row.name.clone())),
         }
     }
 

@@ -421,7 +421,7 @@ async fn login_pty(
         |app| &app.logins.host,
         PtyInput {
             typed: |_, _, _, _| Typed::Write,
-            composing: |_, _| {},
+            composing: |_, _, _| {},
         },
         LoginId(id),
     )

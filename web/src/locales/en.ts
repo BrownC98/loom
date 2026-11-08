@@ -655,6 +655,7 @@ const en = {
     toNode: 'To {{name}}',
     pickTarget: 'Pick where to send (Alt+L)',
     keys: 'Enter send · Alt+L list',
+    alertCount: 'This node {{index}} / {{count}} · All alerts {{total}}',
     alertTotal: 'Remaining {{total}} · Questions {{ask}} · Done {{done}}',
     confirmAll: 'Confirm all {{count}} done',
     sectionNodes: 'Instruct a node',

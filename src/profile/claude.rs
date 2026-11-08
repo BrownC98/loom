@@ -41,6 +41,7 @@ const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
 const INPUT_MARK: &str = "❯";
 const GUARD: &str = "loom guard";
+const TURN_END_VERBS: [&str; 3] = ["done", "ask", "verdict"];
 const TURN_ENDED: &str = "loom";
 const HOOK: &str = "loom hook claude";
 const LEAN_ENV: [(&str, &str); 3] = [
@@ -687,7 +688,10 @@ impl Event {
                 tool_input,
                 tool_response,
             } if tool_name == "Bash" && tool_input["run_in_background"] != true => {
-                tool_input["command"].as_str().is_some_and(lone_loom_call)
+                tool_input["command"]
+                    .as_str()
+                    .and_then(lone_loom_verb)
+                    .is_some_and(|verb| TURN_END_VERBS.contains(&verb))
                     && tool_response["stdout"]
                         .as_str()
                         .is_some_and(|out| out.contains(END_TURN_NOW))
@@ -874,7 +878,7 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     Some(input)
 }
 
-fn lone_loom_call(command: &str) -> bool {
+fn lone_loom_verb(command: &str) -> Option<&str> {
     let command = command
         .strip_prefix(GUARD)
         .map_or(command, |rest| rest.trim_start_matches('\n'))
@@ -889,11 +893,17 @@ fn lone_loom_call(command: &str) -> bool {
             (_, '\\') => escaped = true,
             (Some(_), _) => {}
             (None, '\'' | '"') => quote = Some(c),
-            (None, ';' | '&' | '|' | '\n' | '`' | '(' | ')' | '<' | '>') => return false,
+            (None, ';' | '&' | '|' | '\n' | '`' | '(' | ')' | '<' | '>') => return None,
             (None, _) => {}
         }
     }
-    quote.is_none() && !escaped && command.split_whitespace().next() == Some(crate::protocol::LOOM)
+    if quote.is_some() || escaped {
+        return None;
+    }
+    let mut words = command.split_whitespace();
+    (words.next() == Some(crate::protocol::LOOM))
+        .then(|| words.next())
+        .flatten()
 }
 
 fn turn_shown(screen: &str) -> bool {

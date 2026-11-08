@@ -210,40 +210,38 @@ impl Picker {
             Chip::Done => matches!(s.wait.tone, WaitTone::Done),
         });
         let mut sections = Vec::new();
-        if self.chip == Chip::All {
-            let shown = |n: &&api::graph::NodeView| {
-                (live(&n.state) || n.id == self.current.0)
-                    && search
-                        .as_ref()
-                        .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
-            };
-            let mut nodes = Vec::new();
-            for repo in &snapshot.repos {
-                let rows: Vec<Row> = snapshot
-                    .nodes
-                    .iter()
-                    .filter(shown)
-                    .filter(|n| n.place.repo == repo.id)
-                    .map(|n| Row {
-                        node: n.id,
-                        name: n.name.clone(),
-                        item: Item::Prompt,
-                    })
-                    .collect();
-                if !rows.is_empty() {
-                    nodes.push(Section {
-                        head: Head::Repo(repo.name.clone()),
-                        rows,
-                    });
-                }
-            }
-            if !nodes.is_empty() {
-                sections.push(Section {
-                    head: Head::Title(Str::ComposerSectionNodes),
-                    rows: Vec::new(),
+        let shown = |n: &&api::graph::NodeView| {
+            (live(&n.state) || n.id == self.current.0)
+                && search
+                    .as_ref()
+                    .is_none_or(|s| n.name.to_lowercase().contains(s.words()))
+        };
+        let mut nodes = Vec::new();
+        for repo in &snapshot.repos {
+            let rows: Vec<Row> = snapshot
+                .nodes
+                .iter()
+                .filter(shown)
+                .filter(|n| n.place.repo == repo.id)
+                .map(|n| Row {
+                    node: n.id,
+                    name: n.name.clone(),
+                    item: Item::Prompt,
+                })
+                .collect();
+            if !rows.is_empty() {
+                nodes.push(Section {
+                    head: Head::Repo(repo.name.clone()),
+                    rows,
                 });
-                sections.extend(nodes);
             }
+        }
+        if !nodes.is_empty() {
+            sections.push(Section {
+                head: Head::Title(Str::ComposerSectionNodes),
+                rows: Vec::new(),
+            });
+            sections.extend(nodes);
         }
         if !alerts.is_empty() {
             sections.push(Section {

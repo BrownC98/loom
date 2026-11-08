@@ -424,13 +424,13 @@ fn place_of(db: &Connection, id: NodeId) -> rusqlite::Result<Place> {
 }
 
 fn place_label(repo_path: &str, worktree: &str) -> String {
-    let base = |path: &str| {
-        path.rsplit(['/', '\\'])
-            .find(|part| !part.is_empty())
-            .unwrap_or(path)
-            .to_owned()
-    };
-    format!("{}/{}", base(repo_path), base(worktree))
+    format!("{}/{}", folder_name(repo_path), folder_name(worktree))
+}
+
+fn folder_name(path: &str) -> &str {
+    path.rsplit(['/', '\\'])
+        .find(|part| !part.is_empty())
+        .unwrap_or(path)
 }
 
 fn ambiguous(db: &Connection, name: &str, ids: &[NodeId]) -> rusqlite::Result<Refusal> {

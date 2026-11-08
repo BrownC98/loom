@@ -740,7 +740,6 @@ const en = {
       emptyName: 'Enter a name.',
       nameTaken: '{{value}}: a parent, sibling, or child node already uses this name. Enter a different name.',
       reservedName: '{{value}}: this name is kept for node numbers and the parent. Use a name that has a letter and does not start with #.',
-      nameKept: '{{value}}: loom renames only the name that loom gave a root node (<agent>-<N>), and only once. loom keeps this name.',
       tooDeep: 'Nesting is too deep to add more children.',
       tooManyChildren: 'This node already has {{value}} children. Remove a finished child first.',
       briefTooLong: 'The message is {{value}} bytes. Shorten it and give a file path for longer material.',

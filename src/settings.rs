@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use api::settings::{FloatPlace, SettingsView};
+use api::settings::{FloatPlace, Language, SettingsView};
 
 use crate::db::Database;
 use crate::roles::{self, ChoiceCheck, RoleProblem, SetRole};
@@ -9,6 +9,27 @@ use api::settings::roles::Roles;
 fn place_problem(place: FloatPlace, field: &str) -> Option<String> {
     let ok = |v: f32| (0.0..=1.0).contains(&v);
     (!(ok(place.x) && ok(place.y))).then(|| format!("{field} must be numbers from 0 to 1"))
+}
+
+pub struct NameWords {
+    pub lead: &'static str,
+    pub shell: &'static str,
+}
+
+#[cfg(not(windows))]
+fn system_korean() -> bool {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
+        .is_some_and(|v| v.starts_with("ko"))
+}
+
+#[cfg(windows)]
+fn system_korean() -> bool {
+    use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+    let mut name = [0u16; 85];
+    let len = unsafe { GetUserDefaultLocaleName(name.as_mut_ptr(), name.len() as i32) };
+    len > 0 && String::from_utf16_lossy(&name[..len as usize]).starts_with("ko")
 }
 
 pub struct Settings {
@@ -23,6 +44,24 @@ impl Settings {
 
     pub fn get(&self) -> rusqlite::Result<SettingsView> {
         Ok(read(&self.db.lock())?.0)
+    }
+
+    pub fn name_words(&self) -> rusqlite::Result<NameWords> {
+        let korean = match self.get()?.language {
+            Language::Ko => true,
+            Language::En => false,
+            Language::System => system_korean(),
+        };
+        Ok(match korean {
+            true => NameWords {
+                lead: "총괄",
+                shell: "셸",
+            },
+            false => NameWords {
+                lead: "lead",
+                shell: "shell",
+            },
+        })
     }
 
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {

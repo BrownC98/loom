@@ -64,7 +64,7 @@ pub enum Status {
     Stopped { code: Option<u32> },
     /// 사용 한도에 걸렸다. 계정을 바꾸면 풀린다.
     Limited,
-    /// 쉬는데 깨울 것이 없다(감시견 조건). 받은편지함에 `WaitKind::Stalled` 대기도 연다.
+    /// 쉬는데 깨울 것이 없고 5분 넘게 조용하다(감시견 조건). 받은편지함에 `WaitKind::Stalled` 대기도 연다.
     Stalled,
     /// 턴 중이다. `tool`은 마지막으로 부른 도구와 대상(`Edit · web/src/NodeCard.tsx`)이다. 도구를 알리지 않는 에이전트이거나 아직 부르지 않았으면 없다.
     Working { tool: Option<String> },

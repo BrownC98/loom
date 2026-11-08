@@ -19,6 +19,9 @@ enum Bit {
     FirstInput,
     UnjudgedNudged,
     Status,
+    Typed,
+    HumanReply,
+    Background,
 }
 
 impl Bit {
@@ -27,7 +30,7 @@ impl Bit {
     }
 }
 
-const _: () = match Bit::Status {
+const _: () = match Bit::Background {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
@@ -36,8 +39,11 @@ const _: () = match Bit::Status {
     | Bit::Replied
     | Bit::SubmittedInput
     | Bit::FirstInput
-    | Bit::UnjudgedNudged => {}
-    last @ Bit::Status => assert!((last as u32) < u16::BITS),
+    | Bit::UnjudgedNudged
+    | Bit::Status
+    | Bit::Typed
+    | Bit::HumanReply => {}
+    last @ Bit::Background => assert!((last as u32) < u16::BITS),
 };
 
 const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
@@ -86,6 +92,9 @@ impl TurnMark {
 
 const REPLIED: u16 = Bit::Replied.mask();
 pub(super) const STATUS: u16 = Bit::Status.mask();
+pub(super) const HUMAN_REPLY: u16 = Bit::HumanReply.mask();
+pub(super) const TYPED: u16 = Bit::Typed.mask();
+pub(super) const BACKGROUND: u16 = Bit::Background.mask();
 pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
 const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
@@ -277,9 +286,17 @@ impl Graph {
         } else {
             0
         };
+        let human_reply = if has(Bit::Typed) && !has(Bit::Status) && !has(Bit::Background) {
+            HUMAN_REPLY
+        } else {
+            0
+        };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept | (flags & (SUBMITTED_INPUT | STATUS | open))],
+            params![
+                node.0,
+                kept | human_reply | (flags & (SUBMITTED_INPUT | STATUS | BACKGROUND | open))
+            ],
         )?;
         tx.commit()?;
         if reported {
@@ -297,9 +314,25 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | STATUS | FIRST_INPUT,
+            TurnMark::Asked.mask()
+                | TurnMark::QuestionBox.mask()
+                | REPLIED
+                | STATUS
+                | HUMAN_REPLY
+                | TYPED
+                | BACKGROUND
+                | FIRST_INPUT,
         )?;
         tx.commit()
+    }
+
+    pub fn background(&self, node: NodeId, running: bool) -> rusqlite::Result<()> {
+        let (set, clear) = if running {
+            (BACKGROUND, 0)
+        } else {
+            (0, BACKGROUND)
+        };
+        set_flags(&self.lock(), node, set, clear)
     }
 
     pub fn first_input_sent(&self, node: NodeId) -> rusqlite::Result<()> {

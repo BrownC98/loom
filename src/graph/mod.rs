@@ -208,8 +208,9 @@ impl Graph {
     pub fn views(
         &self,
         tool: impl Fn(NodeId) -> Option<String>,
+        quiet: impl Fn(NodeId) -> bool,
     ) -> rusqlite::Result<Vec<NodeView>> {
-        status::views(&self.lock(), self.linked, &tool)
+        status::views(&self.lock(), self.linked, &tool, &quiet)
     }
 
     fn lock(&self) -> Db<'_> {

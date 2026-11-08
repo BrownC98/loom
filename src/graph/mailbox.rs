@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events;
 use super::token::{NodeLaunch, current_in};
+use super::turns::TYPED;
 use super::{Db, hosts, waits};
 use super::{
     Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json,
@@ -401,6 +402,10 @@ impl Graph {
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        tx.execute(
+            "UPDATE nodes SET turn_flags = turn_flags | ?2 WHERE id = ?1",
+            params![node.0, TYPED],
+        )?;
         let steered = steer(&tx, node, NOTICE)?;
         let resumed = resume(&tx, node)?;
         tx.commit()?;

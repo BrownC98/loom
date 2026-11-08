@@ -537,6 +537,7 @@ impl HookEvent for Hook {
             rate_limited: self.event.rate_limited(),
             asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
             tool: self.event.tool(),
+            background: self.event.background().filter(|_| main),
             reports: reported_model(&self.event, self.transcript_path.as_deref())
                 .map(Report::Model)
                 .into_iter()
@@ -662,6 +663,8 @@ pub enum Event {
 }
 
 const NOTIFICATION_TAG: &str = "<task-notification>";
+const MONITOR_TOOL: &str = "Monitor";
+const TASK_ID_TAG: &str = "<task-id>";
 const RATE_LIMIT_ERROR: &str = "rate_limit";
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 const TOOL_TARGETS: [&str; 6] = [
@@ -812,6 +815,22 @@ impl Event {
             Some(target) if !target.is_empty() => format!("{tool_name} · {target}"),
             _ => tool_name.clone(),
         })
+    }
+
+    fn background(&self) -> Option<bool> {
+        match self {
+            Event::PostToolUse {
+                tool_name,
+                tool_input,
+                ..
+            } if tool_name == MONITOR_TOOL || tool_input["run_in_background"] == true => Some(true),
+            Event::UserPromptSubmit { prompt }
+                if prompt.starts_with(NOTIFICATION_TAG) && prompt.contains(TASK_ID_TAG) =>
+            {
+                Some(false)
+            }
+            _ => None,
+        }
     }
 
     pub fn rate_limited(&self) -> bool {

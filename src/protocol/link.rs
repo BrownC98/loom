@@ -43,6 +43,8 @@ pub struct TakeRequest {
     pub prompt_id: Option<String>,
     #[serde(default)]
     pub tool: Option<String>,
+    #[serde(default)]
+    pub background: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

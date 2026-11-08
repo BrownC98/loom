@@ -93,6 +93,7 @@ pub struct Signals {
     pub asks_interrupt: bool,
     pub reports: Vec<Report>,
     pub tool: Option<String>,
+    pub background: Option<bool>,
 }
 
 pub trait HookEvent {

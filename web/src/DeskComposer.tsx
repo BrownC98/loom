@@ -125,7 +125,15 @@ export function DeskComposer(props: DeskProps) {
           target={{ ref: targetButton, open: listing, onToggle: toggleList }}
           float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null) }}
         >
-          <AlertCard target={target} onChoose={choose} onGo={props.onTerminal} />
+          <AlertCard
+            target={target}
+            onChoose={choose}
+            onGo={props.onTerminal}
+            onFocus={() => {
+              show([node]);
+              props.onSelect(node);
+            }}
+          />
           <ComposerNotes composer={composer} />
           {target.lost && (
             <p className="refusal" role="alert">

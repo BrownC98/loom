@@ -831,9 +831,14 @@ impl Composer {
         };
         let wait = &aimed.waits[index];
         let body = answers::card(&self.answers, NodeId(aimed.node), wait, z, label, cx);
+        let node = aimed.node;
         Some(
             div()
                 .id("composer-card")
+                .cursor_pointer()
+                .on_click(cx.listener(move |composer, _, _, cx| {
+                    composer.store.update(cx, |store, cx| store.go(node, cx));
+                }))
                 .max_h(px(CARD_ROOM * z))
                 .overflow_y_scroll()
                 .px(px(10.0 * z))

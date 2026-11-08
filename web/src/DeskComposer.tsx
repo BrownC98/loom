@@ -6,7 +6,7 @@ import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
 import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
-import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useDraftFilled, type ComposerKeys, type Delivery } from './Composer';
+import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useComposerHeld, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
@@ -74,7 +74,7 @@ export function DeskComposer(props: DeskProps) {
     });
   };
   const composer = useComposer({ node, keys: props.keys, deliver });
-  const drafted = useDraftFilled();
+  const held = useComposerHeld();
   const focusField = () => float.current?.querySelector('textarea')?.focus();
   const closeList = () => {
     setListing(false);
@@ -102,7 +102,7 @@ export function DeskComposer(props: DeskProps) {
   const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
   const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
   const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
-  if (!input && target.stream.length === 0 && !drafted) return null;
+  if (!input && target.stream.length === 0 && !held) return null;
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const { route } = target;

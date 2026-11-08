@@ -62,7 +62,12 @@ function keyed<T>(none: T) {
 
 const DRAFT_KEY = 'composer';
 
-export const useDraftFilled = () => useDraft(DRAFT_KEY)[0].trim() !== '';
+const composings = keyed(false);
+
+export const useComposerHeld = () => {
+  const filled = useDraft(DRAFT_KEY)[0].trim() !== '';
+  return composings.use(DRAFT_KEY) || filled;
+};
 
 const NO_UPLOADS: readonly Promise<unknown>[] = [];
 const uploads = keyed(NO_UPLOADS);
@@ -114,7 +119,7 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
   const composition = useRef<Composition | null>(null);
   useEffect(() => {
     if (!area) return;
-    const watched = watchComposition(area);
+    const watched = watchComposition(area, (on) => composings.set(DRAFT_KEY, on));
     composition.current = watched;
     return () => {
       watched.dispose();

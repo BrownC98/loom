@@ -10,6 +10,8 @@ export type TargetKey = WaitId | typeof PROMPT;
 
 export type Chosen = { node: NodeId; key: TargetKey };
 
+export type Pin = { view: NodeView; key: TargetKey };
+
 export type Route = { kind: 'answer'; wait: ScreenWait } | { kind: 'continue'; wait: ScreenWait } | { kind: 'prompt' };
 
 export type StreamWait = { view: NodeView; wait: ScreenWait };
@@ -32,10 +34,10 @@ function routeOf(wait: ScreenWait | null): Route {
   return { kind: wait.tone === 'done' ? 'continue' : 'answer', wait };
 }
 
-export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Chosen | null): Target | null {
-  const view = (pinned && nodes.get(pinned.node)) || (selected !== null && nodes.get(selected)) || waiting[0];
+export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Pin | null): Target | null {
+  const view = (pinned && nodes.get(pinned.view.id)) || (selected !== null && nodes.get(selected)) || waiting[0] || pinned?.view;
   if (!view) return null;
-  const held = pinned?.node === view.id ? pinned : null;
+  const held = pinned?.view.id === view.id ? pinned : null;
   const waits = [...view.waits].sort(bySince);
   const open = (wanted: TargetKey) => wanted === PROMPT || waits.some((w) => w.id === wanted);
   const wanted = chosen?.node === view.id ? chosen.key : null;
@@ -45,7 +47,7 @@ export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: rea
     view,
     key,
     card,
-    lost: pinned !== null && (held === null || !open(held.key)),
+    lost: pinned !== null && (held === null || !open(held.key) || !nodes.has(view.id)),
     route: routeOf(key === PROMPT ? null : card),
     stream: streamOf(waiting),
   };

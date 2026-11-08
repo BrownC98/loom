@@ -5,7 +5,7 @@ export type Composition = {
   dispose: () => void;
 };
 
-export function watchComposition(target: EventTarget): Composition {
+export function watchComposition(target: EventTarget, onComposing?: (on: boolean) => void): Composition {
   let composing = false;
   let settling = 0;
   let disposed = false;
@@ -15,9 +15,11 @@ export function watchComposition(target: EventTarget): Composition {
   };
   const start = () => {
     composing = true;
+    onComposing?.(true);
   };
   const end = () => {
     composing = false;
+    onComposing?.(false);
     settle();
   };
   target.addEventListener('compositionstart', start);
@@ -31,6 +33,7 @@ export function watchComposition(target: EventTarget): Composition {
     },
     dispose: () => {
       disposed = true;
+      if (composing) onComposing?.(false);
       composing = false;
       target.removeEventListener('compositionstart', start);
       target.removeEventListener('compositionupdate', settle);

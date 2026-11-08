@@ -303,6 +303,32 @@ impl Graph {
         Ok(node)
     }
 
+    pub fn instructed(&self, node: NodeId, text: &str) -> rusqlite::Result<()> {
+        let text = text.trim();
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let how = Closed::Instructed {
+            text: text.to_owned(),
+        };
+        let closed = closed::close_all(&tx, Open::Done, node, &how)?;
+        if closed.is_empty() {
+            return Ok(());
+        }
+        let who = events::who(&tx, node)?;
+        for wait in closed {
+            let entry = Entry::Instructed {
+                node: who.clone(),
+                wait,
+                text: text.to_owned(),
+                images: 0,
+            };
+            events::write(&tx, &entry, None)?;
+        }
+        tx.commit()?;
+        self.publish_nodes();
+        Ok(())
+    }
+
     pub fn doc_question(&self, doc: &str) -> Result<DocQuestion, Refusal> {
         let db = self.lock();
         let open: Option<u32> = db

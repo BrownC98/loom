@@ -56,7 +56,7 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
         <time className="published" dateTime={new Date(wait.since * 1000).toISOString()}>
           {clockTime(wait.since * 1000)}
         </time>
-        {target.key === PROMPT && <span className="alert-aside">{t('composer.notAnswer')}</span>}
+        {target.key === PROMPT && wait.tone !== 'done' && <span className="alert-aside">{t('composer.notAnswer')}</span>}
         <span className="alert-pos">{t('composer.alertTotal', { total: target.stream.length, ask: target.stream.length - done.length, done: done.length })}</span>
         {done.length > 0 && <ConfirmAll place={wait} waits={done} />}
         {wait.tone === 'done' ? <ConfirmButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} /> : <DismissButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} />}

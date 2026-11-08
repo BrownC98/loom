@@ -838,6 +838,30 @@ impl Graph {
     }
 
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
+        self.rename_if(id, name, |_, _| Ok(()))
+    }
+
+    pub fn name_self(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
+        self.rename_if(id, name, |db, old| {
+            let (parent, agent): (Option<u32>, Option<AgentId>) = db.query_row(
+                "SELECT parent, agent FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| Ok((row.get(0)?, from_json(row, 1)?)),
+            )?;
+            let prefix = agent.as_ref().map_or(SHELL_NAME, |a| &a.0);
+            match parent.is_none() && is_root_name(old, prefix) {
+                true => Ok(()),
+                false => Err(Refusal::NameKept(old.to_owned())),
+            }
+        })
+    }
+
+    fn rename_if(
+        &self,
+        id: NodeId,
+        name: &str,
+        allowed: impl FnOnce(&Connection, &str) -> Result<(), Refusal>,
+    ) -> Result<(), Refusal> {
         let name = checked_name(name)?;
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -847,6 +871,7 @@ impl Graph {
         if old == name {
             return Ok(());
         }
+        allowed(&tx, &old)?;
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != ?1 AND n.name = ?2 AND (
                 n.id = me.parent
@@ -1235,6 +1260,12 @@ fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
         }
         number += 1;
     }
+}
+
+fn is_root_name(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn checked_name(name: &str) -> Result<&str, Refusal> {

@@ -9,7 +9,7 @@ use crate::daemon::gate::{Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, Ve
 use crate::daemon::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
     DoneRequest, GuardRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched, RemoveRequest,
-    Reported, ShowRequest, SpawnRequest, SpawnRun, WaitRequest,
+    RenameRequest, Reported, ShowRequest, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, Relations, Sent};
 use crate::protocol::{
@@ -569,6 +569,12 @@ pub fn adopt(name: String) -> Result<(), String> {
 pub fn detach(name: String) -> Result<(), String> {
     call::<()>("detach", &DetachRequest { name: name.clone() })?;
     println!("{name} is a root node now. Its loom ask goes to the human inbox.");
+    Ok(())
+}
+
+pub fn rename(name: String) -> Result<(), String> {
+    call::<()>("rename", &RenameRequest { name: name.clone() })?;
+    println!("Your node name is {} now.", name.trim());
     Ok(())
 }
 

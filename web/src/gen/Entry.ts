@@ -2,7 +2,6 @@
 import type { AccountId } from "./AccountId";
 import type { AgentEvent } from "./AgentEvent";
 import type { AgentId } from "./AgentId";
-import type { AgentState } from "./AgentState";
 import type { AgentSwitch } from "./AgentSwitch";
 import type { BatchMember } from "./BatchMember";
 import type { BatchResult } from "./BatchResult";
@@ -12,6 +11,7 @@ import type { IdleEnd } from "./IdleEnd";
 import type { Kind } from "./Kind";
 import type { MessageKind } from "./MessageKind";
 import type { NodeState } from "./NodeState";
+import type { ProcessState } from "./ProcessState";
 import type { Provider } from "./Provider";
 import type { Refusal } from "./Refusal";
 import type { Step } from "./Step";
@@ -78,12 +78,8 @@ members: Array<BatchMember>,
 /**
  * check.sh가 걸린 초. 검사 전에 끝났으면 없다.
  */
-check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, } | { "kind": "endpointFailed", node: Who, error: string, } | { "kind": "agentStateChanged", node: Who, 
+check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, } | { "kind": "endpointFailed", node: Who, error: string, } | { "kind": "processChanged", node: Who, from: ProcessState, to: ProcessState, by: AgentEvent, 
 /**
- * 없으면 프로세스가 없었다.
+ * 데몬 안의 에이전트 상태 이름(사건 뒤). 프로세스가 끝났으면 `ended`다.
  */
-from: AgentState | null, 
-/**
- * 없으면 프로세스가 끝났다.
- */
-to: AgentState | null, by: AgentEvent, } | { "kind": "agentStateDisagreed", node: Who, check: string, old: boolean, state: AgentState, };
+detail: string, };

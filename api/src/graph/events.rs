@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::NodeState;
+use super::{NodeState, ProcessState};
 use super::errors::Refusal;
 use super::messages::{Field, Finding, GateState, GateVerb, Kind, MessageKind};
 use super::text::TextPart;
@@ -210,21 +210,14 @@ pub enum Entry {
         node: Who,
         error: String,
     },
-    /// 에이전트 상태가 바뀌었다(`AgentState`). 화면 이벤트 콘솔은 보이지 않는다.
-    AgentStateChanged {
+    /// 노드 프로세스 상태가 바뀌었다. 화면 이벤트 콘솔은 보이지 않는다.
+    ProcessChanged {
         node: Who,
-        /// 없으면 프로세스가 없었다.
-        from: Option<AgentState>,
-        /// 없으면 프로세스가 끝났다.
-        to: Option<AgentState>,
+        from: ProcessState,
+        to: ProcessState,
         by: AgentEvent,
-    },
-    /// 그림자 단계의 옛 판정(`check`: `busy`·`listening`의 값 `old`)과 상태 기계(`state`)가 달랐다. 지금 데몬은 남기지 않는다. 옛 이벤트 기록을 읽으려고 남긴다. 화면 이벤트 콘솔은 보이지 않는다.
-    AgentStateDisagreed {
-        node: Who,
-        check: String,
-        old: bool,
-        state: AgentState,
+        /// 데몬 안의 에이전트 상태 이름(사건 뒤). 프로세스가 끝났으면 `ended`다.
+        detail: String,
     },
 }
 
@@ -410,27 +403,6 @@ pub struct FieldParts {
     pub parts: Vec<TextPart>,
 }
 
-/// 노드 에이전트가 지금 무엇을 하는지. 모든 에이전트 경로의 공통 사건(`AgentEvent`)이 `next` 하나로 바꾼다. 데몬 DB에 있어 데몬을 다시 띄워도 남는다.
-/// 근거: R32 v3 ②A. 다시 띄우기·재우기·전달 판단이 이 상태를 읽는다.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
-pub enum AgentState {
-    /// 프로세스를 띄웠고 아직 첫 사건이 오지 않았다.
-    Starting,
-    /// 사람의 답을 기다리는 창이 에이전트를 막았다. `before`는 창이 닫히면 돌아갈 상태다.
-    Blocked {
-        before: Box<AgentState>,
-    },
-    /// 턴이 끝났고 메시지를 받을 길(쉬는 대기나 서버)이 열려 있다.
-    Listening,
-    /// 턴이 끝났는데 메시지를 받을 길이 없다.
-    Deaf,
-    Turn,
-    /// 노드 쪽 연결의 판이 데몬과 맞지 않는다.
-    Mismatch,
-}
-
 /// 에이전트 경로가 보내는 공통 사건.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -464,52 +436,4 @@ pub enum AgentEvent {
     Exited,
     /// 노드 쪽 연결이 데몬이 받지 않는 판으로 요청했다.
     VersionMismatch,
-}
-
-impl AgentState {
-    pub fn busy(&self) -> bool {
-        !matches!(self, Self::Listening | Self::Deaf | Self::Blocked { .. })
-    }
-
-    pub fn cut(&self) -> bool {
-        match self {
-            Self::Listening => false,
-            Self::Blocked { before } => before.cut(),
-            Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
-        }
-    }
-
-    pub fn next(self, event: &AgentEvent) -> Option<AgentState> {
-        use AgentEvent as E;
-        use AgentState as S;
-        Some(match (self, event) {
-            (_, E::Exited | E::Slept) => return None,
-            (_, E::Relaunched) => S::Starting,
-            (state, E::RelaunchStarted) => state,
-            (_, E::VersionMismatch) => S::Mismatch,
-            (S::Mismatch, _) => S::Mismatch,
-            (S::Blocked { before }, E::DialogCleared) => *before,
-            (S::Blocked { before }, E::Dialog) => S::Blocked { before },
-            (S::Blocked { before }, event) => S::Blocked {
-                before: Box::new(before.next(event)?),
-            },
-            (state, E::Dialog) => S::Blocked {
-                before: Box::new(state),
-            },
-            (state, E::DialogCleared) => state,
-            (_, E::TurnStarted | E::Busy | E::InputSent) => S::Turn,
-            (_, E::WaitOpened | E::TurnEndedWaitOpened | E::Idle) => S::Listening,
-            (_, E::Lost) => S::Deaf,
-            (
-                _,
-                E::WaitClosed {
-                    by: IdleEnd::Mail | IdleEnd::Turn { .. } | IdleEnd::Typed,
-                },
-            ) => S::Turn,
-            (S::Listening, E::WaitClosed { .. }) => S::Deaf,
-            (state, E::WaitClosed { .. }) => state,
-            (S::Starting | S::Turn, E::TurnEnded) => S::Deaf,
-            (state, E::TurnEnded) => state,
-        })
-    }
 }

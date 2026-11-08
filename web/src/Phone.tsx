@@ -9,8 +9,8 @@ import { bookmarkToggle } from './BookmarkButton';
 import { Composer, PHONE_KEYS } from './Composer';
 import { InboxPanel, waitCount } from './Inbox';
 import { useNodeInput } from './nodeInputs';
-import { AgentLine, stateLabel } from './NodeCard';
-import { NodeText, NoticeChips, NoticeLead, oldestWait } from './notice';
+import { AgentLine, viewLabel } from './NodeCard';
+import { alarmClass, NodeText, NoticeChips, NoticeLead, oldestWait } from './notice';
 import { useNotifyState } from './phoneNotify';
 import type { PhoneNotify } from './native';
 import { borrowSize, SizingTerminal } from './Terminal';
@@ -232,9 +232,9 @@ export function NodeTitle(props: { view: NodeView; agentLabel: string }) {
       <span className="phone-name">
         <b>{props.view.name}</b>
         <NoticeChips view={props.view} />
-        {(props.view.state.kind === 'exited' || props.view.state.kind === 'setupFailed') && (
-          <span className={`state ${props.view.state.kind}`} aria-live="polite" translate="no">
-            {stateLabel(props.view.state)}
+        {alarmClass(props.view) && (
+          <span className={`state ${alarmClass(props.view)}`} aria-live="polite" translate="no">
+            {viewLabel(props.view)}
           </span>
         )}
       </span>

@@ -7,15 +7,20 @@ import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
-import { asking, NoticeChips } from './notice';
+import { alarmClass, asking, NoticeChips, stopped } from './notice';
 import { navDirection, type Direction } from './keys';
 
 export function stateClass(view: NodeView): string {
   if (asking(view).length > 0) return 'waiting';
-  return view.state.kind === 'exited' || view.state.kind === 'setupFailed' ? view.state.kind : '';
+  return alarmClass(view);
 }
 
-export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateLabel(view.state));
+export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : viewLabel(view));
+
+export function viewLabel(view: NodeView): string {
+  const s = stopped(view);
+  return s ? i18next.t('node.state.exited', { code: s.code ?? '?' }) : stateLabel(view.state);
+}
 
 export function stateLabel(state: NodeState): string {
   const t = i18next.t;
@@ -24,20 +29,21 @@ export function stateLabel(state: NodeState): string {
       return t('node.state.running');
     case 'done':
       return t('node.state.done');
-    case 'exited':
-      return t('node.state.exited', { code: state.code ?? '?' });
     case 'setupFailed':
       return t('node.state.setupFailed');
   }
 }
 
-function footText(state: NodeState, parentName: string | null): string | null {
+function footText(view: NodeView, parentName: string | null): string | null {
   const t = i18next.t;
+  const state = view.state;
+  const s = stopped(view);
+  if (s) {
+    if (s.code === null) return t('node.foot.daemonRestarted');
+    if (parentName !== null) return t('node.foot.exitedSent', { code: s.code, parent: parentName });
+    return t('node.foot.exited', { code: s.code });
+  }
   switch (state.kind) {
-    case 'exited':
-      if (state.code === null) return t('node.foot.daemonRestarted');
-      if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
-      return t('node.foot.exited', { code: state.code });
     case 'setupFailed':
       return t('node.foot.setupFailed', { code: state.code });
     case 'running':
@@ -98,9 +104,9 @@ function Badges(props: { view: NodeView }) {
         </button>
       )}
       <NoticeChips view={view} />
-      {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
-        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-          {stateLabel(view.state)}
+      {alarmClass(view) && (
+        <span className={`state ${alarmClass(view)}`} aria-live="polite" translate="no">
+          {viewLabel(view)}
         </span>
       )}
     </>
@@ -213,7 +219,7 @@ export function NodeCard(
   },
 ) {
   const { view } = props;
-  const foot = footText(view.state, props.parentName);
+  const foot = footText(view, props.parentName);
   return (
     <CardShell className="card" {...props}>
       {(rename) => (

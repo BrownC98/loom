@@ -77,9 +77,16 @@ pub enum ListenAt {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EndedTurn {
-    pub reply: Option<String>,
+    pub reply: Option<TurnReply>,
     #[serde(default)]
     pub turn: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TurnReply {
+    Answer(String),
+    Status { status: String },
 }
 
 #[derive(Serialize, Deserialize)]

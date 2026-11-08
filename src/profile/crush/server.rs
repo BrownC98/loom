@@ -14,6 +14,7 @@ use crate::profile::adapter::{LaunchAt, Port, Record, Started};
 use crate::profile::process::Served;
 use crate::protocol::{
     AdapterRecord, Delivery, EndedTurn, IdleReply, IdleRequest, Model, Report, TakeRequest,
+    TurnReply,
 };
 use api::graph::messages::Kind;
 use api::start::ModelChoice;
@@ -520,7 +521,10 @@ async fn run(server: &Server, port: &dyn Port, brief: String) -> Result<(), Stri
                     } else if stopped {
                         port.report(Report::TurnStopped { turn: None });
                     } else {
-                        turn_end = Some(EndedTurn { reply, turn: None });
+                        turn_end = Some(EndedTurn {
+                            reply: reply.map(TurnReply::Answer),
+                            turn: None,
+                        });
                     }
                 }
             },

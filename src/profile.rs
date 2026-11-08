@@ -28,7 +28,7 @@ use api::start::{ModelChoice, Start};
 use crate::accounts::Cli;
 use crate::distro::Host;
 use crate::protocol::{
-    ChoiceRequest, Delivery, MessageId, OpenQuestion, Report, Session, StartDigests,
+    ChoiceRequest, Delivery, MessageId, OpenQuestion, Report, Session, StartDigests, TurnReply,
 };
 use crate::screen::{self, LinePrompt, Reply, Screen, SessionStart};
 use crate::skills::Launch;
@@ -88,7 +88,7 @@ pub struct Signals {
     pub human_input: bool,
     pub turn: Option<String>,
     pub prompt_id: Option<String>,
-    pub turn_end: Option<Option<String>>,
+    pub turn_end: Option<Option<TurnReply>>,
     pub rate_limited: bool,
     pub asks_interrupt: bool,
     pub reports: Vec<Report>,

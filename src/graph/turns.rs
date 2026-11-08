@@ -18,15 +18,16 @@ enum Bit {
     SubmittedInput,
     FirstInput,
     UnjudgedNudged,
+    Status,
 }
 
 impl Bit {
     const fn mask(self) -> u16 {
-        1 << self as u8
+        1 << self as u16
     }
 }
 
-const _: () = match Bit::UnjudgedNudged {
+const _: () = match Bit::Status {
     Bit::Human
     | Bit::Called
     | Bit::KindNudged
@@ -34,8 +35,9 @@ const _: () = match Bit::UnjudgedNudged {
     | Bit::QuestionBox
     | Bit::Replied
     | Bit::SubmittedInput
-    | Bit::FirstInput => {}
-    last @ Bit::UnjudgedNudged => assert!((last as u32) < u16::BITS),
+    | Bit::FirstInput
+    | Bit::UnjudgedNudged => {}
+    last @ Bit::Status => assert!((last as u32) < u16::BITS),
 };
 
 const NUDGED: u16 = Bit::KindNudged.mask() | Bit::UnjudgedNudged.mask();
@@ -83,6 +85,7 @@ impl TurnMark {
 }
 
 const REPLIED: u16 = Bit::Replied.mask();
+const STATUS: u16 = Bit::Status.mask();
 pub(super) const SUBMITTED_INPUT: u16 = Bit::SubmittedInput.mask();
 const FIRST_INPUT: u16 = Bit::FirstInput.mask();
 
@@ -92,6 +95,14 @@ fn set_flags(db: &Connection, node: NodeId, set: u16, clear: u16) -> rusqlite::R
         params![node.0, set, clear],
     )
     .map(drop)
+}
+
+fn keep_reply(db: &Connection, node: NodeId, text: &str) -> rusqlite::Result<bool> {
+    Ok(!text.is_empty()
+        && db.execute(
+            "UPDATE nodes SET reply = ?2 WHERE id = ?1 AND reply IS NOT ?2",
+            params![node.0, text],
+        )? > 0)
 }
 
 fn late(db: &Connection, node: NodeId, turn: &str) -> rusqlite::Result<bool> {
@@ -157,14 +168,23 @@ impl Graph {
         }
         let text = text.trim();
         if text.is_empty() {
-            set_flags(&tx, node, 0, REPLIED)?;
+            set_flags(&tx, node, 0, REPLIED | STATUS)?;
             return tx.commit();
         }
-        set_flags(&tx, node, REPLIED, 0)?;
-        let changed = tx.execute(
-            "UPDATE nodes SET reply = ?2 WHERE id = ?1 AND reply IS NOT ?2",
-            params![node.0, text],
-        )? > 0;
+        set_flags(&tx, node, REPLIED, STATUS)?;
+        let changed = keep_reply(&tx, node, text)?;
+        tx.commit()?;
+        if changed {
+            self.publish_nodes();
+        }
+        Ok(())
+    }
+
+    pub fn status(&self, node: NodeId, text: &str) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        set_flags(&tx, node, STATUS, REPLIED)?;
+        let changed = keep_reply(&tx, node, text.trim())?;
         tx.commit()?;
         if changed {
             self.publish_nodes();
@@ -252,9 +272,14 @@ impl Graph {
         let kept = check
             .as_ref()
             .map_or(0, |nudge| (flags & NUDGED) | nudge.kept());
+        let open = if has(Bit::Status) && !has(Bit::Called) {
+            Bit::Human.mask()
+        } else {
+            0
+        };
         tx.execute(
             "UPDATE nodes SET turn_flags = ?2, turn = NULL WHERE id = ?1",
-            params![node.0, kept | (flags & SUBMITTED_INPUT)],
+            params![node.0, kept | (flags & (SUBMITTED_INPUT | open))],
         )?;
         tx.commit()?;
         if reported {
@@ -272,7 +297,7 @@ impl Graph {
             &tx,
             node,
             0,
-            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | FIRST_INPUT,
+            TurnMark::Asked.mask() | TurnMark::QuestionBox.mask() | REPLIED | STATUS | FIRST_INPUT,
         )?;
         tx.commit()
     }

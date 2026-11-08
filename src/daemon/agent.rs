@@ -13,7 +13,7 @@ use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
     AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, ListenAt, ListenRequest, MessageId,
-    Report, Session, TakeRequest, Taken, WakeReply,
+    Report, Session, TakeRequest, Taken, TurnReply, WakeReply,
 };
 use api::graph::GraphEvent;
 use api::graph::errors::Refusal;
@@ -119,8 +119,10 @@ impl App {
         {
             return Ok(None);
         }
-        if let Some(text) = ended.reply {
-            self.turn_ends.said(node, &text, None);
+        match ended.reply {
+            Some(TurnReply::Answer(text)) => self.turn_ends.said(node, &text, None),
+            Some(TurnReply::Status { status }) => self.turn_ends.status(node, &status),
+            None => {}
         }
         let nudge = self.turn_end(node);
         if !matches!(nudge, Ok(Some(_))) {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Handed, HookEvent, LineEvent, Served, Shown, Signals, Take, Unserved};
-use crate::protocol::{ChoiceRequest, Delivery, MessageId, Model, Report, Session};
+use crate::protocol::{ChoiceRequest, Delivery, MessageId, Model, Report, Session, TurnReply};
 use api::graph::messages::Kind;
 use api::graph::waits::{Prompt, PromptKey, PromptOption, WaitKind};
 
@@ -217,9 +217,9 @@ impl Event {
         }
     }
 
-    fn turn_ends(&self) -> Option<Option<String>> {
+    fn turn_ends(&self) -> Option<Option<TurnReply>> {
         match self {
-            Event::Settled { reply, .. } => Some(reply.clone()),
+            Event::Settled { reply, .. } => Some(reply.clone().map(TurnReply::Answer)),
             _ => None,
         }
     }

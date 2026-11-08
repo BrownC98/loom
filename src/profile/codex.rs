@@ -18,6 +18,7 @@ use super::process::Served;
 use crate::accounts::Cli;
 use crate::protocol::{
     Delivery, EndedTurn, IdleReply, IdleRequest, MessageId, Model, Report, Session, TakeRequest,
+    TurnReply,
 };
 use crate::screen::{Dialog, Grammar, Options, Top};
 use crate::skills::Launch;
@@ -740,7 +741,10 @@ async fn ended_turn(server: &CodexServer, thread: &str) -> EndedTurn {
         })
         .ok()
         .flatten();
-    EndedTurn { reply, turn: None }
+    EndedTurn {
+        reply: reply.map(TurnReply::Answer),
+        turn: None,
+    }
 }
 
 async fn hand(

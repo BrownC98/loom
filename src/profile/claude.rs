@@ -18,7 +18,7 @@ use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::accounts::Site;
 use crate::distro::Distro;
 use crate::place::{self, Files, Machine};
-use crate::protocol::{Delivery, END_TURN_NOW, Model, Session};
+use crate::protocol::{Delivery, END_TURN_NOW, Model, Session, TurnReply};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::Launch;
 use crate::wsl::Run;
@@ -56,18 +56,22 @@ const CLI_WAIT: Duration = Duration::from_secs(20);
 const NO_RECORD: &str = "이어 갈 세션 기록이 없다";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
 
-macro_rules! silent_end {
+macro_rules! status_mark {
     () => {
-        "."
+        "⏳"
     };
 }
 
-const SILENT_END: &str = silent_end!();
+const STATUS_MARK: &str = status_mark!();
 
 pub(super) const WAITING: &str = concat!(
-    "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it. Claude Code makes you continue a turn that ends with no visible text. So where these rules tell you to write no text, write only \"",
-    silent_end!(),
-    "\" at the end of the turn."
+    "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it. Claude Code makes you continue a turn that ends with no visible text. So where these rules tell you to write no text, end the turn with one short sentence in the human's language that says what you do now. Start it with \"",
+    status_mark!(),
+    " \", for example \"",
+    status_mark!(),
+    " Waiting for the build result.\" Do not write a summary, and do not repeat text that you sent. An answer to the human does not start with \"",
+    status_mark!(),
+    "\"."
 );
 
 fn usage(launch: Launch) -> String {
@@ -526,11 +530,7 @@ impl HookEvent for Hook {
             prompt: self.event.prompt().map(str::to_owned),
             human_input: self.event.prompt().is_some(),
             turn_end: match &self.event {
-                Event::Stop => Some(
-                    self.last_assistant_message
-                        .clone()
-                        .filter(|text| text.trim() != SILENT_END),
-                ),
+                Event::Stop => Some(self.last_assistant_message.as_deref().map(turn_reply)),
                 _ if last => Some(None),
                 _ => None,
             },
@@ -589,6 +589,15 @@ impl Hook {
             },
             Handed::Nudge(text) => to_model(text.clone()),
         }
+    }
+}
+
+fn turn_reply(text: &str) -> TurnReply {
+    match text.trim().strip_prefix(STATUS_MARK) {
+        Some(status) => TurnReply::Status {
+            status: status.trim().to_owned(),
+        },
+        None => TurnReply::Answer(text.to_owned()),
     }
 }
 

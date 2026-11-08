@@ -477,6 +477,9 @@ impl App {
             };
             app.process_ended(id);
             app.sleeps.exited(id);
+            if slept {
+                app.sleeps.slept(id);
+            }
             app.graph.wake_mail();
             app.idle.end(id, IdleEnd::Exit);
             port.end();

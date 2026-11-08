@@ -161,18 +161,19 @@ pub(super) enum Typed {
 }
 
 fn live_typed(app: &Arc<App>, id: NodeId, pty: &node_host::Keys<'_>, bytes: &[u8]) -> Typed {
-    let asleep = app
-        .graph
-        .process(id)
-        .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep));
-    if !asleep && !app.sleeps.holds(id) {
+    let asleep = || {
+        app.graph
+            .process(id)
+            .is_ok_and(|p| p == Some(crate::graph::ProcessOutcome::Asleep))
+    };
+    if !asleep() && !app.sleeps.holds(id) {
         human_typed(app, id, bytes);
         return Typed::Write;
     }
     if has_text(bytes) {
         app.sleeps.keep(id, bytes, pty.serial());
     }
-    if asleep {
+    if asleep() {
         app.sleeps.knocked(id);
     }
     let app = app.clone();

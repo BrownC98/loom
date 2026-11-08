@@ -35,7 +35,7 @@ function routeOf(wait: ScreenWait | null): Route {
 }
 
 export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Pin | null): Target | null {
-  const view = (pinned && nodes.get(pinned.view.id)) || (selected !== null && nodes.get(selected)) || waiting[0] || pinned?.view;
+  const view = (pinned && nodes.get(pinned.view.id)) || (selected !== null && nodes.get(selected)) || waiting[0] || (pinned && { ...pinned.view, waits: [] });
   if (!view) return null;
   const held = pinned?.view.id === view.id ? pinned : null;
   const waits = [...view.waits].sort(bySince);

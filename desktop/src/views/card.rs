@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Div, ElementId, Entity, FontWeight, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Rgba, Stateful,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Pixels, Rgba, Stateful,
     StatefulInteractiveElement, Styled, Window, deferred, div, point, px,
 };
 
@@ -500,6 +500,10 @@ pub fn view_of(node: &NodeView, setting: DefaultCardView) -> CardView {
 
 pub fn asleep(node: &NodeView) -> bool {
     matches!(node.process, ProcessState::Asleep)
+}
+
+pub fn wake_key(event: &KeyDownEvent) -> bool {
+    event.keystroke.key == "enter" && !event.keystroke.modifiers.modified()
 }
 
 pub type Press = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;

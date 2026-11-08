@@ -396,14 +396,15 @@ impl CanvasView {
             cx.stop_propagation();
             return;
         }
-        if canvas_focused
-            && event.keystroke.key == "enter"
-            && !event.keystroke.modifiers.modified()
-            && let Some(id) = self
-                .store
-                .read(cx)
-                .selected()
-                .filter(|&id| self.asleep(id, cx))
+        if card::wake_key(event)
+            && let Some(id) = self.store.read(cx).selected().filter(|&id| {
+                self.asleep(id, cx)
+                    && (canvas_focused
+                        || self
+                            .live
+                            .get(&id)
+                            .is_some_and(|live| live.view.read(cx).focused(window)))
+            })
         {
             self.wake(id, cx);
             cx.stop_propagation();

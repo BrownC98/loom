@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::App;
-use crate::graph::ParentWork;
 use crate::worktree;
 use crate::worktree::merge::{delete_local_merged, still_merged};
 use api::ids::NodeId;
@@ -129,7 +128,11 @@ impl App {
         let app = self.clone();
         tokio::spawn(async move {
             let swept = app.sweep(parent).await;
-            if !swept.removed.is_empty() {
+            let owns_merged = app.graph.owns_merged(parent).unwrap_or_else(|e| {
+                crate::log::logln!("loom: 노드 {}의 병합한 차례를 읽지 못했다: {e}", parent.0);
+                false
+            });
+            if !swept.removed.is_empty() || owns_merged {
                 tokio::spawn(super::reclaim::run(app.clone()));
             }
             for problem in swept.problems {
@@ -148,18 +151,6 @@ impl App {
         name: &str,
         swept: &mut Swept,
     ) -> Result<bool, String> {
-        let parent_work = match self.work(parent).await? {
-            Left::Work(_) => ParentWork::Unmerged,
-            Left::Nothing | Left::Clean { .. } => ParentWork::Merged,
-        };
-        if let ParentWork::Unmerged = parent_work
-            && self.graph.parent_holds(child).map_err(|e| e.to_string())?
-        {
-            swept.kept.push(format!(
-                "{name}: the branch of its parent is not merged yet. loom keeps it for gate rework and removes it after the merge."
-            ));
-            return Ok(false);
-        }
         let left = self.left(child).await?;
         if let Left::Work(why) = left {
             swept.kept.push(format!("{name}: {why}"));
@@ -173,7 +164,7 @@ impl App {
         let leftovers = self.leftovers(child);
         let Some(moved) = self
             .graph
-            .remove_spent_child(parent, child, name, parent_work, limits)
+            .remove_spent_child(parent, child, name, limits)
             .map_err(|e| e.to_string())?
         else {
             return Ok(false);
@@ -215,11 +206,6 @@ impl App {
         if shared {
             return Ok(Left::Nothing);
         }
-        self.work(child).await
-    }
-
-    async fn work(&self, node: NodeId) -> Result<Left, String> {
-        let place = self.graph.place_of(node).map_err(|e| e.to_string())?;
         let dir = self.repos.path(place.repo).map_err(|e| e.to_string())?;
         if Path::new(&place.worktree) == dir {
             return Ok(Left::Nothing);
@@ -243,7 +229,7 @@ impl App {
                 "the worktree {path} has a detached HEAD. loom keeps the node and the worktree."
             )));
         };
-        let target = match self.gate_of(node, &dir).await {
+        let target = match self.gate_of(child, &dir).await {
             Ok((_, target)) => target,
             Err(e) => {
                 return Ok(Left::Work(format!(

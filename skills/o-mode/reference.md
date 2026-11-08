@@ -44,11 +44,6 @@ The usage text gives the commands, the waits and the size limits. These rules ar
 - Make an HTML report in the user-doc form only when the human asks for it. The lead reviews it, checks it with `show.sh` and attaches it with `loom ask --doc` (do not open the human's browser). In chat and `loom done`, write only a summary and the link.
 - Text that agents read is English markdown.
 
-## Gate rework
-
-- If the gate reviewers block your branch, send each finding in a worker's edit scope to that worker with `loom note <worker>`. A worker in your worktree fixes it, commits and calls `loom done`. A worker with its own worktree commits the fix on its branch and calls `loom ready <its branch>`; pass it and wait for `merged`. Then call `loom ready` again. Fix the other findings yourself.
-- When a worker's branch merges into yours, loom sets that worker to done. A done child stays, until your branch is merged, while your own worktree has changes or commits that its target does not have. This hold ends when you are `done`, your turn ended and you have no open gate round.
-
 ## Cleanup
 
 - Do not clean up unsaved changes or work that waits for a check, approval or merge. Also keep user nodes in use and the base checkout.

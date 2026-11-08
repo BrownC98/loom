@@ -49,9 +49,6 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
     for reviewer in &round.reviewers {
         remove(app, *reviewer).map_err(|e| e.to_string())?;
     }
-    if round.gate != round.owner {
-        return Ok(());
-    }
     for problem in app.sweep(round.owner).await.problems {
         app.graph.note_reclaim(&round, &problem).map_err(text)?;
     }
@@ -92,7 +89,15 @@ async fn reclaim(app: &Arc<App>, dir: &Path, repo: RepoId, branch: &str) -> Resu
             .map_err(text);
     }
     let leaving = only_owner.map(|w| app.leaving(&w.path));
-    remove(app, round.owner).map_err(|e| e.to_string())?;
+    let leftovers = app.leftovers(round.owner);
+    if !app
+        .graph
+        .remove_merged_owner(round.owner)
+        .map_err(|e| e.to_string())?
+    {
+        return Ok(());
+    }
+    app.removed(round.owner, leftovers);
     if let Some(own) = own
         && alone(app, None)?
         && let Err(e) = worktree::remove_clean(app.files(), dir, &own).await

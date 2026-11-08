@@ -18,12 +18,6 @@ use api::graph::{CardView, NodeState, Place, ProcessState, Toward};
 use api::ids::{AccountId, AgentId, NodeId};
 use api::limits::TreeLimits;
 
-#[derive(Clone, Copy)]
-pub enum ParentWork {
-    Merged,
-    Unmerged,
-}
-
 pub struct NewChild<'a> {
     pub name: &'a str,
     pub worktree: Option<&'a str>,
@@ -721,12 +715,22 @@ impl Graph {
     }
 
     pub fn remove_childless_child(&self, id: NodeId) -> Result<bool, Refusal> {
+        self.remove_child_where(id, "TRUE".to_owned())
+    }
+
+    pub fn remove_merged_owner(&self, id: NodeId) -> Result<bool, Refusal> {
+        self.remove_child_where(id, format!("{MERGED_OWNER_SETTLED} AND {IDLE}"))
+    }
+
+    fn remove_child_where(&self, id: NodeId, rule: String) -> Result<bool, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let removable: bool = tx
             .query_row(
-                "SELECT parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = n.id)
-                 FROM nodes n WHERE id = ?1",
+                &format!(
+                    "SELECT c.parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes k WHERE k.parent = c.id)
+                     AND {rule} FROM nodes c WHERE c.id = ?1"
+                ),
                 [id.0],
                 |row| row.get(0),
             )
@@ -766,17 +770,11 @@ impl Graph {
         parent: NodeId,
         child: NodeId,
         name: &str,
-        parent_work: ParentWork,
         limits: TreeLimits,
     ) -> Result<Option<Vec<(NodeId, String)>>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         if !spent_in(&tx, parent)?.iter().any(|(id, _)| *id == child) {
-            return Ok(None);
-        }
-        if let ParentWork::Unmerged = parent_work
-            && held(&tx, child)?
-        {
             return Ok(None);
         }
         self.take_child(tx, parent, child, name, limits).map(Some)
@@ -1182,10 +1180,6 @@ impl Graph {
         spent_in(&self.lock(), node)
     }
 
-    pub fn parent_holds(&self, child: NodeId) -> rusqlite::Result<bool> {
-        held(&self.lock(), child)
-    }
-
     pub fn finishing_children(&self, node: NodeId) -> rusqlite::Result<Vec<String>> {
         Ok(
             children_where(&self.lock(), node, &format!("{SETTLED} AND NOT {IDLE}"))?
@@ -1196,31 +1190,32 @@ impl Graph {
     }
 }
 
-const SETTLED: &str = r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS NULL AND c.role IS NOT NULL
+macro_rules! settled {
+    ($mail:literal) => {
+        concat!(
+            r#"c.state ->> 'kind' = 'done' AND c.state ->> 'kept' IS NULL AND c.role IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM nodes g WHERE g.parent = c.id AND g.state ->> 'kind' != 'done')
      AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = c.id)
-     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0
+     AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.delivered = 0"#,
+            $mail,
+            r#"
          AND (m.recipient = c.id OR (m.sender = c.id AND m.recipient = c.parent)))
      AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
-         AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))"#;
+         AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))"#
+        )
+    };
+}
+
+const SETTLED: &str = settled!("");
+
+const MERGED_OWNER_SETTLED: &str =
+    settled!(" AND NOT (m.sender IS NULL AND m.what ->> 'kind' IN ('merged', 'removed'))");
 
 const IDLE: &str = "(c.process IS NOT NULL OR EXISTS (SELECT 1 FROM agent_states s
      WHERE s.node = c.id AND s.state ->> 'kind' = 'listening'))";
 
 const BUSY: &str = "EXISTS (SELECT 1 FROM agent_states s WHERE s.node = p.id
      AND coalesce(s.state ->> '$.before.kind', s.state ->> 'kind') IN ('turn', 'starting', 'mismatch'))";
-
-fn held(db: &Connection, child: NodeId) -> rusqlite::Result<bool> {
-    db.query_row(
-        &format!(
-            r#"SELECT EXISTS (SELECT 1 FROM nodes p WHERE p.id = c.parent AND (p.state ->> 'kind' != 'done'
-                 OR {BUSY} OR EXISTS (SELECT 1 FROM gates g WHERE g.owner = p.id AND g.state != '"merged"')))
-             FROM nodes c WHERE c.id = ?1"#
-        ),
-        [child.0],
-        |row| row.get(0),
-    )
-}
 
 fn spent_in(db: &Connection, node: NodeId) -> rusqlite::Result<Vec<(NodeId, String)>> {
     children_where(

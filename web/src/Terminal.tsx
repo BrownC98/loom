@@ -90,7 +90,8 @@ function copySelection(xterm: XTerm) {
 
 function focusSoon(xterm: XTerm) {
   requestAnimationFrame(() => {
-    if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
+    const held = document.activeElement;
+    if (!(held instanceof HTMLInputElement) && !held?.closest('.composer')) xterm.focus();
   });
 }
 

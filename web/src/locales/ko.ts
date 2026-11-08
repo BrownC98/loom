@@ -657,7 +657,6 @@ const ko: typeof en = {
     toNode: '{{name}}에게',
     pickTarget: '보낼 곳 고르기 (Alt+L)',
     keys: 'Enter 보내기 · Alt+L 목록',
-    alertCount: '이 노드 {{index}} / {{count}} · 전체 알림 {{total}}',
     alertTotal: '남은 알림 {{total}} · 질문 {{ask}} · 완료 {{done}}',
     confirmAll: '완료 {{count}}개 모두 확인',
     sectionNodes: '노드에 지시',

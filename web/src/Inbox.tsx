@@ -139,7 +139,7 @@ export function Instruction(props: { text: string }) {
   );
 }
 
-function ConfirmButton(props: { wait: WaitId }) {
+export function ConfirmButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -281,14 +281,17 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
   );
 }
 
-export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
+export const CHOICE_KEYS = 9;
+
+export function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void; hints?: boolean }) {
   const { t } = useTranslation();
   const { list } = props;
   if (list.length === 0) return null;
   return (
     <div className="choices">
-      {list.map((c) => (
+      {list.map((c, i) => (
         <button key={c.key} type="button" className="choice" data-recommended={c.recommended || undefined} onClick={() => props.onPick(c.key)}>
+          {props.hints && i < CHOICE_KEYS && <kbd className="key-hint">Alt+{i + 1}</kbd>}
           <span className="key">{c.key}</span>
           <span className="label">
             {c.label}
@@ -369,7 +372,7 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
   );
 }
 
-function DismissButton(props: { wait: WaitId }) {
+export function DismissButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (

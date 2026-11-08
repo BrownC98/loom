@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type
 import { useTranslation } from 'react-i18next';
 import { answerWait } from './api';
 import { AlertCard } from './AlertCard';
-import { stepKey, type Route, type Target, type TargetKey } from './alertTarget';
+import { StreamList } from './StreamList';
+import { followingWait, PROMPT, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
@@ -11,6 +12,7 @@ import type { FloatPlace } from './gen/FloatPlace';
 import type { FloatSize } from './gen/FloatSize';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { ScreenWait } from './gen/ScreenWait';
 import type { RepoView } from './gen/RepoView';
 import { useNodeInput } from './nodeInputs';
 import { ICON } from './notice';
@@ -18,6 +20,7 @@ import { TargetList } from './TargetList';
 
 const COMPOSER_ROOM = '--composer-room';
 const COMPOSER_WIDTH = 680;
+const MIN_STREAM = 75;
 
 const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
 const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
@@ -51,6 +54,8 @@ export function DeskComposer(props: DeskProps) {
   const [listing, setListing] = useState(false);
   const pane = useSize(layer);
   const box = useSize(float);
+  const streamBox = useRef<HTMLDivElement>(null);
+  const stream = useSize(streamBox);
   const fullWidth = pane ? Math.min(COMPOSER_WIDTH * floatZoom(props.size), pane.w - 2 * FLOAT_MARGIN) : null;
   const fullBox = box && fullWidth !== null ? { w: fullWidth, h: box.h } : null;
   const drag = useFloatDrag(float, pane, fullBox, props.onPlace);
@@ -78,6 +83,14 @@ export function DeskComposer(props: DeskProps) {
     if (id === node) focusField();
     else focusOnMount = id;
   };
+  const shown = useRef<ScreenWait | null>(null);
+  useEffect(() => {
+    const was = shown.current;
+    shown.current = target.key === PROMPT ? null : target.card;
+    if (!was || target.lost || target.stream.some((s) => s.wait.id === was.id)) return;
+    const next = followingWait(target.stream, was);
+    if (next) pick(next.node, next.key);
+  }, [target.stream]);
   useEffect(() => {
     const wanted = focusOnMount === node;
     focusOnMount = null;
@@ -93,10 +106,11 @@ export function DeskComposer(props: DeskProps) {
   const width = pane && fullWidth !== null && beside ? Math.max(0, Math.min(fullWidth, pane.w - props.corner - 2 * FLOAT_MARGIN)) : fullWidth;
   const placed = pane && box && width !== null ? placeOf(props.place ?? COMPOSER_HOME, pane, { w: width, h: box.h }) : null;
   const at = drag.at ?? (placed && pane && width !== null && beside ? { ...placed, left: Math.min(placed.left, pane.w - props.corner - FLOAT_MARGIN - width) } : placed);
-  if (!input && target.total === 0) return null;
+  if (!input && target.stream.length === 0) return null;
   const zoom = { '--float-zoom': floatZoom(props.size), width: width ?? undefined } as CSSProperties;
   const space = at && box && pane ? popSpace(at.top, box, pane) : null;
   const { route } = target;
+  const streamRoom = pane && box ? Math.max(MIN_STREAM, (pane.h - 2 * FLOAT_MARGIN - box.h + (stream?.h ?? 0)) / floatZoom(props.size)) : null;
   const choose = (key: string) => {
     const wait = target.card;
     if (!wait) return;
@@ -108,8 +122,13 @@ export function DeskComposer(props: DeskProps) {
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.nativeEvent.isComposing) return;
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    const choice = digit && !listing && target.card?.answerable && target.card.tone !== 'done' ? target.card.choices?.[Number(digit[1]) - 1] : undefined;
     if (e.code === 'KeyL') toggleList();
-    else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) props.onTarget(node, stepKey(target, e.code === 'ArrowUp' ? -1 : 1));
+    else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) {
+      const next = stepTo(target, e.code === 'ArrowUp' ? -1 : 1);
+      pick(next.node, next.key);
+    } else if (choice) choose(choice.key);
     else return;
     e.preventDefault();
   };
@@ -128,8 +147,10 @@ export function DeskComposer(props: DeskProps) {
           target={{ ref: targetButton, open: listing, onToggle: toggleList }}
           float={{ onDragStart: drag.start, onReset: home ? null : () => props.onPlace(null) }}
         >
+          <StreamList box={streamBox} room={streamRoom} stream={target.stream} current={target.card?.id ?? null} onPick={(entry) => pick(entry.view.id, entry.wait.id)} />
           <AlertCard
             target={target}
+            repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
             onGo={props.onTerminal}
             onFocus={() => {

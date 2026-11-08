@@ -57,6 +57,12 @@ impl Sleeps {
             .extend(bytes.iter().filter(|b| **b != SUBMIT).take(room));
     }
 
+    fn let_go(&self, node: NodeId) {
+        if let Some(keys) = self.kept.lock().unwrap().get_mut(&node) {
+            keys.old_pty = None;
+        }
+    }
+
     pub fn holds(&self, node: NodeId) -> bool {
         self.kept.lock().unwrap().contains_key(&node)
     }
@@ -467,7 +473,7 @@ impl App {
         cancelled
     }
 
-    async fn put_to_sleep(&self, node: Active) {
+    async fn put_to_sleep(self: &Arc<Self>, node: Active) {
         let id = node.id;
         let still = || {
             self.graph
@@ -487,17 +493,31 @@ impl App {
             self.graph.wake_mail();
             return;
         }
-        crate::log::logln!("loom: 쉬는 완료 노드 {}를 재운다", id.0);
         let snapshot = Snapshot::now();
-        snapshot.kill_trees(self.background_shells(&snapshot, &node));
-        self.idle.end(id, IdleEnd::Sleep);
-        self.host.stop(id);
+        let shells = self.background_shells(&snapshot, &node);
+        let stopping = self.host.stop_if(id, |keys| {
+            if !still() {
+                return false;
+            }
+            self.sleeps.keep(id, &[], keys.serial());
+            self.idle.end(id, IdleEnd::Sleep);
+            true
+        });
+        if !stopping {
+            self.sleep_cancelled(id);
+            self.graph.wake_mail();
+            return;
+        }
+        crate::log::logln!("loom: 쉬는 완료 노드 {}를 재운다", id.0);
+        snapshot.kill_trees(shells);
         tokio::time::sleep(EXIT_WAIT).await;
         if self.sleep_cancelled(id) {
             crate::log::logln!(
                 "loom: 노드 {}의 프로세스가 끝나지 않았다. 재우지 않는다",
                 id.0
             );
+            self.sleeps.let_go(id);
+            self.give_kept_keys(id);
             self.graph.wake_mail();
         }
     }

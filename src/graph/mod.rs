@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast, mpsc};
 
-use api::graph::{GraphEvent, NodeState, NodeView, Place, ProcessState, RelaunchOffer, Toward};
+use api::graph::{GraphEvent, NodeState, NodeView, Place, ProcessState, RelaunchOffer, Status, Toward};
 use api::ids::{AgentId, NodeId, RepoId};
 
 pub use agent_state::{AgentChange, AgentState};
@@ -353,6 +353,9 @@ fn view_from_row(row: &Row, linked: fn(&AgentId) -> bool) -> rusqlite::Result<No
         reply: row.get(15)?,
         waits,
         relaunch,
+        status: Status::Idle,
+        since: 0,
+        rework: 0,
     })
 }
 

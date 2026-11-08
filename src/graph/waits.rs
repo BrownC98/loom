@@ -58,7 +58,7 @@ pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
 
 fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
     match kind {
-        WaitKind::Question | WaitKind::Done => markdown(text),
+        WaitKind::Question | WaitKind::Done | WaitKind::Stalled => markdown(text),
         WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
             Block::paragraph(parts(text))
         }
@@ -75,7 +75,8 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
         | WaitKind::Approval
         | WaitKind::Trust
         | WaitKind::Auth
-        | WaitKind::Input => WaitTone::Ask,
+        | WaitKind::Input
+        | WaitKind::Stalled => WaitTone::Ask,
         WaitKind::Done => WaitTone::Done,
     };
     let wait = HumanWait {
@@ -86,7 +87,8 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
             | WaitKind::Trust
             | WaitKind::Auth
             | WaitKind::Input
-            | WaitKind::Done => Vec::new(),
+            | WaitKind::Done
+            | WaitKind::Stalled => Vec::new(),
         },
         ..wait
     };

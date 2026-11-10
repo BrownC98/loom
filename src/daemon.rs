@@ -136,6 +136,7 @@ struct App {
     leaving: std::sync::Mutex<spent::Leavings>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
+    check_locks: crate::worktree::merge::CheckLocks,
     reclaiming: tokio::sync::Mutex<()>,
     ptys_changed: tokio::sync::Notify,
     plugin: skills::Plugin,
@@ -418,6 +419,7 @@ impl App {
             leaving: Default::default(),
             turn_ends,
             merge_queue: tokio::sync::Notify::new(),
+            check_locks: Default::default(),
             reclaiming: tokio::sync::Mutex::new(()),
             ptys_changed: tokio::sync::Notify::new(),
             plugin: {

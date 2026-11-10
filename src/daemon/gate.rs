@@ -349,7 +349,10 @@ impl App {
             branch,
             mine.head,
         ];
-        let (code, out) = merge::script(files, &repo, merge::CHECK, &args).await?;
+        let (code, out) = self
+            .check_locks
+            .script(files, &repo, merge::CHECK, &args)
+            .await?;
         let lines = merge::Lines::read(&out);
         let result = match (code, &lines.tip) {
             (0, Some(_)) => CheckResult::Passed,

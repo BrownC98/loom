@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::distro::Ran;
@@ -11,17 +13,35 @@ pub const CHECK_FAILED: i32 = 14;
 pub const MOVED: i32 = 20;
 pub const DIRTY: i32 = 21;
 const BATCH_WAIT: Duration = Duration::from_secs(60 * 60);
-pub const BATCHES: &str = "loom-batches";
+macro_rules! batches {
+    () => {
+        "loom-batches"
+    };
+}
 
-pub const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
-for wt in "$common"/loom-batches/*; do
+pub const BATCHES: &str = batches!();
+
+macro_rules! common {
+    () => {
+        concat!(
+            "common=$(git rev-parse --path-format=absolute --git-common-dir)\nbatches=$common/",
+            batches!(),
+            "\n"
+        )
+    };
+}
+
+pub const CLEAN: &str = concat!(
+    common!(),
+    r#"for wt in "$batches"/*; do
   [ -e "$wt" ] || continue
-  [ "$wt" = "$common/loom-batches/check" ] && continue
+  [ "$wt" = "$batches/check" ] && continue
   git worktree remove --force "$wt" 2>/dev/null
   rm -rf "$wt"
 done
 git worktree prune
-"#;
+"#
+);
 
 pub const SYNC: &str = r#"set -u
 target=$1
@@ -34,14 +54,16 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 
 macro_rules! open {
     () => {
-        r#"set -u
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/check log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
+        concat!(
+            "set -u\n",
+            common!(),
+            r#"wt=$batches/check log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
 trees=$common/loom-logs/passed-trees
-mkdir -p "$common/loom-logs" "$common/loom-batches"
+mkdir -p "$common/loom-logs" "$batches"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
 "#
+        )
     };
 }
 
@@ -87,7 +109,7 @@ elif grep -qxF "$key" "$trees" 2>/dev/null; then
   pass
 else
   start=$(date +%s)
-  (cd "$wt" && bash scripts/gate/check.sh 9>&-)
+  (cd "$wt" && bash scripts/gate/check.sh) 9>&-
   code=$?
   if [ "$code" -eq 0 ]; then
     pass
@@ -329,6 +351,29 @@ impl Lines {
             }
         }
         lines
+    }
+}
+
+#[derive(Default)]
+pub struct CheckLocks(std::sync::Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>);
+
+impl CheckLocks {
+    pub async fn script(
+        &self,
+        files: Files<'_>,
+        dir: &Path,
+        text: &str,
+        args: &[String],
+    ) -> Result<(i32, String), Refusal> {
+        let lock = self
+            .0
+            .lock()
+            .unwrap()
+            .entry(dir.to_path_buf())
+            .or_default()
+            .clone();
+        let _held = lock.lock().await;
+        script(files, dir, text, args).await
     }
 }
 

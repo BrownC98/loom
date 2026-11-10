@@ -325,7 +325,11 @@ impl Batch<'_> {
             args.push(m.branch.clone());
             args.push(m.head.clone());
         }
-        let (code, out) = script(self.app.files(), &self.dir, STACK, &args).await?;
+        let (code, out) = self
+            .app
+            .check_locks
+            .script(self.app.files(), &self.dir, STACK, &args)
+            .await?;
         let lines = Lines::read(&out);
         let (found, result) = match (code, lines.conflict, &lines.tip) {
             (CONFLICT, Some(index), _) if index < trial.len() => (

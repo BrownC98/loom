@@ -115,14 +115,7 @@ async fn folders(
         .map_err(|e| format!("{e:?}"))?;
     let data = crate::db::data_dir().map_err(|e| e.to_string())?;
     let me = data.to_string_lossy();
-    let owned = match tasks.owner().map_err(|e| e.to_string())? {
-        Some(owner) => owner == me,
-        None if crate::db::default_data_dir().as_ref() == Some(&data) => {
-            tasks.claim(&me).map_err(|e| e.to_string())?
-        }
-        None => false,
-    };
-    if !owned {
+    if tasks.owner().map_err(|e| e.to_string())?.as_deref() != Some(&*me) {
         return Ok(());
     }
     let unpinned: Vec<String> = tasks

@@ -42,7 +42,7 @@ shift 2
 for t in "$root"/.tidy-*; do
   [ -d "$t" ] || continue
   d=$root/${t##*/.tidy-}
-  if [ -e "$d" ]; then rm -rf -- "$t"; else mv -- "$t" "$d"; fi
+  if [ -e "$d" ]; then printf '%s\n' "${t##*/.tidy-}"; else mv -- "$t" "$d"; fi
 done
 for name in "$@"; do
   d=$root/$name
@@ -127,16 +127,6 @@ impl<'a> Tasks<'a> {
             Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).trim().to_owned())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
-        }
-    }
-
-    pub fn claim(&self, owner: &str) -> std::io::Result<bool> {
-        self.files.create_dir_all(&self.local)?;
-        match self.files.create_new(&self.local.join(OWNER), owner) {
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                Ok(self.owner()?.as_deref() == Some(owner))
-            }
-            made => made.map(|()| true),
         }
     }
 

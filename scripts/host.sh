@@ -57,5 +57,13 @@ if [ -n "$carry" ]; then
     if [ -e "$f" ]; then mv "$f" "$f.$(date +%s).bak"; fi
   done
 fi
+owner=$HOME/.loom
+if [ -n "$target" ]; then
+  appdata=$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')
+  [ -n "$appdata" ] || { echo "host.sh: cmd.exe did not give %APPDATA%" >&2; exit 1; }
+  owner="$appdata\\loom"
+fi
+mkdir -p "$HOME/.cache/loom"
+printf '%s\n' "$owner" >"$HOME/.cache/loom/.loom-owner"
 "$exe" start --listen "127.0.0.1:$port" 9>&- && "$exe" --version && echo "$head" >"$deployed"
 if [ -n "$carry" ]; then "$exe" carry "$carry" 9>&-; fi

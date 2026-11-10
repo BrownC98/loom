@@ -452,28 +452,6 @@ pub fn data_dir() -> std::io::Result<PathBuf> {
     Ok(home.join(".loom"))
 }
 
-#[cfg(windows)]
-pub fn default_data_dir() -> Option<PathBuf> {
-    let profile = std::env::var_os("USERPROFILE")?;
-    Some(
-        PathBuf::from(profile)
-            .join("AppData")
-            .join("Roaming")
-            .join("loom"),
-    )
-}
-
-#[cfg(unix)]
-pub fn default_data_dir() -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    let user = unsafe { libc::getpwuid(libc::getuid()) };
-    if user.is_null() {
-        return None;
-    }
-    let home = unsafe { std::ffi::CStr::from_ptr((*user).pw_dir) };
-    Some(PathBuf::from(std::ffi::OsStr::from_bytes(home.to_bytes())).join(".loom"))
-}
-
 #[derive(Clone)]
 pub struct Database(Arc<Mutex<Connection>>);
 

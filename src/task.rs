@@ -34,6 +34,20 @@ pub fn base(repo: &Path, name: &str) -> String {
 
 pub const ROOT: [&str; 2] = [".cache", "loom"];
 
+pub const TIDY: &str = r#"set -u
+mins=$1
+shift
+n=0 kib=0
+for d in "$@"; do
+  [ -d "$d" ] && [ ! -L "$d" ] || continue
+  recent=$(find "$d" -mmin -"$mins" -print -quit 2>/dev/null) || continue
+  [ -z "$recent" ] || continue
+  k=$(du -sk "$d" | cut -f1)
+  rm -rf -- "$d" && n=$((n + 1)) kib=$((kib + k))
+done
+echo "$n $kib"
+"#;
+
 pub struct Tasks<'a> {
     local: PathBuf,
     shown: String,
@@ -76,6 +90,19 @@ impl<'a> Tasks<'a> {
             local: self.local.join(folder),
             shown: format!("{}{}{folder}", self.shown, self.sep),
         }
+    }
+
+    pub fn of_repo(&self, repo: &Path) -> std::io::Result<Vec<TaskDir>> {
+        let prefix = base(repo, "");
+        let listed = match self.files.list(&self.local) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            listed => listed?,
+        };
+        Ok(listed
+            .into_iter()
+            .filter(|entry| entry.dir && entry.name.starts_with(&prefix))
+            .map(|entry| self.dir(&entry.name))
+            .collect())
     }
 
     pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh<'a>)> {

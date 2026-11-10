@@ -27,6 +27,7 @@ pub use crate::graph::NewAgent;
 pub use relaunch::Relaunched;
 mod switch;
 mod system;
+mod tidy;
 mod tools;
 mod turn_end;
 mod usage_cache;
@@ -138,6 +139,7 @@ struct App {
     merge_queue: tokio::sync::Notify,
     check_locks: crate::worktree::merge::CheckLocks,
     reclaiming: tokio::sync::Mutex<()>,
+    tidying: tokio::sync::Mutex<()>,
     ptys_changed: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
@@ -421,6 +423,7 @@ impl App {
             merge_queue: tokio::sync::Notify::new(),
             check_locks: Default::default(),
             reclaiming: tokio::sync::Mutex::new(()),
+            tidying: tokio::sync::Mutex::new(()),
             ptys_changed: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =

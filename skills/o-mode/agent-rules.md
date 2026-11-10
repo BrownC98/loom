@@ -26,7 +26,7 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 
 ## Completion
 
-- Look at `git status --short` and the diff. Do all checks that the repository requires.
+- Look at `git status --short` and the diff. Do all checks that the repository requires: the full check with `loom check` in the background, not in your worktree.
 - The report gives the cause, changed files, check commands and results, evidence paths, branch and commit SHA. If something is not committed, say so.
 - Keep remaining risks apart from candidates outside the scope. Fix each defect that you can fix now.
 - Write an HTML report only if your parent says that the human asked for one, in the form of [reference "Reports to the human"](reference.md#reports-to-the-human). Write long results for agents to a file.

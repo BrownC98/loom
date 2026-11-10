@@ -96,28 +96,41 @@ pub async fn ended_within(
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    let group = child.id().and_then(|pid| i32::try_from(pid).ok());
+    let mut group = Group(child.id().and_then(|pid| i32::try_from(pid).ok()));
     match tokio::time::timeout(limit, child.wait_with_output()).await {
-        Ok(out) => out
-            .map(|out| Output {
+        Ok(out) => {
+            group.0 = None;
+            out.map(|out| Output {
                 status: out.status,
                 stdout: out.stdout,
                 stderr: out.stderr,
             })
-            .map_err(|e| e.to_string()),
-        Err(_) => {
-            #[cfg(unix)]
-            if let Some(group) = group {
-                unsafe { libc::kill(-group, libc::SIGKILL) };
-            }
-            Err(format!(
-                "did not end in {} s, so loom ended it",
-                limit.as_secs()
-            ))
+            .map_err(|e| e.to_string())
+        }
+        Err(_) => Err(format!(
+            "did not end in {} s, so loom ended it",
+            limit.as_secs()
+        )),
+    }
+}
+
+struct Group(Option<i32>);
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        if let Some(group) = self.0 {
+            kill_group(group);
         }
     }
 }
+
+#[cfg(unix)]
+fn kill_group(group: i32) {
+    unsafe { libc::kill(-group, libc::SIGKILL) };
+}
+
+#[cfg(windows)]
+fn kill_group(_: i32) {}
 
 fn drained(from: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
     let (tx, rx) = mpsc::channel();
@@ -145,9 +158,8 @@ pub fn wait_until(mut child: Child, deadline: Instant) -> Option<std::process::E
 }
 
 pub fn stop(mut child: Child) {
-    #[cfg(unix)]
     if let Ok(group) = i32::try_from(child.id()) {
-        unsafe { libc::kill(-group, libc::SIGKILL) };
+        kill_group(group);
     }
     let _ = child.kill();
     let _ = child.wait();

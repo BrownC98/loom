@@ -196,6 +196,10 @@ enum Cli {
         #[arg(long)]
         no_deploy: bool,
     },
+    /// 병합 관문의 검사만 돌린다. `loom ready`와 같이 워크트리가 제 브랜치에 있고 커밋하지 않은 변경이 없는 담당만 부른다.
+    /// 저장소의 검사 폴더에서 대상 끝 커밋 위에 이 브랜치를 병합하고 `scripts/gate/check.sh`를 돌린다. 게시하지 않고, 관문 차례와 메일도 만들지 않는다. 끝날 때까지 기다리므로(60분 한도) 뒤에서 돌린다.
+    /// 끝에 `passed`·`conflict`·`check failed` 한 줄과 기록 파일을 적는다. `passed`일 때만 0으로 끝난다. 같은 파일과 커밋이면 뒤의 병합 큐는 check.sh를 다시 돌리지 않는다.
+    Check,
     /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 그 브랜치의 검토자만 부른다. 데몬이 `loom ready` 때 검토자 역할마다 하나씩 관문의 자식으로 띄운다. 부모 브랜치에서 만든 브랜치는 검토자 없이 부모가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
     /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, 저장소에 `scripts/gate/check.sh`가 있으면 그것으로 검사하고, 병합(main이면 push)하고, merged·rework·failed로 알린다. main이고 `scripts/gate/ship.sh`가 있으면 그 뒤 그것이 따로 배포를 확인하고 실패만 루트에 알린다.
     Verdict {
@@ -350,6 +354,7 @@ fn main() -> ExitCode {
                 false => protocol::Deploy::Run,
             },
         ),
+        Cli::Check => cli::check(),
         Cli::Verdict {
             branch,
             head,

@@ -12,7 +12,7 @@ use crate::graph::{GateChoice, Round};
 use crate::place::Files;
 use crate::protocol::{self, Deploy};
 use crate::worktree;
-use crate::worktree::merge::{base_branch, contains};
+use crate::worktree::merge::{self, base_branch, contains, target_base};
 use api::graph::errors::{Problem, Refusal};
 use api::graph::events::Via;
 use api::graph::messages::{GateState, GateVerb, Judgment};
@@ -36,6 +36,26 @@ pub struct Readied {
     pub target: String,
     #[serde(default)]
     pub unseated: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CheckResult {
+    Passed,
+    Conflict,
+    CheckFailed,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Checked {
+    pub result: CheckResult,
+    pub log: String,
+}
+
+struct Owned {
+    mine: api::repos::Worktree,
+    gate: NodeId,
+    target: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -252,27 +272,11 @@ impl App {
         via: &Via,
     ) -> Result<Readied, Refusal> {
         let place = self.graph.place_of(node)?;
-        let repo = self.repo_of(node)?;
-        let files = self.files();
         let cwd = crate::place::from_node(cwd.into(), Path::new(&place.worktree));
-        let mine = owned_worktree(files, &repo, &place.worktree, branch, &cwd).await?;
-        if worktree::dirty(files, Path::new(&mine.path))
-            .await
-            .map_err(git_problem)?
-        {
-            return Err(Refusal::Uncommitted(branch.to_owned()));
-        }
+        let Owned {
+            mine, gate, target, ..
+        } = self.owned(node, branch, &cwd).await?;
         self.written_result(node, branch).await?;
-        let (gate, target) = self.gate_of(node, &repo).await?;
-        if target == branch {
-            return Err(Refusal::SameAsTarget(branch.to_owned()));
-        }
-        if contains(files, &repo, branch, &target).await? {
-            return Err(Refusal::NothingToMerge {
-                branch: branch.to_owned(),
-                target,
-            });
-        }
         let worktree = crate::place::inner(&mine.path);
         let round = Round {
             branch,
@@ -295,6 +299,73 @@ impl App {
             target,
             unseated,
         })
+    }
+
+    async fn owned(&self, node: NodeId, branch: &str, cwd: &Path) -> Result<Owned, Refusal> {
+        let place = self.graph.place_of(node)?;
+        let repo = self.repo_of(node)?;
+        let files = self.files();
+        let mine = owned_worktree(files, &repo, &place.worktree, branch, cwd).await?;
+        if worktree::dirty(files, Path::new(&mine.path))
+            .await
+            .map_err(git_problem)?
+        {
+            return Err(Refusal::Uncommitted(branch.to_owned()));
+        }
+        let (gate, target) = self.gate_of(node, &repo).await?;
+        if target == branch {
+            return Err(Refusal::SameAsTarget(branch.to_owned()));
+        }
+        if contains(files, &repo, branch, &target).await? {
+            return Err(Refusal::NothingToMerge {
+                branch: branch.to_owned(),
+                target,
+            });
+        }
+        Ok(Owned { mine, gate, target })
+    }
+
+    async fn check(&self, node: NodeId) -> Result<Checked, Refusal> {
+        let place = self.graph.place_of(node)?;
+        let repo = self.repo_of(node)?;
+        let files = self.files();
+        let at = Path::new(&place.worktree);
+        let branch = worktree::find(files, &repo, &place.worktree)
+            .await
+            .map_err(git_problem)?
+            .branch
+            .ok_or_else(|| {
+                Refusal::Git(format!(
+                    "your worktree {} is on a detached HEAD; loom check checks the branch of your worktree",
+                    place.worktree
+                ))
+            })?;
+        let Owned { mine, target, .. } = self.owned(node, &branch, at).await?;
+        let base = target_base(files, &repo, &target).await?;
+        let args = [
+            format!("check-{}-{}", node.0, short(&mine.head)),
+            base.trim().to_owned(),
+            String::new(),
+            branch,
+            mine.head,
+        ];
+        let (code, out) = merge::script(files, &repo, merge::CHECK, &args).await?;
+        let lines = merge::Lines::read(&out);
+        let result = match (code, &lines.tip) {
+            (0, Some(_)) => CheckResult::Passed,
+            (merge::CONFLICT, _) => CheckResult::Conflict,
+            (merge::CHECK_FAILED, _) => CheckResult::CheckFailed,
+            _ => {
+                return Err(Refusal::Git(format!(
+                    "the check script exited {code}: {}",
+                    out.trim()
+                )));
+            }
+        };
+        let log = lines
+            .log
+            .ok_or_else(|| Refusal::Git(format!("the check script gave no log: {}", out.trim())))?;
+        Ok(Checked { result, log })
     }
 }
 
@@ -385,6 +456,14 @@ pub(super) async fn agent_ready(
         .ready(node, &req.branch, req.deploy, &req.cwd, &via)
         .await;
     app.traced(node, GateVerb::Ready, &req.branch, &via, result)
+}
+
+pub(super) async fn agent_check(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Checked>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.check(node).await.map(Json).map_err(for_agent)
 }
 
 pub(super) async fn agent_verdict(

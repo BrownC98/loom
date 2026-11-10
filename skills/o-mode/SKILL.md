@@ -39,7 +39,7 @@ Lead, coordinator, worker and reviewer are jobs. The human renames roles.
 ## Merge and cleanup
 
 - Merge only with `loom ready` and `loom verdict`. Do not merge or push to main by hand.
-- The owner commits, does the checks, keeps their output in `logs/` of its task folder for the reviewers and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
+- The owner commits, runs `loom check` in the background and names its log in `result.md`: that log is the check record for the reviewers. The owner does not run the repository's full check in its worktree. Light checks of the changed scope while it edits stay; their output goes in `logs/` of its task folder. Then it calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
 - If the brief says the change must not deploy, call `loom ready <branch> --no-deploy`. The queue merges it in a batch of its own. A coordinator that merges such workers gives the flag on its own `loom ready`.
 - A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review: a block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.
 - loom gives the reviewers it spawns the review rules. The queue waits for all live reviewers. To add a reviewer of another role, use `loom spawn --role <role> --review <branch>`.

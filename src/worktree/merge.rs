@@ -32,17 +32,22 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$target")" ] || { echo "$target has commits that are not on origin/$target"; exit 1; }
 "#;
 
-pub const STACK: &str = r#"set -u
+macro_rules! open {
+    () => {
+        r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 wt=$common/loom-batches/check log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
-passed=$common/loom-logs/${1%-*}.passed trees=$common/loom-logs/passed-trees
-shift 3
+trees=$common/loom-logs/passed-trees
 mkdir -p "$common/loom-logs" "$common/loom-batches"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
-rm -f "$passed"
-members=$(printf 'member %s %s\n' "$@")
-pass() { printf 'base %s\ntip %s\n%s\n' "$base" "$tip" "$members" > "$passed.new" && mv "$passed.new" "$passed"; }
+"#
+    };
+}
+
+macro_rules! stack_and_check {
+    () => {
+        r#"shift 3
 exec 9>>"$lock"
 if command -v flock >/dev/null 2>&1; then
   flock 9
@@ -97,7 +102,21 @@ else
   [ "$code" -eq 0 ] || exit 14
 fi
 echo "tip $tip" >&3
-"#;
+"#
+    };
+}
+
+pub const STACK: &str = concat!(
+    open!(),
+    r#"passed=$common/loom-logs/${1%-*}.passed
+rm -f "$passed"
+members=$(shift 3; printf 'member %s %s\n' "$@")
+pass() { printf 'base %s\ntip %s\n%s\n' "$base" "$tip" "$members" > "$passed.new" && mv "$passed.new" "$passed"; }
+"#,
+    stack_and_check!()
+);
+
+pub const CHECK: &str = concat!(open!(), "pass() { :; }\n", stack_and_check!());
 
 pub const PASSED: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
 cat "$common/loom-logs/batch-$1.passed" 2>/dev/null

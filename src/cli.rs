@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::daemon::gate::{Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest};
+use crate::daemon::gate::{
+    CheckResult, Checked, Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
+};
 use crate::daemon::{
     AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DetachRequest,
     DoneRequest, GuardRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched, RemoveRequest,
@@ -499,6 +501,19 @@ pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), Stri
         );
     }
     Ok(())
+}
+
+pub fn check() -> Result<(), String> {
+    let checked: Checked = call("check", &())?;
+    let result = match checked.result {
+        CheckResult::Passed => {
+            println!("passed {}", checked.log);
+            return Ok(());
+        }
+        CheckResult::Conflict => "conflict",
+        CheckResult::CheckFailed => "check failed",
+    };
+    Err(format!("{result} {}", checked.log))
 }
 
 pub fn verdict(

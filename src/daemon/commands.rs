@@ -43,6 +43,7 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
             post(relaunch::agent_relaunch_unserved),
         )
         .route("/api/agent/ready", post(gate::agent_ready))
+        .route("/api/agent/check", post(gate::agent_check))
         .route("/api/agent/verdict", post(gate::agent_verdict))
         .route("/api/agent/task", post(agent_task))
 }

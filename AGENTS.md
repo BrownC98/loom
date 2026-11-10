@@ -17,7 +17,7 @@
 
 | 할 일 | 명령 |
 |---|---|
-| 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
+| 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부르고, 병합 관문이 처음에 부른다. `web/package-lock.json`이 지난 `npm ci` 때의 사본(`web/node_modules/.loom-package-lock.json`)과 같으면 설치를 건너뛰고, 화면은 늘 빌드한다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
 | Rust 검사 | `memcap -m 3G cargo clippy --all-targets` |
 | 규칙 검사(주석, 레이어, API 계약), TS 타입 생성 | `memcap -m 4608M cargo test --lib --bin loom --test comments --test layers --test contract`. 단위 시험은 두지 않는다(2026-10-26 사람 지시 "유닛 테스트 즉각 제거해"). `--lib`(`api/`)와 `--bin loom`(데몬)은 ts-rs가 만든 타입 쓰기만 돈다. 실제 배포판 호스트 프로세스를 띄우는 `tests/distro_host`는 관문 밖에 남는다: `memcap -m 4608M cargo test --test distro_host` |

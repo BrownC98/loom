@@ -26,7 +26,8 @@ windows() {
   step memcap -m "$CLIPPY_SIZE" cargo clippy --all-targets --target x86_64-pc-windows-gnu
 }
 
-[ -d web/node_modules ] && [ -d web/dist ] || step timeout 600 bash scripts/worktree/setup.sh
+step timeout 600 bash scripts/worktree/setup.sh
+rm -f target/.rustc_info.json target/*/.rustc_info.json desktop/target/.rustc_info.json
 step cargo fmt --check
 echo "== merged DB change files stay as they are"
 merged_changes=$(git diff --name-status --diff-filter=MDR origin/main...HEAD -- 'src/db/changes/*.sql')
@@ -54,5 +55,4 @@ for group in $groups; do
 done
 [ -z "$failed" ] || { echo "== cargo group failed:$failed"; exit 1; }
 step npm --prefix web run check
-step npm --prefix web run build
 echo "== all checks passed"

@@ -1026,7 +1026,7 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .doc-bar .bar-title { min-width: 0; font-weight: 600; }
 .doc-bar .bar-title.muted { font-weight: 400; color: var(--ink-2); }
 .doc-bar .qid.plain { border-color: var(--line-strong); background: var(--surface); }
-.doc-bar .pick { display: inline-flex; align-items: center; height: 24px; max-width: min(320px, 100%); padding: 0 8px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.doc-bar .pick { display: inline-flex; align-items: center; height: 24px; max-width: min(320px, 100%); padding: 0 8px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .doc-bar .pick[data-empty] { border-style: dashed; color: var(--ink-3); }
 .doc-bar .unpicked { font-weight: 600; }
 .doc-bar .ok { flex: none; width: 16px; height: 16px; color: var(--ok); }

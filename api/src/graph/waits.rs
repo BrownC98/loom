@@ -6,6 +6,7 @@ use ts_rs::TS;
 use super::events::{ClosedBy, Who};
 use super::text::Block;
 use crate::ids::WaitId;
+use crate::profile::Provider;
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -24,6 +25,25 @@ pub enum WaitKind {
     Input,
     /// 사람이 띄운 노드가 맡은 일을 끝냈다(`loom done --asked`). 사람은 [확인]하거나 이어서 맡긴다.
     Done,
+    /// 사람이 연 턴이 loom 명령 없이 글로 끝났다(`Graph::end_turn`). `text`는 그 턴의 마지막 글 전문이다. 완료처럼 [확인]하거나 이어서 맡긴다.
+    Reply,
+    /// 사람이 띄운 노드의 프로세스가 끝났다(끝남, 설정 실패, 다시 붙지 못함). 사람은 다시 띄우거나 닫는다.
+    Stopped,
+    /// 노드가 사용 한도로 멈췄고 loom이 다른 계정으로 옮기지 않았다. 계정은 `limit`에 있다.
+    Limit,
+}
+
+/// 한도 대기(`Limit`)의 계정. 화면은 이 공급자의 다른 계정마다 바꾸기 단추를 보인다.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WaitLimit {
+    pub provider: Provider,
+    /// 계정의 위치(WSL 배포판). 이 PC면 없다.
+    #[serde(default)]
+    pub distro: Option<String>,
+    /// 가장 빠른 창 초기화(유닉스 초). 모르면 없다.
+    #[ts(type = "number | null")]
+    pub resets_at: Option<i64>,
 }
 
 /// 질문·완료에 붙은 문서(user-doc 목업·보고서 HTML). 화면은 ID와 제목만 받고 문서 페이지 `/docs/{id}`로 연다. 파일 경로는 데몬의 문서 ID 표(`user_doc::doc_file`)만 안다.
@@ -159,6 +179,13 @@ pub struct HumanWait {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
+    /// 창을 읽지 못한 신호 대기만: 그 노드 터미널 화면의 아래 줄 그대로. 화면은 이 줄과 키 단추·입력칸을 보이고 `POST /api/waits/{id}/keys`로 보낸다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screen: Vec<String>,
+    /// 한도(`Limit`)만.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub limit: Option<WaitLimit>,
     /// `text`의 글 덩어리. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<Block>,
@@ -272,4 +299,35 @@ pub struct TypeText {
     #[serde(default)]
     #[ts(optional, type = "number")]
     pub option: Option<usize>,
+}
+
+/// 사람이 창을 읽지 못한 대기의 카드에서 누른 키나 쓴 글. 데몬은 `screen`이 지금 화면의 아래 줄(`HumanWait::screen`)과 같을 때만 친다. 대기를 닫지 않는다: 창이 닫히면 신호가 거둔다.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PressKeys {
+    pub screen: Vec<String>,
+    pub press: Press,
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Press {
+    Key(TermKey),
+    /// 글자 하나, Enter 없음.
+    Char(char),
+    /// 이 글과 Enter.
+    Text(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum TermKey {
+    Enter,
+    Escape,
+    Up,
+    Down,
+    Left,
+    Right,
 }

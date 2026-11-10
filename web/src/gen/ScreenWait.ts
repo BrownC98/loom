@@ -5,6 +5,7 @@ import type { Prompt } from "./Prompt";
 import type { WaitDoc } from "./WaitDoc";
 import type { WaitId } from "./WaitId";
 import type { WaitKind } from "./WaitKind";
+import type { WaitLimit } from "./WaitLimit";
 import type { WaitTone } from "./WaitTone";
 
 /**
@@ -39,6 +40,14 @@ images: Array<string>,
  * 신호(훅·서버·화면)의 대기만: 지금 터미널 화면에서 읽은 창이나 서버가 준 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
  */
 prompt?: Prompt, 
+/**
+ * 창을 읽지 못한 신호 대기만: 그 노드 터미널 화면의 아래 줄 그대로. 화면은 이 줄과 키 단추·입력칸을 보이고 `POST /api/waits/{id}/keys`로 보낸다.
+ */
+screen?: Array<string>, 
+/**
+ * 한도(`Limit`)만.
+ */
+limit?: WaitLimit, 
 /**
  * `text`의 글 덩어리. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
  */

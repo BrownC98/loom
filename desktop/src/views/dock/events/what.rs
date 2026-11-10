@@ -71,6 +71,7 @@ pub fn hidden(entry: &Entry) -> bool {
             | Entry::IdleEnded { .. }
             | Entry::EndpointFailed { .. }
             | Entry::ProcessChanged { .. }
+            | Entry::Tidied { .. }
     )
 }
 
@@ -248,9 +249,10 @@ pub fn who_of(entry: &Entry) -> Vec<&Who> {
             [Some(from), to.as_ref()].into_iter().flatten().collect()
         }
         Entry::Refused { from, .. } => vec![from],
-        Entry::AccountSwitched { .. } | Entry::NoAccountLeft { .. } | Entry::Batch { .. } => {
-            Vec::new()
-        }
+        Entry::AccountSwitched { .. }
+        | Entry::NoAccountLeft { .. }
+        | Entry::Batch { .. }
+        | Entry::Tidied { .. } => Vec::new(),
     }
 }
 
@@ -658,6 +660,7 @@ pub fn what(record: &EventRecord, c: &Ctx) -> Vec<Seg> {
         Entry::IdleOpened { .. }
         | Entry::IdleEnded { .. }
         | Entry::EndpointFailed { .. }
-        | Entry::ProcessChanged { .. } => Vec::new(),
+        | Entry::ProcessChanged { .. }
+        | Entry::Tidied { .. } => Vec::new(),
     }
 }

@@ -199,6 +199,25 @@ pub const ADVANCE: &str = r#"set -u
 git merge --ff-only --quiet "$2" || exit 20
 "#;
 
+pub const TIDY_LOGS: &str = r#"set -u
+common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
+mins=$1
+shift
+n=0 kib=0
+for f in "$common/loom-logs"/batch-* "$common/loom-logs"/check-* "$common/loom-logs"/deploy-*; do
+  [ -f "$f" ] || continue
+  name=${f##*/}
+  for open in "$@"; do
+    case $name in "$open"-* | "$open".*) continue 2 ;; esac
+  done
+  old=$(find "$f" -mmin +"$mins" -print 2>/dev/null) || continue
+  [ -n "$old" ] || continue
+  k=$(du -sk "$f" | cut -f1)
+  rm -f -- "$f" && n=$((n + 1)) kib=$((kib + ${k:-0}))
+done
+echo "$n $kib"
+"#;
+
 pub async fn merge_commit(
     files: Files<'_>,
     repo: &Path,
@@ -383,11 +402,21 @@ pub async fn script(
     text: &str,
     args: &[String],
 ) -> Result<(i32, String), Refusal> {
+    script_within(files, dir, text, args, BATCH_WAIT).await
+}
+
+pub async fn script_within(
+    files: Files<'_>,
+    dir: &Path,
+    text: &str,
+    args: &[String],
+    limit: Duration,
+) -> Result<(i32, String), Refusal> {
     let out = match place::of(dir) {
         Machine::Pc | Machine::Wsl(_) => {
             let mut cmd = crate::wsl::command(&dir.to_string_lossy(), "bash");
             cmd.arg("-c").arg(text).arg("loom-queue").args(args);
-            let out = crate::timed::ended_within(tokio::process::Command::from(cmd), BATCH_WAIT)
+            let out = crate::timed::ended_within(tokio::process::Command::from(cmd), limit)
                 .await
                 .map_err(|e| Refusal::Git(format!("bash: {e}")))?;
             Ran {
@@ -411,7 +440,7 @@ pub async fn script(
             ];
             let argv = argv.into_iter().chain(args.iter().map(String::as_str));
             files
-                .run(&at.host, git::remote(argv, &[]), BATCH_WAIT)
+                .run(&at.host, git::remote(argv, &[]), limit)
                 .await
                 .map_err(|e| Refusal::Git(format!("could not run bash on {}: {e}", at.host)))?
         }

@@ -45,6 +45,12 @@ fn stopped_text(ended: ProcessOutcome) -> Option<String> {
     })
 }
 
+pub struct TaskPins {
+    pub tasks: Vec<String>,
+    pub waits: Vec<String>,
+    pub docs: Vec<String>,
+}
+
 pub struct Launched {
     pub token: NodeToken,
     pub adapter: Option<AdapterRecord>,
@@ -190,6 +196,21 @@ impl Graph {
         )?;
         db.query_row("SELECT task FROM nodes WHERE id = ?1", [id.0], |row| {
             row.get(0)
+        })
+    }
+
+    pub fn task_pins(&self) -> rusqlite::Result<TaskPins> {
+        let db = self.lock();
+        let column = |sql: &str| -> rusqlite::Result<Vec<String>> {
+            db.prepare(sql)?.query_map([], |row| row.get(0))?.collect()
+        };
+        Ok(TaskPins {
+            tasks: column("SELECT task FROM nodes WHERE task IS NOT NULL")?,
+            waits: column("SELECT wait FROM questions UNION ALL SELECT wait FROM dones")?,
+            docs: column(
+                "SELECT wait ->> '$.doc.id' FROM questions WHERE wait ->> '$.doc.id' IS NOT NULL
+                 UNION SELECT wait ->> '$.doc.id' FROM dones WHERE wait ->> '$.doc.id' IS NOT NULL",
+            )?,
         })
     }
 

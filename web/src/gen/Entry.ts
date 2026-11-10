@@ -82,4 +82,4 @@ check_secs: number | null, result: BatchResult, log: string | null, } | { "kind"
 /**
  * 데몬 안의 에이전트 상태 이름(사건 뒤). 프로세스가 끝났으면 `ended`다.
  */
-detail: string, };
+detail: string, } | { "kind": "tidied", folders: number, logs: number, bytes: number, };

@@ -14,6 +14,7 @@ use api::ids::{NodeId, RepoId};
 use api::repos::RepoProblem;
 
 pub(super) async fn run(app: Arc<App>) {
+    tokio::spawn(super::tidy::run(app.clone()));
     let _one = app.reclaiming.lock().await;
     let rounds = match app.graph.reclaim_rounds() {
         Ok(rounds) => rounds,

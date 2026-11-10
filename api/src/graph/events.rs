@@ -219,6 +219,13 @@ pub enum Entry {
         /// 데몬 안의 에이전트 상태 이름(사건 뒤). 프로세스가 끝났으면 `ended`다.
         detail: String,
     },
+    /// 데몬이 오래된 작업 폴더와 병합 기록 파일을 지웠다. `bytes`는 지운 디스크 크기다. 화면 이벤트 콘솔은 보이지 않는다.
+    Tidied {
+        folders: u32,
+        logs: u32,
+        #[ts(type = "number")]
+        bytes: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]

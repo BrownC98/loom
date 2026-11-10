@@ -34,6 +34,46 @@ pub fn base(repo: &Path, name: &str) -> String {
 
 pub const ROOT: [&str; 2] = [".cache", "loom"];
 
+const OWNER: &str = ".loom-owner";
+
+pub const HIDE: &str = r#"set -u
+mins=$1 root=$2
+shift 2
+for t in "$root"/.tidy-*; do
+  [ -d "$t" ] || continue
+  d=$root/${t##*/.tidy-}
+  if [ -e "$d" ]; then printf '%s\n' "${t##*/.tidy-}"; else mv -- "$t" "$d"; fi
+done
+for name in "$@"; do
+  d=$root/$name
+  [ -d "$d" ] && [ ! -L "$d" ] && [ ! -e "$root/.tidy-$name" ] || continue
+  recent=$(find "$d" -mmin -"$mins" -print -quit 2>/dev/null) || continue
+  [ -z "$recent" ] || continue
+  mv -- "$d" "$root/.tidy-$name" && printf '%s\n' "$name"
+done
+exit 0
+"#;
+
+pub const DROP: &str = r#"set -u
+root=$1
+shift
+n=0 kib=0
+gone() {
+  [ -d "$1" ] || return 0
+  k=$(du -sk "$1" | cut -f1)
+  rm -rf -- "$1" && n=$((n + 1)) kib=$((kib + ${k:-0}))
+}
+while [ $# -gt 0 ] && [ "$1" != -- ]; do
+  if [ -e "$root/$1" ]; then gone "$root/.tidy-$1"; else mv -- "$root/.tidy-$1" "$root/$1"; fi
+  shift
+done
+[ $# -gt 0 ] && shift
+for name in "$@"; do
+  gone "$root/.tidy-$name"
+done
+echo "$n $kib"
+"#;
+
 pub struct Tasks<'a> {
     local: PathBuf,
     shown: String,
@@ -76,6 +116,31 @@ impl<'a> Tasks<'a> {
             local: self.local.join(folder),
             shown: format!("{}{}{folder}", self.shown, self.sep),
         }
+    }
+
+    pub fn shown(&self) -> &str {
+        &self.shown
+    }
+
+    pub fn owner(&self) -> std::io::Result<Option<String>> {
+        match self.files.read(&self.local.join(OWNER)) {
+            Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).trim().to_owned())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn of_repo(&self, repo: &Path) -> std::io::Result<Vec<TaskDir>> {
+        let prefix = base(repo, "");
+        let listed = match self.files.list(&self.local) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            listed => listed?,
+        };
+        Ok(listed
+            .into_iter()
+            .filter(|entry| entry.dir && entry.name.starts_with(&prefix))
+            .map(|entry| self.dir(&entry.name))
+            .collect())
     }
 
     pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh<'a>)> {

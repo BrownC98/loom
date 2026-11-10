@@ -1,4 +1,4 @@
-import { CircleCheck, CircleQuestionMark, type LucideIcon } from 'lucide-react';
+import { CircleCheck, CircleQuestionMark, CircleStop, Gauge, MessageCircle, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ScreenWait } from './gen/ScreenWait';
 import type { NodeView } from './gen/NodeView';
@@ -9,7 +9,15 @@ export const QuestionIcon: LucideIcon = CircleQuestionMark;
 
 export const ICON: Record<WaitTone, LucideIcon> = { ask: QuestionIcon, done: CircleCheck };
 
+const KIND_ICON: Partial<Record<WaitKind, LucideIcon>> = { reply: MessageCircle, stopped: CircleStop, limit: Gauge };
+
+export const kindIcon = (wait: Pick<ScreenWait, 'kind' | 'tone'>): LucideIcon => KIND_ICON[wait.kind] ?? ICON[wait.tone];
+
 export const showsId = (kind: WaitKind) => kind === 'question';
+
+export const screenOf = (wait: ScreenWait): string[] | null => (wait.prompt ? null : (wait.screen ?? null));
+
+export const closesInBody = (kind: WaitKind) => kind === 'stopped' || kind === 'limit';
 
 export const bySince = (a: ScreenWait, b: ScreenWait) => a.since - b.since;
 
@@ -75,7 +83,7 @@ export function NoticeTags(props: { view: NodeView }) {
 export function NoticeLead(props: { wait: ScreenWait; waits: readonly ScreenWait[] }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const Icon = ICON[wait.tone];
+  const Icon = kindIcon(wait);
   return (
     <>
       <Icon className="qicon" aria-hidden="true" />

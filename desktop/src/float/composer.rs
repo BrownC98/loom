@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::graph::waits::WaitTone;
+use api::graph::waits::{Press, PressKeys, WaitKind, WaitTone};
 use api::ids::{NodeId, WaitId};
 use api::settings::{FloatPlace, FloatSize};
 use gpui::prelude::FluentBuilder;
@@ -122,6 +122,20 @@ impl Aimed {
             .filter(|s| matches!(s.wait.tone, WaitTone::Done))
             .count()
     }
+
+    fn finished(&self) -> usize {
+        self.stream
+            .iter()
+            .filter(|s| s.wait.wait.kind == WaitKind::Done)
+            .count()
+    }
+
+    fn replies(&self) -> usize {
+        self.stream
+            .iter()
+            .filter(|s| s.wait.wait.kind == WaitKind::Reply)
+            .count()
+    }
 }
 
 pub fn composer(
@@ -222,6 +236,15 @@ pub fn composer(
 
 fn quote(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
+}
+
+fn joined(body: String, saved: &[(u32, String)]) -> String {
+    let paths: Vec<String> = saved.iter().map(|(_, path)| quote(path)).collect();
+    [body, paths.join(" ")]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn shadow(color: gpui::Rgba) -> Vec<BoxShadow> {
@@ -655,6 +678,7 @@ impl Composer {
                 self.type_in(node, body, saved, cx);
             }
             Kind::Answer(wait) | Kind::Continue(wait) => self.answer(wait, body, saved, cx),
+            Kind::Screen(wait) => self.press(wait, body, saved, cx),
         }
     }
 
@@ -665,12 +689,7 @@ impl Composer {
         saved: Vec<(u32, String)>,
         cx: &mut Context<Self>,
     ) {
-        let paths: Vec<String> = saved.iter().map(|(_, path)| quote(path)).collect();
-        let text = [body, paths.join(" ")]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let text = joined(body, &saved);
         let state = self
             .inputs
             .update(cx, |inputs, cx| inputs.deliver(node, &text, cx));
@@ -689,6 +708,40 @@ impl Composer {
             }
         }
         cx.notify();
+    }
+
+    fn press(
+        &mut self,
+        wait: WaitId,
+        body: String,
+        saved: Vec<(u32, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        let screen = self
+            .stream(cx)
+            .into_iter()
+            .find(|s| s.wait.wait.id == wait)
+            .map(|s| s.wait.wait.screen)
+            .unwrap_or_default();
+        let keys = PressKeys {
+            screen,
+            press: Press::Text(joined(body, &saved)),
+        };
+        let ids: Vec<u32> = saved.iter().map(|(id, _)| *id).collect();
+        let task = self
+            .store
+            .update(cx, |store, cx| store.press_keys(wait, keys, cx));
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |composer, cx| {
+                composer.set_sending(None, cx);
+                match result {
+                    Ok(()) => composer.sent(&ids, cx),
+                    Err(error) => composer.refuse(error, cx),
+                }
+            });
+        })
+        .detach();
     }
 
     fn answer(
@@ -1024,13 +1077,15 @@ impl Composer {
         };
         let ask = aimed.asks();
         let done = aimed.dones();
+        let reply = aimed.replies();
         let counts = ui::say_with(
             cx,
             Str::ComposerAlertTotal,
             &[
                 ("total", &aimed.stream.len().to_string()),
                 ("ask", &ask.to_string()),
-                ("done", &done.to_string()),
+                ("done", &aimed.finished().to_string()),
+                ("reply", &reply.to_string()),
             ],
         );
         let strip = Strip {
@@ -1099,7 +1154,7 @@ impl Composer {
             let id = row.wait.wait.id;
             let node = row.node;
             let hover = c.surface_hover;
-            let chip = if row.wait.wait.kind == api::graph::waits::WaitKind::Question {
+            let chip = if row.wait.wait.kind == WaitKind::Question {
                 id.to_string()
             } else {
                 ui::say(cx, kind_label(row.wait.wait.kind)).to_owned()
@@ -1118,7 +1173,7 @@ impl Composer {
                     .on_click(cx.listener(move |composer, _, window, cx| {
                         composer.pick(NodeId(node), Aim::Alert(id), window, cx)
                     }))
-                    .child(entry::mark(row.wait.tone, z, &c))
+                    .child(entry::mark(row.wait.wait.kind, row.wait.tone, z, &c))
                     .child(entry::qid(chip, row.wait.tone, 18.0, z, &c))
                     .child(
                         div()
@@ -1163,6 +1218,7 @@ impl Composer {
         let label = match aimed.kind {
             Kind::Answer(_) => Str::InboxAnswerPlaceholder,
             Kind::Continue(_) => Str::InboxFollowUpPlaceholder,
+            Kind::Screen(_) => Str::InboxScreenPlaceholder,
             Kind::Prompt => Str::ComposerPlaceholder,
         };
         let keys = (width >= KEYS_ROOM * z).then(|| ui::say(cx, Str::ComposerKeys).to_owned());
@@ -1323,7 +1379,10 @@ pub fn face<W: ComposerWire>(
             .child(icon(view.kind.glyph(), 14.0 * z, tone_ink))
             .child(div().min_w_0().truncate().child(ui::say_with(
                 cx,
-                Str::ComposerToNode,
+                match view.kind {
+                    Kind::Screen(_) => Str::InboxScreenTarget,
+                    _ => Str::ComposerToNode,
+                },
                 &[("name", view.name)],
             )))
             .child(icon(

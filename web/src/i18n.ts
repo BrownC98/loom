@@ -22,6 +22,7 @@ export const INITIAL_LANGUAGE = (document.documentElement.dataset.language as La
 let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
 let clock: Intl.DateTimeFormat;
+let hourMinuteFormat: Intl.DateTimeFormat;
 let dayTime: Intl.DateTimeFormat;
 let monthDayFormat: Intl.DateTimeFormat;
 let units: Record<'minute' | 'hour' | 'day', Intl.NumberFormat>;
@@ -31,6 +32,7 @@ i18next.on('languageChanged', (locale) => {
   relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  hourMinuteFormat = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   dayTime = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   monthDayFormat = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
   units = { minute: unit(locale, 'minute'), hour: unit(locale, 'hour'), day: unit(locale, 'day') };
@@ -96,6 +98,10 @@ export function dayAndTime(time: number): string {
 
 export function clockTime(time: number): string {
   return clock.format(time);
+}
+
+export function hourMinute(time: number): string {
+  return hourMinuteFormat.format(time);
 }
 
 export default i18next;

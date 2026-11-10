@@ -61,7 +61,8 @@ import { DeskComposer } from './DeskComposer';
 import { resolveTarget, type Chosen, type Pin } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
-import { accountName, withAccount } from './usage';
+import { accountName, activeAccount, withAccount } from './usage';
+import { AccountMovesContext, type AccountMoves } from './noticeActions';
 import { isAutoSwitch } from './accountSwitch';
 
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
@@ -305,6 +306,17 @@ export function App() {
     return a ? accountName(a) : t('usage.systemDefault');
   };
   const usage: Usage = { accounts, cursor, loading, refresh: refreshUsage };
+  const moveTo = async (to: Pick<AccountView, 'provider' | 'distro' | 'id'>) => {
+    await saveSettings(withAccount(settings, to.provider, to.distro, to.id));
+    await moveNodes(to.provider, to.distro);
+  };
+  const accountMoves: AccountMoves = {
+    others: ({ provider, distro }) => {
+      const inUse = accounts && activeAccount(accounts, settings, provider, distro);
+      return accounts?.filter((a) => a.provider === provider && a.distro === distro && a !== inUse) ?? [];
+    },
+    move: moveTo,
+  };
   const chooseBox = (key: string | null) => {
     setChosenBox(key);
     setPinned(null);
@@ -488,9 +500,11 @@ export function App() {
         <ReactFlowProvider>
           <CameraProvider>
             <Reaches.Provider value={reaches}>
-              <StatusLinks views={nodes} onSelect={selectNode} onEvents={showEvents}>
-                {children}
-              </StatusLinks>
+              <AccountMovesContext.Provider value={accountMoves}>
+                <StatusLinks views={nodes} onSelect={selectNode} onEvents={showEvents}>
+                  {children}
+                </StatusLinks>
+              </AccountMovesContext.Provider>
             </Reaches.Provider>
           </CameraProvider>
         </ReactFlowProvider>
@@ -607,7 +621,6 @@ export function App() {
                 }}
                 onReaim={() => setPinned(null)}
                 onSelect={selectNode}
-                onTerminal={() => focusNode(target.view.id)}
               />
             )}
           </main>
@@ -689,8 +702,7 @@ export function App() {
                 setSwitching(null);
               }}
               onMoveAll={async () => {
-                await saveSettings(withAccount(settings, switching.provider, switching.distro, switching.to));
-                await moveNodes(switching.provider, switching.distro);
+                await moveTo({ provider: switching.provider, distro: switching.distro, id: switching.to });
                 setSwitching(null);
               }}
               onCancel={() => setSwitching(null)}

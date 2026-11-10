@@ -34,16 +34,39 @@ pub fn base(repo: &Path, name: &str) -> String {
 
 pub const ROOT: [&str; 2] = [".cache", "loom"];
 
-pub const TIDY: &str = r#"set -u
-mins=$1
-shift
-n=0 kib=0
-for d in "$@"; do
+const OWNER: &str = ".loom-owner";
+
+pub const HIDE: &str = r#"set -u
+mins=$1 root=$2
+shift 2
+for t in "$root"/.tidy-*; do
+  [ -d "$t" ] || continue
+  d=$root/${t##*/.tidy-}
+  [ -e "$d" ] || mv -- "$t" "$d"
+done
+for name in "$@"; do
+  d=$root/$name
   [ -d "$d" ] && [ ! -L "$d" ] || continue
   recent=$(find "$d" -mmin -"$mins" -print -quit 2>/dev/null) || continue
   [ -z "$recent" ] || continue
-  k=$(du -sk "$d" | cut -f1)
-  rm -rf -- "$d" && n=$((n + 1)) kib=$((kib + k))
+  mv -- "$d" "$root/.tidy-$name" && printf '%s\n' "$name"
+done
+"#;
+
+pub const DROP: &str = r#"set -u
+root=$1
+shift
+while [ $# -gt 0 ] && [ "$1" != -- ]; do
+  [ -e "$root/$1" ] || mv -- "$root/.tidy-$1" "$root/$1"
+  shift
+done
+[ $# -gt 0 ] && shift
+n=0 kib=0
+for name in "$@"; do
+  t=$root/.tidy-$name
+  [ -d "$t" ] || continue
+  k=$(du -sk "$t" | cut -f1)
+  rm -rf -- "$t" && n=$((n + 1)) kib=$((kib + k))
 done
 echo "$n $kib"
 "#;
@@ -89,6 +112,21 @@ impl<'a> Tasks<'a> {
             folder: folder.to_owned(),
             local: self.local.join(folder),
             shown: format!("{}{}{folder}", self.shown, self.sep),
+        }
+    }
+
+    pub fn shown(&self) -> &str {
+        &self.shown
+    }
+
+    pub fn owned_by(&self, owner: &str) -> std::io::Result<bool> {
+        self.files.create_dir_all(&self.local)?;
+        let marker = self.local.join(OWNER);
+        match self.files.create_new(&marker, owner) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                Ok(String::from_utf8_lossy(&self.files.read(&marker)?).trim() == owner)
+            }
+            made => made.map(|()| true),
         }
     }
 

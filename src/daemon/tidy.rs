@@ -51,7 +51,7 @@ async fn tidy(app: &App, tidied: &mut Tidied) {
         Err(e) => return crate::log::logln!("loom: tidy: {e}"),
     };
     let pinned = match app.graph.task_pins() {
-        Ok(pins) => pinned(&pins),
+        Ok(pins) => pins_of(&pins),
         Err(e) => return crate::log::logln!("loom: tidy: {e}"),
     };
     for (repo, dir) in repos {
@@ -64,7 +64,7 @@ async fn tidy(app: &App, tidied: &mut Tidied) {
     }
 }
 
-fn pinned(pins: &TaskPins) -> HashSet<String> {
+fn pins_of(pins: &TaskPins) -> HashSet<String> {
     let docs = pins
         .docs
         .iter()
@@ -72,7 +72,10 @@ fn pinned(pins: &TaskPins) -> HashSet<String> {
         .map(|doc| doc.path.to_string_lossy().into_owned());
     let mut pinned: HashSet<String> = pins.tasks.iter().cloned().collect();
     for text in pins.waits.iter().cloned().chain(docs) {
-        pinned.extend(text.split(['/', '\\', '"']).map(str::to_owned));
+        let decoded = percent_encoding::percent_decode_str(&text).decode_utf8_lossy();
+        for text in [text.as_str(), &decoded] {
+            pinned.extend(text.split(['/', '\\', '"']).map(str::to_owned));
+        }
     }
     pinned
 }
@@ -87,7 +90,8 @@ async fn logs(app: &App, repo: RepoId, dir: &Path, tidied: &mut Tidied) -> Resul
             .filter(|d| d.repo == repo)
             .map(|d| format!("deploy-{}", d.id)),
     );
-    let (n, kib) = swept(app, dir, TIDY_LOGS, open).await?;
+    let args: Vec<String> = std::iter::once(minutes()).chain(open).collect();
+    let (n, kib) = counted(&bash(app, dir, TIDY_LOGS, &args).await?)?;
     tidied.logs += n;
     tidied.kib += kib;
     Ok(())
@@ -103,39 +107,63 @@ async fn folders(
         .tasks_for(&dir.to_string_lossy())
         .await
         .map_err(|e| format!("{e:?}"))?;
+    let owner = crate::db::data_dir().map_err(|e| e.to_string())?;
+    if !tasks
+        .owned_by(&owner.to_string_lossy())
+        .map_err(|e| e.to_string())?
+    {
+        return Ok(());
+    }
     let unpinned: Vec<String> = tasks
         .of_repo(dir)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .filter(|d| !pinned.contains(&d.folder))
-        .map(|d| d.shown)
+        .map(|d| d.folder)
+        .filter(|name| !pinned.contains(name) && !name.contains('\n'))
         .collect();
+    let root = tasks.shown().to_owned();
     for part in unpinned.chunks(FOLDERS_PER_RUN) {
-        let (n, kib) = swept(app, dir, task::TIDY, part.iter().cloned()).await?;
+        let args: Vec<String> = [minutes(), root.clone()]
+            .into_iter()
+            .chain(part.iter().cloned())
+            .collect();
+        let hidden = bash(app, dir, task::HIDE, &args).await?;
+        let pinned = app.graph.task_pins().map(|p| pins_of(&p));
+        let (keep, drop): (Vec<&str>, Vec<&str>) = hidden
+            .lines()
+            .filter(|name| !name.is_empty())
+            .partition(|name| pinned.as_ref().map_or(true, |p| p.contains(*name)));
+        let args: Vec<String> = std::iter::once(root.as_str())
+            .chain(keep)
+            .chain(["--"])
+            .chain(drop)
+            .map(str::to_owned)
+            .collect();
+        let (n, kib) = counted(&bash(app, dir, task::DROP, &args).await?)?;
         tidied.folders += n;
         tidied.kib += kib;
     }
     Ok(())
 }
 
-async fn swept(
-    app: &App,
-    dir: &Path,
-    script: &str,
-    args: impl Iterator<Item = String>,
-) -> Result<(u32, u64), String> {
-    let args: Vec<String> = std::iter::once((KEEP_FOR.as_secs() / 60).to_string())
-        .chain(args)
-        .collect();
-    let (code, out) = script_within(app.files(), dir, script, &args, TIDY_LIMIT)
+fn minutes() -> String {
+    (KEEP_FOR.as_secs() / 60).to_string()
+}
+
+async fn bash(app: &App, dir: &Path, script: &str, args: &[String]) -> Result<String, String> {
+    match script_within(app.files(), dir, script, args, TIDY_LIMIT)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+    {
+        (0, out) => Ok(out),
+        (code, out) => Err(format!("exited {code}: {}", out.trim())),
+    }
+}
+
+fn counted(out: &str) -> Result<(u32, u64), String> {
     let mut words = out.lines().last().unwrap_or_default().split_whitespace();
-    match (code, words.next(), words.next()) {
-        (0, Some(n), Some(kib)) => match (n.parse(), kib.parse()) {
-            (Ok(n), Ok(kib)) => Ok((n, kib)),
-            _ => Err(format!("unexpected output: {}", out.trim())),
-        },
-        _ => Err(format!("exited {code}: {}", out.trim())),
+    match (words.next().map(str::parse), words.next().map(str::parse)) {
+        (Some(Ok(n)), Some(Ok(kib))) => Ok((n, kib)),
+        _ => Err(format!("unexpected output: {}", out.trim())),
     }
 }

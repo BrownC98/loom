@@ -236,7 +236,7 @@ impl Dock {
             .items_center()
             .gap_x(px(GAP))
             .gap_y(px(2.0))
-            .child(entry::mark(tone, 1.0, &c))
+            .child(entry::mark(wait.kind, tone, 1.0, &c))
             .child(
                 div()
                     .flex_none()

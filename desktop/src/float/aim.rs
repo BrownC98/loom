@@ -17,13 +17,14 @@ pub enum Aim {
 pub enum Kind {
     Answer(WaitId),
     Continue(WaitId),
+    Screen(WaitId),
     Prompt,
 }
 
 impl Kind {
     pub fn glyph(self) -> Lucide {
         match self {
-            Kind::Answer(_) => Lucide::CircleQuestionMark,
+            Kind::Answer(_) | Kind::Screen(_) => Lucide::CircleQuestionMark,
             Kind::Continue(_) => Lucide::CircleCheck,
             Kind::Prompt => Lucide::SquareTerminal,
         }
@@ -31,7 +32,7 @@ impl Kind {
 
     pub fn paint(self, c: &Colors) -> (Rgba, Rgba) {
         match self {
-            Kind::Answer(_) => (
+            Kind::Answer(_) | Kind::Screen(_) => (
                 entry::tone_of(WaitTone::Ask, c),
                 entry::tone_ink(WaitTone::Ask, c),
             ),
@@ -144,6 +145,9 @@ pub fn kind_of(aim: Aim, stream: &[Streamed]) -> Kind {
             WaitTone::Ask => Kind::Answer(id),
             WaitTone::Done => Kind::Continue(id),
         },
+        Some(s) if s.wait.wait.prompt.is_none() && !s.wait.wait.screen.is_empty() => {
+            Kind::Screen(id)
+        }
         _ => Kind::Prompt,
     }
 }

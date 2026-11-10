@@ -107,6 +107,18 @@ function usedOf(a: AccountView): number | null {
   return used.length ? Math.max(...used) : null;
 }
 
+function BareClose(props: { wait: WaitId; onClose: Close }) {
+  const { run, shown } = useRefusal();
+  return (
+    <>
+      <div className="choices">
+        <CloseChoice wait={props.wait} onClose={props.onClose} run={run} />
+      </div>
+      {shown}
+    </>
+  );
+}
+
 function LimitActions(props: { wait: WaitId; limit: WaitLimit; onClose: Close }) {
   const { t } = useTranslation();
   const moves = useContext(AccountMovesContext);
@@ -114,7 +126,7 @@ function LimitActions(props: { wait: WaitId; limit: WaitLimit; onClose: Close })
   const others = moves
     .others(props.limit)
     .map((a) => ({ a, used: usedOf(a) }))
-    .sort((x, y) => (x.used ?? Infinity) - (y.used ?? Infinity));
+    .sort((x, y) => (x.used ?? Number.MAX_VALUE) - (y.used ?? Number.MAX_VALUE));
   const known = others[0]?.used != null;
   const resets = props.limit.resets_at;
   return (
@@ -142,7 +154,7 @@ export function NoticeActions(props: { node: NodeId; wait: ScreenWait; onClose?:
   return (
     <>
       {wait.kind === 'stopped' && <StoppedActions node={props.node} wait={wait.id} onClose={props.onClose} />}
-      {wait.kind === 'limit' && wait.limit && <LimitActions wait={wait.id} limit={wait.limit} onClose={props.onClose} />}
+      {wait.kind === 'limit' && (wait.limit ? <LimitActions wait={wait.id} limit={wait.limit} onClose={props.onClose} /> : <BareClose wait={wait.id} onClose={props.onClose} />)}
       {screen && <ScreenKeys wait={wait.id} screen={screen} />}
     </>
   );

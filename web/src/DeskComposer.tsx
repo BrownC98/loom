@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
+import { ArrowUp, ChevronDown, Keyboard, RotateCcw, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type DOMAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption } from './api';
@@ -6,6 +6,7 @@ import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
 import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
+import { quotePath } from './attachments';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useComposerHeld, type ComposerKeys, type Delivery } from './Composer';
 import { COMPOSER_HOME, FLOAT_MARGIN, floatZoom, placeOf, popSpace, useFloatDrag, useSize } from './floatPlace';
 import type { FloatPlace } from './gen/FloatPlace';
@@ -17,14 +18,16 @@ import type { ScreenWait } from './gen/ScreenWait';
 import type { RepoView } from './gen/RepoView';
 import { useNodeInput } from './nodeInputs';
 import { ICON } from './notice';
+import { pressScreen } from './noticeActions';
 import { TargetList } from './TargetList';
 
 const COMPOSER_ROOM = '--composer-room';
 const COMPOSER_WIDTH = 680;
 const MIN_STREAM = 75;
 
-const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal };
-const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder' } as const satisfies Record<Route['kind'], string>;
+const ROUTE_ICON: Record<Route['kind'], LucideIcon> = { answer: ICON.ask, continue: ICON.done, prompt: SquareTerminal, screen: Keyboard };
+const PLACEHOLDER = { answer: 'inbox.answerPlaceholder', continue: 'inbox.followUpPlaceholder', prompt: 'composer.placeholder', screen: 'inbox.screenPlaceholder' } as const satisfies Record<Route['kind'], string>;
+const TARGET_LABEL = { answer: 'composer.toNode', continue: 'composer.toNode', prompt: 'composer.toNode', screen: 'inbox.screenTarget' } as const satisfies Record<Route['kind'], string>;
 
 type DeskProps = {
   target: Target;
@@ -39,7 +42,6 @@ type DeskProps = {
   onTarget: (node: NodeId, key: TargetKey) => void;
   onReaim: () => void;
   onSelect: (id: NodeId) => void;
-  onTerminal: () => void;
 };
 
 export function DeskComposer(props: DeskProps) {
@@ -66,6 +68,7 @@ export function DeskComposer(props: DeskProps) {
       throw new Error(t('composer.targetClosed'));
     }
     if (target.route.kind === 'prompt') return typeInto(node)(text, paths);
+    if (target.route.kind === 'screen') return pressScreen(target.route.wait.id, target.route.screen, { kind: 'text', value: [text, ...paths.map(quotePath)].join(' ') }).then(() => {});
     const { wait } = target.route;
     const cancel = startClosing(wait, [wait.id]);
     return Promise.resolve(answerWith(wait.id)(text, paths)).catch((err) => {
@@ -170,7 +173,6 @@ export function DeskComposer(props: DeskProps) {
             target={target}
             repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
-            onGo={props.onTerminal}
             onFocus={() => {
               show([node]);
               props.onSelect(node);
@@ -220,7 +222,7 @@ export function DeskFace(props: {
       >
         <button ref={props.target.ref} type="button" className="target-btn" title={t('composer.pickTarget')} aria-label={t('composer.pickTarget')} aria-haspopup="dialog" aria-expanded={props.target.open} onClick={props.target.onToggle}>
           <Icon aria-hidden="true" />
-          <span>{t('composer.toNode', { name: props.name })}</span>
+          <span>{t(TARGET_LABEL[props.route], { name: props.name })}</span>
           <ChevronDown aria-hidden="true" />
         </button>
         <div className="composer-field">

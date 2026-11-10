@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUp, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
+import { ArrowUp, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type MouseEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
@@ -14,7 +14,8 @@ import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './camera';
 import { useDraft } from './drafts';
 import { stateClass } from './NodeCard';
-import { bySince, ICON, NoticeBadges, oldestWait, showsId } from './notice';
+import { bySince, closesInBody, kindIcon, NoticeBadges, oldestWait, screenOf, showsId } from './notice';
+import { NoticeActions, pressScreen } from './noticeActions';
 import { KeyHint, PromptBody } from './PromptBody';
 
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
@@ -55,7 +56,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
           </button>
           <ul className="wait-rows">
             {[...v.waits].sort(bySince).map((w) => (
-              <WaitRow key={w.id} node={v.id} wait={w} onGo={() => props.onGo(v.id)} onFocus={() => props.onFocus(v.id)} />
+              <WaitRow key={w.id} node={v.id} wait={w} onFocus={() => props.onFocus(v.id)} />
             ))}
           </ul>
         </li>
@@ -70,24 +71,24 @@ export const entryClick = (run: () => void) => (e: MouseEvent<HTMLElement>) => {
   run();
 };
 
-function WaitRow(props: { node: NodeId; wait: ScreenWait; onGo: () => void; onFocus: () => void }) {
+function WaitRow(props: { node: NodeId; wait: ScreenWait; onFocus: () => void }) {
   return (
     <li
       className="wait-row"
       onClick={entryClick(props.onFocus)}
     >
-      <WaitEntry node={props.node} wait={props.wait} onGo={props.onGo} />
+      <WaitEntry node={props.node} wait={props.wait} />
     </li>
   );
 }
 
-function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
+function WaitEntry(props: { node: NodeId; wait: ScreenWait }) {
   const { wait } = props;
   return (
     <div className="entry" data-tone={wait.tone}>
       <WaitHead wait={wait} />
       {wait.instruction && <Instruction text={wait.instruction} />}
-      <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
+      <WaitBody node={props.node} wait={wait} />
     </div>
   );
 }
@@ -95,7 +96,7 @@ function WaitEntry(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) 
 function WaitTitle(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const Icon = ICON[wait.tone];
+  const Icon = kindIcon(wait);
   return (
     <>
       <Icon className="kind-mark" aria-hidden="true" />
@@ -116,7 +117,7 @@ export function WaitHead(props: { wait: ScreenWait; children?: ReactNode }) {
       <WaitTitle wait={wait} />
       <Published wait={wait} />
       {props.children}
-      {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
+      {wait.tone === 'done' ? <ConfirmButton wait={wait.id} /> : !closesInBody(wait.kind) && <DismissButton wait={wait.id} />}
     </div>
   );
 }
@@ -215,29 +216,26 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boo
   );
 }
 
-export function ToTerminal(props: { onGo: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <button type="button" className="to-terminal" onClick={props.onGo}>
-      {t('inbox.toTerminal')}
-      <ArrowRight aria-hidden="true" />
-    </button>
-  );
-}
-
-function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
+function WaitBody(props: { node: NodeId; wait: ScreenWait }) {
   const { t } = useTranslation();
   const { wait } = props;
   const done = wait.tone === 'done';
   const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
+  const screen = screenOf(wait);
   const [refusal, setRefusal] = useState<string | null>(null);
   const images = useImages(`wait:${wait.id}`, props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
-  const send = (text: string) => {
-    setRefusal(null);
-    const sent = images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids)));
+  const tell = (sent: Promise<unknown>) => {
     sent.catch((err: Error) => setRefusal(err.message));
     return sent.then(() => null);
+  };
+  const send = (text: string) => {
+    setRefusal(null);
+    return tell(images.paths().then((saved) => answerWait(wait.id, text, saved.paths).then(() => images.forget(saved.ids))));
+  };
+  const typeOn = (rows: string[]) => (text: string) => {
+    setRefusal(null);
+    return tell(pressScreen(wait.id, rows, { kind: 'text', value: text }));
   };
   const drop: DOMAttributes<HTMLDivElement> = wait.answerable
     ? {
@@ -275,8 +273,9 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait; onGo: () => void }) {
           />
         </>
       ) : (
-        <ToTerminal onGo={props.onGo} />
+        <NoticeActions node={props.node} wait={wait} />
       )}
+      {screen && <AnswerForm wait={wait.id} qid={qid} placeholder={t('inbox.screenPlaceholder')} hasImages={false} onSend={typeOn(screen)} />}
       {refusal && (
         <p className="refusal" role="alert">
           {refusal}
@@ -319,7 +318,7 @@ function fitAnswer(el: HTMLTextAreaElement) {
   el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
-function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => Promise<null>; onPasteImages: (files: File[]) => void }) {
+function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => Promise<null>; onPasteImages?: (files: File[]) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useDraft(String(props.wait));
   const send = () => props.onSend(text).then(() => setText(''), () => {});
@@ -357,24 +356,26 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
           const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
           if (files.length === 0) return;
           e.preventDefault();
-          props.onPasteImages(files);
+          props.onPasteImages?.(files);
         }}
         aria-label={t('inbox.answerLabel', { id: props.qid })}
         placeholder={props.placeholder}
       />
-      <label className="attach" title={t('inbox.attachImage')}>
-        <ImageIcon aria-hidden="true" />
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          aria-label={t('inbox.attachImage')}
-          onChange={(e) => {
-            props.onPasteImages([...(e.target.files ?? [])]);
-            e.target.value = '';
-          }}
-        />
-      </label>
+      {props.onPasteImages && (
+        <label className="attach" title={t('inbox.attachImage')}>
+          <ImageIcon aria-hidden="true" />
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            aria-label={t('inbox.attachImage')}
+            onChange={(e) => {
+              props.onPasteImages?.([...(e.target.files ?? [])]);
+              e.target.value = '';
+            }}
+          />
+        </label>
+      )}
       <button type="submit" className="send" aria-label={t('inbox.send', { id: props.qid })} disabled={!ready}>
         <ArrowUp aria-hidden="true" />
       </button>

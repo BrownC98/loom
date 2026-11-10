@@ -62,6 +62,16 @@ async fn answer_wait(
     Path(wait): Path<u32>,
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
+    if let Some(node) = app.graph.stopped_node(WaitId(wait)).map_err(internal)? {
+        if req.text.trim().is_empty() && req.images.is_empty() {
+            return Err(Refusal::EmptyAnswer.into());
+        }
+        app.relaunch_by_id(node, crate::graph::Plan::Resume).await?;
+        app.graph
+            .instruct_relaunched(node, &req.text, &req.images)?;
+        app.turn_ends.human(node, Some(&req.text));
+        return Ok(Json(()));
+    }
     let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
     app.turn_ends.human(node, Some(&req.text));
     Ok(Json(()))

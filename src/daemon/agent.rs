@@ -106,6 +106,7 @@ impl App {
         if !injected {
             self.graph.human_input(node)?;
         }
+        self.graph.limit_cleared(node)?;
         self.draft_ended(node);
         self.turn_ends.human(node, prompt);
         if !injected && !prompt.is_some_and(|p| p.trim_start().starts_with('/')) {

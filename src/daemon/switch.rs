@@ -177,7 +177,13 @@ impl App {
         let distro = match self.host_of(node) {
             None => None,
             Some(Host::Distro(name)) => Some(name),
-            Some(Host::Ssh(_)) => return,
+            Some(Host::Ssh(_)) => {
+                let rows = screen::rows(&self.host.screen(node));
+                if let Err(e) = self.graph.limit_left(node, provider, None, rows) {
+                    crate::log::logln!("loom: 노드 {}의 한도 알림을 쓰지 못했다: {e}", node.0);
+                }
+                return;
+            }
         };
         let app = self.clone();
         tokio::spawn(async move {
@@ -216,7 +222,7 @@ impl App {
             resets_at,
         };
         let rows = screen::rows(&self.host.screen(node));
-        if let Err(e) = self.graph.limit_left(node, limit, rows) {
+        if let Err(e) = self.graph.limit_left(node, provider, Some(limit), rows) {
             crate::log::logln!("loom: 노드 {}의 한도 알림을 쓰지 못했다: {e}", node.0);
         }
     }

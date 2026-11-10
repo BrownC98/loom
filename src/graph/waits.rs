@@ -232,7 +232,8 @@ impl Graph {
     pub fn limit_left(
         &self,
         node: NodeId,
-        limit: WaitLimit,
+        provider: api::profile::Provider,
+        limit: Option<WaitLimit>,
         rows: Vec<String>,
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
@@ -249,12 +250,9 @@ impl Graph {
         if !left || has_alert(&tx, node, WaitKind::Limit)? {
             return Ok(());
         }
-        let text = format!(
-            "{} 계정이 사용 한도에 걸렸습니다.",
-            json_name(&limit.provider)
-        );
+        let text = format!("{} 계정이 사용 한도에 걸렸습니다.", json_name(&provider));
         let wait = HumanWait {
-            limit: Some(limit),
+            limit,
             screen: rows,
             ..new_wait(&tx, WaitKind::Limit, text, false, None)?
         };
@@ -315,14 +313,7 @@ impl Graph {
         }
         let mut db = self.lock();
         let count = images.len() as u32;
-        let images = match images {
-            [] => String::new(),
-            paths => {
-                let quoted: Vec<String> =
-                    paths.iter().map(|p| quote(&p.to_string_lossy())).collect();
-                format!("\nImages: {}", quoted.join(" "))
-            }
-        };
+        let images = images_line(images);
         type Record = fn(api::graph::events::Who, WaitId, String, u32) -> Entry;
         let (node, what, body, record): (NodeId, MessageKind, String, Record) = match open_ask(
             &db, wait,
@@ -374,6 +365,34 @@ impl Graph {
         self.publish_nodes();
         self.mail.notify_waiters();
         Ok(node)
+    }
+
+    pub fn stopped_node(&self, wait: WaitId) -> rusqlite::Result<Option<NodeId>> {
+        self.lock()
+            .query_row(
+                "SELECT node FROM alerts WHERE id = ?1 AND wait ->> 'kind' = ?2",
+                params![wait.0, json_name(&WaitKind::Stopped)],
+                |row| Ok(NodeId(row.get(0)?)),
+            )
+            .optional()
+    }
+
+    pub fn instruct_relaunched(
+        &self,
+        node: NodeId,
+        text: &str,
+        images: &[PathBuf],
+    ) -> Result<(), Refusal> {
+        let text = text.trim();
+        let db = self.lock();
+        let body = format!(
+            "New instruction from the human in the loom inbox, sent while your process was stopped: {text}{}",
+            images_line(images)
+        );
+        mailbox::enqueue_human(&db, node, &MessageKind::Note, &body)?;
+        drop(db);
+        self.mail.notify_waiters();
+        Ok(())
     }
 
     pub fn instructed(&self, node: NodeId, text: &str) -> rusqlite::Result<()> {
@@ -649,7 +668,7 @@ pub(super) fn open_stopped(
     if has_alert(db, id, WaitKind::Stopped)? {
         return Ok(());
     }
-    let wait = new_wait(db, WaitKind::Stopped, text, false, None)?;
+    let wait = new_wait(db, WaitKind::Stopped, text, true, None)?;
     put_alert(db, id, &wait)
 }
 
@@ -832,6 +851,16 @@ fn done_node(db: &rusqlite::Connection, wait: WaitId) -> Result<NodeId, Refusal>
     .optional()?
     .map(NodeId)
     .ok_or(Refusal::NoWait(wait))
+}
+
+fn images_line(images: &[PathBuf]) -> String {
+    match images {
+        [] => String::new(),
+        paths => {
+            let quoted: Vec<String> = paths.iter().map(|p| quote(&p.to_string_lossy())).collect();
+            format!("\nImages: {}", quoted.join(" "))
+        }
+    }
 }
 
 fn quote(path: &str) -> String {

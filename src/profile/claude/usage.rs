@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -9,7 +9,7 @@ use super::Claude;
 use super::accounts::CLI;
 use crate::accounts::Site;
 use crate::profile::adapter::Meter;
-use crate::usage::{self, PROBE_TIMEOUT, failed, percent, run_failed, usage_failed, usage_now};
+use crate::usage::{self, PROBE_TIMEOUT, failed, percent, usage_failed, usage_now};
 use api::ids::AccountId;
 use api::settings::usage::{Limits, ModelWindow, Usage, UsageProblem, Window};
 
@@ -45,15 +45,15 @@ struct Status {
     config_directory: Option<String>,
 }
 
-fn status(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
-    let status: Status = match cmd.stdin(Stdio::null()).stderr(Stdio::null()).output() {
+fn status(cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
+    let status: Status = match crate::timed::finished(cmd, PROBE_TIMEOUT) {
         Ok(out) => match serde_json::from_slice(&out.stdout) {
             Ok(status) => status,
             Err(_) => {
                 return usage_failed(UsageProblem::CliFormat("claude auth status".into()));
             }
         },
-        Err(e) => return usage_failed(run_failed("claude", &e)),
+        Err(_) => return usage_failed(UsageProblem::NoReply("claude auth status".into())),
     };
     let service = keychain_service(
         status

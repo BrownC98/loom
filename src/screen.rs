@@ -50,6 +50,21 @@ pub enum Place {
 }
 
 const TRANSCRIPT_INDENT: usize = 2;
+const SHOWN_ROWS: usize = 12;
+
+pub fn rows(screen: &Screen) -> Vec<String> {
+    let mut rows: Vec<String> = screen
+        .text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .rev()
+        .take(SHOWN_ROWS)
+        .map(str::to_owned)
+        .collect();
+    rows.reverse();
+    rows
+}
 
 pub fn find(dialogs: &[Dialog], screen: &str, session: SessionStart) -> Option<(WaitKind, String)> {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();

@@ -14,6 +14,7 @@ use crate::protocol::{AdapterRecord, Model, Session, StartDigests};
 use api::graph::errors::{BRIEF_LIMIT_BYTES, Refusal};
 use api::graph::events::{AgentEvent, Entry};
 use api::graph::messages::{Kind, MessageKind};
+use api::graph::waits::WaitKind;
 use api::graph::{CardView, NodeState, Place, ProcessState, Toward};
 use api::ids::{AccountId, AgentId, NodeId};
 use api::limits::TreeLimits;
@@ -28,6 +29,21 @@ pub struct NewChild<'a> {
 }
 
 const NO_PARENT: &str = "(none)";
+const NOT_REVIVED: &str = "잠든 프로세스를 다시 띄우지 못했습니다.";
+
+fn stopped_text(ended: ProcessOutcome) -> Option<String> {
+    Some(match ended {
+        ProcessOutcome::Exited { code: 0 } | ProcessOutcome::Asleep => return None,
+        ProcessOutcome::Exited { code } => format!("프로세스가 끝났습니다(끝 코드 {code})."),
+        ProcessOutcome::SetupFailed { code } => {
+            format!("설정 스크립트가 실패했습니다(코드 {code}).")
+        }
+        ProcessOutcome::Lost => {
+            "프로세스를 잃었습니다: 다시 붙거나 다시 띄우지 못했습니다.".to_owned()
+        }
+        ProcessOutcome::HostGone => "터미널 호스트가 끝나 다시 붙지 못했습니다.".to_owned(),
+    })
+}
 
 pub struct Launched {
     pub token: NodeToken,
@@ -242,7 +258,8 @@ impl Graph {
                 code: Some(code),
             })
         };
-        self.end_process(id, ProcessOutcome::Exited { code }, what, String::new())
+        let ended = ProcessOutcome::Exited { code };
+        self.end_process(id, ended, stopped_text(ended), what, String::new())
     }
 
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
@@ -251,11 +268,25 @@ impl Graph {
 
     pub fn lost_because(&self, id: NodeId, cause: String) -> rusqlite::Result<()> {
         let what = |node| Some(MessageKind::Exited { node, code: None });
-        self.end_process(id, ProcessOutcome::Lost, what, cause)
+        let stopped = stopped_text(ProcessOutcome::Lost);
+        self.end_process(id, ProcessOutcome::Lost, stopped, what, cause)
+    }
+
+    pub fn relaunch_lost(&self, id: NodeId, error: &str) -> rusqlite::Result<()> {
+        let what = |node| Some(MessageKind::Exited { node, code: None });
+        let stopped = Some(format!("다시 띄우지 못했습니다: {error}"));
+        self.end_process(id, ProcessOutcome::Lost, stopped, what, String::new())
     }
 
     pub fn host_gone(&self, id: NodeId) -> rusqlite::Result<()> {
-        self.end_process(id, ProcessOutcome::HostGone, |_| None, String::new())
+        let stopped = stopped_text(ProcessOutcome::HostGone);
+        self.end_process(
+            id,
+            ProcessOutcome::HostGone,
+            stopped,
+            |_| None,
+            String::new(),
+        )
     }
 
     pub fn hosts_gone(&self) -> rusqlite::Result<Vec<NodeId>> {
@@ -272,13 +303,15 @@ impl Graph {
         }
         let what = |node| Some(MessageKind::SetupFailed { node, code });
         let output = output[start..].to_owned();
-        self.end_process(id, ProcessOutcome::SetupFailed { code }, what, output)
+        let ended = ProcessOutcome::SetupFailed { code };
+        self.end_process(id, ended, stopped_text(ended), what, output)
     }
 
     fn end_process(
         &self,
         id: NodeId,
         ended: ProcessOutcome,
+        stopped: Option<String>,
         what: impl FnOnce(String) -> Option<MessageKind>,
         notice: String,
     ) -> rusqlite::Result<()> {
@@ -298,8 +331,10 @@ impl Graph {
         }
         agent_state::note(&tx, id, was, AgentEvent::Exited)?;
         hosts::drop_host(&tx, id)?;
-        waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
+        if let (None, NodeState::Running, Some(text)) = (parent, &state, stopped) {
+            waits::open_stopped(&tx, id, text)?;
+        }
         note_state(&tx, id, state.clone())?;
         let what = match state {
             NodeState::Running => what(name_of(&tx, id)?),
@@ -324,6 +359,18 @@ impl Graph {
         Ok(())
     }
 
+    pub fn limit_cleared(&self, node: NodeId) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        tx.execute("UPDATE nodes SET limited = 0 WHERE id = ?1", [node.0])?;
+        let closed = waits::drop_alert(&tx, node, WaitKind::Limit)?;
+        tx.commit()?;
+        if closed > 0 {
+            self.publish_nodes();
+        }
+        Ok(())
+    }
+
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
             .prepare(&format!(
@@ -338,7 +385,8 @@ impl Graph {
             .prepare(
                 "SELECT id FROM nodes WHERE process IS NULL AND wait IS NULL AND drafted = 0
                  AND state ->> 'kind' = 'done'
-                 AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = nodes.id) ORDER BY id",
+                 AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = nodes.id)
+                 AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.node = nodes.id) ORDER BY id",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
             .collect()
@@ -363,7 +411,6 @@ impl Graph {
         }
         agent_state::note(&tx, id, was, AgentEvent::Slept)?;
         hosts::drop_host(&tx, id)?;
-        waits::drop_questions(&tx, id)?;
         tx.commit()?;
         self.publish_nodes();
         Ok(true)
@@ -452,6 +499,9 @@ impl Graph {
         agent_state::note(&tx, id, was, AgentEvent::Exited)?;
         note_state(&tx, id, from)?;
         let parent = parent_of(&tx, id)?;
+        if parent.is_none() {
+            waits::open_stopped(&tx, id, NOT_REVIVED.to_owned())?;
+        }
         let what = MessageKind::Exited {
             node: name_of(&tx, id)?,
             code: None,
@@ -512,7 +562,8 @@ impl Graph {
             + tx.execute(
                 "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
                 [id.0],
-            )?;
+            )?
+            + waits::drop_alert(&tx, id, WaitKind::Stopped)?;
         keep(&tx, id, launched)?;
         let revived = tx.execute(
             "UPDATE nodes SET process = NULL, sleeping = 0 WHERE id = ?1 AND process IS NOT NULL",

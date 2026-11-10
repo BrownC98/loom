@@ -5,7 +5,9 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use api::graph::docs::DocQuestion;
-use api::graph::waits::{Closed, HumanWait, Prompt, ScreenWait, WaitDoc, WaitKind, WaitTone};
+use api::graph::waits::{
+    Closed, HumanWait, Prompt, ScreenWait, WaitDoc, WaitKind, WaitLimit, WaitTone,
+};
 
 use super::agent_state;
 use super::closed::{self, Open};
@@ -58,10 +60,13 @@ pub(super) fn for_history(wait: HumanWait) -> ScreenWait {
 
 fn text_blocks(kind: WaitKind, text: &str) -> Vec<Block> {
     match kind {
-        WaitKind::Question | WaitKind::Done => markdown(text),
-        WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => {
-            Block::paragraph(parts(text))
-        }
+        WaitKind::Question | WaitKind::Done | WaitKind::Reply => markdown(text),
+        WaitKind::Approval
+        | WaitKind::Trust
+        | WaitKind::Auth
+        | WaitKind::Input
+        | WaitKind::Stopped
+        | WaitKind::Limit => Block::paragraph(parts(text)),
     }
 }
 
@@ -75,8 +80,10 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
         | WaitKind::Approval
         | WaitKind::Trust
         | WaitKind::Auth
-        | WaitKind::Input => WaitTone::Ask,
-        WaitKind::Done => WaitTone::Done,
+        | WaitKind::Input
+        | WaitKind::Stopped
+        | WaitKind::Limit => WaitTone::Ask,
+        WaitKind::Done | WaitKind::Reply => WaitTone::Done,
     };
     let wait = HumanWait {
         blocks,
@@ -86,7 +93,10 @@ fn screen(wait: HumanWait, blocks: Vec<Block>) -> ScreenWait {
             | WaitKind::Trust
             | WaitKind::Auth
             | WaitKind::Input
-            | WaitKind::Done => Vec::new(),
+            | WaitKind::Done
+            | WaitKind::Reply
+            | WaitKind::Stopped
+            | WaitKind::Limit => Vec::new(),
         },
         ..wait
     };
@@ -144,7 +154,10 @@ impl Graph {
                             id,
                             Some(&Stored {
                                 reads_screen: Some(now.reads_screen()),
-                                wait: HumanWait { prompt, ..now.wait },
+                                wait: {
+                                    let rows = now.wait.screen.clone();
+                                    shown(now.wait, prompt, rows)
+                                },
                                 ..now
                             }),
                         )?;
@@ -177,30 +190,90 @@ impl Graph {
         Ok(())
     }
 
-    pub fn screen_prompt(&self, token: &str, prompt: Option<Prompt>) -> rusqlite::Result<()> {
+    pub fn screen_prompt(
+        &self,
+        token: &str,
+        prompt: Option<Prompt>,
+        rows: Vec<String>,
+    ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let Some(id) = super::nodes::caller_in(&tx, token)? else {
             return Ok(());
         };
-        let Some(Some(now)) = stored(&tx, id)? else {
-            return Ok(());
-        };
-        if now.source == WaitSource::Screen || !now.reads_screen() || now.wait.prompt == prompt {
+        let mut changed = limit_rows(&tx, id, &rows)?;
+        if let Some(Some(now)) = stored(&tx, id)? {
+            let prompt = match now.source == WaitSource::Screen || !now.reads_screen() {
+                true => now.wait.prompt.clone(),
+                false => prompt,
+            };
+            let wait = shown(now.wait.clone(), prompt, rows);
+            if wait != now.wait {
+                put(
+                    &tx,
+                    id,
+                    Some(&Stored {
+                        reads_screen: Some(now.reads_screen()),
+                        wait,
+                        ..now
+                    }),
+                )?;
+                changed = true;
+            }
+        }
+        if !changed {
             return Ok(());
         }
-        put(
-            &tx,
-            id,
-            Some(&Stored {
-                reads_screen: Some(true),
-                wait: HumanWait { prompt, ..now.wait },
-                ..now
-            }),
-        )?;
         tx.commit()?;
         self.publish_nodes();
         Ok(())
+    }
+
+    pub fn limit_left(
+        &self,
+        node: NodeId,
+        limit: WaitLimit,
+        rows: Vec<String>,
+    ) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let left: bool = tx
+            .query_row(
+                "SELECT limited = 1 AND NOT EXISTS (SELECT 1 FROM relaunch_plans r WHERE r.node = n.id)
+                 FROM nodes n WHERE n.id = ?1",
+                [node.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !left || has_alert(&tx, node, WaitKind::Limit)? {
+            return Ok(());
+        }
+        let text = format!(
+            "{} 계정이 사용 한도에 걸렸습니다.",
+            json_name(&limit.provider)
+        );
+        let wait = HumanWait {
+            limit: Some(limit),
+            screen: rows,
+            ..new_wait(&tx, WaitKind::Limit, text, false, None)?
+        };
+        put_alert(&tx, node, &wait)?;
+        tx.commit()?;
+        self.publish_nodes();
+        Ok(())
+    }
+
+    pub fn screen_wait(&self, wait: WaitId) -> Result<NodeId, Refusal> {
+        self.lock()
+            .query_row(
+                "SELECT id FROM nodes WHERE wait ->> 'id' = ?1
+                 UNION ALL SELECT node FROM alerts WHERE id = ?1",
+                [wait.0],
+                |row| Ok(NodeId(row.get(0)?)),
+            )
+            .optional()?
+            .ok_or(Refusal::NoWait(wait))
     }
 
     pub fn ask(&self, id: NodeId, question: &str, doc: Option<WaitDoc>) -> Result<WaitId, Refusal> {
@@ -462,6 +535,8 @@ impl Graph {
                     };
                     events::write(&tx, &entry, None)?;
                 }
+                Err(Refusal::NoWait(_))
+                    if tx.execute("DELETE FROM alerts WHERE id = ?1", [wait.0])? > 0 => {}
                 Err(Refusal::NoWait(_)) => {
                     let node = tx
                         .query_row(
@@ -522,9 +597,30 @@ pub(super) fn put_done(
     images: &[PathBuf],
     doc: Option<WaitDoc>,
 ) -> rusqlite::Result<()> {
+    put_finished(db, id, WaitKind::Done, asked, summary, images, doc)
+}
+
+pub(super) fn put_reply(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    heard: &str,
+    reply: &str,
+) -> rusqlite::Result<()> {
+    put_finished(db, id, WaitKind::Reply, heard, reply, &[], None)
+}
+
+fn put_finished(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    kind: WaitKind,
+    asked: &str,
+    summary: &str,
+    images: &[PathBuf],
+    doc: Option<WaitDoc>,
+) -> rusqlite::Result<()> {
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
-    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc.clone())?;
+    let mut wait = new_wait(db, kind, summary.clone(), true, doc.clone())?;
     wait.instruction = (!instruction.is_empty()).then(|| instruction.clone());
     wait.images = images
         .iter()
@@ -545,12 +641,86 @@ pub(super) fn put_done(
     events::write(db, &entry, None)
 }
 
-pub(super) fn drop_questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
-    let how = Closed::Unanswered { by: ClosedBy::Exit };
-    for wait in closed::close_all(db, Open::Question, id, &how)? {
-        unanswered(db, id, wait, ClosedBy::Exit)?;
+pub(super) fn open_stopped(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    text: String,
+) -> rusqlite::Result<()> {
+    if has_alert(db, id, WaitKind::Stopped)? {
+        return Ok(());
     }
-    Ok(())
+    let wait = new_wait(db, WaitKind::Stopped, text, false, None)?;
+    put_alert(db, id, &wait)
+}
+
+pub(super) fn drop_alert(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    kind: WaitKind,
+) -> rusqlite::Result<usize> {
+    db.execute(
+        "DELETE FROM alerts WHERE node = ?1 AND wait ->> 'kind' = ?2",
+        params![id.0, json_name(&kind)],
+    )
+}
+
+fn has_alert(db: &rusqlite::Connection, id: NodeId, kind: WaitKind) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM alerts WHERE node = ?1 AND wait ->> 'kind' = ?2)",
+        params![id.0, json_name(&kind)],
+        |row| row.get(0),
+    )
+}
+
+fn put_alert(db: &rusqlite::Connection, id: NodeId, wait: &HumanWait) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO alerts (id, node, wait) VALUES (?1, ?2, ?3)",
+        params![wait.id.0, id.0, to_json(wait)],
+    )
+    .map(drop)
+}
+
+fn limit_rows(db: &rusqlite::Connection, id: NodeId, rows: &[String]) -> rusqlite::Result<bool> {
+    let limit = json_name(&WaitKind::Limit);
+    let alerts: Vec<(u32, String)> = db
+        .prepare_cached("SELECT id, wait FROM alerts WHERE node = ?1 AND wait ->> 'kind' = ?2")?
+        .query_map(params![id.0, limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut changed = false;
+    for (alert, text) in alerts {
+        let Ok(wait) = serde_json::from_str::<HumanWait>(&text) else {
+            continue;
+        };
+        if wait.screen == rows {
+            continue;
+        }
+        let wait = HumanWait {
+            screen: rows.to_vec(),
+            ..wait
+        };
+        db.execute(
+            "UPDATE alerts SET wait = ?2 WHERE id = ?1",
+            params![alert, to_json(&wait)],
+        )?;
+        changed = true;
+    }
+    Ok(changed)
+}
+
+fn json_name(value: &impl Serialize) -> String {
+    to_json(value).trim_matches('"').to_owned()
+}
+
+fn shown(wait: HumanWait, prompt: Option<Prompt>, rows: Vec<String>) -> HumanWait {
+    let screen = match prompt {
+        Some(_) => Vec::new(),
+        None => rows,
+    };
+    HumanWait {
+        prompt,
+        screen,
+        ..wait
+    }
 }
 
 pub(super) fn drop_on_removal(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
@@ -577,7 +747,14 @@ pub(super) fn unreported_root(db: &rusqlite::Connection, id: NodeId) -> rusqlite
     if parent_of(db, id)?.is_some() || !running_live(db, id)? {
         return Ok(false);
     }
-    Ok(stored(db, id)?.is_some_and(|wait| wait.is_none()) && questions(db, id)?.is_empty())
+    let alerts: bool = db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM alerts WHERE node = ?1)",
+        [id.0],
+        |row| row.get(0),
+    )?;
+    Ok(stored(db, id)?.is_some_and(|wait| wait.is_none())
+        && questions(db, id)?.is_empty()
+        && !alerts)
 }
 
 fn stored(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Option<Option<Stored>>> {
@@ -609,6 +786,8 @@ pub(super) fn new_wait(
         instruction: None,
         images: Vec::new(),
         prompt: None,
+        screen: Vec::new(),
+        limit: None,
         blocks: Vec::new(),
         choices: Vec::new(),
     })

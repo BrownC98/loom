@@ -15,6 +15,7 @@ use crate::protocol::{
     AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, ListenAt, ListenRequest, MessageId,
     Report, Session, TakeRequest, Taken, TurnReply, WakeReply,
 };
+use crate::screen;
 use api::graph::GraphEvent;
 use api::graph::errors::Refusal;
 use api::graph::events::{AgentEvent, Entry, IdleEnd};
@@ -412,12 +413,13 @@ impl App {
                         wait.as_ref()
                             .map(|(kind, text, prompt)| (*kind, text.as_str(), prompt.clone())),
                     )
-                    .and_then(|()| match on_screen.then(|| self.profile(node)).flatten() {
-                        Some(profile) => {
-                            let prompt = profile::prompt(Some(profile), &self.host.screen(node));
-                            self.graph.screen_prompt(token, prompt)
+                    .and_then(|()| match on_screen {
+                        true => {
+                            let now = self.host.screen(node);
+                            let prompt = profile::prompt(self.profile(node), &now);
+                            self.graph.screen_prompt(token, prompt, screen::rows(&now))
                         }
-                        None => Ok(()),
+                        false => Ok(()),
                     })
             }
             Report::Said { text, turn } => {

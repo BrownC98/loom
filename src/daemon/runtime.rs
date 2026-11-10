@@ -498,9 +498,7 @@ impl App {
         let Some(attached) = self.host.attach(id) else {
             return;
         };
-        if !profile::reads_screen(profile) {
-            return;
-        }
+        let reads = profile::reads_screen(profile);
         let mut started = self.sessions.launched(id, token);
         let (app, token) = (self.clone(), token.to_owned());
         tokio::spawn(async move {
@@ -527,18 +525,25 @@ impl App {
                 }
                 changed = false;
                 let now = app.host.screen(id);
-                let found = profile::wait(profile, &now, *started.borrow_and_update());
+                let rows = screen::rows(&now);
+                let session = *started.borrow_and_update();
+                if !reads {
+                    if let Err(e) = app.graph.screen_prompt(&token, None, rows) {
+                        crate::log::logln!("loom: 노드 {}의 화면 줄을 쓰지 못했다: {e}", id.0);
+                    }
+                    continue;
+                }
+                let found = profile::wait(profile, &now, session);
                 let prompt = profile::prompt(profile, &now);
                 let written = match &found {
-                    Some((kind, text)) => {
-                        app.graph
-                            .set_wait(&token, WaitSource::Screen, Some((*kind, text, prompt)))
-                    }
-                    None => app
-                        .graph
-                        .set_wait(&token, WaitSource::Screen, None)
-                        .and_then(|()| app.graph.screen_prompt(&token, prompt)),
-                };
+                    Some((kind, text)) => app.graph.set_wait(
+                        &token,
+                        WaitSource::Screen,
+                        Some((*kind, text, prompt.clone())),
+                    ),
+                    None => app.graph.set_wait(&token, WaitSource::Screen, None),
+                }
+                .and_then(|()| app.graph.screen_prompt(&token, prompt, rows));
                 if let Err(e) = written {
                     crate::log::logln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }

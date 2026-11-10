@@ -277,12 +277,6 @@ impl Graph {
         Ok(())
     }
 
-    pub fn limit_cleared(&self, node: NodeId) -> rusqlite::Result<()> {
-        self.lock()
-            .execute("UPDATE nodes SET limited = 0 WHERE id = ?1", [node.0])?;
-        Ok(())
-    }
-
     pub fn limited(&self, node: NodeId) -> rusqlite::Result<bool> {
         self.lock()
             .query_row("SELECT limited FROM nodes WHERE id = ?1", [node.0], |row| {

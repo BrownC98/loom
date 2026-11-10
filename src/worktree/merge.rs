@@ -204,7 +204,7 @@ common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
 mins=$1
 shift
 n=0 kib=0
-for f in "$common/loom-logs"/batch-* "$common/loom-logs"/deploy-*; do
+for f in "$common/loom-logs"/batch-* "$common/loom-logs"/check-* "$common/loom-logs"/deploy-*; do
   [ -f "$f" ] || continue
   name=${f##*/}
   for open in "$@"; do

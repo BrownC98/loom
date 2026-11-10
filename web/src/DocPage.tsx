@@ -146,9 +146,9 @@ export function DocPage({ id }: { id: string }) {
                 {decisions.map((d) => {
                   const value = pickText(picks[d.id]) || null;
                   return (
-                    <span key={d.id} className="pick" data-empty={!value || undefined} title={value ?? undefined}>
+                    <button key={d.id} type="button" className="pick" data-empty={!value || undefined} title={value ?? undefined} onClick={() => toDoc({ kind: 'focus', id: d.id })}>
                       {d.id}: {value ?? '—'}
-                    </span>
+                    </button>
                   );
                 })}
                 <button type="button" className="btn send" disabled={busy || !ready} onClick={submit}>

@@ -95,7 +95,8 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
       {wait.instruction && <Instruction text={wait.instruction} />}
       <div className="wait-body" data-tone={wait.tone}>
         <WaitContent node={target.view.id} wait={wait} hints={keyed} onClose={close} />
-        {wait.answerable ? wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints={keyed} /> : <NoticeActions node={target.view.id} wait={wait} onClose={close} />}
+        {wait.answerable && wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints={keyed} />}
+        <NoticeActions node={target.view.id} wait={wait} onClose={close} />
       </div>
     </div>
   );

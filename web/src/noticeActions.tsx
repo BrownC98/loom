@@ -100,27 +100,32 @@ function StoppedActions(props: { node: NodeId; wait: WaitId; onClose: Close }) {
   );
 }
 
-const sessionUsed = (a: AccountView) => (a.usage.limits.kind === 'ready' ? (a.usage.limits.session?.used ?? null) : null);
+function usedOf(a: AccountView): number | null {
+  const limits = a.usage.limits;
+  if (limits.kind !== 'ready') return null;
+  const used = [limits.session, limits.weekly].flatMap((w) => (w ? [w.used] : []));
+  return used.length ? Math.max(...used) : null;
+}
 
 function LimitActions(props: { wait: WaitId; limit: WaitLimit; onClose: Close }) {
   const { t } = useTranslation();
   const moves = useContext(AccountMovesContext);
   const { run, shown } = useRefusal();
-  const others = moves.others(props.limit).flatMap((a) => {
-    const used = sessionUsed(a);
-    return used === null ? [] : [{ a, used }];
-  });
-  const lowest = Math.min(...others.map((o) => o.used));
+  const others = moves
+    .others(props.limit)
+    .map((a) => ({ a, used: usedOf(a) }))
+    .sort((x, y) => (x.used ?? Infinity) - (y.used ?? Infinity));
+  const known = others[0]?.used != null;
   const resets = props.limit.resets_at;
   return (
     <>
       {resets !== null && <p className="limit-resets">{t('inbox.limitResets', { time: hourMinute(resets * 1000) })}</p>}
       <div className="choices">
-        {others.map(({ a, used }) => (
-          <button key={a.id ?? 'system'} type="button" className="choice" data-recommended={used === lowest || undefined} onClick={() => run(() => moves.move(a), props.onClose)}>
+        {others.map(({ a, used }, index) => (
+          <button key={a.id ?? 'system'} type="button" className="choice" data-recommended={(index === 0 && known) || undefined} onClick={() => run(() => moves.move(a), props.onClose)}>
             <span className="label">
-              {t('inbox.limitMove', { name: accountName(a), used })}
-              {used === lowest && <span className="mark">{t('inbox.recommended')}</span>}
+              {t('inbox.limitMove', { name: accountName(a), used: used ?? '?' })}
+              {index === 0 && known && <span className="mark">{t('inbox.recommended')}</span>}
             </span>
           </button>
         ))}

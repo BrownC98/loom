@@ -259,7 +259,7 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait }) {
   return (
     <div className="wait-body" data-tone={wait.tone} data-dragging={dragging || undefined} {...drop}>
       <WaitContent node={props.node} wait={wait} />
-      {wait.answerable ? (
+      {wait.answerable && (
         <>
           {!done && <Choices list={wait.choices ?? []} onPick={send} />}
           <ImageList images={images.list} onRemove={images.remove} />
@@ -272,9 +272,8 @@ function WaitBody(props: { node: NodeId; wait: ScreenWait }) {
             onPasteImages={images.attach}
           />
         </>
-      ) : (
-        <NoticeActions node={props.node} wait={wait} />
       )}
+      <NoticeActions node={props.node} wait={wait} />
       {screen && <AnswerForm wait={wait.id} qid={qid} placeholder={t('inbox.screenPlaceholder')} hasImages={false} onSend={typeOn(screen)} />}
       {refusal && (
         <p className="refusal" role="alert">

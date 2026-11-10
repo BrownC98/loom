@@ -516,8 +516,9 @@ impl App {
         let _ = profile::adapter(profile).end_detached(&old, &site).await;
         if let Err(e) = Served::end_stored(&old).await {
             prepared.discarder()();
-            let _ = self.graph.lost(node.id);
-            return Err(format!("옛 세션이 끝나지 않았다: {e}"));
+            let error = format!("옛 세션이 끝나지 않았다: {e}");
+            let _ = self.graph.relaunch_lost(node.id, &error);
+            return Err(error);
         }
         self.run_resumed(node.id, prepared)
             .await
@@ -671,13 +672,13 @@ impl App {
             .switched(id, &prepared.launched(), &to.agent, &model)
         {
             discard();
-            let _ = self.graph.lost(id);
+            let _ = self.graph.relaunch_lost(id, &e.to_string());
             return Err(e.to_string());
         }
         self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
-            let _ = self.graph.lost(id);
+            let _ = self.graph.relaunch_lost(id, &e);
             return Err(e);
         }
         if let Err(e) = self.graph.limit_cleared(id) {
@@ -814,18 +815,18 @@ impl App {
         let discard = prepared.discarder();
         if let Err(e) = prepared.before_start().await {
             discard();
-            let _ = self.graph.lost(id);
+            let _ = self.graph.relaunch_lost(id, &e);
             return Err(e);
         }
         if let Err(e) = self.graph.relaunched(id, &prepared.launched()) {
             discard();
-            let _ = self.graph.lost(id);
+            let _ = self.graph.relaunch_lost(id, &e.to_string());
             return Err(e.to_string());
         }
         self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
-            let _ = self.graph.lost(id);
+            let _ = self.graph.relaunch_lost(id, &e);
             return Err(e);
         }
         if let Err(e) = self.graph.limit_cleared(id) {

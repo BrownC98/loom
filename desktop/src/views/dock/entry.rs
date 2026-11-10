@@ -1,4 +1,4 @@
-use api::graph::waits::WaitTone;
+use api::graph::waits::{WaitKind, WaitTone};
 use gpui::{
     Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, Styled, Svg,
     div, px, svg,
@@ -24,10 +24,13 @@ pub(crate) fn tone_ink(tone: WaitTone, c: &Colors) -> Rgba {
     }
 }
 
-pub(crate) fn mark(tone: WaitTone, z: f32, c: &Colors) -> Svg {
-    let glyph = match tone {
-        WaitTone::Ask => Lucide::CircleQuestionMark,
-        WaitTone::Done => Lucide::CircleCheck,
+pub(crate) fn mark(kind: WaitKind, tone: WaitTone, z: f32, c: &Colors) -> Svg {
+    let glyph = match (kind, tone) {
+        (WaitKind::Reply, _) => Lucide::MessageCircle,
+        (WaitKind::Stopped, _) => Lucide::CircleStop,
+        (WaitKind::Limit, _) => Lucide::Gauge,
+        (_, WaitTone::Ask) => Lucide::CircleQuestionMark,
+        (_, WaitTone::Done) => Lucide::CircleCheck,
     };
     icon(glyph, 15.0 * z, tone_of(tone, c))
 }

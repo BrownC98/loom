@@ -7,9 +7,10 @@ import { PROMPT, startClosing, type Target } from './alertTarget';
 import type { ScreenWait } from './gen/ScreenWait';
 import type { WaitId } from './gen/WaitId';
 import { clockTime } from './i18n';
-import { Choices, ConfirmButton, DismissButton, entryClick, Instruction, ToTerminal, WaitContent } from './Inbox';
+import { Choices, ConfirmButton, DismissButton, entryClick, Instruction, WaitContent } from './Inbox';
 import { Menu } from './Menu';
-import { ICON } from './notice';
+import { closesInBody, ICON, kindIcon } from './notice';
+import { NoticeActions } from './noticeActions';
 
 function ConfirmAll(props: { place: ScreenWait; waits: readonly WaitId[] }) {
   const { t } = useTranslation();
@@ -59,13 +60,15 @@ function ConfirmAll(props: { place: ScreenWait; waits: readonly WaitId[] }) {
   );
 }
 
-export function AlertCard(props: { target: Target; repo: string; onChoose: (key: string) => void; onGo: () => void; onFocus: () => void }) {
+export function AlertCard(props: { target: Target; repo: string; onChoose: (key: string) => void; onFocus: () => void }) {
   const { t } = useTranslation();
   const { target } = props;
   const wait = target.card;
   if (!wait) return null;
   const done = target.stream.filter((s) => s.wait.tone === 'done').map((s) => s.wait.id);
-  const Icon = ICON[wait.tone];
+  const kinds = (kind: ScreenWait['kind']) => target.stream.filter((s) => s.wait.kind === kind).length;
+  const close = () => startClosing(wait, [wait.id]);
+  const Icon = kindIcon(wait);
   const keyed = target.key !== PROMPT;
   return (
     <div className="entry alert-card" data-tone={wait.tone} onClick={entryClick(props.onFocus)}>
@@ -79,20 +82,21 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
           {clockTime(wait.since * 1000)}
         </time>
         {target.key === PROMPT && wait.tone !== 'done' && <span className="alert-aside">{t('composer.notAnswer')}</span>}
-        <span className="alert-pos">{t('composer.alertTotal', { total: target.stream.length, ask: target.stream.length - done.length, done: done.length })}</span>
+        <span className="alert-pos">{t('composer.alertTotal', { total: target.stream.length, ask: target.stream.length - done.length, done: kinds('done'), reply: kinds('reply') })}</span>
         {wait.tone === 'done' ? (
           <span className="confirm-split">
-            <ConfirmButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} />
+            <ConfirmButton wait={wait.id} onClose={close} />
             {done.length > 1 && <ConfirmAll key={wait.id} place={wait} waits={done} />}
           </span>
         ) : (
-          <DismissButton wait={wait.id} onClose={() => startClosing(wait, [wait.id])} />
+          !closesInBody(wait.kind) && <DismissButton wait={wait.id} onClose={close} />
         )}
       </div>
       {wait.instruction && <Instruction text={wait.instruction} />}
       <div className="wait-body" data-tone={wait.tone}>
-        <WaitContent node={target.view.id} wait={wait} hints={keyed} onClose={() => startClosing(wait, [wait.id])} />
-        {wait.answerable ? wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints={keyed} /> : <ToTerminal onGo={props.onGo} />}
+        <WaitContent node={target.view.id} wait={wait} hints={keyed} onClose={close} />
+        {wait.answerable && wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints={keyed} />}
+        <NoticeActions node={target.view.id} wait={wait} onClose={close} />
       </div>
     </div>
   );

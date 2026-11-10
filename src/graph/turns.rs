@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Graph;
 use super::gate::{Unjudged, unjudged};
-use super::waits::{put_done, unreported_root};
+use super::waits::{put_reply, unreported_root};
 use crate::protocol::kind_line;
 use api::graph::events::TurnCheck;
 use api::ids::NodeId;
@@ -261,14 +261,7 @@ impl Graph {
                     && !has(Bit::Called)
                     && unreported_root(&tx, node)? =>
             {
-                put_done(
-                    &tx,
-                    node,
-                    heard.as_deref().unwrap_or_default(),
-                    reply,
-                    &[],
-                    None,
-                )?;
+                put_reply(&tx, node, heard.as_deref().unwrap_or_default(), reply)?;
                 true
             }
             _ => false,

@@ -18,6 +18,15 @@ impl Failure {
             Failure::Other(text) => text.clone(),
         }
     }
+    pub fn refusal(&self) -> Option<String> {
+        let Failure::Refused { body, .. } = self else {
+            return None;
+        };
+        let problem: Value = serde_json::from_str(body).ok()?;
+        (problem.get("code")?.as_str()? == "refused")
+            .then(|| problem.get("value").and_then(code).map(str::to_owned))
+            .flatten()
+    }
 }
 
 fn text(body: &str, lang: Lang) -> Option<String> {

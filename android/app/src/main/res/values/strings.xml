@@ -41,4 +41,7 @@
     <string name="wait_auth">Login or account setup</string>
     <string name="wait_input">Input</string>
     <string name="wait_done">Done</string>
+    <string name="wait_reply">Reply</string>
+    <string name="wait_stopped">Stopped</string>
+    <string name="wait_limit">Usage limit</string>
 </resources>

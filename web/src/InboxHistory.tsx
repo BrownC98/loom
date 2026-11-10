@@ -11,7 +11,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { dateAndTime } from './i18n';
 import { InboxPanel, Instruction, Published, waitCount } from './Inbox';
-import { ICON, showsId } from './notice';
+import { kindIcon, showsId } from './notice';
 import { useInboxFind } from './inboxFind';
 import { openMatches, TYPE_PAUSE_MS } from './waitSearch';
 
@@ -177,7 +177,7 @@ function History(props: { open: string; query: string; onSelect: (id: NodeId) =>
 const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (id: NodeId) => void; onRefusal: (message: string) => void; t: TFunction }) {
   const { t } = props;
   const { wait, node, chosen } = props.closed;
-  const Icon = ICON[wait.tone];
+  const Icon = kindIcon(wait);
   const choices = wait.choices ?? [];
   return (
     <li className="history-row" data-tone={wait.tone}>

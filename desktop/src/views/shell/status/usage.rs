@@ -287,10 +287,7 @@ impl Usage {
         cx.spawn_in(window, async move |this, cx| {
             let done = cx
                 .background_spawn(async move {
-                    if let Some(patch) = patch {
-                        link::put_settings(&base, &patch)?;
-                    }
-                    usage::move_nodes(&base, provider, distro.as_deref())
+                    usage::switch_all(&base, patch.as_ref(), provider, distro.as_deref())
                 })
                 .await;
             let lang = cx.update(|_, cx| *cx.global::<Lang>()).unwrap_or(Lang::En);

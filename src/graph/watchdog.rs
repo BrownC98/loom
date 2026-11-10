@@ -10,7 +10,8 @@ fn quiet() -> String {
         "n.process IS NULL AND n.state ->> 'kind' != 'done' AND n.wait IS NULL AND n.reply IS NOT NULL
      AND (n.turn_flags & {HUMAN_REPLY}) = 0
      AND EXISTS (SELECT 1 FROM agent_states s WHERE s.node = n.id AND s.state ->> 'kind' = 'listening')
-     AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = n.id)"
+     AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.node = n.id)
+     AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.node = n.id)"
     )
 }
 

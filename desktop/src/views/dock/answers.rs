@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use api::graph::waits::{InputField, Prompt, ScreenWait, WaitKind, WaitTone};
-use api::ids::{NodeId, WaitId};
+use api::graph::waits::{
+    InputField, Press, PressKeys, Prompt, ScreenWait, TermKey, WaitKind, WaitLimit, WaitTone,
+};
+use api::ids::{AccountId, NodeId, WaitId};
+use api::settings::accounts::AccountView;
+use api::settings::usage::Limits;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, FontWeight, Image,
@@ -16,17 +20,32 @@ use super::entry::{self, Choice, Look};
 use super::find::{self, Find};
 use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, SMALL};
+use crate::link;
+use crate::settings::settings_patch;
 use crate::store::{BusyChanged, DraftChanged, Slot, Store};
 use crate::strings::Str;
 use crate::theme::mix;
+use crate::views::cardlink;
 use crate::views::field::{self, Field, FieldEvent};
 use crate::views::icons::{Lucide, icon};
 use crate::views::pictures::{self, Pictures, PicturesEvent, Shelf};
 use crate::views::tooltip::tip;
+use crate::views::usage::{self, ACCOUNTS, AccountsChanged, account_name, active_index};
 use crate::views::viewer::Viewer;
 
 const SHOT_HEIGHT: f32 = 44.0;
 const SHOT_WIDTH: f32 = 64.0;
+const RESETS: &str = "%H:%M";
+const SCREEN_KEYS: [(&str, Press); 8] = [
+    ("Enter", Press::Key(TermKey::Enter)),
+    ("Esc", Press::Key(TermKey::Escape)),
+    ("\u{2190}", Press::Key(TermKey::Left)),
+    ("\u{2192}", Press::Key(TermKey::Right)),
+    ("\u{2191}", Press::Key(TermKey::Up)),
+    ("\u{2193}", Press::Key(TermKey::Down)),
+    ("y", Press::Char('y')),
+    ("n", Press::Char('n')),
+];
 
 struct Draft {
     field: Entity<Field>,
@@ -79,7 +98,15 @@ pub(crate) struct Answers {
     viewer: Entity<Viewer>,
     zoomed: Option<u32>,
     shared: Option<Entity<Pictures>>,
+    accounts: Option<Vec<AccountView>>,
+    reading: bool,
     _subs: Vec<Subscription>,
+}
+
+struct Move {
+    to: Option<AccountId>,
+    name: String,
+    used: Option<u8>,
 }
 
 fn drop_absent_slots(fields: &mut HashMap<(u32, Slot), Draft>, id: u32, prompt: Option<&Prompt>) {
@@ -111,8 +138,16 @@ impl Answers {
             viewer: cx.new(Viewer::new),
             zoomed: None,
             shared: None,
+            accounts: None,
+            reading: false,
             _subs: Vec::new(),
         };
+        answers
+            ._subs
+            .push(cx.observe_global::<AccountsChanged>(|answers, cx| {
+                answers.accounts = None;
+                answers.sync(cx);
+            }));
         answers
             ._subs
             .push(cx.observe(&store, |answers, _, cx| answers.sync(cx)));
@@ -163,12 +198,104 @@ impl Answers {
         self.shelf.update(cx, |shelf, _| shelf.keep(&live));
         self.store
             .update(cx, |store, cx| store.keep_waits(&live, cx));
+        if waits.iter().any(|(_, w)| w.wait.limit.is_some()) && self.accounts.is_none() {
+            self.read_accounts(cx);
+        }
         for (node, wait) in &waits {
             self.ensure_pictures(*node, wait, cx);
             self.ensure_fields(wait, cx);
             self.load_images(wait, cx);
         }
         cx.notify();
+    }
+
+    fn read_accounts(&mut self, cx: &mut Context<Self>) {
+        if self.reading {
+            return;
+        }
+        self.reading = true;
+        let task = self.store.update(cx, |store, cx| {
+            store.call(cx, |base| link::read(base, ACCOUNTS))
+        });
+        cx.spawn(async move |this, cx| {
+            let read = task.await;
+            let _ = this.update(cx, |answers, cx| {
+                answers.reading = false;
+                answers.accounts = Some(read.unwrap_or_default());
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn moves(&self, limit: &WaitLimit, cx: &App) -> Vec<Move> {
+        let distro = limit.distro.as_deref();
+        let own: Vec<&AccountView> = self
+            .accounts
+            .iter()
+            .flatten()
+            .filter(|a| a.provider == limit.provider && a.distro.as_deref() == distro)
+            .collect();
+        let chosen = self
+            .store
+            .read(cx)
+            .settings()
+            .account(limit.provider, distro);
+        let active = active_index(&own, chosen);
+        let mut moves: Vec<Move> = own
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != active)
+            .map(|(_, account)| Move {
+                to: account.id.clone(),
+                name: account_name(account, cx),
+                used: used(&account.usage.limits),
+            })
+            .collect();
+        moves.sort_by_key(|m| m.used.unwrap_or(u8::MAX));
+        moves
+    }
+
+    fn press(&mut self, wait: u32, keys: PressKeys, cx: &mut Context<Self>) {
+        if self.store.read(cx).is_busy(wait) {
+            return;
+        }
+        let task = self
+            .store
+            .update(cx, |store, cx| store.press_keys(WaitId(wait), keys, cx));
+        self.run(wait, None, task, cx);
+    }
+
+    fn relaunch(&mut self, wait: u32, node: NodeId, cx: &mut Context<Self>) {
+        let task = self.store.update(cx, |store, cx| {
+            store.call(cx, move |base| cardlink::relaunch(base, node.0))
+        });
+        self.run(wait, None, task, cx);
+    }
+
+    fn switch(
+        &mut self,
+        wait: u32,
+        limit: &WaitLimit,
+        to: Option<AccountId>,
+        cx: &mut Context<Self>,
+    ) {
+        let (provider, distro) = (limit.provider, limit.distro.clone());
+        let before = self.store.read(cx).settings();
+        let mut after = before.clone();
+        after.set_account(provider, distro.as_deref(), to);
+        let patch = settings_patch(before, &after);
+        let task = self.store.update(cx, |store, cx| {
+            store.call(cx, move |base| {
+                usage::switch_all(base, patch.as_ref(), provider, distro.as_deref())
+            })
+        });
+        let store = self.store.clone();
+        let done: Done = Box::new(move |cx| {
+            store.update(cx, |store, cx| store.reload(cx));
+            usage::accounts_changed(cx);
+        });
+        self.run(wait, Some(done), task, cx);
     }
 
     fn load_images(&mut self, wait: &ScreenWait, cx: &mut Context<Self>) {
@@ -560,6 +687,20 @@ impl Answers {
     }
 }
 
+fn used(limits: &Limits) -> Option<u8> {
+    let Limits::Ready {
+        session, weekly, ..
+    } = limits
+    else {
+        return None;
+    };
+    [session, weekly]
+        .into_iter()
+        .flatten()
+        .map(|w| w.used)
+        .max()
+}
+
 fn hint(shown: bool, index: usize) -> Option<String> {
     (shown && index < 9).then(|| format!("Alt+{}", index + 1))
 }
@@ -610,10 +751,7 @@ pub(crate) fn card(
     hints: bool,
     cx: &mut App,
 ) -> Div {
-    let mut body = wait_content(answers, wait, z, None, hints, cx);
-    if !wait.wait.answerable && wait.wait.prompt.is_none() {
-        body = body.child(terminal_link(answers, node, wait.wait.id.0, z, cx));
-    }
+    let body = wait_content(answers, node, wait, z, None, hints, cx);
     framed(answers, wait, z, None, body, Some(strip), cx)
 }
 
@@ -656,7 +794,7 @@ fn framed(
         .items_center()
         .gap(px(GAP * z))
         .min_w_0()
-        .child(entry::mark(wait.tone, z, &c))
+        .child(entry::mark(wait.wait.kind, wait.tone, z, &c))
         .children(
             (!carded || wait.wait.kind != WaitKind::Question)
                 .then(|| entry::clip(ui::say(cx, kind_label(wait.wait.kind)), z, &c).flex_none()),
@@ -770,6 +908,7 @@ fn framed(
 
 fn wait_content(
     answers: &Entity<Answers>,
+    node: NodeId,
     wait: &ScreenWait,
     z: f32,
     find: Option<&Find>,
@@ -894,7 +1033,158 @@ fn wait_content(
             }),
         ));
     }
-    body
+    body.children(screen_keys(answers, wait, z, cx))
+        .children(kind_acts(answers, node, wait, z, cx))
+}
+
+fn act(
+    id: (&'static str, usize),
+    label: &str,
+    recommended: bool,
+    z: f32,
+    cx: &App,
+) -> Stateful<Div> {
+    let c = ui::colors(cx);
+    let color = entry::tone_of(WaitTone::Ask, &c);
+    let button = ui::button_at(id, z, cx)
+        .flex_none()
+        .whitespace_nowrap()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    let button = if recommended {
+        button.border_color(color).bg(mix(color, 0.1, c.surface))
+    } else {
+        button
+    };
+    button.child(label.to_owned())
+}
+
+fn closer(answers: &Entity<Answers>, id: u32, z: f32, cx: &App) -> Stateful<Div> {
+    let owner = answers.clone();
+    act(
+        ("wait-close", id as usize),
+        ui::say(cx, Str::CommonClose),
+        false,
+        z,
+        cx,
+    )
+    .on_click(move |_, _, cx| owner.update(cx, |answers, cx| answers.dismiss(id, cx)))
+}
+
+fn screen_keys(answers: &Entity<Answers>, wait: &ScreenWait, z: f32, cx: &App) -> Option<Div> {
+    if wait.wait.prompt.is_some() || wait.wait.screen.is_empty() {
+        return None;
+    }
+    let c = ui::colors(cx);
+    let id = wait.wait.id.0;
+    let keys = SCREEN_KEYS
+        .iter()
+        .enumerate()
+        .map(|(index, (label, press))| {
+            let (owner, screen, press) = (answers.clone(), wait.wait.screen.clone(), press.clone());
+            act(
+                ("screen-key", id as usize * 16 + index),
+                label,
+                false,
+                z,
+                cx,
+            )
+            .font_family(crate::fonts::TERMINAL_FAMILY)
+            .on_click(move |_, _, cx| {
+                let keys = PressKeys {
+                    screen: screen.clone(),
+                    press: press.clone(),
+                };
+                owner.update(cx, |answers, cx| answers.press(id, keys, cx))
+            })
+        });
+    let rows = wait.wait.screen.join("\n");
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(GAP * z))
+            .child(
+                entry::prompt_box(rows, z, &c)
+                    .whitespace_nowrap()
+                    .overflow_hidden(),
+            )
+            .child(div().flex().flex_wrap().gap(px(GAP * z)).children(keys)),
+    )
+}
+
+fn kind_acts(
+    answers: &Entity<Answers>,
+    node: NodeId,
+    wait: &ScreenWait,
+    z: f32,
+    cx: &App,
+) -> Option<Div> {
+    let c = ui::colors(cx);
+    let id = wait.wait.id.0;
+    let row = div().flex().flex_wrap().gap(px(GAP * z));
+    match wait.wait.kind {
+        WaitKind::Stopped => {
+            let owner = answers.clone();
+            let again = act(
+                ("relaunch", id as usize),
+                ui::say(cx, Str::NodeRelaunch),
+                true,
+                z,
+                cx,
+            )
+            .child(icon(Lucide::RotateCw, 14.0 * z, c.ink))
+            .on_click(move |_, _, cx| {
+                owner.update(cx, |answers, cx| answers.relaunch(id, node, cx))
+            });
+            Some(row.child(again).child(closer(answers, id, z, cx)))
+        }
+        WaitKind::Limit => {
+            let limit = wait.wait.limit.clone()?;
+            let moves = answers.read(cx).moves(&limit, cx);
+            let buttons: Vec<Stateful<Div>> = moves
+                .into_iter()
+                .enumerate()
+                .map(|(index, m)| {
+                    let used = m.used.map_or_else(|| "?".to_owned(), |u| u.to_string());
+                    let label = ui::say_with(
+                        cx,
+                        Str::InboxLimitMove,
+                        &[("name", &m.name), ("used", &used)],
+                    );
+                    let (owner, limit, to) = (answers.clone(), limit.clone(), m.to);
+                    act(
+                        ("limit-move", id as usize * 16 + index % 16),
+                        &label,
+                        index == 0 && m.used.is_some(),
+                        z,
+                        cx,
+                    )
+                    .on_click(move |_, _, cx| {
+                        owner.update(cx, |answers, cx| answers.switch(id, &limit, to.clone(), cx))
+                    })
+                })
+                .collect();
+            let resets = limit.resets_at.map(|at| {
+                div()
+                    .text_size(px(SMALL * z))
+                    .text_color(c.ink_2)
+                    .child(ui::say_with(
+                        cx,
+                        Str::InboxLimitResets,
+                        &[("time", &ui::clock(at, RESETS))],
+                    ))
+            });
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(GAP * z))
+                    .children(resets)
+                    .child(row.children(buttons).child(closer(answers, id, z, cx))),
+            )
+        }
+        _ => None,
+    }
 }
 
 fn wait_body(
@@ -913,7 +1203,7 @@ fn wait_body(
     } else {
         ui::say(cx, kind_label(wait.wait.kind)).to_owned()
     };
-    let mut body = wait_content(answers, wait, z, find, false, cx);
+    let mut body = wait_content(answers, node, wait, z, find, false, cx);
     if wait.wait.answerable {
         let pictures = answers
             .read(cx)
@@ -989,46 +1279,8 @@ fn wait_body(
                     })
                 });
         }
-    } else if wait.wait.prompt.is_none() {
-        body = body.child(terminal_link(answers, node, id, z, cx));
     }
     body
-}
-
-fn terminal_link(
-    answers: &Entity<Answers>,
-    node: NodeId,
-    id: u32,
-    z: f32,
-    cx: &mut App,
-) -> Stateful<Div> {
-    let c = ui::colors(cx);
-    let store = answers.read(cx).store.clone();
-    let hover = c.surface_hover;
-    let ink = c.ink;
-    div()
-        .id(("terminal", id as usize))
-        .self_start()
-        .flex()
-        .items_center()
-        .gap(px(GAP * z))
-        .max_w_full()
-        .min_w_0()
-        .h(px(28.0 * z))
-        .ml(px(-8.0 * z))
-        .px(px(8.0 * z))
-        .rounded(px(6.0 * z))
-        .text_size(px(SMALL * z))
-        .text_color(c.ink_2)
-        .underline()
-        .cursor_pointer()
-        .hover(move |style| style.bg(hover).text_color(ink))
-        .child(ui::say(cx, Str::InboxToTerminal))
-        .child(icon(Lucide::ArrowRight, 12.0 * z, c.ink_2))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_, _, cx| {
-            store.update(cx, |store, cx| store.go(node.0, cx));
-        })
 }
 
 fn send_row(

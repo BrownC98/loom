@@ -666,7 +666,6 @@ const NOTIFICATION_TAG: &str = "<task-notification>";
 const MONITOR_TOOL: &str = "Monitor";
 const TASK_ID_TAG: &str = "<task-id>";
 const RATE_LIMIT_ERROR: &str = "rate_limit";
-const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 const TOOL_TARGETS: [&str; 6] = [
     "file_path",
     "notebook_path",
@@ -794,7 +793,6 @@ impl Event {
                 .iter()
                 .find(|(name, _)| name == notification_type)
                 .map(|(_, kind)| (*kind, message.clone())),
-            event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
     }

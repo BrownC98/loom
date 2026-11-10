@@ -347,6 +347,18 @@ pub fn move_nodes(
     link::post::<serde_json::Value>(base, &path, None).map(|_| ())
 }
 
+pub fn switch_all(
+    base: &str,
+    patch: Option<&serde_json::Value>,
+    provider: Provider,
+    distro: Option<&str>,
+) -> Result<(), crate::problem::Failure> {
+    if let Some(patch) = patch {
+        link::put_settings(base, patch)?;
+    }
+    move_nodes(base, provider, distro)
+}
+
 pub fn switch_content(
     switching: &Switching,
     on_keep: impl Fn(&mut Window, &mut App) + 'static,

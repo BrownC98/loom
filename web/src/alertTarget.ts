@@ -2,7 +2,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { ScreenWait } from './gen/ScreenWait';
 import type { WaitId } from './gen/WaitId';
-import { bySince } from './notice';
+import { bySince, screenOf } from './notice';
 
 export const PROMPT = 'prompt';
 
@@ -12,7 +12,7 @@ export type Chosen = { node: NodeId; key: TargetKey };
 
 export type Pin = { view: NodeView; key: TargetKey };
 
-export type Route = { kind: 'answer'; wait: ScreenWait } | { kind: 'continue'; wait: ScreenWait } | { kind: 'prompt' };
+export type Route = { kind: 'answer'; wait: ScreenWait } | { kind: 'continue'; wait: ScreenWait } | { kind: 'screen'; wait: ScreenWait; screen: string[] } | { kind: 'prompt' };
 
 export type StreamWait = { view: NodeView; wait: ScreenWait };
 
@@ -30,6 +30,8 @@ export const byStream = (a: ScreenWait, b: ScreenWait) => bySince(a, b) || a.id 
 export const streamOf = (waiting: readonly NodeView[]): StreamWait[] => waiting.flatMap((view) => view.waits.map((wait) => ({ view, wait }))).sort((a, b) => byStream(a.wait, b.wait));
 
 function routeOf(wait: ScreenWait | null): Route {
+  const screen = wait && screenOf(wait);
+  if (wait && screen) return { kind: 'screen', wait, screen };
   if (!wait || !wait.answerable) return { kind: 'prompt' };
   return { kind: wait.tone === 'done' ? 'continue' : 'answer', wait };
 }

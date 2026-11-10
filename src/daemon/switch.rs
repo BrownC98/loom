@@ -16,8 +16,10 @@ use crate::distro::Host;
 use crate::graph::Active;
 use crate::place;
 use crate::profile;
+use crate::screen;
 use api::graph::errors::Problem;
 use api::graph::events::{Entry, SwitchCause};
+use api::graph::waits::WaitLimit;
 use api::ids::{AccountId, NodeId};
 use api::profile::Provider;
 use api::settings::usage::{Limits, Window};
@@ -178,7 +180,45 @@ impl App {
             Some(Host::Ssh(_)) => return,
         };
         let app = self.clone();
-        tokio::spawn(async move { app.auto_switch(provider, distro).await });
+        tokio::spawn(async move {
+            app.auto_switch(provider, distro.clone()).await;
+            app.limit_left(node, provider, distro).await;
+        });
+    }
+
+    async fn limit_left(
+        self: &Arc<Self>,
+        node: NodeId,
+        provider: Provider,
+        distro: Option<String>,
+    ) {
+        if !self.graph.limited(node).unwrap_or(false) {
+            return;
+        }
+        let resets_at = match (
+            self.settings.get(),
+            profile::of_provider(provider),
+            self.site_of(distro.as_deref()).await,
+        ) {
+            (Ok(settings), Some(accounted), Ok(site)) => {
+                let account = settings.account(provider, distro.as_deref()).cloned();
+                let usage = self
+                    .usage
+                    .read(&Arc::new(site), accounted.profile, accounted.meter, account)
+                    .await;
+                earliest_reset([&usage.limits].into_iter())
+            }
+            _ => None,
+        };
+        let limit = WaitLimit {
+            provider,
+            distro,
+            resets_at,
+        };
+        let rows = screen::rows(&self.host.screen(node));
+        if let Err(e) = self.graph.limit_left(node, limit, rows) {
+            crate::log::logln!("loom: 노드 {}의 한도 알림을 쓰지 못했다: {e}", node.0);
+        }
     }
 
     async fn auto_switch(self: &Arc<Self>, provider: Provider, distro: Option<String>) {

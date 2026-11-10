@@ -7,6 +7,7 @@ import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
 import type { Prompt } from './gen/Prompt';
+import type { PressKeys } from './gen/PressKeys';
 import type { TypeText } from './gen/TypeText';
 import type { CardSize } from './gen/CardSize';
 import type { CardView } from './gen/CardView';
@@ -57,6 +58,12 @@ import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
 import { reconnecting, type Link } from './link';
 
+export class ProblemError extends Error {
+  constructor(readonly problem: Problem) {
+    super(problemText(problem));
+  }
+}
+
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -65,7 +72,7 @@ async function request<T>(method: string, path: string, body?: { type: string; d
   });
   if (!res.ok) {
     const problem = (await res.json().catch(() => null)) as Problem | null;
-    throw new Error(problem ? problemText(problem) : statusText(res.status));
+    throw problem ? new ProblemError(problem) : new Error(statusText(res.status));
   }
   return res.json();
 }
@@ -105,6 +112,7 @@ export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
   call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
 export const typeText = (wait: WaitId, prompt: Prompt, text: string, option?: number) =>
   call<null>('POST', `/api/waits/${wait}/type`, { prompt, text, option } satisfies TypeText);
+export const pressKeys = (wait: WaitId, keys: PressKeys) => call<null>('POST', `/api/waits/${wait}/keys`, keys);
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;

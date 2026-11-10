@@ -1,7 +1,9 @@
 use axum::http::HeaderValue;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
-use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, TypeText};
+use api::graph::waits::{
+    AnswerWait, ChooseOption, ClosedPage, Press, PressKeys, TermKey, TypeText,
+};
 
 use super::*;
 use crate::protocol::ChoiceRequest;
@@ -15,6 +17,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/choose", post(choose_wait))
         .route("/api/waits/{wait}/type", post(type_wait))
+        .route("/api/waits/{wait}/keys", post(press_keys))
         .route("/api/docs", get(list_docs))
         .route(
             "/api/docs/{id}",
@@ -124,6 +127,46 @@ async fn type_wait(
     })
     .await?;
     Ok(Json(()))
+}
+
+async fn press_keys(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    Json(req): Json<PressKeys>,
+) -> Result<Json<()>, Problem> {
+    let wait = WaitId(wait);
+    let node = app.graph.screen_wait(wait)?;
+    let PressKeys {
+        screen: shown,
+        press,
+    } = req;
+    let strokes = match press {
+        Press::Key(key) => vec![key_bytes(key).to_vec()],
+        Press::Char(c) => vec![c.to_string().into_bytes()],
+        Press::Text(text) => entered(&text),
+    };
+    tokio::task::spawn_blocking(move || {
+        app.host.strokes_if(node, KEY_GAP, |keys| {
+            match !shown.is_empty() && screen::rows(&keys.screen()) == shown {
+                true => Ok(strokes),
+                false => Err(Refusal::PromptChanged(wait)),
+            }
+        })
+    })
+    .await
+    .map_err(internal)??;
+    Ok(Json(()))
+}
+
+fn key_bytes(key: TermKey) -> &'static [u8] {
+    match key {
+        TermKey::Enter => b"\r",
+        TermKey::Escape => b"\x1b",
+        TermKey::Up => b"\x1b[A",
+        TermKey::Down => b"\x1b[B",
+        TermKey::Right => b"\x1b[C",
+        TermKey::Left => b"\x1b[D",
+    }
 }
 
 const KEY_GAP: Duration = Duration::from_millis(150);

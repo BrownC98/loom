@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { StreamWait } from './alertTarget';
 import type { ScreenWait } from './gen/ScreenWait';
 import { clockTime } from './i18n';
-import { ICON, showsId } from './notice';
+import { kindIcon, showsId } from './notice';
 
 export function KindChip(props: { wait: ScreenWait }) {
   const { t } = useTranslation();
@@ -12,7 +12,7 @@ export function KindChip(props: { wait: ScreenWait }) {
 
 export function AlertLine(props: StreamWait) {
   const { view, wait } = props;
-  const Icon = ICON[wait.tone];
+  const Icon = kindIcon(wait);
   return (
     <>
       <Icon className="kind-mark" aria-hidden="true" />

@@ -5,7 +5,7 @@ use std::time::Duration;
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
 use api::graph::events::EventLog;
-use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, Prompt, TypeText};
+use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, PressKeys, Prompt, TypeText};
 use api::graph::{GraphEvent, NewNode, NodeView};
 use api::ids::{NodeId, RepoId, WaitId};
 use api::profile::AgentView;
@@ -24,6 +24,7 @@ use crate::problem::Failure;
 use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
+const PROMPT_CHANGED: &str = "promptChanged";
 const REACH_EVERY: Duration = Duration::from_secs(5);
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
@@ -634,7 +635,7 @@ impl Store {
         }
     }
 
-    fn call<T: Send + 'static>(
+    pub(crate) fn call<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,
         work: impl FnOnce(&str) -> Result<T, Failure> + Send + 'static,
@@ -714,6 +715,29 @@ impl Store {
         self.call(cx, move |base| {
             let path = format!("/api/waits/{}/type", wait.0);
             link::post(base, &path, serde_json::to_string(&body).ok())
+        })
+    }
+
+    pub fn press_keys(
+        &self,
+        wait: WaitId,
+        keys: PressKeys,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let Some(base) = self.base.clone() else {
+            return Task::ready(Err(self.status.clone()));
+        };
+        cx.spawn(async move |_, cx| {
+            let path = format!("/api/waits/{}/keys", wait.0);
+            let body = serde_json::to_string(&keys).ok();
+            let done = cx
+                .background_spawn(async move { link::post::<()>(&base, &path, body) })
+                .await;
+            let lang = cx.update(|app| *app.global::<strings::Lang>());
+            done.map_err(|failure| match failure.refusal().as_deref() {
+                Some(PROMPT_CHANGED) => strings::Str::InboxScreenChanged.text(lang).to_owned(),
+                _ => failure.text(lang),
+            })
         })
     }
 

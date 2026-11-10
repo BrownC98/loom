@@ -434,7 +434,7 @@ impl Picker {
                 text,
                 since,
             } => base
-                .child(entry::mark(*tone, z, c))
+                .child(entry::mark(*kind, *tone, z, c))
                 .child(entry::qid(
                     if *kind == WaitKind::Question {
                         id.to_string()

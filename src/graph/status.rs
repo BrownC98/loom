@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
-use api::graph::waits::WaitTone;
+use api::graph::waits::{WaitKind, WaitTone};
 use api::graph::{NodeState, NodeView, ProcessState, Status};
 use api::ids::{AgentId, NodeId};
 
@@ -103,7 +103,10 @@ fn with_status(
 fn asks_human(view: &NodeView) -> impl Iterator<Item = i64> + '_ {
     view.waits
         .iter()
-        .filter(|w| matches!(w.tone, WaitTone::Ask))
+        .filter(|w| {
+            matches!(w.tone, WaitTone::Ask)
+                && !matches!(w.wait.kind, WaitKind::Stopped | WaitKind::Limit)
+        })
         .map(|w| w.wait.since)
 }
 

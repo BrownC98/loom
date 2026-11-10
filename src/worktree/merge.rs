@@ -213,7 +213,7 @@ for f in "$common/loom-logs"/batch-* "$common/loom-logs"/check-* "$common/loom-l
   old=$(find "$f" -mmin +"$mins" -print 2>/dev/null) || continue
   [ -n "$old" ] || continue
   k=$(du -sk "$f" | cut -f1)
-  rm -f -- "$f" && n=$((n + 1)) kib=$((kib + k))
+  rm -f -- "$f" && n=$((n + 1)) kib=$((kib + ${k:-0}))
 done
 echo "$n $kib"
 "#;

@@ -13,6 +13,9 @@ use api::ids::RepoId;
 const KEEP_FOR: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 const TIDY_LIMIT: Duration = Duration::from_secs(10 * 60);
 const FOLDERS_PER_RUN: usize = 100;
+const EDGES: &[char] = &[
+    '(', ')', '[', ']', '<', '>', '`', '\'', '.', ',', ';', ':', ' ',
+];
 
 #[derive(Default)]
 struct Tidied {
@@ -74,7 +77,10 @@ fn pins_of(pins: &TaskPins) -> HashSet<String> {
     for text in pins.waits.iter().cloned().chain(docs) {
         let decoded = percent_encoding::percent_decode_str(&text).decode_utf8_lossy();
         for text in [text.as_str(), &decoded] {
-            pinned.extend(text.split(['/', '\\', '"']).map(str::to_owned));
+            for piece in text.split(['/', '\\', '"']) {
+                pinned.insert(piece.to_owned());
+                pinned.insert(piece.trim_matches(EDGES).to_owned());
+            }
         }
     }
     pinned
@@ -107,11 +113,16 @@ async fn folders(
         .tasks_for(&dir.to_string_lossy())
         .await
         .map_err(|e| format!("{e:?}"))?;
-    let owner = crate::db::data_dir().map_err(|e| e.to_string())?;
-    if !tasks
-        .owned_by(&owner.to_string_lossy())
-        .map_err(|e| e.to_string())?
-    {
+    let data = crate::db::data_dir().map_err(|e| e.to_string())?;
+    let me = data.to_string_lossy();
+    let owned = match tasks.owner().map_err(|e| e.to_string())? {
+        Some(owner) => owner == me,
+        None if crate::db::default_data_dir().as_ref() == Some(&data) => {
+            tasks.claim(&me).map_err(|e| e.to_string())?
+        }
+        None => false,
+    };
+    if !owned {
         return Ok(());
     }
     let unpinned: Vec<String> = tasks
@@ -122,7 +133,11 @@ async fn folders(
         .filter(|name| !pinned.contains(name) && !name.contains('\n'))
         .collect();
     let root = tasks.shown().to_owned();
-    for part in unpinned.chunks(FOLDERS_PER_RUN) {
+    let parts: Vec<&[String]> = match unpinned.is_empty() {
+        true => vec![&[]],
+        false => unpinned.chunks(FOLDERS_PER_RUN).collect(),
+    };
+    for part in parts {
         let args: Vec<String> = [minutes(), root.clone()]
             .into_iter()
             .chain(part.iter().cloned())

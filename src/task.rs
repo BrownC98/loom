@@ -42,31 +42,34 @@ shift 2
 for t in "$root"/.tidy-*; do
   [ -d "$t" ] || continue
   d=$root/${t##*/.tidy-}
-  [ -e "$d" ] || mv -- "$t" "$d"
+  if [ -e "$d" ]; then rm -rf -- "$t"; else mv -- "$t" "$d"; fi
 done
 for name in "$@"; do
   d=$root/$name
-  [ -d "$d" ] && [ ! -L "$d" ] || continue
+  [ -d "$d" ] && [ ! -L "$d" ] && [ ! -e "$root/.tidy-$name" ] || continue
   recent=$(find "$d" -mmin -"$mins" -print -quit 2>/dev/null) || continue
   [ -z "$recent" ] || continue
   mv -- "$d" "$root/.tidy-$name" && printf '%s\n' "$name"
 done
+exit 0
 "#;
 
 pub const DROP: &str = r#"set -u
 root=$1
 shift
+n=0 kib=0
+gone() {
+  [ -d "$1" ] || return 0
+  k=$(du -sk "$1" | cut -f1)
+  rm -rf -- "$1" && n=$((n + 1)) kib=$((kib + ${k:-0}))
+}
 while [ $# -gt 0 ] && [ "$1" != -- ]; do
-  [ -e "$root/$1" ] || mv -- "$root/.tidy-$1" "$root/$1"
+  if [ -e "$root/$1" ]; then gone "$root/.tidy-$1"; else mv -- "$root/.tidy-$1" "$root/$1"; fi
   shift
 done
 [ $# -gt 0 ] && shift
-n=0 kib=0
 for name in "$@"; do
-  t=$root/.tidy-$name
-  [ -d "$t" ] || continue
-  k=$(du -sk "$t" | cut -f1)
-  rm -rf -- "$t" && n=$((n + 1)) kib=$((kib + k))
+  gone "$root/.tidy-$name"
 done
 echo "$n $kib"
 "#;
@@ -119,12 +122,19 @@ impl<'a> Tasks<'a> {
         &self.shown
     }
 
-    pub fn owned_by(&self, owner: &str) -> std::io::Result<bool> {
+    pub fn owner(&self) -> std::io::Result<Option<String>> {
+        match self.files.read(&self.local.join(OWNER)) {
+            Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).trim().to_owned())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn claim(&self, owner: &str) -> std::io::Result<bool> {
         self.files.create_dir_all(&self.local)?;
-        let marker = self.local.join(OWNER);
-        match self.files.create_new(&marker, owner) {
+        match self.files.create_new(&self.local.join(OWNER), owner) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                Ok(String::from_utf8_lossy(&self.files.read(&marker)?).trim() == owner)
+                Ok(self.owner()?.as_deref() == Some(owner))
             }
             made => made.map(|()| true),
         }

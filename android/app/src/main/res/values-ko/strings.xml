@@ -41,4 +41,7 @@
     <string name="wait_auth">로그인·계정 설정</string>
     <string name="wait_input">입력 요청</string>
     <string name="wait_done">완료</string>
+    <string name="wait_reply">답</string>
+    <string name="wait_stopped">멈춤</string>
+    <string name="wait_limit">한도</string>
 </resources>

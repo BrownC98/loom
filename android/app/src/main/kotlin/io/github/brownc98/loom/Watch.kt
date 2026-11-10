@@ -274,6 +274,9 @@ class Watch : Service() {
             "auth" to R.string.wait_auth,
             "input" to R.string.wait_input,
             "done" to R.string.wait_done,
+            "reply" to R.string.wait_reply,
+            "stopped" to R.string.wait_stopped,
+            "limit" to R.string.wait_limit,
         )
         private val plain by lazy { OkHttpClient.Builder().callTimeout(CONNECT_MS, TimeUnit.MILLISECONDS).build() }
 

@@ -516,6 +516,9 @@ const en = {
     auth: 'Login or account setup',
     input: 'Input',
     done: 'Done',
+    reply: 'Reply',
+    stopped: 'Stopped',
+    limit: 'Usage limit',
   },
   osNotify: {
     heading: 'System notifications',

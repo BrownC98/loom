@@ -11,6 +11,7 @@ pub const CHECK_FAILED: i32 = 14;
 pub const MOVED: i32 = 20;
 pub const DIRTY: i32 = 21;
 const BATCH_WAIT: Duration = Duration::from_secs(60 * 60);
+pub const BATCHES: &str = "loom-batches";
 
 pub const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
 for wt in "$common"/loom-batches/*; do
@@ -33,8 +34,8 @@ git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$targ
 
 pub const STACK: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
-passed=$common/loom-logs/${1%-*}.passed
+wt=$common/loom-batches/check log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
+passed=$common/loom-logs/${1%-*}.passed trees=$common/loom-logs/passed-trees
 shift 3
 mkdir -p "$common/loom-logs" "$common/loom-batches"
 exec 3>&1 >>"$log" 2>&1
@@ -42,10 +43,24 @@ echo "log $log" >&3
 rm -f "$passed"
 members=$(printf 'member %s %s\n' "$@")
 pass() { printf 'base %s\ntip %s\n%s\n' "$base" "$tip" "$members" > "$passed.new" && mv "$passed.new" "$passed"; }
-clean() { git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"; git worktree prune; }
-clean
-trap clean EXIT
-git worktree add --detach "$wt" "$base" || exit 1
+exec 9>>"$lock"
+if command -v flock >/dev/null 2>&1; then
+  flock 9
+elif command -v perl >/dev/null 2>&1; then
+  perl -MFcntl=:flock -e 'open(my $fd, ">&=", 9) or die "$!\n"; flock($fd, LOCK_EX) or die "$!\n"' || exit 1
+else
+  echo "neither flock nor perl is on this machine; loom cannot lock $lock" >&3
+  exit 1
+fi
+rm -rf "$common/loom-batch-target" "${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target"
+if ! { [ "$(git -C "$wt" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] &&
+  git -C "$wt" reset --hard --quiet &&
+  git -C "$wt" checkout --detach --force --quiet "$base" &&
+  git -C "$wt" clean -fdq; }; then
+  rm -rf "$wt"
+  git worktree prune
+  git worktree add --detach "$wt" "$base" || exit 1
+fi
 i=0
 while [ $# -gt 0 ]; do
   if git -C "$wt" merge-base --is-ancestor "$2" HEAD; then
@@ -58,41 +73,28 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 tip=$(git -C "$wt" rev-parse HEAD)
-if [ -f "$wt/scripts/gate/check.sh" ]; then
-  exec 9>>"$lock"
-  if command -v flock >/dev/null 2>&1; then
-    flock 9
-  elif command -v perl >/dev/null 2>&1; then
-    perl -MFcntl=:flock -e 'open(my $fd, ">&=", 9) or die "$!\n"; flock($fd, LOCK_EX) or die "$!\n"' || exit 1
-  else
-    echo "neither flock nor perl is on this machine; loom cannot lock $lock" >&3
-    exit 1
-  fi
-  check=$common/loom-batches/check
-  git worktree remove --force "$check" 2>/dev/null
-  rm -rf "$check"
-  git worktree prune
-  git worktree move "$wt" "$check" || exit 1
-  wt=$check
-  key=$(printf %s "$common" | git hash-object --stdin)
-  repo=${common%/.git}
-  cargo_target=${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target/${repo##*/}-${key:0:12}
-  rm -f "$cargo_target/.rustc_info.json" "$cargo_target"/*/.rustc_info.json
-  start=$(date +%s)
-  (cd "$wt" && CARGO_TARGET_DIR="$cargo_target" bash scripts/gate/check.sh 9>&-)
-  code=$?
-  [ "$code" -eq 0 ] && pass
-  echo "check $(($(date +%s) - start))" >&3
-  rm -rf "$common/loom-batch-target"
-  cap_kib=$((32 * 1024 * 1024))
-  if [ -d "$cargo_target" ] && [ "$(du -sk "$cargo_target" | cut -f1)" -gt "$cap_kib" ]; then
-    echo "== $cargo_target is over $((cap_kib / 1024 / 1024))GiB; loom deletes it"
-    rm -rf "$cargo_target"
-  fi
-  [ "$code" -eq 0 ] || exit 14
-else
+key=$({ git -C "$wt" rev-parse 'HEAD^{tree}'; git -C "$wt" rev-list --no-merges HEAD | sort; } | git hash-object --stdin)
+if [ ! -f "$wt/scripts/gate/check.sh" ]; then
   echo "== no scripts/gate/check.sh"
   pass
+elif grep -qxF "$key" "$trees" 2>/dev/null; then
+  echo "== the same files and commits passed scripts/gate/check.sh before (key $key); loom does not run it again"
+  pass
+else
+  start=$(date +%s)
+  (cd "$wt" && bash scripts/gate/check.sh 9>&-)
+  code=$?
+  if [ "$code" -eq 0 ]; then
+    pass
+    { tail -n 199 "$trees" 2>/dev/null; echo "$key"; } > "$trees.new" && mv "$trees.new" "$trees"
+  fi
+  echo "check $(($(date +%s) - start))" >&3
+  cap_kib=$((32 * 1024 * 1024))
+  if [ "$(du -sk "$wt" | cut -f1)" -gt "$cap_kib" ]; then
+    echo "== $wt is over $((cap_kib / 1024 / 1024))GiB; loom deletes its ignored files"
+    git -C "$wt" clean -fdxq
+  fi
+  [ "$code" -eq 0 ] || exit 14
 fi
 echo "tip $tip" >&3
 "#;

@@ -272,6 +272,10 @@ pub async fn listed(files: Files<'_>, repo: &Path) -> Result<Vec<Worktree>, Stri
             path: git::from_git_path(repo, &w.path),
             ..w
         })
+        .filter(|w| {
+            Path::new(&w.path).parent().and_then(Path::file_name)
+                != Some(std::ffi::OsStr::new(merge::BATCHES))
+        })
         .collect())
 }
 

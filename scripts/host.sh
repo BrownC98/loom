@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
 build=$HOME/.loom/host-build
+deployed=$HOME/.loom/host-deployed
 target=
 [ -n "${WSL_DISTRO_NAME:-}" ] && target=x86_64-pc-windows-gnu
 carry=
@@ -15,7 +16,9 @@ flock 9
 
 [ -e "$build/.git" ] || git clone --quiet --no-checkout . "$build"
 git -C "$build" fetch --quiet "$PWD" HEAD
-git -C "$build" checkout --detach --quiet --force FETCH_HEAD
+head=$(git -C "$build" rev-parse FETCH_HEAD)
+[ "$head" != "$(cat "$deployed" 2>/dev/null)" ] || exit 0
+git -C "$build" checkout --detach --quiet --force "$head"
 linux=
 if [ -n "$target" ] && command -v x86_64-linux-musl-gcc >/dev/null; then linux=x86_64-unknown-linux-musl; fi
 (cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) LOOM_RELEASES=https://github.com/BrownC98/loom/releases &&
@@ -54,5 +57,5 @@ if [ -n "$carry" ]; then
     if [ -e "$f" ]; then mv "$f" "$f.$(date +%s).bak"; fi
   done
 fi
-"$exe" start --listen "127.0.0.1:$port" 9>&- && "$exe" --version
+"$exe" start --listen "127.0.0.1:$port" 9>&- && "$exe" --version && echo "$head" >"$deployed"
 if [ -n "$carry" ]; then "$exe" carry "$carry" 9>&-; fi

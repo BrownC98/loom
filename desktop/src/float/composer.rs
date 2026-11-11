@@ -152,9 +152,18 @@ pub fn composer(
         let field = field::boxed_label(Str::ComposerPlaceholder, false, true, cx);
         let pictures = cx.new(|_| Pictures::new(store.clone(), NodeId(0)));
         let attach = pictures.clone();
+        let me = cx.weak_entity();
         field.update(cx, |field, _| {
             field.on_files(move |entries, _, cx| {
                 attach.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
+            });
+            field.on_typed(move |cx| {
+                me.update(cx, |composer: &mut Composer, cx| {
+                    if composer.note.take().is_some() {
+                        cx.notify();
+                    }
+                })
+                .ok();
             });
         });
         let typed = cx.subscribe_in(
@@ -170,10 +179,7 @@ pub fn composer(
                         registry.update(cx, |inputs, cx| inputs.focus(node, window, cx));
                     }
                 }
-                FieldEvent::Changed => {
-                    composer.note = None;
-                    composer.repin(cx)
-                }
+                FieldEvent::Changed => composer.repin(cx),
                 FieldEvent::Step(_) => {}
             },
         );

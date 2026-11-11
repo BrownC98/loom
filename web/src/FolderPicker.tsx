@@ -149,7 +149,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
 
   function select(path: string, git: boolean) {
     setSelected(path);
-    onPick(path, git);
+    onPick(path, git || (list?.git ?? false));
   }
 
   return (

@@ -56,11 +56,19 @@ impl Repos {
     }
 
     pub async fn init(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
-        match self.add_git(files, path).await {
-            Err(RepoProblem::NotGit(_)) => {}
-            added => return added,
-        }
         let folder = Path::new(path);
+        match check(files, folder).await {
+            Err(RepoProblem::NotGit(_)) => {}
+            Err(problem) => return Err(problem),
+            Ok(()) => {
+                return match self.add_git(files, path).await {
+                    Err(RepoProblem::NotGit(_)) => Err(RepoProblem::Git(format!(
+                        "{path} is a git repository without a work tree"
+                    ))),
+                    added => added,
+                };
+            }
+        }
         if !place::absolute(folder) {
             return Err(RepoProblem::NotAbsolute(path.to_owned()));
         }
@@ -240,7 +248,15 @@ pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
         }
         _ => RepoProblem::Git(e.to_string()),
     })?;
-    let git = entries.iter().any(|e| e.name == GIT_ENTRY);
+    let mut git = entries.iter().any(|e| e.name == GIT_ENTRY);
+    let mut above = place::parent(dir);
+    while !git && let Some(up) = above {
+        let up = PathBuf::from(up);
+        git = files
+            .list(&up)
+            .is_ok_and(|inside| inside.iter().any(|e| e.name == GIT_ENTRY));
+        above = place::parent(&up);
+    }
     let mut folders: Vec<Folder> = entries
         .into_iter()
         .filter(|entry| entry.dir && !entry.name.starts_with('.'))

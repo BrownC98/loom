@@ -526,13 +526,12 @@ impl AddRepo {
         let Some(list) = &self.list else {
             return false;
         };
-        match &self.selected {
-            Some(path) => list
-                .folders
-                .iter()
-                .any(|f| !f.git && child_path(&list.path, &f.name) == *path),
-            None => !list.git,
-        }
+        !list.git
+            && self.selected.as_ref().is_none_or(|path| {
+                list.folders
+                    .iter()
+                    .any(|f| !f.git && child_path(&list.path, &f.name) == *path)
+            })
     }
 
     fn init_row(&self, lang: Lang, c: &Colors, cx: &Context<Self>) -> AnyElement {

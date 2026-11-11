@@ -716,7 +716,7 @@ const ko: typeof en = {
     confirmAll: '완료 {{count}}개 모두 확인',
     sectionNodes: '노드에 지시',
     sectionAlerts: '알림',
-    notAnswer: '열림 · 이 글은 답이 아닙니다',
+    fold: '알림 접기',
     targetClosed: '고른 알림이 닫혀 글을 보내지 않습니다. 대상을 확인하고 다시 Enter를 누르십시오.',
     listHint: '↑↓ · Enter 고르기 · Esc 닫기',
     chipAll: '전체 {{count}}',

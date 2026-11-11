@@ -714,7 +714,7 @@ const en = {
     confirmAll: 'Confirm all {{count}} done',
     sectionNodes: 'Instruct a node',
     sectionAlerts: 'Alerts',
-    notAnswer: 'Open · this text is not an answer',
+    fold: 'Fold alerts',
     targetClosed: 'The notice you chose has closed, so the text is not sent. Check the target, then press Enter again.',
     listHint: '↑↓ · Enter choose · Esc close',
     chipAll: 'All {{count}}',

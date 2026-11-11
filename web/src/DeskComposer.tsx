@@ -40,6 +40,7 @@ type DeskProps = {
   corner: number;
   onPlace: (place: FloatPlace | null) => void;
   onTarget: (node: NodeId, key: TargetKey) => void;
+  onFold: () => void;
   onReaim: () => void;
   onSelect: (id: NodeId) => void;
 };
@@ -93,7 +94,7 @@ export function DeskComposer(props: DeskProps) {
   };
   useEffect(() => {
     const next = followClosed(target.stream);
-    if (next && !target.lost) pick(next.node, next.key);
+    if (next && !target.lost && target.key !== PROMPT) pick(next.node, next.key);
   }, [target.stream]);
   useLayoutEffect(() => {
     const canvas = layer.current?.parentElement;
@@ -173,6 +174,10 @@ export function DeskComposer(props: DeskProps) {
             target={target}
             repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
+            onFold={() => {
+              props.onFold();
+              focusField();
+            }}
             onFocus={() => {
               show([node]);
               props.onSelect(node);

@@ -342,6 +342,7 @@ impl App {
                     place.worktree
                 ))
             })?;
+        let held = self.check_locks.hold_for_check(&repo).await;
         let Owned { mine, target, .. } = self.owned(node, &branch, at).await?;
         let base = target_base(files, &repo, &target).await?;
         let args = [
@@ -351,10 +352,7 @@ impl App {
             branch,
             mine.head,
         ];
-        let (code, out) = self
-            .check_locks
-            .script(files, &repo, merge::CHECK, &args)
-            .await?;
+        let (code, out) = held.script(files, merge::CHECK, &args).await?;
         let lines = merge::Lines::read(&out);
         let result = match (code, &lines.tip) {
             (0, Some(_)) => CheckResult::Passed,

@@ -80,6 +80,10 @@ export function startClosing(place: ScreenWait, ids: readonly WaitId[]): () => v
   };
 }
 
+export function forgetClosing(): void {
+  closing = null;
+}
+
 export function followClosed(stream: readonly StreamWait[]): Chosen | null {
   const c = closing;
   if (!c) return null;

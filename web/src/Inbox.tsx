@@ -382,7 +382,7 @@ function AnswerForm(props: { wait: WaitId; qid: string; placeholder: string; has
   );
 }
 
-export function DismissButton(props: { wait: WaitId; onClose?: () => () => void }) {
+function DismissButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -394,11 +394,7 @@ export function DismissButton(props: { wait: WaitId; onClose?: () => () => void 
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        const cancel = props.onClose?.();
-        dismissWait(props.wait).catch((err: Error) => {
-          cancel?.();
-          setRefusal(err.message);
-        });
+        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
       }}
     >
       <X aria-hidden="true" />

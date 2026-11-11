@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption } from './api';
 import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
-import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
+import { followClosed, forgetClosing, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
 import { quotePath } from './attachments';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useComposerHeld, type ComposerKeys, type Delivery } from './Composer';
@@ -94,7 +94,7 @@ export function DeskComposer(props: DeskProps) {
   };
   useEffect(() => {
     const next = followClosed(target.stream);
-    if (next && !target.lost && target.key !== PROMPT) pick(next.node, next.key);
+    if (next && !target.lost) pick(next.node, next.key);
   }, [target.stream]);
   useLayoutEffect(() => {
     const canvas = layer.current?.parentElement;
@@ -175,6 +175,7 @@ export function DeskComposer(props: DeskProps) {
             repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
             onFold={() => {
+              forgetClosing();
               props.onFold();
               focusField();
             }}

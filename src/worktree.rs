@@ -14,6 +14,7 @@ use crate::place::{self, Files, Machine, SshPath};
 
 const LOOM_DIR: &str = "loom";
 const WORKSPACES_DIR: &str = "workspaces";
+const GIT_ENTRY: &str = ".git";
 
 pub fn place_view(machine: &Machine) -> PlaceView {
     match machine {
@@ -38,6 +39,24 @@ impl Repos {
 
     pub async fn add(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
         let folder = Path::new(path);
+        match self.add_git(files, path).await {
+            Err(RepoProblem::NotGit(_)) if !under_git(files, folder).await.unwrap_or(true) => {}
+            added => return added,
+        }
+        if !place::absolute(folder) {
+            return Err(RepoProblem::NotAbsolute(path.to_owned()));
+        }
+        let trimmed = path.trim_end_matches(['/', '\\']);
+        let plain = match place::absolute(Path::new(trimmed)) {
+            true => trimmed,
+            false => path,
+        };
+        self.insert(Path::new(plain))
+            .map_err(|e| RepoProblem::Git(e.to_string()))
+    }
+
+    pub async fn add_git(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
+        let folder = Path::new(path);
         check(files, folder).await?;
         let original = original_checkout(files, folder)
             .await
@@ -60,7 +79,7 @@ impl Repos {
         git::clone(files, url, &target)
             .await
             .map_err(RepoProblem::Git)?;
-        self.add(files, &target.to_string_lossy()).await
+        self.add_git(files, &target.to_string_lossy()).await
     }
 
     pub async fn create(
@@ -81,7 +100,7 @@ impl Repos {
             let _ = remove_dir(files, &target).await;
             return Err(RepoProblem::Git(e));
         }
-        self.add(files, &text).await
+        self.add_git(files, &text).await
     }
 
     fn insert(&self, path: &Path) -> rusqlite::Result<RepoId> {
@@ -169,11 +188,13 @@ pub async fn view(
     worktrees: Vec<Worktree>,
 ) -> RepoView {
     let branches = branches(files, path).await;
+    let has_commits = has_commits(&worktrees);
     RepoView {
         id,
         name: folder_name(path),
         path: path.to_string_lossy().into_owned(),
-        has_commits: has_commits(&worktrees),
+        has_commits,
+        git: has_commits || has_git(files, path).await.unwrap_or(true),
         worktrees,
         branches,
         place,
@@ -205,7 +226,7 @@ pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
         .map(|entry| Folder {
             git: files
                 .list(&dir.join(&entry.name))
-                .is_ok_and(|inside| inside.iter().any(|e| e.name == ".git")),
+                .is_ok_and(|inside| inside.iter().any(|e| e.name == GIT_ENTRY)),
             name: entry.name,
         })
         .collect();
@@ -265,7 +286,15 @@ pub fn alone(repo: &Path) -> Vec<Worktree> {
 }
 
 pub async fn listed(files: Files<'_>, repo: &Path) -> Result<Vec<Worktree>, String> {
-    let porcelain = git::run(files, repo, &["worktree", "list", "--porcelain"]).await?;
+    let porcelain = match git::run(files, repo, &["worktree", "list", "--porcelain"]).await {
+        Ok(porcelain) => porcelain,
+        Err(e) => {
+            return match has_git(files, repo).await {
+                Ok(false) => Ok(alone(repo)),
+                _ => Err(e),
+            };
+        }
+    };
     Ok(parse_worktrees(&porcelain)
         .into_iter()
         .map(|w| Worktree {
@@ -333,7 +362,12 @@ pub async fn create(
         return Err(RepoProblem::EmptyBranch);
     }
     if !has_commits(&listed(files, repo).await.map_err(RepoProblem::Git)?) {
-        return Err(RepoProblem::NoCommit);
+        return Err(
+            match has_git(files, repo).await.map_err(RepoProblem::Git)? {
+                true => RepoProblem::NoCommit,
+                false => RepoProblem::NotGit(repo.to_string_lossy().into_owned()),
+            },
+        );
     }
     if !place::absolute(workspace) {
         return Err(RepoProblem::NotAbsolute(
@@ -517,6 +551,21 @@ pub async fn is_dir(files: Files<'_>, path: &Path) -> Result<bool, String> {
 
 pub async fn is_file(files: Files<'_>, path: &Path) -> Result<bool, String> {
     test(files, path, Path::is_file, r#"[ -f "$1" ]"#).await
+}
+
+pub async fn has_git(files: Files<'_>, repo: &Path) -> Result<bool, String> {
+    Ok(!is_dir(files, repo).await? || exists(files, &repo.join(GIT_ENTRY)).await?)
+}
+
+async fn under_git(files: Files<'_>, folder: &Path) -> Result<bool, String> {
+    let mut dir = Some(folder.to_owned());
+    while let Some(at) = dir {
+        if exists(files, &at.join(GIT_ENTRY)).await? {
+            return Ok(true);
+        }
+        dir = place::parent(&at).map(PathBuf::from);
+    }
+    Ok(false)
 }
 
 async fn exists(files: Files<'_>, path: &Path) -> Result<bool, String> {

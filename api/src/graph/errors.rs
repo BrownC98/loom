@@ -94,6 +94,8 @@ pub enum Refusal {
     },
     /// 부모 없는 노드가 자기 워크트리도 `--review`도 없는 자식을 띄웠다. 값은 그 역할이다.
     LeadChildNeedsWorktree(String),
+    /// 노드의 폴더에 git이 없다. `loom check`·`loom ready`는 git 저장소에서만 쓴다. 값은 그 폴더다.
+    NoGit(String),
     /// 이 브랜치에는 이 역할의 검토자가 이미 있다. loom이 새 차례마다 그 검토자에게 보낸다. `reviewer`는 그 노드 이름이다.
     ReviewerSeated {
         branch: String,
@@ -388,6 +390,10 @@ impl fmt::Display for Refusal {
             Refusal::LeadChildNeedsWorktree(role) => write!(
                 f,
                 "You have no parent, so each child owns a new worktree (`loom spawn <name> --role {role} --worktree <branch>`) or reviews your own branch (`loom spawn --role <role> --review <branch>`)."
+            ),
+            Refusal::NoGit(folder) => write!(
+                f,
+                "{folder} has no git, so loom has no branch, check or merge gate here. Your edits in this folder are the result: report it with loom done."
             ),
             Refusal::ReviewerSeated {
                 branch,

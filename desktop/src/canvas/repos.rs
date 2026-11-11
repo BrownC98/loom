@@ -8,6 +8,7 @@ use api::repos::RepoView;
 pub enum GroupKind {
     Original,
     Unborn,
+    Plain,
     Linked,
 }
 
@@ -34,6 +35,8 @@ pub fn groups_of(repo: &RepoView, views: &[&NodeView]) -> Vec<Group> {
             label: w.branch.clone().unwrap_or_else(|| folder_name(&w.path)),
             kind: if !w.original {
                 GroupKind::Linked
+            } else if !repo.git {
+                GroupKind::Plain
             } else if repo.has_commits {
                 GroupKind::Original
             } else {

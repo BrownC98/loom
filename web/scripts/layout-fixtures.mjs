@@ -59,7 +59,7 @@ const run = {
 
 const place = (v) => ({ repo: v.repo, worktree: v.worktree });
 const viewsOf = (list) => list.map((v) => ({ id: v.id, parent: v.parent, place: place(v), bookmark: v.bookmark }));
-const repoOf = (r) => ({ id: r.id, name: r.name, hasCommits: r.hasCommits, worktrees: r.worktrees });
+const repoOf = (r) => ({ id: r.id, name: r.name, hasCommits: r.hasCommits, git: r.git, worktrees: r.worktrees });
 const ids = (list) => list.map((v) => v.id);
 
 const hopAndRepoRuns = {

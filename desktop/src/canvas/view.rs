@@ -984,7 +984,7 @@ impl Render for CanvasView {
                     place: card::place_label(&repo.place, lang),
                     path: &repo.path,
                     shown_path: &repo.shown_path,
-                    has_commits: repo.has_commits,
+                    no_worktree: card::worktree_block(repo),
                 },
                 &frame_acts,
                 lang,

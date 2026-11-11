@@ -56,6 +56,7 @@ fn template(code: &str) -> Option<Str> {
         "unknownRole" => Str::ProblemRefusedUnknownRole,
         "roleHasNoAgent" => Str::ProblemRefusedRoleHasNoAgent,
         "leadChildNeedsWorktree" => Str::ProblemRefusedLeadChildNeedsWorktree,
+        "noGit" => Str::ProblemRefusedNoGit,
         "reviewerSeated" => Str::ProblemRefusedReviewerSeated,
         "publishing" => Str::ProblemRefusedPublishing,
         "noWait" => Str::ProblemRefusedNoWait,

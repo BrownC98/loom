@@ -215,6 +215,12 @@ async fn worktree_changes(
     Query(req): Query<WorktreePath>,
 ) -> Result<Json<Vec<String>>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
+    if !worktree::has_git(app.files(), &repo)
+        .await
+        .map_err(internal)?
+    {
+        return Err(RepoProblem::NotGit(repo.to_string_lossy().into_owned()).into());
+    }
     match worktree::find(app.files(), &repo, &req.path).await {
         Ok(listed) => Ok(Json(
             worktree::changes(app.files(), std::path::Path::new(&listed.path)).await?,

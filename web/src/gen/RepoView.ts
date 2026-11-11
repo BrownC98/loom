@@ -21,6 +21,10 @@ branches: Array<string>,
  */
 hasCommits: boolean, 
 /**
+ * 거짓이면 git 없는 폴더다. 노드는 이 폴더에서 돌고, 워크트리와 병합 관문이 없다. 이 필드가 없는 옛 데몬은 git 저장소만 준다.
+ */
+git: boolean, 
+/**
  * 저장소가 도는 곳. 경로에서 나온 값이다.
  */
 place: PlaceView, 

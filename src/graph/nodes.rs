@@ -26,6 +26,7 @@ pub struct NewChild<'a> {
     pub role: &'a str,
     pub task: &'a str,
     pub review: Option<&'a str>,
+    pub git: bool,
 }
 
 const NO_PARENT: &str = "(none)";
@@ -138,6 +139,7 @@ impl Graph {
             role,
             task,
             review,
+            git,
         } = child;
         let name = checked_name(name)?;
         let mut db = self.lock();
@@ -151,7 +153,7 @@ impl Graph {
         let place = place_of(&tx, parent)?;
         match review {
             Some(branch) => super::gate::check_review(&tx, parent, place.repo, branch, role)?,
-            None if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
+            None if git && worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
                 return Err(Refusal::LeadChildNeedsWorktree(role.to_owned()));
             }
             None => {}

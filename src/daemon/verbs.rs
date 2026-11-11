@@ -102,6 +102,12 @@ pub(super) async fn spawn(
         }
         None => None,
     };
+    let git = match &worktree {
+        Some(_) => true,
+        None => worktree::has_git(app.files(), &app.repos.path(place.repo)?)
+            .await
+            .map_err(Refusal::Git)?,
+    };
     let made = worktree.as_ref().map(|(_, made)| made.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let child = NewChild {
@@ -111,6 +117,7 @@ pub(super) async fn spawn(
         role,
         task: &dir.folder,
         review,
+        git,
     };
     let spawned = spawn_child(app, parent, child, &start, cwd, &dir, &given).await;
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {

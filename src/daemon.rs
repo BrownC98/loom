@@ -205,7 +205,7 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
     });
     match app
         .repos
-        .add(app.files(), &std::env::current_dir()?.to_string_lossy())
+        .add_git(app.files(), &std::env::current_dir()?.to_string_lossy())
         .await
     {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}

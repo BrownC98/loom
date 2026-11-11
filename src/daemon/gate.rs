@@ -305,6 +305,7 @@ impl App {
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
         let files = self.files();
+        need_git(files, &repo).await?;
         let mine = owned_worktree(files, &repo, &place.worktree, branch, cwd).await?;
         if worktree::dirty(files, Path::new(&mine.path))
             .await
@@ -330,6 +331,7 @@ impl App {
         let repo = self.repo_of(node)?;
         let files = self.files();
         let at = Path::new(&place.worktree);
+        need_git(files, &repo).await?;
         let branch = worktree::find(files, &repo, &place.worktree)
             .await
             .map_err(git_problem)?
@@ -391,6 +393,13 @@ pub(super) async fn target_of(
             "the gate worktree {worktree} is {}; the gate must have its own branch there",
             branch.map_or_else(|| "detached".to_owned(), |b| format!("on {b}"))
         ))),
+    }
+}
+
+async fn need_git(files: Files<'_>, repo: &Path) -> Result<(), Refusal> {
+    match worktree::has_git(files, repo).await.map_err(Refusal::Git)? {
+        true => Ok(()),
+        false => Err(Refusal::NoGit(repo.to_string_lossy().into_owned())),
     }
 }
 

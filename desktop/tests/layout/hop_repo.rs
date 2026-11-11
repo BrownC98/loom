@@ -247,6 +247,7 @@ pub struct RepoIn {
     id: u32,
     name: String,
     has_commits: bool,
+    git: bool,
     worktrees: Vec<WorktreeIn>,
 }
 
@@ -272,6 +273,7 @@ fn repo_view(r: &RepoIn) -> RepoView {
         "worktrees": worktrees,
         "branches": [],
         "hasCommits": r.has_commits,
+        "git": r.git,
         "place": {"kind": "pc"},
         "shownPath": "",
     }))
@@ -313,6 +315,7 @@ pub struct GroupsIn {
 pub enum KindOut {
     Original,
     Unborn,
+    Plain,
     Linked,
 }
 
@@ -341,6 +344,7 @@ fn group_out(g: &Group) -> GroupOut {
         kind: match g.kind {
             GroupKind::Original => KindOut::Original,
             GroupKind::Unborn => KindOut::Unborn,
+            GroupKind::Plain => KindOut::Plain,
             GroupKind::Linked => KindOut::Linked,
         },
     }

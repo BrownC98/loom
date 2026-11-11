@@ -5,6 +5,7 @@
       "id": 1,
       "name": "loom",
       "hasCommits": true,
+      "git": true,
       "worktrees": [
         {
           "path": "/home/u/loom",

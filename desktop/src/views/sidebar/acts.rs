@@ -83,17 +83,16 @@ pub fn buttons(row: &Row, lang: Lang) -> Vec<Button> {
             Lucide::Plus,
             Str::GraphNewNode.text(lang),
         )),
-        Body::Repo { has_commits, .. } => {
+        Body::Repo { no_worktree, .. } => {
             let label = Str::RepoNewWorktree.text(lang);
             out.push(Button {
                 act: Act::NewWorktree,
                 glyph: Lucide::GitBranchPlus,
-                label: if *has_commits {
-                    label.to_owned()
-                } else {
-                    format!("{label}: {}", Str::RepoNoCommit.text(lang))
+                label: match no_worktree {
+                    None => label.to_owned(),
+                    Some(why) => format!("{label}: {}", why.text(lang)),
                 },
-                disabled: !has_commits,
+                disabled: no_worktree.is_some(),
                 pressed: false,
             });
         }

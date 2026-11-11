@@ -21,6 +21,7 @@ const ko: typeof en = {
   worktree: {
     original: '원래 체크아웃',
     unborn: '커밋 없음',
+    plain: 'git 없음',
     linked: '워크트리',
   },
   tree: {
@@ -162,6 +163,7 @@ const ko: typeof en = {
     tab: { folder: '기존 폴더', clone: 'URL 복제', create: '새 프로젝트' },
     busy: { folder: '추가하는 중…', clone: '복제하는 중…', create: '만드는 중…' },
     noCommit: '첫 커밋 뒤에 만들 수 있습니다',
+    noGit: 'git 없는 폴더입니다',
     add: '추가',
     clone: '복제',
     newWorktree: '새 워크트리',
@@ -782,6 +784,7 @@ const ko: typeof en = {
       unknownRole: "설정에 역할 '{{role}}'이 없습니다. 있는 역할: {{names}}",
       roleHasNoAgent: "역할 '{{role}}'에 에이전트가 없습니다. 이 역할은 사람이 띄웁니다.",
       leadChildNeedsWorktree: "부모가 없는 노드의 자식은 새 워크트리(--worktree)를 갖거나 자기 브랜치의 검토자(--review)여야 합니다. 역할: '{{value}}'.",
+      noGit: 'git 없는 폴더입니다: {{value}}. loom check와 loom ready는 git 저장소에서만 씁니다.',
       reviewerSeated: '{{reviewer}}이(가) 이미 {{branch}}를 {{role}}(으)로 검토합니다. 담당이 loom ready를 부르면 loom이 새 차례를 그 검토자에게 보냅니다.',
       publishing: '{{value}}: 병합 큐가 이 브랜치를 검사했고 지금 게시합니다. 새 검토자를 받지 않고, 관문도 바꿀 수 없습니다. merged나 rework를 기다린 뒤 다시 합니다.',
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
@@ -829,7 +832,7 @@ const ko: typeof en = {
     },
     repo: {
       notFound: '폴더를 찾을 수 없습니다: {{value}}',
-      notGit: 'git 저장소가 아닙니다: {{value}}',
+      notGit: 'git 없는 폴더입니다: {{value}}. 워크트리와 커밋 그래프는 git 저장소에서만 씁니다.',
       notAbsolute: '전체 경로를 적으십시오: {{value}}',
       noWorkspace: '워크스페이스 폴더를 찾을 수 없습니다: {{value}}. 폴더를 만들거나 ‘설정 › 일반’에서 다른 폴더를 고르십시오.',
       otherPlace: '워크스페이스 폴더가 저장소와 다른 위치(이 PC 또는 WSL 배포판)에 있습니다: {{value}}. ‘설정 › 일반’에서 저장소 위치의 폴더를 고르십시오.',

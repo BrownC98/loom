@@ -6,6 +6,7 @@
         "id": 1,
         "name": "loom",
         "hasCommits": true,
+        "git": true,
         "worktrees": [
           {
             "path": "/home/u/loom",
@@ -38,6 +39,7 @@
         "id": 2,
         "name": "notes",
         "hasCommits": true,
+        "git": true,
         "worktrees": [
           {
             "path": "/home/u/notes",

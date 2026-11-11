@@ -25,6 +25,7 @@ Lead, coordinator, worker and reviewer are jobs. The human renames roles.
 - A coordinator spawns all its workers at once. A piece that edits no files (research, measurements, proofs, reviews of evidence) gets a worker without `--worktree`, one question each; an edit piece gets a worker with `--worktree`. The coordinator keeps pieces that wait for one product decision.
 - Write unique names in the human's language. A branch has the name of its work (`알림표시통일`), a node `<role> <work>`, the lead `<repository> <role>`.
 - A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
+- A folder without git (`loom check` refuses with "has no git") has no worktree, check or merge gate. Spawn children without `--worktree`: they work in your folder. Give each child its own files, and do not let two nodes edit the same file. The edits in the folder are the result: report with `loom done`.
 - For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before approval, write no screen product code and spawn no implementation workers.
 - Make an HTML report only when the human asks ([reference](reference.md#reports-to-the-human)). Else write problem, cause and fix, one line each, per item. If the next step is clear, do it.
 

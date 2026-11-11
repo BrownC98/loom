@@ -40,7 +40,7 @@ impl Repos {
     pub async fn add(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
         let folder = Path::new(path);
         match self.add_git(files, path).await {
-            Err(RepoProblem::NotGit(_)) if !has_git(files, folder).await.unwrap_or(true) => {}
+            Err(RepoProblem::NotGit(_)) if !under_git(files, folder).await.unwrap_or(true) => {}
             added => return added,
         }
         if !place::absolute(folder) {
@@ -555,6 +555,17 @@ pub async fn is_file(files: Files<'_>, path: &Path) -> Result<bool, String> {
 
 pub async fn has_git(files: Files<'_>, repo: &Path) -> Result<bool, String> {
     Ok(!is_dir(files, repo).await? || exists(files, &repo.join(GIT_ENTRY)).await?)
+}
+
+async fn under_git(files: Files<'_>, folder: &Path) -> Result<bool, String> {
+    let mut dir = Some(folder.to_owned());
+    while let Some(at) = dir {
+        if exists(files, &at.join(GIT_ENTRY)).await? {
+            return Ok(true);
+        }
+        dir = place::parent(&at).map(PathBuf::from);
+    }
+    Ok(false)
 }
 
 async fn exists(files: Files<'_>, path: &Path) -> Result<bool, String> {

@@ -164,6 +164,8 @@ const ko: typeof en = {
     busy: { folder: '추가하는 중…', clone: '복제하는 중…', create: '만드는 중…' },
     noCommit: '첫 커밋 뒤에 만들 수 있습니다',
     noGit: 'git 없는 폴더입니다',
+    initGit: 'git 저장소 만들기',
+    initGitHint: '이 폴더에 git 저장소를 만듭니다(git init). 워크트리와 병합 관문을 쓸 수 있습니다.',
     add: '추가',
     clone: '복제',
     newWorktree: '새 워크트리',

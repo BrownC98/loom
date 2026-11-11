@@ -73,6 +73,10 @@ pub fn add_repo(base: &str, path: &str) -> Result<u32, Failure> {
     added(sent(base, "/api/repos", json!({ "path": path }))?)
 }
 
+pub fn init_repo(base: &str, path: &str) -> Result<u32, Failure> {
+    added(sent(base, "/api/repos/init", json!({ "path": path }))?)
+}
+
 pub fn clone_repo(base: &str, url: &str, parent: &str) -> Result<u32, Failure> {
     added(link::post_within(
         base,

@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { addRepo, cloneRepo, createRepo } from './api';
+import { addRepo, cloneRepo, createRepo, initRepo } from './api';
 import { childPath, FolderPicker } from './FolderPicker';
 import type { PlaceView } from './gen/PlaceView';
 import type { RepoView } from './gen/RepoView';
@@ -31,6 +31,8 @@ export function AddRepoPopover(props: { hosts: string[]; onAdded: (repo: RepoVie
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('folder');
   const [path, setPath] = useState('');
+  const [plain, setPlain] = useState(false);
+  const [init, setInit] = useState(false);
   const [place, setPlace] = useState<PlaceView | null>(null);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -61,7 +63,7 @@ export function AddRepoPopover(props: { hosts: string[]; onAdded: (repo: RepoVie
     setError('');
     try {
       const parent = path.trim();
-      const added = tab === 'folder' ? await addRepo({ path: parent }) : tab === 'clone' ? await cloneRepo({ url, parent }) : await createRepo({ parent, name });
+      const added = tab === 'folder' ? await (plain && init ? initRepo : addRepo)({ path: parent }) : tab === 'clone' ? await cloneRepo({ url, parent }) : await createRepo({ parent, name });
       props.onAdded(added);
     } catch (err) {
       setError((err as Error).message);
@@ -95,7 +97,16 @@ export function AddRepoPopover(props: { hosts: string[]; onAdded: (repo: RepoVie
             <input id="repo-name" name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-app" disabled={busy} spellCheck={false} autoComplete="off" autoFocus />
           </div>
         )}
-        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} hosts={props.hosts} onPick={setPath} onPlace={setPlace} />
+        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} hosts={props.hosts} onPick={(picked, git) => (setPath(picked), setPlain(!git))} onPlace={setPlace} />
+        {tab === 'folder' && plain && path.trim() !== '' && (
+          <label className="init-git">
+            <input type="checkbox" checked={init} disabled={busy} onChange={(e) => setInit(e.target.checked)} />
+            <span>
+              {t('repo.initGit')}
+              <span className="hint">{t('repo.initGitHint')}</span>
+            </span>
+          </label>
+        )}
       </div>
       {error ? (
         <p className="error" role="alert">

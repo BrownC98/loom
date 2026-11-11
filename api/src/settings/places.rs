@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// WSL 배포판 하나의 홈과 기본 워크스페이스 폴더. 둘 다 UNC 경로다.
+/// WSL 배포판 하나의 홈과 기본 워크트리 폴더. 둘 다 UNC 경로다.
 #[derive(Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DistroView {

@@ -95,11 +95,11 @@ pub enum RepoProblem {
     NotFound(String),
     /// 이 폴더에 git이 없다. 워크트리, 커밋 그래프, 병합 관문은 git 저장소에서만 쓴다.
     NotGit(String),
-    /// 워크스페이스 폴더는 절대 경로다.
+    /// 워크트리 폴더는 절대 경로다.
     NotAbsolute(String),
-    /// 워크스페이스 폴더가 없다.
+    /// 워크트리 폴더가 없다.
     NoWorkspace(String),
-    /// 워크스페이스 폴더가 저장소와 다른 위치(이 PC, WSL 배포판)에 있다. WSL git은 Windows 경로에 워크트리를 만들지 못한다.
+    /// 워크트리 폴더가 저장소와 다른 위치(이 PC, WSL 배포판)에 있다. WSL git은 Windows 경로에 워크트리를 만들지 못한다.
     OtherPlace(String),
     /// 없는 저장소 id다.
     NoRepo,
@@ -138,11 +138,11 @@ impl fmt::Display for RepoProblem {
             ),
             RepoProblem::NotAbsolute(path) => write!(f, "{path}: give an absolute path."),
             RepoProblem::NoWorkspace(path) => {
-                write!(f, "{path}: the workspace folder does not exist.")
+                write!(f, "{path}: the worktree folder does not exist.")
             }
             RepoProblem::OtherPlace(path) => write!(
                 f,
-                "{path}: the workspace folder is not in the same place (this PC or WSL distro) as the repository."
+                "{path}: the worktree folder is not in the same place (this PC or WSL distro) as the repository."
             ),
             RepoProblem::NoRepo => write!(f, "No such repository."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: not a worktree of this repository."),

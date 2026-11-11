@@ -1,4 +1,4 @@
-import { ArrowUp, Paperclip } from 'lucide-react';
+import { ArrowUp, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ComponentProps, type DOMAttributes, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, savePastedFile } from './api';
@@ -236,6 +236,7 @@ export function useComposer(props: { node: NodeId; keys: ComposerKeys; deliver: 
     value: text,
     readOnly: sending,
     onChange: (e) => {
+      setRefusal(null);
       if (!props.onTyped?.(text, e.target.value)) setText(e.target.value);
     },
     onKeyDown,
@@ -248,14 +249,17 @@ export type ComposerState = ReturnType<typeof useComposer>;
 
 export function ComposerNotes(props: { composer: ComposerState }) {
   const { t } = useTranslation();
-  const { images, filing, refusal } = props.composer;
+  const { images, filing, refusal, setRefusal } = props.composer;
   return (
     <>
       <ImageList images={images.list} onRemove={images.remove} />
       {filing > 0 && <p className="filing">{t('composer.filing', { count: filing })}</p>}
       {refusal && (
         <p className="refusal" role="alert">
-          {refusal}
+          <span>{refusal}</span>
+          <button type="button" className="dismiss" aria-label={t('common.close')} title={t('common.close')} onClick={() => setRefusal(null)}>
+            <X aria-hidden="true" />
+          </button>
         </p>
       )}
     </>

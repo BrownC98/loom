@@ -152,9 +152,18 @@ pub fn composer(
         let field = field::boxed_label(Str::ComposerPlaceholder, false, true, cx);
         let pictures = cx.new(|_| Pictures::new(store.clone(), NodeId(0)));
         let attach = pictures.clone();
+        let me = cx.weak_entity();
         field.update(cx, |field, _| {
             field.on_files(move |entries, _, cx| {
                 attach.update(cx, |pictures, cx| pictures.take_clipboard(entries, cx));
+            });
+            field.on_typed(move |cx| {
+                me.update(cx, |composer: &mut Composer, cx| {
+                    if composer.note.take().is_some() {
+                        cx.notify();
+                    }
+                })
+                .ok();
             });
         });
         let typed = cx.subscribe_in(
@@ -1320,6 +1329,7 @@ impl Composer {
                     &[("count", &self.filing.to_string())],
                 )
             }),
+            closable: self.note.is_some(),
             note: self.note.clone().or_else(|| {
                 aimed
                     .lost
@@ -1348,6 +1358,7 @@ pub struct ComposerView<'a> {
     pub keys: Option<String>,
     pub filing: Option<String>,
     pub note: Option<String>,
+    pub closable: bool,
 }
 
 pub trait ComposerWire {
@@ -1367,6 +1378,9 @@ pub trait ComposerWire {
         el
     }
     fn send(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el
+    }
+    fn close_note(&self, el: Stateful<Div>) -> Stateful<Div> {
         el
     }
 }
@@ -1436,10 +1450,19 @@ pub fn face<W: ComposerWire>(
             .text_color(c.ink_3)
             .child(text)
     });
-    let note = view
-        .note
-        .clone()
-        .map(|text| div().text_size(px(12.0 * z)).text_color(c.err).child(text));
+    let note = view.note.clone().map(|text| {
+        div()
+            .flex()
+            .items_start()
+            .gap(px(6.0 * z))
+            .text_size(px(12.0 * z))
+            .text_color(c.err)
+            .child(div().flex_1().min_w_0().child(text))
+            .children(
+                view.closable
+                    .then(|| wire.close_note(entry::ghost_close("composer-note-close", 0, z, &c))),
+            )
+    });
     let attach = wire.attach(
         tool("composer-attach", 22.0)
             .absolute()
@@ -1613,6 +1636,15 @@ impl ComposerWire for Live<'_, '_> {
                 composer
                     .pictures
                     .update(cx, |pictures, cx| pictures.pick_files(cx));
+            }))
+    }
+
+    fn close_note(&self, el: Stateful<Div>) -> Stateful<Div> {
+        el.tooltip(tip(ui::say(self.cx, Str::CommonClose).to_owned()))
+            .on_mouse_down(MouseButton::Left, place::stop)
+            .on_click(self.cx.listener(|composer, _, _, cx| {
+                composer.note = None;
+                cx.notify();
             }))
     }
 

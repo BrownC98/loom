@@ -48,6 +48,7 @@ enum Hint {
 }
 
 type Files = Box<dyn Fn(Vec<ClipboardEntry>, &mut Window, &mut App)>;
+type Typed = Box<dyn Fn(&mut App)>;
 
 pub struct Field {
     focus: FocusHandle,
@@ -63,6 +64,7 @@ pub struct Field {
     lead: f32,
     trail: f32,
     files: Option<Files>,
+    typed: Option<Typed>,
     selected: Range<usize>,
     reversed: bool,
     marked: Option<Range<usize>>,
@@ -117,6 +119,7 @@ impl Field {
             lead: 0.0,
             trail: 0.0,
             files: None,
+            typed: None,
             selected: 0..0,
             reversed: false,
             marked: None,
@@ -221,11 +224,15 @@ impl Field {
         self.files = Some(Box::new(handler));
     }
 
+    pub fn on_typed(&mut self, handler: impl Fn(&mut App) + 'static) {
+        self.typed = Some(Box::new(handler));
+    }
+
     pub fn insert_token(&mut self, token: &str, window: &Window, cx: &mut Context<Self>) {
         let at = self.selected.start.min(self.text.len());
         let lead = at > 0 && !self.text[..at].ends_with(char::is_whitespace);
         let typed = format!("{}{token} ", if lead { " " } else { "" });
-        self.put(at..at, &typed, window, cx);
+        self.splice(at..at, &typed, window, cx);
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -349,6 +356,17 @@ impl Field {
     }
 
     fn put(&mut self, range: Range<usize>, text: &str, window: &Window, cx: &mut Context<Self>) {
+        self.splice(range, text, window, cx);
+        self.tell_typed(cx);
+    }
+
+    fn tell_typed(&self, cx: &mut Context<Self>) {
+        if let Some(typed) = &self.typed {
+            typed(cx);
+        }
+    }
+
+    fn splice(&mut self, range: Range<usize>, text: &str, window: &Window, cx: &mut Context<Self>) {
         let text = if self.multiline {
             text.replace("\r\n", "\n").replace('\r', "\n")
         } else {
@@ -641,6 +659,7 @@ impl EntityInputHandler for Field {
         self.reversed = false;
         window.notify_text_input_changed(&self.focus);
         cx.emit(FieldEvent::Changed);
+        self.tell_typed(cx);
         cx.notify();
     }
 

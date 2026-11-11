@@ -79,9 +79,12 @@ pub const DIALOGS: [Dialog; 6] = [
 
 const POSITION_ENV: &str = "LOOM_POSITION";
 const SKILLS_ENV: &str = "LOOM_SKILLS";
+const NODE_OPTIONS_ENV: &str = "NODE_OPTIONS";
 const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const HOOKS_FILE: &str = "cursor-hooks.json";
+const TTY_FILE: &str = "cursor-tty.cjs";
+const TTY_GUARD: &str = include_str!("cursor-tty.cjs");
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
 const TRUST: &str = "--trust";
@@ -94,6 +97,7 @@ fn write_plugin(dir: &Path) -> std::io::Result<()> {
     let manifest = dir.join(".cursor-plugin").join("plugin.json");
     std::fs::create_dir_all(manifest.parent().expect("파일 경로에는 부모가 있다"))?;
     std::fs::write(manifest, MANIFEST)?;
+    std::fs::write(dir.join(TTY_FILE), TTY_GUARD)?;
     std::fs::write(dir.join(HOOKS_FILE), hooks().to_string())
 }
 
@@ -207,9 +211,10 @@ impl Adapter for Cursor {
         at: &'a LaunchAt<'_>,
         _: Option<&'a Session>,
         _: &'a [String],
-        _: &'a mut CommandBuilder,
+        cmd: &'a mut CommandBuilder,
         _: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<Started, LaunchError>> {
+        cmd.env(NODE_OPTIONS_ENV, node_options(at));
         let status = (!env_auth(at)).then(|| usage::status(at.site));
         let distro = at.site.distro().map(str::to_owned);
         Box::pin(async move {
@@ -265,6 +270,10 @@ impl Adapter for Cursor {
         cmd.env(SKILLS_ENV, skills_value(at.launch.skills));
     }
 
+    fn launch_settings(&self) -> Option<String> {
+        Some(TTY_GUARD.into())
+    }
+
     fn choice_args(&self, choice: &ModelChoice) -> Option<Vec<String>> {
         let model = match (&choice.model, &choice.effort) {
             (Some(model), Some(effort)) => format!("{model}-{effort}"),
@@ -284,6 +293,39 @@ impl Adapter for Cursor {
 
     fn record<'a>(&'a self, rec: &'a Record) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { rec.session.as_ref().map(|s| s.0.clone()) })
+    }
+}
+
+fn node_options(at: &LaunchAt<'_>) -> String {
+    let script = at
+        .plugin
+        .join(TTY_FILE)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let flag = format!("--require \"{}\"", script.replace('"', "\\\""));
+    let given = at
+        .env
+        .iter()
+        .rev()
+        .find(|(k, _)| *k == NODE_OPTIONS_ENV)
+        .map(|(_, v)| v.clone());
+    let inherited = || {
+        at.inside
+            .is_none()
+            .then(|| std::env::var_os(NODE_OPTIONS_ENV))
+            .flatten()
+    };
+    match given.or_else(inherited) {
+        Some(prev) => {
+            let prev = prev.to_string_lossy();
+            let prev = prev.trim();
+            if prev.is_empty() {
+                flag
+            } else {
+                format!("{prev} {flag}")
+            }
+        }
+        None => flag,
     }
 }
 

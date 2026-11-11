@@ -15,7 +15,7 @@ import { openLink } from './openLink';
 import { commandKey } from './platform';
 import { findKey, navDirection, paneKey, type Direction } from './keys';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
-import { probeSize } from './sizeProbe';
+import { fitsTerminal, probeSize } from './sizeProbe';
 import { paintSnapshot } from './terminalSnapshot';
 import { attachTouchGestures, type TouchSelection } from './touchTerminal';
 
@@ -209,9 +209,10 @@ export function SizingTerminal(props: TerminalProps) {
       }, SNAPSHOT_MS);
       restyle.current = () => (dirty = true);
       const propose = () => {
+        if (el.clientWidth <= 0 || el.clientHeight <= 0) return null;
         if (!xterm.element) return probeSize(el, xterm.options.fontFamily ?? '', xterm.options.fontSize ?? DEFAULT_TERMINAL_FONT.size);
         const proposed = fitAddon.proposeDimensions();
-        return proposed && proposed.cols > 0 && proposed.rows > 0 ? { cols: proposed.cols, rows: proposed.rows } : null;
+        return fitsTerminal(proposed) ? { cols: proposed.cols, rows: proposed.rows } : null;
       };
       const sendSize = (size: Resize) => link.sendRequest((latest.current.hold ?? keepSize).claim(size));
       const decide = () => {

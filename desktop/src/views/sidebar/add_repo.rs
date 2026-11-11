@@ -24,6 +24,7 @@ use crate::views::worktree::{Closed, Kind, actions, button, error, hint, labelle
 
 const WIDTH: f32 = 440.0;
 const DIRS: f32 = 168.0;
+const INIT_BOX: f32 = 15.0;
 const RELEASE_POLL: Duration = Duration::from_millis(100);
 const TYPING_PAUSE: Duration = Duration::from_millis(250);
 
@@ -89,6 +90,7 @@ pub struct AddRepo {
     visited: HashSet<String>,
     inflight: calls::Inflight,
     latest: u64,
+    init_git: bool,
     busy: bool,
     error: Option<String>,
 }
@@ -261,6 +263,7 @@ impl AddRepo {
             list: None,
             failed: String::new(),
             selected: None,
+            init_git: false,
             open: true,
             locations: None,
             waiting: None,
@@ -519,6 +522,60 @@ impl AddRepo {
         }
     }
 
+    fn plain(&self) -> bool {
+        let Some(list) = &self.list else {
+            return false;
+        };
+        match &self.selected {
+            Some(path) => list
+                .folders
+                .iter()
+                .any(|f| !f.git && child_path(&list.path, &f.name) == *path),
+            None => !list.git,
+        }
+    }
+
+    fn init_row(&self, lang: Lang, c: &Colors, cx: &Context<Self>) -> AnyElement {
+        let on = self.init_git;
+        let mut mark = div()
+            .flex_none()
+            .mt(px(2.0))
+            .size(px(INIT_BOX))
+            .rounded(px(4.0))
+            .border_1()
+            .border_color(if on { c.accent } else { c.line_strong })
+            .flex()
+            .items_center()
+            .justify_center();
+        if on {
+            mark = mark
+                .bg(c.accent)
+                .child(icon(Lucide::Check, 11.0, c.accent_ink));
+        }
+        div()
+            .id("init-git")
+            .flex()
+            .items_start()
+            .gap(px(8.0))
+            .cursor_pointer()
+            .child(mark)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .text_size(px(13.0))
+                    .text_color(c.ink)
+                    .child(Str::RepoInitGit.text(lang))
+                    .child(hint(Str::RepoInitGitHint.text(lang).to_owned(), false, c)),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.init_git = !this.init_git;
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
     fn ready(&self, cx: &gpui::App) -> bool {
         !self.picked.trim().is_empty()
             && match self.tab {
@@ -538,11 +595,13 @@ impl AddRepo {
         let url = self.url_field.read(cx).text().to_owned();
         let name = self.name_field.read(cx).text().to_owned();
         let tab = self.tab;
+        let init = self.plain() && self.init_git;
         let store = self.store.clone();
         calls::run(
             &store,
             cx,
             move |base| match tab {
+                Tab::Folder if init => calls::init_repo(base, &parent),
                 Tab::Folder => calls::add_repo(base, &parent),
                 Tab::Clone => calls::clone_repo(base, &url, &parent),
                 Tab::Create => calls::create_repo(base, &parent, &name),
@@ -1040,6 +1099,9 @@ impl Render for AddRepo {
             Tab::Folder => {}
         }
         panel = panel.children(self.picker(lang, &c, cx));
+        if self.tab == Tab::Folder && self.plain() && !self.picked.trim().is_empty() {
+            panel = panel.child(self.init_row(lang, &c, cx));
+        }
         let target = self.target(cx);
         let footer = if let Some(text) = &self.error {
             Some(error(text.clone(), &c).into_any_element())

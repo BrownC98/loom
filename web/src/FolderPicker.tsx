@@ -16,7 +16,7 @@ export function childPath(parent: string, name: string): string {
 const distroOf = (list: FolderList | null) => (list?.place.kind === 'wsl' ? list.place.distro : null);
 const hostOf = (list: FolderList | null) => (list?.place.kind === 'ssh' ? list.place.host : null);
 
-export function FolderPicker(props: { id: string; label: string; disabled: boolean; autoFocus?: boolean; hosts: string[]; onPick: (path: string) => void; onPlace: (place: PlaceView | null) => void }) {
+export function FolderPicker(props: { id: string; label: string; disabled: boolean; autoFocus?: boolean; hosts: string[]; onPick: (path: string, git: boolean) => void; onPlace: (place: PlaceView | null) => void }) {
   const { t } = useTranslation();
   const [dir, setDir] = useState('');
   const [list, setList] = useState<FolderList | null>(null);
@@ -56,10 +56,8 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
       setFailed('');
       setWaiting(null);
       if (next.place.kind === 'ssh') setAsking(false);
-      if (path === undefined) {
-        setDir(next.path);
-        onPick(next.path);
-      }
+      if (path === undefined) setDir(next.path);
+      onPick(path ?? next.path, next.git);
     } catch (err) {
       if (ask !== latest.current) return;
       setFailed((err as Error).message);
@@ -108,7 +106,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     setReach(null);
     setDir(path);
     setSelected(null);
-    onPick(path);
+    onPick(path, true);
     setList(null);
     setFailed('');
     setWaiting(distro);
@@ -149,9 +147,9 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const distroPressed = (distro: string) => !asking && (distroOf(list) ?? waiting) === distro;
   const hostPressed = (name: string) => !asking && dir.toLowerCase().startsWith(`ssh://${name.toLowerCase()}/`);
 
-  function select(path: string) {
+  function select(path: string, git: boolean) {
     setSelected(path);
-    onPick(path);
+    onPick(path, git);
   }
 
   return (
@@ -252,7 +250,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
               const path = childPath(list.path, folder.name);
               return (
                 <li key={folder.name} className={selected === path ? 'sel' : undefined}>
-                  <button type="button" className="dir" disabled={props.disabled} aria-pressed={selected === path} onClick={() => select(path)}>
+                  <button type="button" className="dir" disabled={props.disabled} aria-pressed={selected === path} onClick={() => select(path, folder.git)}>
                     <Folder />
                     <span className="dir-name">{folder.name}</span>
                     {folder.git && <span className="tag">git</span>}

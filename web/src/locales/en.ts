@@ -162,6 +162,8 @@ const en = {
     busy: { folder: 'Adding…', clone: 'Cloning…', create: 'Creating…' },
     noCommit: 'Available after the first commit',
     noGit: 'This folder has no git',
+    initGit: 'Create a git repository',
+    initGitHint: 'Runs git init in this folder. Worktrees and the merge gate need a git repository.',
     add: 'Add',
     clone: 'Clone',
     newWorktree: 'New worktree',

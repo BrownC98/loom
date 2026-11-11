@@ -153,6 +153,7 @@ export const getSizes = () => call<CardSize[]>('GET', '/api/sizes');
 export const putSizes = (sizes: CardSize[]) => call<null>('PUT', '/api/sizes', sizes);
 export const clearSizes = (nodes: NodeId[]) => call<null>('DELETE', '/api/sizes', nodes);
 export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
+export const initRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos/init', req);
 export const cloneRepo = (req: CloneRepo) => call<RepoView>('POST', '/api/repos/clone', req);
 export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repos/create', req);
 export const removeRepo = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}`);

@@ -61,6 +61,9 @@ pub struct FolderList {
     pub parent: Option<String>,
     /// 이름 순이다. 점으로 시작하는 폴더는 뺀다.
     pub folders: Vec<Folder>,
+    /// 이 폴더 안에 `.git`이 있다. 화면은 거짓일 때 「git 저장소 만들기」를 보인다. 이 필드가 없는 옛 데몬은 거짓이다.
+    #[serde(default)]
+    pub git: bool,
     /// 화면의 「실행 위치」 줄이 쓴다.
     pub place: PlaceView,
 }

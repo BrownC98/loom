@@ -55,6 +55,26 @@ impl Repos {
             .map_err(|e| RepoProblem::Git(e.to_string()))
     }
 
+    pub async fn init(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
+        match self.add_git(files, path).await {
+            Err(RepoProblem::NotGit(_)) => {}
+            added => return added,
+        }
+        let folder = Path::new(path);
+        if !place::absolute(folder) {
+            return Err(RepoProblem::NotAbsolute(path.to_owned()));
+        }
+        if under_git(files, folder).await.map_err(RepoProblem::Git)? {
+            return Err(RepoProblem::Git(format!(
+                "{path} is under a git repository that git cannot read"
+            )));
+        }
+        git::run(files, folder, &["init", "-q"])
+            .await
+            .map_err(RepoProblem::Git)?;
+        self.add_git(files, path).await
+    }
+
     pub async fn add_git(&self, files: Files<'_>, path: &str) -> Result<RepoId, RepoProblem> {
         let folder = Path::new(path);
         check(files, folder).await?;
@@ -220,6 +240,7 @@ pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
         }
         _ => RepoProblem::Git(e.to_string()),
     })?;
+    let git = entries.iter().any(|e| e.name == GIT_ENTRY);
     let mut folders: Vec<Folder> = entries
         .into_iter()
         .filter(|entry| entry.dir && !entry.name.starts_with('.'))
@@ -235,6 +256,7 @@ pub fn folders(files: Files, path: &str) -> Result<FolderList, RepoProblem> {
         path: path.to_owned(),
         parent: place::parent(dir),
         folders,
+        git,
         place: place_view(&place::of(dir)),
     })
 }

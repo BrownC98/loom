@@ -5,6 +5,7 @@ use api::canvas::CommitGraph;
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/repos", get(list_repos).post(add_repo))
+        .route("/api/repos/init", post(init_repo))
         .route("/api/repos/clone", post(clone_repo))
         .route("/api/repos/create", post(create_repo))
         .route("/api/repos/{id}", delete(remove_repo))
@@ -25,7 +26,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         )
 }
 
-/// [저장소 추가]. `path`는 데몬이 보는 폴더다.
+/// [작업공간 추가] 「기존 폴더」. `path`는 데몬이 보는 폴더다. `/api/repos/init`은 git 저장소가 아닌 폴더에 `git init`을 한 뒤 더한다.
 #[derive(Deserialize, TS)]
 #[ts(export)]
 pub struct NewRepo {
@@ -117,6 +118,15 @@ async fn add_repo(
 ) -> Result<Json<RepoView>, Problem> {
     let _use = app.use_ssh_of(req.path.trim()).await;
     let id = app.repos.add(app.files(), req.path.trim()).await?;
+    added(&app, id).await
+}
+
+async fn init_repo(
+    State(app): State<Arc<App>>,
+    Json(req): Json<NewRepo>,
+) -> Result<Json<RepoView>, Problem> {
+    let _use = app.use_ssh_of(req.path.trim()).await;
+    let id = app.repos.init(app.files(), req.path.trim()).await?;
     added(&app, id).await
 }
 

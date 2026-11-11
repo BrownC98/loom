@@ -19,6 +19,10 @@ parent: string | null,
  */
 folders: Array<Folder>, 
 /**
+ * 이 폴더 안에 `.git`이 있다. 화면은 거짓일 때 「git 저장소 만들기」를 보인다. 이 필드가 없는 옛 데몬은 거짓이다.
+ */
+git: boolean, 
+/**
  * 화면의 「실행 위치」 줄이 쓴다.
  */
 place: PlaceView, };

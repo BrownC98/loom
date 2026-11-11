@@ -20,6 +20,7 @@ use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::field::{self, Field, FieldEvent, Form};
 use crate::views::icons::{Lucide, icon};
+use crate::views::widgets::btn::tabbable;
 use crate::views::worktree::{Closed, Kind, actions, button, error, hint, labelled, shell, title};
 
 const WIDTH: f32 = 440.0;
@@ -551,8 +552,8 @@ impl AddRepo {
                 .bg(c.accent)
                 .child(icon(Lucide::Check, 11.0, c.accent_ink));
         }
-        div()
-            .id("init-git")
+        tabbable(div().id("init-git"), cx)
+            .rounded(px(4.0))
             .flex()
             .items_start()
             .gap(px(8.0))
@@ -569,8 +570,10 @@ impl AddRepo {
                     .child(hint(Str::RepoInitGitHint.text(lang).to_owned(), false, c)),
             )
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.init_git = !this.init_git;
-                cx.notify();
+                if !this.busy {
+                    this.init_git = !this.init_git;
+                    cx.notify();
+                }
             }))
             .into_any_element()
     }

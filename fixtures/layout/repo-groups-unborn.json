@@ -5,6 +5,7 @@
       "id": 3,
       "name": "fresh",
       "hasCommits": false,
+      "git": true,
       "worktrees": [
         {
           "path": "/home/u/fresh",

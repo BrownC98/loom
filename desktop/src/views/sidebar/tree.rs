@@ -51,7 +51,7 @@ pub enum Body {
         path: String,
         full: String,
         chip: Option<Chip>,
-        has_commits: bool,
+        no_worktree: Option<Str>,
     },
     Group {
         label: String,
@@ -286,6 +286,7 @@ fn group_items(
                         GroupKind::Linked => None,
                         GroupKind::Original => Some(Str::WorktreeOriginal.text(cx.lang)),
                         GroupKind::Unborn => Some(Str::WorktreeUnborn.text(cx.lang)),
+                        GroupKind::Plain => Some(Str::WorktreePlain.text(cx.lang)),
                     },
                 },
                 children,
@@ -407,7 +408,7 @@ pub fn build(
                     path: repo.shown_path.clone(),
                     full: repo.path.clone(),
                     chip: chip(&repo.place, lang),
-                    has_commits: repo.has_commits,
+                    no_worktree: crate::views::card::worktree_block(repo),
                 },
                 children: group_items(&cx, snapshot, repo, &groups, &parents, None),
             }

@@ -10,7 +10,7 @@ use gpui::{
 
 use api::graph::waits::WaitTone;
 use api::graph::{CardView, NodeState, NodeView, ProcessState};
-use api::repos::PlaceView;
+use api::repos::{PlaceView, RepoView};
 use api::settings::DefaultCardView;
 
 use crate::canvas::repos::GroupKind;
@@ -151,7 +151,17 @@ pub struct RepoFrame<'a> {
     pub place: Option<String>,
     pub path: &'a str,
     pub shown_path: &'a str,
-    pub has_commits: bool,
+    pub no_worktree: Option<Str>,
+}
+
+pub fn worktree_block(repo: &RepoView) -> Option<Str> {
+    if !repo.git {
+        Some(Str::RepoNoGit)
+    } else if !repo.has_commits {
+        Some(Str::RepoNoCommit)
+    } else {
+        None
+    }
 }
 
 pub struct ChipView {
@@ -256,20 +266,14 @@ pub fn repo_frame(
         zoom,
         colors,
     );
-    let tip = if info.has_commits {
-        None
-    } else {
-        Some(format!(
-            "{}: {}",
-            Str::RepoNewWorktree.text(lang),
-            Str::RepoNoCommit.text(lang)
-        ))
-    };
+    let tip = info
+        .no_worktree
+        .map(|why| format!("{}: {}", Str::RepoNewWorktree.text(lang), why.text(lang)));
     let new_worktree = text_button(
         ElementId::Name(format!("wt:{key}").into()),
         Some(Lucide::GitBranchPlus),
         Str::RepoNewWorktree.text(lang).to_owned(),
-        !info.has_commits,
+        info.no_worktree.is_some(),
         tip,
         Some((&acts.anchors, format!("wt:{key}"))),
         keyed(&acts.new_worktree, key),
@@ -331,6 +335,7 @@ pub fn group_frame(
     let kind = match info.kind {
         GroupKind::Original => Some(Str::WorktreeOriginal),
         GroupKind::Unborn => Some(Str::WorktreeUnborn),
+        GroupKind::Plain => Some(Str::WorktreePlain),
         GroupKind::Linked => None,
     };
     let mut head = band(43.0, zoom, colors)

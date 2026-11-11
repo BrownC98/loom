@@ -3,7 +3,11 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 
-export type GroupKind = 'original' | 'unborn' | 'linked';
+export type GroupKind = 'original' | 'unborn' | 'plain' | 'linked';
+
+export function worktreeBlock(repo: Pick<RepoView, 'git' | 'hasCommits'>): 'repo.noGit' | 'repo.noCommit' | null {
+  return !repo.git ? 'repo.noGit' : !repo.hasCommits ? 'repo.noCommit' : null;
+}
 
 export type Group = {
   path: string;
@@ -17,7 +21,7 @@ export function folderName(path: string): string {
 }
 
 export function groupsOf(repo: RepoView, views: NodeView[]): Group[] {
-  const groups: Group[] = repo.worktrees.map((w) => ({ path: w.path, label: w.branch ?? folderName(w.path), kind: !w.original ? 'linked' : repo.hasCommits ? 'original' : 'unborn', branch: w.branch }));
+  const groups: Group[] = repo.worktrees.map((w) => ({ path: w.path, label: w.branch ?? folderName(w.path), kind: !w.original ? 'linked' : !repo.git ? 'plain' : repo.hasCommits ? 'original' : 'unborn', branch: w.branch }));
   for (const v of views) {
     if (v.place.repo === repo.id && !groups.some((g) => g.path === v.place.worktree)) {
       groups.push({ path: v.place.worktree, label: folderName(v.place.worktree), kind: 'linked', branch: null });

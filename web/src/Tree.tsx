@@ -1,4 +1,4 @@
-import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, Folder, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
@@ -23,7 +23,7 @@ import { AgentLine, stateClass, stateText, Unread } from './NodeCard';
 import { StatusPills } from './status';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './sheet';
 import { useDismiss } from './popover';
-import { groupParents, groupsOf, inGroup, type Group } from './repos';
+import { groupParents, groupsOf, inGroup, worktreeBlock, type Group } from './repos';
 
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
 type Item = { key: string; title: string; row: ReactNode; node: NodeId | null; box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
@@ -213,7 +213,7 @@ export function Tree(props: {
         },
         row: (
           <>
-            <GitBranch className="icon" />
+            {group.kind === 'plain' ? <Folder className="icon" /> : <GitBranch className="icon" />}
             {branch === null ? (
               <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
                 {group.label}
@@ -237,9 +237,9 @@ export function Tree(props: {
     box: `repo:${repo.id}`,
     actions: [
       {
-        label: repo.hasCommits ? t('repo.newWorktree') : `${t('repo.newWorktree')}: ${t('repo.noCommit')}`,
+        label: worktreeBlock(repo) === null ? t('repo.newWorktree') : `${t('repo.newWorktree')}: ${t(worktreeBlock(repo)!)}`,
         icon: <GitBranchPlus />,
-        disabled: !repo.hasCommits,
+        disabled: worktreeBlock(repo) !== null,
         run: (row) => openPop(row, { kind: 'newWorktree', repo: repo.id }),
       },
     ],

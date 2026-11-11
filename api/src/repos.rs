@@ -19,10 +19,17 @@ pub struct RepoView {
     pub branches: Vec<String>,
     /// 거짓이면 첫 커밋 전이다(`git init` 직후). 워크트리를 만들 수 없다.
     pub has_commits: bool,
+    /// 거짓이면 git 없는 폴더다. 노드는 이 폴더에서 돌고, 워크트리와 병합 관문이 없다. 이 필드가 없는 옛 데몬은 git 저장소만 준다.
+    #[serde(default = "has_git")]
+    pub git: bool,
     /// 저장소가 도는 곳. 경로에서 나온 값이다.
     pub place: PlaceView,
     /// 화면에 보일 경로. WSL은 배포판 안의 경로이고, 홈 아래면 `~/…`다. SSH는 그 PC 안의 경로다.
     pub shown_path: String,
+}
+
+fn has_git() -> bool {
+    true
 }
 
 /// 폴더가 있는 곳: 이 PC, WSL 배포판, SSH 호스트. 근거: 목업 docs/mockups/wsl-place.html ②·②′, docs/mockups/ssh-repo.html ④.
@@ -86,6 +93,7 @@ pub struct Worktree {
 pub enum RepoProblem {
     /// 데몬이 보는 파일 시스템에 이 폴더가 없다.
     NotFound(String),
+    /// 이 폴더에 git이 없다. 워크트리, 커밋 그래프, 병합 관문은 git 저장소에서만 쓴다.
     NotGit(String),
     /// 워크스페이스 폴더는 절대 경로다.
     NotAbsolute(String),
@@ -124,7 +132,10 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NotFound(path) => {
                 write!(f, "{path}: not on the file system that the daemon sees.")
             }
-            RepoProblem::NotGit(path) => write!(f, "{path}: not a git repository."),
+            RepoProblem::NotGit(path) => write!(
+                f,
+                "{path} has no git. Worktrees, loom check and loom ready need a git repository. Nodes work in this folder: spawn a child without --worktree."
+            ),
             RepoProblem::NotAbsolute(path) => write!(f, "{path}: give an absolute path."),
             RepoProblem::NoWorkspace(path) => {
                 write!(f, "{path}: the workspace folder does not exist.")

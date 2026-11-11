@@ -32,7 +32,7 @@ import { NodeMenu } from './NodeMenu';
 import { WakeButton } from './WakeButton';
 import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
-import { attachCards, groupParents, groupsOf, inGroup, splitChips, type Group, type GroupKind } from './repos';
+import { attachCards, groupParents, groupsOf, inGroup, splitChips, worktreeBlock, type Group, type GroupKind } from './repos';
 import { attachDragPan, attachPinchZoom, type View } from './pinchZoom';
 import { realignTerminals, SizingTerminal, XtermFont, type Draw } from './Terminal';
 import type { Direction } from './keys';
@@ -203,7 +203,7 @@ type Chip = { path: string; label: string; className: string | undefined; creati
 type CardBase = { view: NodeView; unreached: boolean; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 type CardData = CardBase & { ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
-type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
+type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; noWorktree: ReturnType<typeof worktreeBlock>; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type RepoNode = Node<RepoData, 'repo'>;
 type CardNode = Node<CardData, 'card'>;
@@ -294,8 +294,8 @@ function Repo({ data }: NodeProps<RepoNode>) {
         </IconButton>
         <button
           className="btn ghost sm nodrag"
-          disabled={!data.hasCommits}
-          title={data.hasCommits ? undefined : `${t('repo.newWorktree')}: ${t('repo.noCommit')}`}
+          disabled={data.noWorktree !== null}
+          title={data.noWorktree === null ? undefined : `${t('repo.newWorktree')}: ${t(data.noWorktree)}`}
           aria-expanded={data.creating}
           onClick={(e) => data.onNewWorktree(e.currentTarget)}
         >
@@ -813,7 +813,7 @@ export function Graph(props: {
             path: r.repo.path,
             place: r.repo.place,
             shownPath: r.repo.shownPath,
-            hasCommits: r.repo.hasCommits,
+            noWorktree: worktreeBlock(r.repo),
             creating: branching?.key === r.key,
             onArrange: () => arrangeRepo(r),
             onNewWorktree: (button) => {

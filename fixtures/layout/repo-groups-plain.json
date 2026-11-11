@@ -1,0 +1,59 @@
+{
+  "kind": "repoGroups",
+  "input": {
+    "repo": {
+      "id": 4,
+      "name": "notes",
+      "hasCommits": false,
+      "git": false,
+      "worktrees": [
+        {
+          "path": "/home/u/notes",
+          "branch": null,
+          "original": true
+        }
+      ]
+    },
+    "views": [
+      {
+        "id": 1,
+        "parent": null,
+        "repo": 4,
+        "worktree": "/home/u/notes",
+        "bookmark": null
+      },
+      {
+        "id": 2,
+        "parent": 1,
+        "repo": 4,
+        "worktree": "/home/u/notes",
+        "bookmark": null
+      }
+    ]
+  },
+  "output": {
+    "groups": [
+      {
+        "path": "/home/u/notes",
+        "label": "notes",
+        "kind": "plain"
+      }
+    ],
+    "boxes": [
+      "/home/u/notes"
+    ],
+    "chips": [],
+    "parents": [
+      null
+    ],
+    "attach": [
+      null
+    ],
+    "inGroup": [
+      [
+        1,
+        2
+      ]
+    ]
+  }
+}

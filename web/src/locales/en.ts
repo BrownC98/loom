@@ -19,6 +19,7 @@ const en = {
   worktree: {
     original: 'original checkout',
     unborn: 'no commits',
+    plain: 'no git',
     linked: 'worktree',
   },
   tree: {
@@ -160,6 +161,7 @@ const en = {
     tab: { folder: 'Existing folder', clone: 'Clone URL', create: 'New project' },
     busy: { folder: 'Adding…', clone: 'Cloning…', create: 'Creating…' },
     noCommit: 'Available after the first commit',
+    noGit: 'This folder has no git',
     add: 'Add',
     clone: 'Clone',
     newWorktree: 'New worktree',
@@ -780,6 +782,7 @@ const en = {
       unknownRole: "The settings have no role '{{role}}'. The roles are: {{names}}.",
       roleHasNoAgent: "The role '{{role}}' has no agent in the settings. The human starts nodes of this role.",
       leadChildNeedsWorktree: "A child of a node with no parent owns a new worktree (--worktree) or reviews its parent's branch (--review). Role: '{{value}}'.",
+      noGit: 'This folder has no git: {{value}}. loom check and loom ready need a git repository.',
       reviewerSeated: '{{reviewer}} already reviews {{branch}} as {{role}}. loom sends it each new round when the owner calls loom ready.',
       publishing: '{{value}}: the merge queue checked this branch and publishes it now, so it takes no new reviewer and its gate cannot change. Wait for merged or rework, then try again.',
       noWait: 'Question Q{{value}} is already closed.',
@@ -827,7 +830,7 @@ const en = {
     },
     repo: {
       notFound: 'Folder not found: {{value}}',
-      notGit: 'Not a git repository: {{value}}',
+      notGit: 'This folder has no git: {{value}}. Worktrees and the commit graph need a git repository.',
       notAbsolute: 'Enter the full path: {{value}}',
       noWorkspace: 'Workspace folder not found: {{value}}. Create the folder, or choose another folder in Settings › General.',
       otherPlace: 'The workspace folder is not in the same place (this PC or a WSL distro) as the repository: {{value}}. In Settings › General, choose a folder in the repository place.',

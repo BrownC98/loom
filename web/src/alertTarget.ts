@@ -36,21 +36,21 @@ function routeOf(wait: ScreenWait | null): Route {
   return { kind: wait.tone === 'done' ? 'continue' : 'answer', wait };
 }
 
-export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Pin | null): Target | null {
+export function resolveTarget(nodes: ReadonlyMap<NodeId, NodeView>, waiting: readonly NodeView[], selected: NodeId | null, chosen: Chosen | null, pinned: Pin | null, folded: boolean): Target | null {
   const view = (pinned && nodes.get(pinned.view.id)) || (selected !== null && nodes.get(selected)) || waiting[0] || (pinned && { ...pinned.view, waits: [] });
   if (!view) return null;
   const held = pinned?.view.id === view.id ? pinned : null;
   const waits = [...view.waits].sort(bySince);
   const open = (wanted: TargetKey) => wanted === PROMPT || waits.some((w) => w.id === wanted);
   const wanted = chosen?.node === view.id ? chosen.key : null;
-  const key: TargetKey = held ? held.key : wanted !== null && open(wanted) ? wanted : (waits[0]?.id ?? PROMPT);
-  const card = key === PROMPT ? (waits[0] ?? null) : (waits.find((w) => w.id === key) ?? null);
+  const key: TargetKey = folded ? PROMPT : held ? held.key : wanted !== null && open(wanted) ? wanted : (waits[0]?.id ?? PROMPT);
+  const card = key === PROMPT ? null : (waits.find((w) => w.id === key) ?? null);
   return {
     view,
     key,
     card,
     lost: pinned !== null && (held === null || !open(held.key) || !nodes.has(view.id)),
-    route: routeOf(key === PROMPT ? null : card),
+    route: routeOf(card),
     stream: streamOf(waiting),
   };
 }
@@ -78,6 +78,10 @@ export function startClosing(place: ScreenWait, ids: readonly WaitId[]): () => v
   return () => {
     if (closing === mine) closing = null;
   };
+}
+
+export function forgetClosing(): void {
+  closing = null;
 }
 
 export function followClosed(stream: readonly StreamWait[]): Chosen | null {

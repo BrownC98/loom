@@ -75,10 +75,12 @@ pub struct Composer {
     answers: Entity<Answers>,
     chosen: Option<Chosen>,
     pinned: Option<Stop>,
+    folded: bool,
     seen_selected: Option<u32>,
     seen_node: Option<u32>,
     last: Option<Chosen>,
     stream_bar: Bar,
+    stream_rows: Cell<usize>,
     stream_box: Rc<Cell<Size<Pixels>>>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
@@ -105,7 +107,7 @@ impl Aimed {
     fn shown(&self) -> Option<&Streamed> {
         match self.aim {
             Aim::Alert(id) => self.stream.iter().find(|s| s.wait.wait.id == id),
-            Aim::Prompt => self.stream.iter().find(|s| s.node == self.node),
+            Aim::Prompt => None,
         }
     }
 
@@ -208,10 +210,12 @@ pub fn composer(
             }),
             chosen: None,
             pinned: None,
+            folded: false,
             seen_selected: None,
             seen_node: None,
             last: None,
             stream_bar: Bar::new(),
+            stream_rows: Cell::new(0),
             stream_box: Rc::new(Cell::new(Size::default())),
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
@@ -281,6 +285,7 @@ impl Composer {
         let chosen = self.chosen.filter(|c| exists(&c.stop.0));
         let fallback = store.selected().filter(exists);
         let (node, aim) = aim::resolve(held, chosen, &stream, fallback)?;
+        let aim = if self.folded { Aim::Prompt } else { aim };
         let name = snapshot.nodes.iter().find(|n| n.id.0 == node)?.name.clone();
         let lost = (self.pinned.is_some() && held.is_none())
             || matches!(aim, Aim::Alert(id) if !stream.iter().any(|s| s.wait.wait.id == id));
@@ -314,6 +319,18 @@ impl Composer {
             self.pinned = self.aimed(cx).map(|a| (a.node, a.aim));
         }
         cx.notify();
+    }
+
+    fn unfold(&mut self, aim: Aim) {
+        if matches!(aim, Aim::Alert(_)) {
+            self.folded = false;
+        }
+    }
+
+    fn fold(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.folded = true;
+        self.reaim(cx);
+        self.focus_field(window, cx);
     }
 
     fn reaim(&mut self, cx: &mut Context<Self>) {
@@ -820,6 +837,7 @@ impl Composer {
             return;
         };
         let next = aim::cycle((aimed.node, aimed.aim), &aimed.stream, by);
+        self.unfold(next.1);
         self.choose(next, cx);
         self.reaim(cx);
         self.follow(window, cx);
@@ -861,8 +879,8 @@ impl Composer {
             return;
         }
         match keys.key.as_str() {
-            "up" if self.listing.is_none() => self.cycle(-1, window, cx),
-            "down" if self.listing.is_none() => self.cycle(1, window, cx),
+            "up" if self.listing.is_none() => self.cycle(1, window, cx),
+            "down" if self.listing.is_none() => self.cycle(-1, window, cx),
             "l" => self.toggle_list(window, cx),
             digit if digit.len() == 1 && ("1"..="9").contains(&digit) => {
                 let nth = usize::from(digit.as_bytes()[0] - b'1');
@@ -882,6 +900,7 @@ impl Composer {
 
     fn pick(&mut self, node: NodeId, aim: Aim, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.node(cx);
+        self.unfold(aim);
         self.choose((node.0, aim), cx);
         self.reaim(cx);
         self.store.update(cx, |store, cx| {
@@ -1093,19 +1112,9 @@ impl Composer {
             node: shown.name.clone(),
             counts,
             bulk: self.bulk_for(shown, done, z, cx),
-            note: (matches!(aimed.aim, Aim::Prompt) && !matches!(shown.wait.tone, WaitTone::Done))
-                .then(|| ui::say(cx, Str::ComposerNotAnswer).to_owned()),
+            fold: self.fold_button(z, cx),
         };
-        let hints = matches!(aimed.aim, Aim::Alert(_));
-        let body = answers::card(
-            &self.answers,
-            NodeId(shown.node),
-            &shown.wait,
-            z,
-            strip,
-            hints,
-            cx,
-        );
+        let body = answers::card(&self.answers, NodeId(shown.node), &shown.wait, z, strip, cx);
         let node = shown.node;
         Some(
             div()
@@ -1129,6 +1138,29 @@ impl Composer {
         )
     }
 
+    fn fold_button(&self, z: f32, cx: &mut Context<Self>) -> AnyElement {
+        let c = ui::colors(cx);
+        let hover = c.line;
+        div()
+            .id("composer-fold")
+            .flex_none()
+            .size(px(22.0 * z))
+            .rounded(px(5.0 * z))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .tooltip(tip(ui::say(cx, Str::ComposerFold).to_owned()))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|composer, _, window, cx| {
+                cx.stop_propagation();
+                composer.fold(window, cx);
+            }))
+            .child(icon(Lucide::ChevronsDownUp, 14.0 * z, c.ink_3))
+            .into_any_element()
+    }
+
     fn stream_list(&self, aimed: &Aimed, z: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = ui::colors(cx);
         let current = aimed.shown().map(|s| s.wait.wait.id);
@@ -1137,6 +1169,9 @@ impl Composer {
             .iter()
             .filter(|s| Some(s.wait.wait.id) != current)
             .collect();
+        if self.stream_rows.replace(rows.len()) != rows.len() {
+            self.stream_bar.handle().scroll_to_bottom();
+        }
         if rows.is_empty() {
             self.stream_box.set(Size::default());
             return None;
@@ -1150,7 +1185,7 @@ impl Composer {
             .max_h(room.max(px(STREAM_FLOOR * z)))
             .overflow_y_scroll()
             .track_scroll(self.stream_bar.handle());
-        for (index, row) in rows.into_iter().enumerate() {
+        for (index, row) in rows.into_iter().enumerate().rev() {
             let id = row.wait.wait.id;
             let node = row.node;
             let hover = c.surface_hover;

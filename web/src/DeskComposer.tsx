@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption } from './api';
 import { AlertCard } from './AlertCard';
 import { StreamList } from './StreamList';
-import { followClosed, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
+import { followClosed, forgetClosing, PROMPT, startClosing, stepTo, type Route, type Target, type TargetKey } from './alertTarget';
 import { useShowNodes } from './camera';
 import { quotePath } from './attachments';
 import { answerWith, ComposerNotes, FilePick, typeInto, useComposer, useComposerHeld, type ComposerKeys, type Delivery } from './Composer';
@@ -40,6 +40,7 @@ type DeskProps = {
   corner: number;
   onPlace: (place: FloatPlace | null) => void;
   onTarget: (node: NodeId, key: TargetKey) => void;
+  onFold: () => void;
   onReaim: () => void;
   onSelect: (id: NodeId) => void;
 };
@@ -147,7 +148,7 @@ export function DeskComposer(props: DeskProps) {
     const keyed = digit ? keyAction(Number(digit[1])) : null;
     if (e.code === 'KeyL') toggleList();
     else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) {
-      const next = stepTo(target, e.code === 'ArrowUp' ? -1 : 1);
+      const next = stepTo(target, e.code === 'ArrowUp' ? 1 : -1);
       pick(next.node, next.key);
     } else if (keyed) keyed();
     else return;
@@ -173,6 +174,11 @@ export function DeskComposer(props: DeskProps) {
             target={target}
             repo={props.repos.find((r) => r.id === target.view.place.repo)?.name ?? ''}
             onChoose={choose}
+            onFold={() => {
+              forgetClosing();
+              props.onFold();
+              focusField();
+            }}
             onFocus={() => {
               show([node]);
               props.onSelect(node);

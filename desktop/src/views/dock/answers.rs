@@ -739,7 +739,7 @@ pub(crate) struct Strip {
     pub node: String,
     pub counts: String,
     pub bulk: Option<AnyElement>,
-    pub note: Option<String>,
+    pub fold: AnyElement,
 }
 
 pub(crate) fn card(
@@ -748,10 +748,9 @@ pub(crate) fn card(
     wait: &ScreenWait,
     z: f32,
     strip: Strip,
-    hints: bool,
     cx: &mut App,
 ) -> Div {
-    let body = wait_content(answers, node, wait, z, None, hints, cx);
+    let body = wait_content(answers, node, wait, z, None, true, cx);
     framed(answers, wait, z, None, body, Some(strip), cx)
 }
 
@@ -806,7 +805,7 @@ fn framed(
                 entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c),
             )
         }));
-    let (top, note) = match strip {
+    let top = match strip {
         Some(strip) => {
             let small = |text: String| {
                 div()
@@ -846,22 +845,26 @@ fn framed(
                 .flex_none()
                 .ml_auto()
                 .child(small(strip.counts))
-                .child(div().flex().flex_none().child(close).children(strip.bulk));
-            let wrapped = div()
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .children(done.then_some(close))
+                        .children(strip.bulk),
+                )
+                .child(strip.fold);
+            div()
                 .flex()
                 .flex_wrap()
                 .items_center()
                 .gap_x(px(GAP * z))
                 .gap_y(px(4.0 * z))
                 .child(left)
-                .child(right);
-            (wrapped, strip.note)
+                .child(right)
         }
-        None => (
-            top.child(entry::published(wait.wait.since, z, cx))
-                .child(close),
-            None,
-        ),
+        None => top
+            .child(entry::published(wait.wait.since, z, cx))
+            .child(close),
     };
     let mut entry = div().flex().flex_col().gap(px(GAP * z));
     if let Some(text) = &wait.wait.instruction {
@@ -870,14 +873,6 @@ fn framed(
                 .text_size(px(SMALL * z))
                 .text_color(c.ink)
                 .child(find::instruction(find, cx, text)),
-        );
-    }
-    if let Some(text) = note {
-        entry = entry.child(
-            div()
-                .text_size(px(SMALL * z))
-                .text_color(c.ink_3)
-                .child(text),
         );
     }
     entry = entry.child(body);

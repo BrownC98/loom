@@ -58,7 +58,7 @@ import { findKey, paneKey } from './keys';
 import { TerminalDock } from './TerminalDock';
 import { deskKeys, useComposerHeld } from './Composer';
 import { DeskComposer } from './DeskComposer';
-import { resolveTarget, type Chosen, type Pin } from './alertTarget';
+import { PROMPT, resolveTarget, type Chosen, type Pin } from './alertTarget';
 import { DownLine, hostKey, PlaceTag, Reaches, sshHosts, wslDistro } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, activeAccount, withAccount } from './usage';
@@ -161,6 +161,7 @@ export function App() {
   const [chosenBox, setChosenBox] = useState<string | null>(null);
   const [graphCorner, setGraphCorner] = useState(0);
   const [chosen, setChosen] = useState<Chosen | null>(null);
+  const [folded, setFolded] = useState(false);
   const direction = settings.arrangeDirection;
   const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
@@ -186,7 +187,7 @@ export function App() {
   const waiting = waitingNodes(nodes);
   const [pinned, setPinned] = useState<Pin | null>(null);
   const held = useComposerHeld();
-  const target = resolveTarget(nodes, waiting, selected, chosen, pinned);
+  const target = resolveTarget(nodes, waiting, selected, chosen, pinned, folded);
   useEffect(() => {
     if (!held) {
       if (pinned) setPinned(null);
@@ -617,6 +618,11 @@ export function App() {
                 onPlace={(composerPlace) => editSettings((s) => ({ ...s, composerPlace }))}
                 onTarget={(node, key) => {
                   setChosen({ node, key });
+                  setPinned(null);
+                  if (key !== PROMPT) setFolded(false);
+                }}
+                onFold={() => {
+                  setFolded(true);
                   setPinned(null);
                 }}
                 onReaim={() => setPinned(null)}

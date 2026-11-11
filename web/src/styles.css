@@ -677,10 +677,10 @@ a { color: var(--accent); }
 .wait-body .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
 .wait-body .send:disabled { opacity: 0.45; cursor: default; }
 .wait-body .send svg { width: 14px; height: 14px; }
-.entry .dismiss { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.entry .dismiss:is(:hover, :focus-visible) { background: var(--line); color: var(--ink); }
+.entry .dismiss, .composer .refusal .dismiss { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.entry .dismiss:is(:hover, :focus-visible), .composer .refusal .dismiss:is(:hover, :focus-visible) { background: var(--line); color: var(--ink); }
 .entry .dismiss[data-refused] { color: var(--err); }
-.entry .dismiss svg { width: 14px; height: 14px; }
+.entry .dismiss svg, .composer .refusal .dismiss svg { width: 14px; height: 14px; }
 .usage-pop { left: 4px; bottom: calc(100% + 6px); width: 360px; z-index: 20; }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
@@ -1048,7 +1048,9 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .composer-float[data-dragging] { user-select: none; }
 .composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 8px 8px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
 .composer:focus-within, .composer[data-dragging] { border-color: var(--accent); }
-.composer .refusal { position: static; max-width: none; margin: 0; padding: 0; background: none; color: var(--err); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer .refusal { display: flex; align-items: flex-start; gap: 6px; position: static; max-width: none; margin: 0; padding: 0; background: none; color: var(--err); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer .refusal > span { flex: 1; min-width: 0; }
+.composer .refusal .dismiss { margin: -3px 0; }
 .composer .filing { margin: 0; color: var(--ink-3); font-size: 12px; }
 .composer-line { display: flex; align-items: flex-end; gap: 4px; }
 .composer-line textarea { flex: 1; min-width: 0; max-height: 40vh; padding: 5px 8px; resize: none; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }

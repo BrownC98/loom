@@ -31,6 +31,7 @@ pub fn composer(size: FloatSize, name: &str, cx: &App) -> Div {
         keys: None,
         filing: None,
         note: None,
+        closable: false,
     };
     let input = field::skin(div(), z, false, &c)
         .text_color(c.ink_3)

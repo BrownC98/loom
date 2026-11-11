@@ -49,6 +49,10 @@ function forward(origWrite, target, out, argCount, encoding, cb) {
   return argCount <= 1 ? origWrite.call(target, out) : origWrite.call(target, out, encoding, cb);
 }
 
+function validFullState(lines, rows) {
+  return rows > 0 && lines.length > rows && lines[lines.length - 1] === '';
+}
+
 function install(stdout) {
   const origWrite = stdout.write;
   let prev = null;
@@ -82,6 +86,7 @@ function install(stdout) {
     const offEnd = lastMatchEnd(ALT_OFF, chunk);
     if (onEnd >= 0 || offEnd >= 0) {
       altScreen = onEnd > offEnd;
+      prev = null;
       return origWrite.apply(this, arguments);
     }
     if (altScreen) {
@@ -98,11 +103,12 @@ function install(stdout) {
       const next = chunk.slice(clearMatch[0].length).split('\n');
       if (
         prev !== null &&
-        rows > 0 &&
-        prev.length > rows &&
+        validFullState(prev, rows) &&
+        validFullState(next, rows) &&
         next.length >= prev.length &&
         prev[0] === next[0]
       ) {
+        const sameLength = next.length === prev.length;
         const base = prev.length - rows;
         const oldView = prev.slice(base);
         const newTail = next.slice(base);
@@ -114,23 +120,33 @@ function install(stdout) {
           }
         }
         prev = next;
-        if (diff === -1 && next.length === prev.length) {
+        if (diff === -1 && sameLength) {
           return finishSkipped(encoding, cb);
         }
         const from = diff === -1 ? rows - 1 : diff;
         const out = SYNC_START + RESET_SGR + eraseLines(rows - from) + newTail.slice(from).join('\n') + SYNC_END;
         return forward(origWrite, this, out, arguments.length, encoding, cb);
       }
-      prev = next;
+      prev = validFullState(next, rows) ? next : null;
       return forward(origWrite, this, SYNC_START + chunk + SYNC_END, arguments.length, encoding, cb);
     }
 
     const eraseMatch = ERASE_PREFIX.exec(chunk);
     if (eraseMatch !== null) {
-      const erased = (eraseMatch[0].length - ERASE_LINE_HOME.length) / ERASE_LINE_UP.length + 1;
-      const tail = chunk.slice(eraseMatch[0].length).split('\n');
-      const cur = prev ?? [''];
-      prev = cur.slice(0, Math.max(0, cur.length - erased)).concat(tail);
+      if (prev !== null) {
+        const erased = (eraseMatch[0].length - ERASE_LINE_HOME.length) / ERASE_LINE_UP.length + 1;
+        const tail = chunk.slice(eraseMatch[0].length).split('\n');
+        if (
+          erased <= prev.length &&
+          erased <= rows &&
+          tail.length >= erased &&
+          tail[tail.length - 1] === ''
+        ) {
+          prev = prev.slice(0, prev.length - erased).concat(tail);
+        } else {
+          prev = null;
+        }
+      }
       return origWrite.apply(this, arguments);
     }
 

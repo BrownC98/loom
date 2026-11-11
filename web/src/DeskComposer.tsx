@@ -148,7 +148,7 @@ export function DeskComposer(props: DeskProps) {
     const keyed = digit ? keyAction(Number(digit[1])) : null;
     if (e.code === 'KeyL') toggleList();
     else if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && !listing) {
-      const next = stepTo(target, e.code === 'ArrowUp' ? -1 : 1);
+      const next = stepTo(target, e.code === 'ArrowUp' ? 1 : -1);
       pick(next.node, next.key);
     } else if (keyed) keyed();
     else return;

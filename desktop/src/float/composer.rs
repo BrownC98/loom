@@ -80,6 +80,7 @@ pub struct Composer {
     seen_node: Option<u32>,
     last: Option<Chosen>,
     stream_bar: Bar,
+    stream_rows: Cell<usize>,
     stream_box: Rc<Cell<Size<Pixels>>>,
     anchor: Rc<Cell<Bounds<Pixels>>>,
     listing: Option<(Entity<Picker>, Subscription)>,
@@ -214,6 +215,7 @@ pub fn composer(
             seen_node: None,
             last: None,
             stream_bar: Bar::new(),
+            stream_rows: Cell::new(0),
             stream_box: Rc::new(Cell::new(Size::default())),
             anchor: Rc::new(Cell::new(Bounds::default())),
             listing: None,
@@ -877,8 +879,8 @@ impl Composer {
             return;
         }
         match keys.key.as_str() {
-            "up" if self.listing.is_none() => self.cycle(-1, window, cx),
-            "down" if self.listing.is_none() => self.cycle(1, window, cx),
+            "up" if self.listing.is_none() => self.cycle(1, window, cx),
+            "down" if self.listing.is_none() => self.cycle(-1, window, cx),
             "l" => self.toggle_list(window, cx),
             digit if digit.len() == 1 && ("1"..="9").contains(&digit) => {
                 let nth = usize::from(digit.as_bytes()[0] - b'1');
@@ -1167,6 +1169,9 @@ impl Composer {
             .iter()
             .filter(|s| Some(s.wait.wait.id) != current)
             .collect();
+        if self.stream_rows.replace(rows.len()) != rows.len() {
+            self.stream_bar.handle().scroll_to_bottom();
+        }
         if rows.is_empty() {
             self.stream_box.set(Size::default());
             return None;
@@ -1180,7 +1185,7 @@ impl Composer {
             .max_h(room.max(px(STREAM_FLOOR * z)))
             .overflow_y_scroll()
             .track_scroll(self.stream_bar.handle());
-        for (index, row) in rows.into_iter().enumerate() {
+        for (index, row) in rows.into_iter().enumerate().rev() {
             let id = row.wait.wait.id;
             let node = row.node;
             let hover = c.surface_hover;

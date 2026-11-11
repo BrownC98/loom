@@ -138,11 +138,11 @@ impl fmt::Display for RepoProblem {
             ),
             RepoProblem::NotAbsolute(path) => write!(f, "{path}: give an absolute path."),
             RepoProblem::NoWorkspace(path) => {
-                write!(f, "{path}: the workspace folder does not exist.")
+                write!(f, "{path}: the worktree folder does not exist.")
             }
             RepoProblem::OtherPlace(path) => write!(
                 f,
-                "{path}: the workspace folder is not in the same place (this PC or WSL distro) as the repository."
+                "{path}: the worktree folder is not in the same place (this PC or WSL distro) as the repository."
             ),
             RepoProblem::NoRepo => write!(f, "No such repository."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: not a worktree of this repository."),

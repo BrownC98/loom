@@ -353,7 +353,9 @@ impl App {
         ];
         let (code, out) = self
             .check_locks
-            .script(files, &repo, merge::CHECK, &args)
+            .hold_for_check(&repo)
+            .await
+            .script(files, merge::CHECK, &args)
             .await?;
         let lines = merge::Lines::read(&out);
         let result = match (code, &lines.tip) {

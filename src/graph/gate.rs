@@ -1456,7 +1456,8 @@ pub(super) fn unjudged(db: &Connection, node: NodeId) -> rusqlite::Result<Option
     let Some(row) = load(db, repo, &branch)? else {
         return Ok(None);
     };
-    if row.state != GateState::Ready || row.gate != gate || row.owner == node {
+    let open = matches!(row.state, GateState::Ready | GateState::Passed);
+    if !open || row.gate != gate || row.owner == node {
         return Ok(None);
     }
     let judged: bool = db.query_row(

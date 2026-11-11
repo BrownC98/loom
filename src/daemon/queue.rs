@@ -11,8 +11,8 @@ use crate::graph::{BatchId, Ended, Merge, Outcome, Queued};
 use crate::protocol::{self, Deploy};
 use crate::worktree;
 use crate::worktree::merge::{
-    self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PASSED, PUBLISH, STACK,
-    SYNC, UNDO, base_branch, bringing_merge, merge_commit, script,
+    self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, CheckHeld, DIRTY, Lines, MOVED, PASSED, PUBLISH,
+    STACK, SYNC, UNDO, base_branch, bringing_merge, merge_commit, script,
 };
 use api::graph::errors::Refusal;
 use api::graph::events::{BatchMember, BatchResult, Entry};
@@ -77,6 +77,7 @@ async fn repo_queue(app: Arc<App>, repo: RepoId, wake: Arc<Notify>) {
 
 async fn batch(app: &Arc<App>, repo: RepoId, gate: Option<&str>) -> Result<bool, Refusal> {
     let dir = repo_path(app, repo)?;
+    let held = app.check_locks.hold_for_batch(&dir).await;
     let target = target_of(app.files(), &dir, gate).await?;
     let Some((id, queue)) = app.graph.batch_open(repo, gate, &target)? else {
         return Ok(false);
@@ -87,6 +88,7 @@ async fn batch(app: &Arc<App>, repo: RepoId, gate: Option<&str>) -> Result<bool,
         repo,
         dir,
         target,
+        held,
     };
     if let Err(e) = run.run(queue.clone()).await {
         fail_all(app, repo, id, &queue, &e.to_string());
@@ -115,6 +117,7 @@ async fn recover(app: &Arc<App>, repo: RepoId) {
             app,
             id: stale.id,
             repo: stale.repo,
+            held: app.check_locks.hold_for_batch(&dir).await,
             dir,
             target: stale.target,
         };
@@ -185,6 +188,7 @@ struct Batch<'a> {
     repo: RepoId,
     dir: PathBuf,
     target: String,
+    held: CheckHeld,
 }
 
 enum Dest {
@@ -325,11 +329,7 @@ impl Batch<'_> {
             args.push(m.branch.clone());
             args.push(m.head.clone());
         }
-        let (code, out) = self
-            .app
-            .check_locks
-            .script(self.app.files(), &self.dir, STACK, &args)
-            .await?;
+        let (code, out) = self.held.script(self.app.files(), STACK, &args).await?;
         let lines = Lines::read(&out);
         let (found, result) = match (code, lines.conflict, &lines.tip) {
             (CONFLICT, Some(index), _) if index < trial.len() => (

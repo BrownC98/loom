@@ -374,25 +374,71 @@ impl Lines {
 }
 
 #[derive(Default)]
-pub struct CheckLocks(std::sync::Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>);
+struct Slot {
+    held: Arc<tokio::sync::Mutex<()>>,
+    batches: tokio::sync::watch::Sender<usize>,
+}
 
-impl CheckLocks {
+struct Waiting<'a>(&'a tokio::sync::watch::Sender<usize>);
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.send_modify(|waiting| *waiting -= 1);
+    }
+}
+
+pub struct CheckHeld {
+    _held: tokio::sync::OwnedMutexGuard<()>,
+    dir: PathBuf,
+}
+
+impl CheckHeld {
     pub async fn script(
         &self,
         files: Files<'_>,
-        dir: &Path,
         text: &str,
         args: &[String],
     ) -> Result<(i32, String), Refusal> {
-        let lock = self
-            .0
+        script(files, &self.dir, text, args).await
+    }
+}
+
+#[derive(Default)]
+pub struct CheckLocks(std::sync::Mutex<HashMap<PathBuf, Arc<Slot>>>);
+
+impl CheckLocks {
+    fn slot(&self, dir: &Path) -> Arc<Slot> {
+        self.0
             .lock()
             .unwrap()
             .entry(dir.to_path_buf())
             .or_default()
-            .clone();
-        let _held = lock.lock().await;
-        script(files, dir, text, args).await
+            .clone()
+    }
+
+    pub async fn hold_for_batch(&self, dir: &Path) -> CheckHeld {
+        let slot = self.slot(dir);
+        slot.batches.send_modify(|waiting| *waiting += 1);
+        let _waiting = Waiting(&slot.batches);
+        CheckHeld {
+            _held: slot.held.clone().lock_owned().await,
+            dir: dir.to_path_buf(),
+        }
+    }
+
+    pub async fn hold_for_check(&self, dir: &Path) -> CheckHeld {
+        let slot = self.slot(dir);
+        let mut batches = slot.batches.subscribe();
+        loop {
+            let _ = batches.wait_for(|waiting| *waiting == 0).await;
+            let held = slot.held.clone().lock_owned().await;
+            if *batches.borrow() == 0 {
+                return CheckHeld {
+                    _held: held,
+                    dir: dir.to_path_buf(),
+                };
+            }
+        }
     }
 }
 

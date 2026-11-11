@@ -781,7 +781,7 @@ impl Inside {
             })
             .collect();
         if let Seen::Unc(_) = self.seen {
-            vars.push(("WSLENV".into(), names(env)));
+            vars.push(("WSLENV".into(), interop_names(env)));
         }
         vars.push(("PATH".into(), self.node_path()));
         distro::Command {
@@ -889,6 +889,14 @@ fn passed<K: AsRef<str>, V>(env: &[(K, V)]) -> impl Iterator<Item = &(K, V)> {
 fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
     passed(env)
         .map(|(k, _)| k.as_ref())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+fn interop_names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
+    passed(env)
+        .map(|(k, _)| k.as_ref())
+        .filter(|k| !k.eq_ignore_ascii_case("NODE_OPTIONS"))
         .collect::<Vec<_>>()
         .join(":")
 }

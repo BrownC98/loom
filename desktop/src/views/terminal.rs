@@ -36,6 +36,8 @@ const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
 const FIT_SLACK: f32 = 0.001;
 const SCROLLBAR: f32 = 14.0;
+const FIT_MIN_COLS: u16 = 2;
+const FIT_MIN_ROWS: u16 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputState {
@@ -390,15 +392,20 @@ impl TerminalView {
     }
 
     fn claim(&mut self) {
-        let (Some(cell), true) = (self.cell, self.area.size.width > px(0.0)) else {
+        let Some(cell) = self.cell else {
             return;
         };
-        let cols = ((self.area.size.width / self.scale - px(SCROLLBAR)) / cell.cell_width
-            + FIT_SLACK)
-            .floor() as u16;
-        let rows =
-            (self.area.size.height / self.scale / cell.cell_height + FIT_SLACK).floor() as u16;
-        let fit = (cols.max(2), rows.max(1));
+        let width = self.area.size.width / self.scale - px(SCROLLBAR);
+        let height = self.area.size.height / self.scale;
+        if width <= px(0.0) || height <= px(0.0) {
+            return;
+        }
+        let cols = ((width + cell.cell_width * FIT_SLACK) / cell.cell_width).floor() as u16;
+        let rows = ((height + cell.cell_height * FIT_SLACK) / cell.cell_height).floor() as u16;
+        if cols <= FIT_MIN_COLS || rows <= FIT_MIN_ROWS {
+            return;
+        }
+        let fit = (cols, rows);
         if fit != self.sent {
             self.sent = fit;
             if let Some(pty) = &self.pty {

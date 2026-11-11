@@ -16,14 +16,21 @@ function makeProbe(): Probe {
   return { xterm, fit, host };
 }
 
+const FIT_MIN_COLS = 2;
+const FIT_MIN_ROWS = 1;
+
+export function fitsTerminal(size: Resize | undefined | null): size is Resize {
+  return Boolean(size && size.cols > FIT_MIN_COLS && size.rows > FIT_MIN_ROWS);
+}
+
 export function probeSize(box: HTMLElement, fontFamily: string, fontSize: number): Resize | null {
+  if (box.clientWidth <= 0 || box.clientHeight <= 0) return null;
   probe ??= makeProbe();
   const { xterm, fit, host } = probe;
   if (xterm.options.fontFamily !== fontFamily) xterm.options.fontFamily = fontFamily;
   if (xterm.options.fontSize !== fontSize) xterm.options.fontSize = fontSize;
-  const style = getComputedStyle(box);
-  host.style.width = style.width;
-  host.style.height = style.height;
+  host.style.width = `${box.clientWidth}px`;
+  host.style.height = `${box.clientHeight}px`;
   const size = fit.proposeDimensions();
-  return size && size.cols > 0 && size.rows > 0 ? { cols: size.cols, rows: size.rows } : null;
+  return fitsTerminal(size) ? { cols: size.cols, rows: size.rows } : null;
 }

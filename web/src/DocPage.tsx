@@ -20,15 +20,14 @@ export function docPageId(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function answerText(decisions: readonly Decision[], picks: Picks, unpicked: string, feedback: string): string {
-  const picked = decisions
+function answerText(choice: string | null, decisions: readonly Decision[], picks: Picks, unpicked: string, feedback: string): string {
+  const boxes = decisions
     .map((d) => {
       const value = pickText(picks[d.id]);
       if (value) return `${d.id}: ${value.replace(/\s*\n\s*/g, ' ')}`;
       return d.recommended && `${d.id}: ${d.recommended}(${unpicked})`;
-    })
-    .filter(Boolean)
-    .join(ANSWER_JOIN);
+    });
+  const picked = [choice, ...boxes].filter(Boolean).join(ANSWER_JOIN);
   return [picked, feedback.trim()].filter(Boolean).join(FEEDBACK_JOIN);
 }
 
@@ -56,6 +55,7 @@ export function DocPage({ id }: { id: string }) {
   const [question, setQuestion] = useState<DocQuestion | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [picks, setPicks] = useState<Picks>({});
+  const [choice, setChoice] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,7 +89,7 @@ export function DocPage({ id }: { id: string }) {
   const unpicked = decisions.filter((d) => !picks[d.id]?.key && !picks[d.id]?.text?.trim()).map((d) => d.id);
 
   const send = (wait: WaitId) => {
-    const text = answerText(decisions, picks, t('docPage.unpickedAnswer'), feedback);
+    const text = answerText(choice, decisions, picks, t('docPage.unpickedAnswer'), feedback);
     setBusy(true);
     answerWait(wait, text, []).then(
       () => setQuestion({ kind: 'answered', wait, text, at: Math.floor(Date.now() / 1000) }),
@@ -103,7 +103,8 @@ export function DocPage({ id }: { id: string }) {
     });
   };
 
-  const ready = decisions.length > 0 || feedback.trim() !== '';
+  const choices = question?.kind === 'open' ? question.choices : [];
+  const ready = decisions.length > 0 || choice !== null || feedback.trim() !== '';
   const submit = () => {
     if (question?.kind !== 'open' || busy || !ready) return;
     if (unpicked.length > 0 && !confirming) setConfirming(true);
@@ -143,6 +144,12 @@ export function DocPage({ id }: { id: string }) {
               </>
             ) : (
               <>
+                {choices.map((c) => (
+                  <button key={c.key} type="button" className="pick" aria-pressed={choice === c.key} data-empty={choice !== c.key || undefined} title={c.label} onClick={() => (setChoice((now) => (now === c.key ? null : c.key)), setConfirming(false))}>
+                    {c.key}: {c.label}
+                    {c.recommended && ` · ${t('inbox.recommended')}`}
+                  </button>
+                ))}
                 {decisions.map((d) => {
                   const value = pickText(picks[d.id]) || null;
                   return (

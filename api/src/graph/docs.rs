@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::graph::waits::Choice;
 use crate::ids::WaitId;
 
 /// 문서 페이지(`/docs/{id}`)의 응답 막대 상태: 그 문서가 붙은 가장 최근 질문. 목업 docs/mockups/doc-answer.html.
@@ -11,6 +12,9 @@ pub enum DocQuestion {
     None,
     Open {
         wait: WaitId,
+        /// 질문 글의 표준 꼴 선택지. 문서에 결정 상자가 없어도 응답 막대가 이것을 고르게 한다.
+        #[serde(default)]
+        choices: Vec<Choice>,
     },
     Answered {
         wait: WaitId,

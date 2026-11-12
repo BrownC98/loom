@@ -8,7 +8,9 @@ export function Menu(props: { anchor: RefObject<HTMLElement | null>; label: stri
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.anchor });
   const [at] = useState(() => {
     const r = props.anchor.current?.getBoundingClientRect();
-    return r ? { top: r.bottom + 4, left: r.right - MENU_WIDTH } : { top: 0, left: 0 };
+    if (!r) return { top: 0, left: 0 };
+    const left = r.right - MENU_WIDTH;
+    return r.bottom > window.innerHeight / 2 ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left };
   });
   const live = () => [...(box.current?.querySelectorAll<HTMLButtonElement>('button:enabled') ?? [])];
   useEffect(() => {

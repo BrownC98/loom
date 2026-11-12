@@ -1074,7 +1074,7 @@ impl Composer {
                 .child(text);
             let panel = div()
                 .absolute()
-                .top(px(30.0 * z))
+                .bottom(px(30.0 * z))
                 .right_0()
                 .p(px(6.0 * z))
                 .rounded(px(10.0 * z))

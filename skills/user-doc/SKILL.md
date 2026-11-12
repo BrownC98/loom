@@ -22,12 +22,12 @@ Read the file of your type before you write. This file gives the rules for all t
 ## Form
 
 - One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted.
-- Fixed parts of all types. `loom show` refuses a document without one of them.
+- Fixed parts of all types. `loom show` refuses a document without the title, the light default, the toggle button or the head line with `응답할 곳`.
   - A short, different `<title>`. People find open windows by it.
   - Light is the default (`<html style="color-scheme: light">`). A dark/light toggle button (`.theme-toggle`), at the top right if the layout permits.
-  - The head line `<div class="who">` at the top gives `응답할 곳: <role> · <node name>` (the node that receives the human's answer) and the version (`v2 · <date>`). A mockup also gives `연 담당: <role> · <node name>`. Run `loom status` just before you ask, to get the node name. If the name changes, change the head line.
+  - The head line `<div class="who">` at the top gives `응답할 곳: <role> · <node name>` (the node that receives the human's answer). A mockup and a report also give the version (`v2 · <date>`); a workflow map gives it next to the title. A mockup also gives `연 담당: <role> · <node name>`. Run `loom status` just before you ask, to get the node name. If the name changes, change the head line.
   - Document ID: `loom show` adds it at the start of the head line (`문서 ID: M3`) and before the `<title>`. M is for a mockup and R for a report or a workflow map. A path keeps its ID through all versions (table `~/.cache/user-doc/ids.tsv`). The author does not write the ID. When you name a document in chat, give its ID.
-  - HTML download: loom's document page (`/docs/<ID>`) has the [HTML로 내려받기] button for each document. The author does not write it.
+- HTML download: loom's document page (`/docs/<ID>`) has the [HTML로 내려받기] button for each document. The author does not write it.
 - Style: a mockup starts from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need. A workflow map starts from its own [template.html](workflow-map/template.html), with the style rules in [rules.md](workflow-map/rules.md). A report has a free style and structure ([report.md](report.md)).
 - Location: a mockup goes in the repository at `docs/mockups/<name>.html`; a report goes in the task folder (`$LOOM_TASK_DIR`, else `~/.cache/loom/<task>/<subject>.html`). A workflow map goes where the human says, else where a report goes. Write a new version to the same path and increase its version number.
 

@@ -852,6 +852,13 @@ fn framed(
                         .children(done.then_some(close))
                         .children(strip.bulk),
                 )
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(1.0))
+                        .h(px(14.0 * z))
+                        .bg(c.line_strong),
+                )
                 .child(strip.fold);
             div()
                 .flex()

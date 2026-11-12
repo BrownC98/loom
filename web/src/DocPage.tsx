@@ -145,7 +145,7 @@ export function DocPage({ id }: { id: string }) {
             ) : (
               <>
                 {choices.map((c) => (
-                  <button key={c.key} type="button" className="pick" aria-pressed={choice === c.key} data-empty={choice !== c.key || undefined} onClick={() => (setChoice((now) => (now === c.key ? null : c.key)), setConfirming(false))}>
+                  <button key={c.key} type="button" className="pick" aria-pressed={choice === c.key} data-empty={choice !== c.key || undefined} title={c.label} onClick={() => (setChoice((now) => (now === c.key ? null : c.key)), setConfirming(false))}>
                     {c.key}: {c.label}
                     {c.recommended && ` · ${t('inbox.recommended')}`}
                   </button>

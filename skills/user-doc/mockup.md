@@ -4,6 +4,7 @@ The common rules (form, decisions, display) are in [SKILL.md](SKILL.md).
 
 - Draw mockup screens in the design of the target product. Before you draw, read the product's theme and token files, earlier mockups and screen captures. Use the same colors, fonts and components. Use the style.html tokens only for the document frame (head line, title, sections, lists, tables).
 - Body: title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); each open decision in a decision box (see [SKILL.md "Decisions and IDs"](SKILL.md#decisions-and-ids)) right after the screen that the human must look at to decide it, or the nearest screen that it changes. No decision table. One desktop width.
+- If a decision chooses between screen designs, draw a full-page section for each option, not only the recommended one (2026-11-12 human instruction "모든 시안에 대해 목업 만들어"). Name the decision ID and option key in its `<h2>` (`D1-A`). The decision box marks the recommended option.
 
 ## Mockup callouts
 

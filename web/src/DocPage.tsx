@@ -88,8 +88,11 @@ export function DocPage({ id }: { id: string }) {
   const toDoc = (message: object) => frame.current?.contentWindow?.postMessage({ loom: 'page', ...message }, '*');
   const unpicked = decisions.filter((d) => !picks[d.id]?.key && !picks[d.id]?.text?.trim()).map((d) => d.id);
 
+  const choices = question?.kind === 'open' && decisions.length === 0 ? question.choices : [];
+  const picked = choices.some((c) => c.key === choice) ? choice : null;
+
   const send = (wait: WaitId) => {
-    const text = answerText(choice, decisions, picks, t('docPage.unpickedAnswer'), feedback);
+    const text = answerText(picked, decisions, picks, t('docPage.unpickedAnswer'), feedback);
     setBusy(true);
     answerWait(wait, text, []).then(
       () => setQuestion({ kind: 'answered', wait, text, at: Math.floor(Date.now() / 1000) }),
@@ -103,8 +106,7 @@ export function DocPage({ id }: { id: string }) {
     });
   };
 
-  const choices = question?.kind === 'open' ? question.choices : [];
-  const ready = decisions.length > 0 || choice !== null || feedback.trim() !== '';
+  const ready = decisions.length > 0 || picked !== null || feedback.trim() !== '';
   const submit = () => {
     if (question?.kind !== 'open' || busy || !ready) return;
     if (unpicked.length > 0 && !confirming) setConfirming(true);

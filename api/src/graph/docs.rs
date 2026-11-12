@@ -12,7 +12,7 @@ pub enum DocQuestion {
     None,
     Open {
         wait: WaitId,
-        /// 질문 글의 표준 꼴 선택지. 문서에 결정 상자가 없어도 응답 막대가 이것을 고르게 한다.
+        /// 질문 글의 표준 꼴 선택지. 문서에 결정 상자가 없으면 응답 막대가 이것을 고르게 한다. 상자가 있으면 막대는 상자만 보인다.
         #[serde(default)]
         choices: Vec<Choice>,
     },

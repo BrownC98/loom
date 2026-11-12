@@ -805,6 +805,7 @@ fn framed(
                 entry::qid(wait.wait.id.to_string(), wait.tone, 20.0, z, &c),
             )
         }));
+    let mut acts = None;
     let top = match strip {
         Some(strip) => {
             let small = |text: String| {
@@ -845,21 +846,17 @@ fn framed(
                 .flex_none()
                 .ml_auto()
                 .child(small(strip.counts))
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .children(done.then_some(close))
-                        .children(strip.bulk),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(1.0))
-                        .h(px(14.0 * z))
-                        .bg(c.line_strong),
-                )
                 .child(strip.fold);
+            acts = done.then(|| {
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .pt(px(6.0 * z))
+                    .border_t_1()
+                    .border_color(c.line)
+                    .child(div().flex().flex_none().child(close).children(strip.bulk))
+            });
             div()
                 .flex()
                 .flex_wrap()
@@ -897,12 +894,16 @@ fn framed(
         .gap(px(GAP * z))
         .opacity(if busy { 0.6 } else { 1.0 });
     if carded {
-        frame.min_h_0().child(top.flex_none()).child(
-            entry
-                .id(("card-rest", id as usize))
-                .min_h_0()
-                .overflow_y_scroll(),
-        )
+        frame
+            .min_h_0()
+            .child(top.flex_none())
+            .child(
+                entry
+                    .id(("card-rest", id as usize))
+                    .min_h_0()
+                    .overflow_y_scroll(),
+            )
+            .children(acts)
     } else {
         frame.child(top).child(entry)
     }

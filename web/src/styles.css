@@ -1103,8 +1103,7 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .menu svg.done-mark { color: var(--ok); }
 .choice .key-hint { padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--ink-3); font: 11px/15px var(--mono); white-space: nowrap; }
 .alert-pos { flex: none; margin-left: auto; color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.alert-card .fold { position: relative; margin-left: 7px; }
-.alert-card .fold::before { content: ''; position: absolute; left: -7px; top: 5px; bottom: 5px; width: 1px; background: var(--line-strong); }
+.composer .alert-card > .alert-acts { position: sticky; bottom: -8px; display: flex; justify-content: flex-end; margin: 8px -10px -8px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--surface); }
 .target-list-at { position: absolute; left: 0; width: 100%; bottom: calc(100% + 6px); }
 .target-list-at:not([data-above]) { top: calc(100% + 6px); bottom: auto; }
 .target-list { zoom: var(--float-zoom); display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px var(--shadow); color: var(--ink); font-size: 12.5px; overflow: hidden; }

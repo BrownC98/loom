@@ -81,12 +81,6 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
           {clockTime(wait.since * 1000)}
         </time>
         <span className="alert-pos">{t('composer.alertTotal', { total: target.stream.length, ask: target.stream.length - done.length, done: kinds('done'), reply: kinds('reply') })}</span>
-        {wait.tone === 'done' && (
-          <span className="confirm-split">
-            <ConfirmButton wait={wait.id} onClose={close} />
-            {done.length > 1 && <ConfirmAll key={wait.id} place={wait} waits={done} />}
-          </span>
-        )}
         <button type="button" className="btn ghost sm fold" aria-label={t('composer.fold')} title={t('composer.fold')} onClick={props.onFold}>
           <ChevronsDownUp aria-hidden="true" />
         </button>
@@ -97,6 +91,14 @@ export function AlertCard(props: { target: Target; repo: string; onChoose: (key:
         {wait.answerable && wait.tone !== 'done' && <Choices list={wait.choices ?? []} onPick={props.onChoose} hints />}
         <NoticeActions node={target.view.id} wait={wait} onClose={close} />
       </div>
+      {wait.tone === 'done' && (
+        <div className="alert-acts">
+          <span className="confirm-split">
+            <ConfirmButton wait={wait.id} onClose={close} />
+            {done.length > 1 && <ConfirmAll key={wait.id} place={wait} waits={done} />}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

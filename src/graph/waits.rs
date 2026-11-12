@@ -423,15 +423,18 @@ impl Graph {
 
     pub fn doc_question(&self, doc: &str) -> Result<DocQuestion, Refusal> {
         let db = self.lock();
-        let open: Option<u32> = db
+        let open: Option<(u32, String)> = db
             .query_row(
-                "SELECT id FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT id, wait ->> '$.text' FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
                 [doc],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if let Some(wait) = open {
-            return Ok(DocQuestion::Open { wait: WaitId(wait) });
+        if let Some((wait, text)) = open {
+            return Ok(DocQuestion::Open {
+                wait: WaitId(wait),
+                choices: choices(&text),
+            });
         }
         let asked: Option<u32> = db
             .query_row(

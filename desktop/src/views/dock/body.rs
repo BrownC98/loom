@@ -66,10 +66,12 @@ pub fn text(
 pub fn open(store: &Entity<Store>, target: Target, cx: &mut App) -> Task<Result<(), String>> {
     match target {
         Target::Url(url) => Task::ready(ui::open_url(&url)),
-        Target::Doc(id) => {
-            let found = store.update(cx, |store, cx| store.doc_url(&id, cx));
-            cx.spawn(async move |_| ui::open_url(&found.await?))
-        }
+        Target::Doc(id) => Task::ready(
+            store
+                .read(cx)
+                .doc_url(&id)
+                .and_then(|url| ui::open_url(&url)),
+        ),
     }
 }
 

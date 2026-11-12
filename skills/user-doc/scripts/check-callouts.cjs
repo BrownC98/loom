@@ -61,13 +61,13 @@ const IDS = mockup => {
       for (const n of ns) if (![...document.querySelectorAll(`.fig .mk[data-n="${n}"]`)].some(m => [...m.closest('.fig').querySelectorAll(':scope > .calls > div > b')].some(b => b.textContent.trim() === n))) bad.push(`decision ${k} target ${n} is not a box with a callout in a screen section`);
     }
   }
-  for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
   for (const c of document.querySelectorAll('.calls > div')) {
     const k = c.querySelector(':scope > b')?.textContent.trim() ?? '';
     if (!/^\d+$/.test(k)) bad.push(`callout "${cut(c)}" has no number (<b>n</b>)`); else use(k, 'callout "' + cut(c.querySelector(':scope > span') ?? c) + '"');
   }
   for (const m of document.querySelectorAll('.mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
   if (mockup) {
+    for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let t; (t = w.nextNode());) if (/권장|정할 것|Recommended/i.test(t.textContent) && !t.parentElement.closest('.decision, .lead, .who, script, style, ' + SCREEN)) bad.push(`decision outside a decision box: "${cut(t)}"`);
   }

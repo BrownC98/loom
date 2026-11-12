@@ -116,9 +116,6 @@ fn checked(files: Files<'_>, path: &Path) -> Result<(PathBuf, String), String> {
     let path = real_path(path)?;
     let text = read_html(files, &path)?;
     check(&text)?;
-    if !mockup(&path) {
-        check_report(&text)?;
-    }
     Ok((path, text))
 }
 
@@ -600,14 +597,6 @@ fn check(html: &str) -> Result<(), String> {
     match marks.iter().find(|(mark, _)| !html.contains(mark)) {
         Some((_, missing)) => Err((*missing).into()),
         None => Ok(()),
-    }
-}
-
-fn check_report(html: &str) -> Result<(), String> {
-    if html.contains("<svg") || html.contains("<img") {
-        Ok(())
-    } else {
-        Err("보고서에 그림(<svg>·<img>)이 없다. 결론과 구조를 다이어그램으로 보인다".into())
     }
 }
 

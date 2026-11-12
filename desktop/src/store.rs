@@ -812,16 +812,11 @@ impl Store {
         self.call(cx, |base| link::read(base, "/api/docs"))
     }
 
-    pub fn doc_url(&self, id: &str, cx: &mut Context<Self>) -> Task<Result<String, String>> {
-        let path = format!("/api/docs/{id}/pass");
-        self.call(cx, move |base| {
-            let found: String = link::post(base, &path, None)?;
-            Ok(if found.starts_with('/') {
-                format!("{base}{found}")
-            } else {
-                found
-            })
-        })
+    pub fn doc_url(&self, id: &str) -> Result<String, String> {
+        match &self.base {
+            Some(base) => Ok(format!("{base}/docs/{id}")),
+            None => Err(self.status.clone()),
+        }
     }
 }
 

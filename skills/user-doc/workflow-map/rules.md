@@ -2,7 +2,7 @@
 
 A workflow map is a workflow analysis or design document (a work flow, a data pipeline, an analysis procedure). Work layers go from top to bottom. Each layer holds cards for information units (attributes and functions). Edges show what each unit needs and produces. A detail panel on the right shows a real example, real failures and missing-item checks.
 
-The common rules (form, decisions, display) are in [SKILL.md](../SKILL.md). The report body rules in [report.md](../report.md) (conclusion section, diagram per decision) and the decision boxes do not apply to this type (see SKILL.md).
+The common rules (form, decisions, display) are in [SKILL.md](../SKILL.md). The decision boxes do not apply to this type (see SKILL.md).
 
 The reference is [example.html](example.html) (실시예 분석 정보 구조 v0.1, a file that the human gave on 2026-11-03).
 

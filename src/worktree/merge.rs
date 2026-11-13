@@ -57,9 +57,13 @@ macro_rules! open {
         concat!(
             "set -u\n",
             common!(),
-            r#"wt=$batches/check log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
+            r#"top=${common%/.git}
+wt=${XDG_CACHE_HOME:-$HOME/.cache}/"#,
+            batches!(),
+            r#"/${top##*/}-$(printf %s "$common" | git hash-object --stdin | cut -c1-12)
+log=$common/loom-logs/$1.log lock=$common/loom-check.lock base=$2 mark=$3
 trees=$common/loom-logs/passed-trees
-mkdir -p "$common/loom-logs" "$batches"
+mkdir -p "$common/loom-logs"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
 "#
@@ -79,7 +83,15 @@ else
   echo "neither flock nor perl is on this machine; loom cannot lock $lock" >&3
   exit 1
 fi
+case $wt/ in */.git/*) echo "loom refuses the check folder $wt: tools skip paths under a .git folder" >&3; exit 1 ;; esac
 rm -rf "$common/loom-batch-target" "${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target"
+if [ -e "$batches/check" ]; then
+  rm -f "$trees" || exit 1
+  git worktree remove --force "$batches/check" 2>/dev/null
+  rm -rf "$batches/check"
+  rmdir "$batches" 2>/dev/null
+  git worktree prune
+fi
 if ! { [ "$(git -C "$wt" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] &&
   git -C "$wt" reset --hard --quiet &&
   git -C "$wt" checkout --detach --force --quiet "$base" &&

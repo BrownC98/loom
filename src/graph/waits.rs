@@ -11,6 +11,7 @@ use api::graph::waits::{
 
 use super::agent_state;
 use super::closed::{self, Open};
+use super::doc_talk;
 use super::events;
 use super::mailbox;
 use crate::choices::{choices, offers_choices_without_tail, without_tail};
@@ -315,6 +316,7 @@ impl Graph {
         let count = images.len() as u32;
         let images = images_line(images);
         type Record = fn(api::graph::events::Who, WaitId, String, u32) -> Entry;
+        let mut doc = None;
         let (node, what, body, record): (NodeId, MessageKind, String, Record) = match open_ask(
             &db, wait,
         ) {
@@ -323,10 +325,13 @@ impl Graph {
                 MessageKind::Answer {
                     question: Question::Inbox { id: wait.0 },
                 },
-                format!(
-                    "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
-                    question.text
-                ),
+                {
+                    doc = question.doc.map(|d| d.id);
+                    format!(
+                        "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
+                        question.text
+                    )
+                },
                 |node, wait, text, images| Entry::Answered {
                     node,
                     wait,
@@ -357,7 +362,10 @@ impl Graph {
         } else {
             (Open::Done, Closed::Instructed { text: text.clone() })
         };
-        mailbox::enqueue_human(&tx, node, &what, &body)?;
+        let message = mailbox::enqueue_human(&tx, node, &what, &body)?;
+        if let Some(doc) = &doc {
+            doc_talk::said_by_human(&tx, doc, node, &text, message, Some(wait))?;
+        }
         closed::close(&tx, open, wait, &how)?;
         let entry = record(events::who(&tx, node)?, wait, text, count);
         events::write(&tx, &entry, None)?;

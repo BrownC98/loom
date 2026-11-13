@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::graph::ProcessState;
 use crate::graph::waits::Choice;
 use crate::ids::WaitId;
 
@@ -53,4 +54,58 @@ pub struct DocRow {
 pub enum DocGroup {
     Mockup,
     Report,
+}
+
+/// 문서 페이지의 대화 칸과 문서 판(목업 docs/mockups/live-doc.html M119 v2). 페이지가 짧은 간격으로 읽는다.
+#[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DocTalk {
+    /// 페이지의 말을 받는 노드. 없으면 대화 칸은 말을 보낼 수 없다.
+    pub to: Option<TalkTo>,
+    pub lines: Vec<TalkLine>,
+    /// 페이지가 내는 문서 파일의 판(수정 시각과 크기). 바뀌면 페이지가 문서를 다시 읽는다.
+    pub version: String,
+}
+
+#[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TalkTo {
+    pub name: String,
+    pub process: ProcessState,
+}
+
+/// 대화 칸의 한 줄.
+#[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TalkLine {
+    pub id: u32,
+    pub said: Said,
+    pub text: String,
+    /// 유닉스 초.
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+#[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
+#[serde(tag = "by", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Said {
+    /// 사람이 페이지에서 보낸 말. `answer`가 있으면 그 질문의 답으로 갔다. `received`는 받는 노드가 읽었다.
+    Human {
+        to: String,
+        answer: Option<WaitId>,
+        received: bool,
+    },
+    /// 에이전트가 `loom answer`로 페이지에 쓴 답.
+    Agent { name: String },
+}
+
+/// 사람이 대화 칸에서 보낸 말(`POST /api/docs/{id}/talk`).
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PostTalk {
+    pub text: String,
 }

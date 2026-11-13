@@ -89,13 +89,14 @@ pub fn spawn(
 }
 
 pub fn show(file: PathBuf, step: DocStep) -> Result<(), String> {
-    let request = ShowRequest {
-        file: crate::wsl::for_daemon(absolute(&file)?),
-        step,
-    };
-    let doc: WaitDoc = at_endpoint("show", &request)?;
-    crate::user_doc::told(&doc, step, &file);
-    Ok(())
+    let at = crate::wsl::for_daemon(absolute(&file)?);
+    crate::user_doc::show_by(&file, step, |step| {
+        let request = ShowRequest {
+            file: at.clone(),
+            step,
+        };
+        Ok(at_endpoint::<WaitDoc>("show", &request)?)
+    })
 }
 
 pub fn roles() -> Result<(), String> {
@@ -145,6 +146,10 @@ pub fn answer(message: u32, body: String) -> Result<(), String> {
 }
 
 fn print_sent(sent: &Sent) {
+    if let Some(doc) = &sent.page {
+        println!("Answered #{} on the document page of {doc}.", sent.id.0);
+        return;
+    }
     match sent.recipient {
         Some(to) => println!("loom message #{} → node #{}", sent.id.0, to.0),
         None => println!(
@@ -261,7 +266,7 @@ fn reconnecting<T>(
     }
 }
 
-fn through_endpoint() -> bool {
+pub fn through_endpoint() -> bool {
     std::env::var_os(ENDPOINT_ENV).is_some()
 }
 

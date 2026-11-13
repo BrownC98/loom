@@ -1,26 +1,29 @@
-import { Check, Download } from 'lucide-react';
+import { Check, ChevronRight, Download, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { answerWait, docUrl, getDocQuestion } from './api';
+import { answerWait, docUrl, getDocQuestion, getDocTalk, postDocTalk } from './api';
 import type { DocQuestion } from './gen/DocQuestion';
-import type { WaitId } from './gen/WaitId';
-import { dateAndTime } from './i18n';
+import type { DocTalk } from './gen/DocTalk';
+import { dateAndTime, hourMinute } from './i18n';
 
 type Decision = { id: string; keys: string[]; recommended: string | null };
 type Pick = { key?: string; text?: string };
 type Picks = Record<string, Pick>;
-type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { kind: 'pick'; id: string; key: string } | { kind: 'write'; id: string; text: string });
+type FromDoc = { loom: 'doc' } & ({ kind: 'decisions'; list: Decision[] } | { kind: 'pick'; id: string; key: string } | { kind: 'write'; id: string; text: string } | { kind: 'scroll'; y: number });
 
 const ANSWER_JOIN = ', ';
-const FEEDBACK_JOIN = '\n\n';
+const MESSAGE_JOIN = '\n\n';
 const NOTE_JOIN = ' — ';
+const POLL_MS = 600;
+const CHANGED_SHOWN_MS = 3000;
+const FOLDED_KEY = 'loom.docTalkFolded';
 
 export function docPageId(): string | null {
   const match = /^\/docs\/([^/]+)$/.exec(location.pathname);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function answerText(choice: string | null, decisions: readonly Decision[], picks: Picks, unpicked: string, feedback: string): string {
+function answerText(choice: string | null, decisions: readonly Decision[], picks: Picks, unpicked: string, message: string): string {
   const boxes = decisions
     .map((d) => {
       const value = pickText(picks[d.id]);
@@ -28,7 +31,7 @@ function answerText(choice: string | null, decisions: readonly Decision[], picks
       return d.recommended && `${d.id}: ${d.recommended}(${unpicked})`;
     });
   const picked = [choice, ...boxes].filter(Boolean).join(ANSWER_JOIN);
-  return [picked, feedback.trim()].filter(Boolean).join(FEEDBACK_JOIN);
+  return [picked, message.trim()].filter(Boolean).join(MESSAGE_JOIN);
 }
 
 function pickText(pick: Pick | undefined): string {
@@ -37,7 +40,7 @@ function pickText(pick: Pick | undefined): string {
 
 function picksOf(text: string, decisions: readonly Decision[]): Picks {
   const picks: Picks = {};
-  for (const part of text.split(FEEDBACK_JOIN)[0].split(/, (?=D\d+: )/)) {
+  for (const part of text.split(MESSAGE_JOIN)[0].split(/, (?=D\d+: )/)) {
     const [id, value] = [part.slice(0, part.indexOf(': ')), part.slice(part.indexOf(': ') + 2)];
     const decision = decisions.find((d) => d.id === id);
     if (!decision) continue;
@@ -52,14 +55,21 @@ function picksOf(text: string, decisions: readonly Decision[]): Picks {
 export function DocPage({ id }: { id: string }) {
   const { t } = useTranslation();
   const frame = useRef<HTMLIFrameElement>(null);
+  const thread = useRef<HTMLOListElement>(null);
+  const scrollY = useRef(0);
+  const lastVersion = useRef<string | null>(null);
+  const shownVersion = useRef<string | null>(null);
   const [question, setQuestion] = useState<DocQuestion | null>(null);
+  const [talk, setTalk] = useState<DocTalk | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
+  const [changedAt, setChangedAt] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [picks, setPicks] = useState<Picks>({});
   const [choice, setChoice] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState('');
-  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [folded, setFolded] = useState(() => localStorage.getItem(FOLDED_KEY) === '1');
 
   useEffect(() => {
     document.title = id;
@@ -67,17 +77,62 @@ export function DocPage({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
+    let stopped = false;
+    const poll = () => {
+      if (document.visibilityState === 'hidden') return;
+      getDocQuestion(id).then((q) => stopped || setQuestion(q), () => {});
+      getDocTalk(id).then(
+        (now) => {
+          if (stopped) return;
+          setTalk(now);
+          const stable = now.version === lastVersion.current;
+          lastVersion.current = now.version;
+          if (shownVersion.current === null) shownVersion.current = now.version;
+          if (!stable || shownVersion.current === now.version) return;
+          shownVersion.current = now.version;
+          setVersion(now.version);
+          setChangedAt(Date.now());
+        },
+        () => {},
+      );
+    };
+    poll();
+    const timer = setInterval(poll, POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (changedAt === null) return;
+    const timer = setTimeout(() => setChangedAt(null), CHANGED_SHOWN_MS);
+    return () => clearTimeout(timer);
+  }, [changedAt]);
+
+  const lineCount = talk?.lines.length ?? 0;
+  useEffect(() => {
+    thread.current?.scrollTo({ top: thread.current.scrollHeight });
+  }, [lineCount, folded]);
+
+  useEffect(() => {
     const heard = (e: MessageEvent<FromDoc>) => {
       if (e.source !== frame.current?.contentWindow || e.data?.loom !== 'doc') return;
       const data = e.data;
-      if (data.kind === 'decisions') return setDecisions(data.list);
+      if (data.kind === 'scroll') scrollY.current = data.y;
+      if (data.kind === 'decisions') setDecisions(data.list);
       if (data.kind === 'pick') setPicks((now) => ({ ...now, [data.id]: { ...now[data.id], key: now[data.id]?.key === data.key ? undefined : data.key } }));
       if (data.kind === 'write') setPicks((now) => ({ ...now, [data.id]: { ...now[data.id], text: data.text } }));
-      setConfirming(false);
     };
     window.addEventListener('message', heard);
     return () => window.removeEventListener('message', heard);
   }, []);
+
+  const openWait = question?.kind === 'open' ? question.wait : null;
+  useEffect(() => {
+    setChoice(null);
+    setPicks({});
+  }, [openWait]);
 
   const shown = question?.kind === 'answered' ? picksOf(question.text, decisions) : picks;
   const mode = question?.kind === 'open' ? 'open' : question?.kind === 'answered' ? 'locked' : 'off';
@@ -85,37 +140,45 @@ export function DocPage({ id }: { id: string }) {
     frame.current?.contentWindow?.postMessage({ loom: 'page', kind: 'show', mode, picks: shown, labels: { picked: t('docPage.picked'), write: t('docPage.write') } }, '*');
   });
 
-  const toDoc = (message: object) => frame.current?.contentWindow?.postMessage({ loom: 'page', ...message }, '*');
-  const unpicked = decisions.filter((d) => !picks[d.id]?.key && !picks[d.id]?.text?.trim()).map((d) => d.id);
+  const toDoc = (data: object) => frame.current?.contentWindow?.postMessage({ loom: 'page', ...data }, '*');
 
   const choices = question?.kind === 'open' && decisions.length === 0 ? question.choices : [];
   const picked = choices.some((c) => c.key === choice) ? choice : null;
+  const anyPick = picked !== null || decisions.some((d) => pickText(picks[d.id]) !== '');
+  const nothingToPick = choices.length === 0 && decisions.length === 0;
+  const answering = question?.kind === 'open' && (anyPick || nothingToPick) ? question.wait : null;
+  const unpickedWord = t('docPage.unpickedAnswer');
+  const preview = answering === null ? '' : answerText(picked, decisions, picks, unpickedWord, '');
+  const to = talk?.to ?? null;
+  const ready = !busy && (answering !== null ? anyPick || message.trim() !== '' : to !== null && message.trim() !== '');
 
-  const send = (wait: WaitId) => {
-    const text = answerText(picked, decisions, picks, t('docPage.unpickedAnswer'), feedback);
+  const refresh = () => {
+    getDocQuestion(id).then(setQuestion, () => {});
+    getDocTalk(id).then(setTalk, () => {});
+  };
+
+  const send = () => {
+    if (!ready) return;
     setBusy(true);
-    answerWait(wait, text, []).then(
-      () => setQuestion({ kind: 'answered', wait, text, at: Math.floor(Date.now() / 1000) }),
-      (err: Error) => {
-        setRefusal(err.message);
-        getDocQuestion(id).then(setQuestion, () => {});
-      },
-    ).finally(() => {
-      setBusy(false);
-      setConfirming(false);
-    });
+    setRefusal(null);
+    const sent = answering !== null ? answerWait(answering, answerText(picked, decisions, picks, unpickedWord, message), []) : postDocTalk(id, message);
+    sent
+      .then(() => setMessage(''), (err: Error) => setRefusal(err.message))
+      .finally(() => {
+        setBusy(false);
+        refresh();
+      });
   };
 
-  const ready = decisions.length > 0 || picked !== null || feedback.trim() !== '';
-  const submit = () => {
-    if (question?.kind !== 'open' || busy || !ready) return;
-    if (unpicked.length > 0 && !confirming) setConfirming(true);
-    else send(question.wait);
-  };
-  const onFeedbackKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
-    submit();
+    send();
+  };
+
+  const fold = (next: boolean) => {
+    setFolded(next);
+    localStorage.setItem(FOLDED_KEY, next ? '1' : '0');
   };
 
   const download = (
@@ -134,38 +197,20 @@ export function DocPage({ id }: { id: string }) {
             <span className="bar-title">{t('docPage.answering')}</span>
             {download}
             <span className="spacer" />
-            {confirming ? (
-              <>
-                <span className="unpicked">{t('docPage.unpicked', { ids: unpicked.join(', ') })}</span>
-                <button type="button" className="btn" onClick={() => toDoc({ kind: 'focus', id: unpicked[0] })}>
-                  {t('docPage.see', { id: unpicked[0] })}
+            {choices.map((c) => (
+              <button key={c.key} type="button" className="pick" aria-pressed={choice === c.key} data-empty={choice !== c.key || undefined} title={c.label} onClick={() => setChoice((now) => (now === c.key ? null : c.key))}>
+                {c.key}: {c.label}
+                {c.recommended && ` · ${t('inbox.recommended')}`}
+              </button>
+            ))}
+            {decisions.map((d) => {
+              const value = pickText(picks[d.id]) || null;
+              return (
+                <button key={d.id} type="button" className="pick" data-empty={!value || undefined} title={value ?? undefined} onClick={() => toDoc({ kind: 'focus', id: d.id })}>
+                  {d.id}: {value ?? '—'}
                 </button>
-                <button type="button" className="btn send" disabled={busy} onClick={() => send(question.wait)}>
-                  {t('docPage.sendAnyway')}
-                </button>
-              </>
-            ) : (
-              <>
-                {choices.map((c) => (
-                  <button key={c.key} type="button" className="pick" aria-pressed={choice === c.key} data-empty={choice !== c.key || undefined} title={c.label} onClick={() => (setChoice((now) => (now === c.key ? null : c.key)), setConfirming(false))}>
-                    {c.key}: {c.label}
-                    {c.recommended && ` · ${t('inbox.recommended')}`}
-                  </button>
-                ))}
-                {decisions.map((d) => {
-                  const value = pickText(picks[d.id]) || null;
-                  return (
-                    <button key={d.id} type="button" className="pick" data-empty={!value || undefined} title={value ?? undefined} onClick={() => toDoc({ kind: 'focus', id: d.id })}>
-                      {d.id}: {value ?? '—'}
-                    </button>
-                  );
-                })}
-                <button type="button" className="btn send" disabled={busy || !ready} onClick={submit}>
-                  {t('docPage.send')}
-                </button>
-              </>
-            )}
-            <textarea className="feedback" rows={2} value={feedback} disabled={busy} onChange={(e) => (setFeedback(e.target.value), setConfirming(false))} onKeyDown={onFeedbackKey} aria-label={t('docPage.feedback')} placeholder={t('docPage.feedback')} />
+              );
+            })}
           </>
         )}
         {question?.kind === 'answered' && (
@@ -193,13 +238,70 @@ export function DocPage({ id }: { id: string }) {
           {refusal}
         </p>
       )}
-      <iframe
-        ref={frame}
-        title={t('docPage.frame', { id })}
-        src={docUrl(id)}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
-        onLoad={() => toDoc({ kind: 'hello' })}
-      />
+      <div className="doc-main">
+        <div className="doc-frame">
+          <p className="doc-changed" role="status" aria-live="polite">
+            {changedAt !== null && (
+              <span>
+                <Check aria-hidden="true" />
+                {t('docPage.changed', { time: hourMinute(changedAt) })}
+              </span>
+            )}
+          </p>
+          <iframe
+            ref={frame}
+            title={t('docPage.frame', { id })}
+            src={version === null ? docUrl(id) : `${docUrl(id)}?v=${encodeURIComponent(version)}`}
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
+            onLoad={() => toDoc({ kind: 'hello', scroll: scrollY.current })}
+          />
+        </div>
+        {folded ? (
+          <aside className="doc-talk folded">
+            <button type="button" className="btn" onClick={() => fold(false)} aria-label={t('docPage.unfold')}>
+              <MessageSquare aria-hidden="true" />
+              {t('docPage.talkCount', { n: lineCount })}
+            </button>
+          </aside>
+        ) : (
+          <aside className="doc-talk" aria-label={t('docPage.talk')}>
+            <div className="talk-head">
+              <MessageSquare aria-hidden="true" />
+              <b>{t('docPage.talk')}</b>
+              {to && <span className="to">{to.name}</span>}
+              {to && <span className="state" data-process={to.process.kind}>{t(`docPage.process.${to.process.kind}`)}</span>}
+              <span className="spacer" />
+              <button type="button" className="btn ghost" onClick={() => fold(true)}>
+                <ChevronRight aria-hidden="true" />
+                {t('docPage.fold')}
+              </button>
+            </div>
+            <ol className="talk-thread" ref={thread}>
+              {lineCount === 0 && <li className="talk-empty">{to ? t('docPage.talkEmpty', { name: to.name }) : t('docPage.noAgent')}</li>}
+              {talk?.lines.map((line) => (
+                <li key={line.id} data-by={line.said.by}>
+                  <p className="talk-text">{line.text}</p>
+                  <span className="talk-meta">
+                    {line.said.by === 'agent'
+                      ? `${line.said.name} · ${hourMinute(line.at * 1000)}`
+                      : [hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <div className="talk-compose">
+              {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}` })}</p>}
+              <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={t('docPage.message')} placeholder={t('docPage.message')} />
+              <span className="talk-row">
+                <span className="hint">{t('docPage.keys')}</span>
+                <button type="button" className="btn send" disabled={!ready} onClick={send}>
+                  {t('docPage.send')}
+                </button>
+              </span>
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

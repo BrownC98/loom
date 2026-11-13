@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M119 살아 있는 문서 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+
+:root { --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0)); --shadow: light-dark(oklch(0% 0 0 / 0.12), oklch(0% 0 0 / 0.5)); }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--ink); text-decoration: none; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.flow span { padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.flow i { font-style: normal; color: var(--ink-3); }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+code { font-family: var(--mono); font-size: 12px; }
+
+.page { width: 1360px; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg); box-shadow: 0 2px 10px var(--shadow); font-size: 13px; }
+.chrome { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; background: var(--surface-hover); border-bottom: 1px solid var(--line-strong); color: var(--ink-2); }
+.chrome .nav { display: flex; gap: 2px; }
+.chrome .nav span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; }
+.chrome .nav span.on { background: var(--surface); color: var(--ink); }
+.chrome .nav svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chrome .url { flex: 1; height: 26px; padding: 0 12px; border-radius: 13px; background: var(--surface); font: 12px/26px var(--mono); color: var(--ink-2); }
+.chrome .tabt { padding: 0 10px; height: 26px; line-height: 26px; border-radius: 6px 6px 0 0; background: var(--surface); color: var(--ink); font-size: 12px; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+.bar.none { border-bottom-color: var(--line); background: var(--panel); }
+.bar .spacer { flex: 1; }
+.bar .bar-title { font-weight: 600; }
+.bar .bar-title.muted { font-weight: 400; color: var(--ink-2); }
+.qid { display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font: 600 12px var(--mono); }
+.qid.plain { border-color: var(--line-strong); background: var(--surface); }
+.pick { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; white-space: nowrap; }
+.pick.empty { border-style: dashed; color: var(--ink-3); }
+.pick.on { border-color: var(--warn); font-weight: 600; }
+.btn.send { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); font-weight: 600; }
+.btn.dark { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
+.feedback { flex: 1 1 100%; height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; line-height: 18px; }
+
+.body { display: grid; grid-template-columns: minmax(0, 1fr); height: 600px; }
+.body.split { grid-template-columns: minmax(0, 1fr) 380px; }
+.frame { position: relative; overflow: hidden; padding: 26px 40px; background: var(--surface); }
+.frame .dwho { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
+.frame h3 { margin: 10px 0 6px; font-size: 17px; }
+.frame p { max-width: 640px; color: var(--ink-2); line-height: 1.6; }
+.frame h4 { margin: 18px 0 6px; font-size: 14px; }
+.frame a.dl { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
+.frame table { margin-top: 6px; border-collapse: collapse; font-size: 12px; }
+.frame th, .frame td { padding: 5px 12px; border: 1px solid var(--line); text-align: left; }
+.frame th { background: var(--panel); }
+.frame .sketch { display: flex; gap: 10px; margin-top: 10px; }
+.frame .sketch span { width: 150px; height: 70px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--panel); }
+.toast { position: absolute; top: 12px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--ok); border-radius: 16px; background: color-mix(in srgb, var(--ok) 10%, var(--surface)); box-shadow: 0 2px 8px var(--shadow); font-size: 12px; white-space: nowrap; }
+.toast svg, .tline svg { width: 14px; height: 14px; stroke: var(--ok); fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+.talk { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--line-strong); background: var(--panel); }
+.talk-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.talk-head b { font-size: 13px; }
+.th-in { display: inline-flex; align-items: center; gap: 8px; }
+.talk-head .to { color: var(--ink-2); font-size: 12px; }
+.state { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-wash); font-size: 11px; font-weight: 600; }
+.state i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.thread { display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: hidden; }
+.msg { max-width: 300px; padding: 7px 10px; border-radius: 10px; line-height: 1.5; }
+.msg.me { align-self: flex-end; background: var(--accent); color: var(--bg); border-bottom-right-radius: 3px; }
+.msg.ag { align-self: flex-start; border: 1px solid var(--line-strong); background: var(--surface); border-bottom-left-radius: 3px; }
+.meta { font-size: 11px; color: var(--ink-3); }
+.meta.r { align-self: flex-end; margin-top: -6px; }
+.meta.l { align-self: flex-start; margin-top: -6px; }
+.tline { align-self: center; display: flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 10%, transparent); font-size: 11px; color: var(--ink-2); }
+.compose { display: grid; gap: 6px; padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+.compose .box { min-height: 52px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink-3); line-height: 1.5; }
+.compose .row { display: flex; align-items: center; gap: 8px; }
+.compose .row .hint { flex: 1; }
+
+.bar .tell { flex: 1 1 100%; display: flex; gap: 8px; align-items: center; }
+.bar .tell .feedback { flex: 1; color: var(--ink-3); }
+.drop { position: absolute; top: 8px; right: 16px; width: 380px; display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px var(--shadow); }
+
+.picks { display: inline-flex; gap: 8px; }
+.chrome .tabt.off { background: none; color: var(--ink-2); }
+.compose .with { padding: 3px 8px; border: 1px solid var(--warn); border-radius: 6px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 12px; }
+.body.folded { grid-template-columns: minmax(0, 1fr) 120px; }
+.rail { display: flex; justify-content: center; padding-top: 12px; border-left: 1px solid var(--line-strong); background: var(--panel); }
+.term { padding: 12px 14px; background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.6 var(--mono); white-space: pre; height: 340px; }
+.term .dim { color: oklch(68% 0 0); }
+.term .hl { color: oklch(85% 0.12 87); }
+.card { background: var(--surface); }
+.card-head { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .model { color: var(--ink-3); font-size: 12px; }
+.card-head .spacer { flex: 1; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+
+</style>
+</head>
+<body data-ui=".pick, .btn, .state, .chrome .url, .chrome .nav span, .msg, .tline, .toast, .compose .box, .feedback, .qid">
+<svg width="0" height="0" style="position:absolute"><symbol id="dl" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol><symbol id="back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol><symbol id="fwd" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol><symbol id="ok" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol><symbol id="chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol></svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M119</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 살아있는문서</b></span><span>v2 · 2026-11-13 · 승인 Q3267</span></div>
+  <h1>살아 있는 문서: 문서 페이지에서 에이전트와 대화하고, 고친 판을 바로 보고, 다른 문서로 가기</h1>
+  <p class="lead">사람 지시: “loom에서 만들어지는 문서는 실시간으로 에이전트와 소통하면서 파일을 수정하거나, 다른 문서로 링크가 연결될 수 있게 해줘”. v1에 대한 답(Q3267): “D1: vscode의 liveserver 처럼 실시간으로 변하는게 보였으면 함, D2: A — A 접었다 펼 수 있게 하기, D3: A, D4: B”, “자유의견과 에이전트 대화가 기능이 중복되는거 아님?”. 그래서 v2는 이렇게 바뀝니다. 파일을 저장할 때마다 열린 문서가 읽던 자리 그대로 바뀝니다. 대화 칸은 문서 오른쪽에 있고 접을 수 있습니다. 위 막대의 자유 의견 칸을 지우고, 대화 칸의 입력칸 하나만 둡니다. 말은 그 문서를 마지막으로 점검한 에이전트가 받습니다. 문서 링크는 새 탭에서 열립니다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳입니다.</p>
+
+  <div class="flow"><span>사람: 대화 칸에 말 쓰기</span><i>→</i><span>loom: 그 문서를 쓴 에이전트에게 전달</span><i>→</i><span>에이전트: 파일을 고쳐 저장하고 답을 씀</span><i>→</i><span>문서 페이지: 저장한 판과 답을 바로 보임</span></div>
+
+  <div class="fig">
+    <h2>① 문서 오른쪽 대화 칸 <span class="tag">열린 질문이 있는 목업, D1을 고르고 에이전트가 방금 고친 모습</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="nav"><span><svg><use href="#back"/></svg></span><span><svg><use href="#fwd"/></svg></span></span><span class="tabt">M120 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M120</span></div>
+      <div class="bar">
+        <span class="qid">Q3301</span><span class="bar-title">이 문서의 질문에 답합니다</span>
+        <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+        <span class="spacer"></span>
+        <span class="picks mk" data-n="1"><span class="pick on">D1: A</span><span class="pick empty">D2: —</span></span>
+      </div>
+      <div class="body split">
+        <div class="frame">
+          <span class="toast mk new" data-n="4"><svg><use href="#ok"/></svg>문서가 바뀌었습니다 · 14:03</span>
+          <div class="dwho"><span>문서 ID: M120</span><span>응답할 곳: 총괄 · loom 총괄</span><span>v3 · 2026-11-13</span></div>
+          <h3>알림 탭 정리 목업</h3>
+          <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다. 막대 설계는 <a class="dl mk new" data-n="5">R303 문서 페이지 막대 설계</a>에 있습니다.</p>
+          <h4>D2 알림 줄의 열</h4>
+          <table><tr><th>시각</th><th>번호</th><th>노드</th><th>글</th></tr><tr><td>14:00</td><td>Q3301</td><td>loom 총괄</td><td>알림 탭을 바꿀까요?</td></tr><tr><td>13:41</td><td>Q3297</td><td>코디 약점보강</td><td>병합할까요?</td></tr></table>
+          <div class="sketch"><span></span><span></span><span></span></div>
+        </div>
+        <aside class="talk">
+          <div class="talk-head"><span class="th-in mk new" data-n="2"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 살아있는문서</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm fold"><svg><use href="#fwd"/></svg>접기</span></div>
+          <div class="thread">
+            <span class="msg me">D2 표에서 시각 열을 맨 앞으로 옮겨 줘.</span>
+            <span class="meta r">14:01 · 받음</span>
+            <span class="msg ag">시각 열을 맨 앞으로 옮겼습니다. 다른 표도 같은 순서로 맞출까요?</span>
+            <span class="meta l">코디 살아있는문서 · 14:03</span>
+          </div>
+          <div class="compose">
+            <span class="with mk new" data-n="3">Q3301 답으로 보냅니다: D1: A, D2: A(권장, 고르지 않음)</span>
+            <span class="box">에이전트에게 보낼 말</span>
+            <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>질문의 선택지와 결정입니다. 고른 것은 대화 칸의 [보내기]로 답과 함께 갑니다.</span></div>
+      <div><b>2</b><span>말을 받는 에이전트와 그 상태입니다. 오른쪽 [접기]로 칸을 접습니다(②).</span></div>
+      <div><b>3</b><span>고른 것이 있으면 이 말이 질문의 답이 됩니다.</span></div>
+      <div><b>4</b><span>파일이 바뀌면 문서가 저절로 바뀝니다.</span></div>
+      <div><b>5</b><span>다른 문서로 가는 링크입니다(④).</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 접은 대화 칸 <span class="tag">열린 질문이 없는 보고서</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="nav"><span><svg><use href="#back"/></svg></span><span><svg><use href="#fwd"/></svg></span></span><span class="tabt">R303 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/R303</span></div>
+      <div class="bar none">
+        <span class="qid plain">R303</span><span class="bar-title muted">이 문서에 열린 질문이 없습니다</span>
+        <span class="spacer"></span>
+        <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+      </div>
+      <div class="body folded" style="height:400px">
+        <div class="frame">
+          <div class="dwho"><span>문서 ID: R303</span><span>응답할 곳: 총괄 · loom 총괄</span><span>v2 · 2026-11-12</span></div>
+          <h3>문서 페이지 막대 설계</h3>
+          <p>응답 막대는 질문의 선택지와 결정 상자를 함께 보입니다. 결정 상자가 있으면 상자만 보입니다.</p>
+          <h4>측정</h4>
+          <table><tr><th>문서</th><th>결정 상자</th><th>선택지</th></tr><tr><td>R310</td><td>없음</td><td>3</td></tr><tr><td>R319</td><td>4</td><td>3</td></tr></table>
+        </div>
+        <aside class="rail"><span class="btn sm unfold mk new" data-n="6"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg>대화 2</span></aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>6</b><span>대화 칸을 다시 펼칩니다. 숫자는 주고받은 말의 수입니다. 접은 상태는 다음에 열 때도 그대로입니다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 에이전트 쪽: 페이지에서 온 말과 답 <span class="tag">그래프 화면의 노드 터미널</span></h2>
+    <div class="page card">
+      <div class="card-head"><b>코디 살아있는문서</b><span class="model">opus · high</span><span class="spacer"></span><span class="state"><i></i>작업 중</span></div>
+<div class="term"><span class="hl mk new" data-n="7">loom message #8121 (from: human, kind: note)
+The human wrote this on the loom document page of M120
+(file: /home/ktadev/loom/workspaces/loom/알림정리/docs/mockups/inbox-tidy.html):</span>
+D2 표에서 시각 열을 맨 앞으로 옮겨 줘.
+If the human asks for a change, edit that file ... Reply on the page with loom answer ...
+
+<span class="dim">● Edit docs/mockups/inbox-tidy.html</span>
+
+<span class="hl mk new" data-n="8">● loom answer 8121 "시각 열을 맨 앞으로 옮겼습니다. 다른 표도 같은 순서로 맞출까요?"</span>
+  Answered #8121 on the document page of M120.
+</div>
+    </div>
+    <div class="calls">
+      <div><b>7</b><span>페이지에서 보낸 말은 사람이 보낸 메모로 오고, 문서 ID와 파일 경로, 답하는 법을 함께 알립니다.</span></div>
+      <div><b>8</b><span>에이전트는 그 말에 답합니다. 답은 문서 페이지의 대화 칸에만 보입니다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>④ 링크를 누른 뒤 <span class="tag">①의 「R303 문서 페이지 막대 설계」 링크를 누른 모습</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="nav"><span><svg><use href="#back"/></svg></span><span><svg><use href="#fwd"/></svg></span></span><span class="tabt off">M120 · 문서 페이지</span><span class="tabt">R303 · 문서 페이지</span><span class="url mk new" data-n="9">127.0.0.1:7420/docs/R303</span></div>
+      <div class="bar none">
+        <span class="qid plain">R303</span><span class="bar-title muted">이 문서에 열린 질문이 없습니다</span>
+        <span class="spacer"></span>
+        <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+      </div>
+      <div class="body split">
+        <div class="frame">
+          <div class="dwho"><span>문서 ID: R303</span><span>응답할 곳: 총괄 · loom 총괄</span><span>v2 · 2026-11-12</span></div>
+          <h3>문서 페이지 막대 설계</h3>
+          <p>응답 막대는 질문의 선택지와 결정 상자를 함께 보입니다. 결정 상자가 있으면 상자만 보입니다. 결정 상자 꼴은 <a class="dl">M31 문서 안에서 답하기 목업</a>을 따릅니다.</p>
+          <h4>측정</h4>
+          <table><tr><th>문서</th><th>결정 상자</th><th>선택지</th></tr><tr><td>R310</td><td>없음</td><td>3</td></tr><tr><td>R319</td><td>4</td><td>3</td></tr></table>
+        </div>
+        <aside class="talk">
+          <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 문서선택지2</span><span class="state"><i style="background:var(--ink-3)"></i>멈춤</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm fold"><svg><use href="#fwd"/></svg>접기</span></div>
+          <div class="thread"><span class="meta mk new" data-n="10" style="align-self:center;margin-top:120px">아직 주고받은 말이 없습니다. 고칠 곳을 쓰면 코디 문서선택지2가 받습니다.</span></div>
+          <div class="compose">
+            <span class="box">에이전트에게 보낼 말</span>
+            <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>9</b><span>R303은 새 탭에서 열립니다. M120 탭은 그대로 남습니다.</span></div>
+      <div><b>10</b><span>대화가 없을 때 이 칸이 무엇을 하는지 알립니다. 멈춘 에이전트는 말을 보내면 다시 띄웁니다.</span></div>
+    </div>
+  </div>
+
+  <ul class="note">
+    <li>에이전트는 링크를 <code>&lt;a href="/docs/R303"&gt;</code> 꼴로 씁니다. 점검(loom show)은 없는 문서 ID를 가리키는 링크를 거절합니다.</li>
+    <li>열린 질문이 있어도 고른 것이 없으면 말은 대화로만 갑니다. 고를 것이 없는 질문(선택지·결정 상자 없음)은 말이 곧 답입니다.</li>
+    <li>Android 앱은 지금 문서 파일을 그대로 열고 문서 페이지가 없어 이번 변경의 대상이 아닙니다.</li>
+  </ul>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

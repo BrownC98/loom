@@ -1,6 +1,7 @@
 mod agent_state;
 mod closed;
 mod deploys;
+mod doc_talk;
 mod events;
 mod gate;
 mod hosts;

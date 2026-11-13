@@ -86,8 +86,9 @@ fi
 case $wt/ in */.git/*) echo "loom refuses the check folder $wt: tools skip paths under a .git folder" >&3; exit 1 ;; esac
 rm -rf "$common/loom-batch-target" "${XDG_CACHE_HOME:-$HOME/.cache}/loom-batch-target"
 if [ -e "$batches/check" ]; then
+  rm -f "$trees" || exit 1
   git worktree remove --force "$batches/check" 2>/dev/null
-  rm -rf "$batches/check" "$trees"
+  rm -rf "$batches/check"
   rmdir "$batches" 2>/dev/null
   git worktree prune
 fi

@@ -38,11 +38,19 @@ pub fn take_step(files: Files<'_>, path: &Path, step: DocStep) -> Result<WaitDoc
 
 pub fn show(path: &Path, step: DocStep) -> Result<(), String> {
     let files = Files::new(None);
-    let doc = take_step(files, path, step)?;
+    show_by(path, step, |step| take_step(files, path, step))
+}
+
+pub fn show_by(
+    path: &Path,
+    step: DocStep,
+    take: impl Fn(DocStep) -> Result<WaitDoc, String>,
+) -> Result<(), String> {
+    let doc = take(step)?;
     match (step, bashless()) {
         (DocStep::Stamp, true) => {
             println!("show: 문서 ID {} ({})", doc.id, doc.title);
-            take_step(files, path, DocStep::Pass)?;
+            take(DocStep::Pass)?;
             println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
             print_ask(path);
         }
@@ -51,7 +59,7 @@ pub fn show(path: &Path, step: DocStep) -> Result<(), String> {
     Ok(())
 }
 
-pub fn told(doc: &WaitDoc, step: DocStep, path: &Path) {
+fn told(doc: &WaitDoc, step: DocStep, path: &Path) {
     match step {
         DocStep::Stamp => {
             println!("show: 문서 ID {} ({})", doc.id, doc.title);

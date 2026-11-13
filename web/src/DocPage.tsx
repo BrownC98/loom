@@ -128,6 +128,12 @@ export function DocPage({ id }: { id: string }) {
     return () => window.removeEventListener('message', heard);
   }, []);
 
+  const openWait = question?.kind === 'open' ? question.wait : null;
+  useEffect(() => {
+    setChoice(null);
+    setPicks({});
+  }, [openWait]);
+
   const shown = question?.kind === 'answered' ? picksOf(question.text, decisions) : picks;
   const mode = question?.kind === 'open' ? 'open' : question?.kind === 'answered' ? 'locked' : 'off';
   useEffect(() => {

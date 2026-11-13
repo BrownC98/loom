@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use api::graph::docs::{Said, TalkLine, TalkTo};
-use api::graph::errors::Refusal;
+use api::graph::errors::{BRIEF_LIMIT_BYTES, Refusal};
 use api::graph::messages::MessageKind;
 use api::ids::{NodeId, WaitId};
 
@@ -114,7 +114,7 @@ impl Graph {
         from: NodeId,
         message: MessageId,
         text: &str,
-    ) -> rusqlite::Result<Option<String>> {
+    ) -> Result<Option<String>, Refusal> {
         let db = self.lock();
         let doc: Option<String> = db
             .query_row(
@@ -125,9 +125,16 @@ impl Graph {
             )
             .optional()?;
         if let Some(doc) = &doc {
+            let text = text.trim();
+            if text.is_empty() {
+                return Err(Refusal::EmptyAnswer);
+            }
+            if text.len() > BRIEF_LIMIT_BYTES {
+                return Err(Refusal::BriefTooLong(text.len()));
+            }
             db.execute(
                 "INSERT INTO doc_talk (doc, said, name, text) VALUES (?1, ?2, ?3, ?4)",
-                params![doc, BY_AGENT, name_of(&db, from)?, text.trim()],
+                params![doc, BY_AGENT, name_of(&db, from)?, text],
             )?;
         }
         Ok(doc)

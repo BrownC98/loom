@@ -89,13 +89,14 @@ pub fn spawn(
 }
 
 pub fn show(file: PathBuf, step: DocStep) -> Result<(), String> {
-    let request = ShowRequest {
-        file: crate::wsl::for_daemon(absolute(&file)?),
-        step,
-    };
-    let doc: WaitDoc = at_endpoint("show", &request)?;
-    crate::user_doc::told(&doc, step, &file);
-    Ok(())
+    let at = crate::wsl::for_daemon(absolute(&file)?);
+    crate::user_doc::show_by(&file, step, |step| {
+        let request = ShowRequest {
+            file: at.clone(),
+            step,
+        };
+        Ok(at_endpoint::<WaitDoc>("show", &request)?)
+    })
 }
 
 pub fn roles() -> Result<(), String> {

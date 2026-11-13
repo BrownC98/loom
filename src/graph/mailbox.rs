@@ -33,6 +33,8 @@ fn wakes() -> String {
 pub struct Sent {
     pub id: MessageId,
     pub recipient: Option<NodeId>,
+    #[serde(default)]
+    pub page: Option<String>,
 }
 
 struct Outgoing<'a> {
@@ -143,6 +145,14 @@ impl Graph {
         body: &str,
         via: Option<&Via>,
     ) -> Result<Sent, Refusal> {
+        if let Some(doc) = self.answer_page(from, request, body)? {
+            self.publish_nodes();
+            return Ok(Sent {
+                id: request,
+                recipient: None,
+                page: Some(doc),
+            });
+        }
         let sender: Option<Option<u32>> = self
             .lock()
             .query_row(
@@ -222,6 +232,7 @@ impl Graph {
         Ok(Sent {
             id,
             recipient: to_id,
+            page: None,
         })
     }
 

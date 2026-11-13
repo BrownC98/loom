@@ -1020,7 +1020,37 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .err-text { font-size: 12px; color: var(--err); }
 
 .doc-page { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font-size: 13px; }
-.doc-page > iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.doc-main { flex: 1; min-height: 0; display: flex; }
+.doc-frame { position: relative; flex: 1; min-width: 0; display: flex; }
+.doc-frame > iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.doc-changed { position: absolute; top: 10px; left: 50%; z-index: 1; margin: 0; translate: -50% 0; pointer-events: none; }
+.doc-changed > span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid var(--ok); border-radius: 14px; background: color-mix(in srgb, var(--ok) 10%, var(--surface)); box-shadow: 0 2px 8px var(--shadow); font-size: 12px; white-space: nowrap; }
+.doc-changed svg { width: 14px; height: 14px; color: var(--ok); }
+.doc-talk { flex: none; width: 360px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--line-strong); background: var(--panel); }
+.doc-talk.folded { width: auto; display: flex; align-items: flex-start; padding: 10px; }
+.doc-talk svg { width: 15px; height: 15px; flex: none; }
+.talk-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); }
+.talk-head .to { min-width: 0; overflow: hidden; color: var(--ink-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.talk-head .state { flex: none; padding: 1px 7px; border-radius: 10px; background: var(--accent-wash); font-size: 11px; font-weight: 600; }
+.talk-head .state[data-process="stopped"] { color: var(--ink-3); }
+.talk-head .spacer { flex: 1; }
+.talk-thread { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 14px; overflow-y: auto; list-style: none; }
+.talk-thread > li { display: flex; flex-direction: column; gap: 3px; max-width: 88%; }
+.talk-thread > li[data-by="human"] { align-self: flex-end; align-items: flex-end; }
+.talk-thread > li[data-by="agent"] { align-self: flex-start; }
+.talk-thread > .talk-empty { align-self: center; max-width: none; margin-top: 40px; color: var(--ink-3); font-size: 12px; text-align: center; }
+.talk-text { margin: 0; padding: 7px 10px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+li[data-by="human"] > .talk-text { border-bottom-right-radius: 3px; background: var(--accent); color: var(--bg); }
+li[data-by="agent"] > .talk-text { border: 1px solid var(--line-strong); border-bottom-left-radius: 3px; background: var(--surface); }
+.talk-meta { color: var(--ink-3); font-size: 11px; }
+.talk-compose { display: grid; gap: 6px; padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+.talk-with { margin: 0; padding: 3px 8px; border: 1px solid var(--warn); border-radius: 6px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 12px; overflow-wrap: anywhere; }
+.talk-compose textarea { min-height: 52px; max-height: 30vh; padding: 6px 9px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
+.talk-compose textarea::placeholder { color: var(--ink-3); }
+.talk-compose textarea:focus-visible { outline: none; border-color: var(--accent); }
+.talk-row { display: flex; align-items: center; gap: 8px; }
+.talk-row .hint { flex: 1; color: var(--ink-3); font-size: 12px; }
+.talk-row .btn.send { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
 .doc-page > .refusal { position: static; margin: 0; padding: 6px 16px; color: var(--err); font-size: 12px; }
 .doc-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
 .doc-bar[data-state="answered"] { border-bottom-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
@@ -1032,16 +1062,10 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .doc-bar .pick { display: inline-flex; align-items: center; height: 24px; max-width: min(320px, 100%); padding: 0 8px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .doc-bar .pick[data-empty] { border-style: dashed; color: var(--ink-3); }
 .doc-bar .pick[aria-pressed="true"] { border-color: var(--warn); font-weight: 600; }
-.doc-bar .unpicked { font-weight: 600; }
 .doc-bar .ok { flex: none; width: 16px; height: 16px; color: var(--ok); }
 .doc-bar .sent { min-width: 0; max-width: 100%; overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
 .doc-bar .btn svg { width: 14px; height: 14px; }
-.doc-bar .btn.send { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); font-weight: 600; }
-.doc-bar .btn.send:hover:not(:disabled) { background: color-mix(in oklch, var(--warn) 85%, var(--bg)); }
 .doc-bar a.btn { color: var(--ink-2); text-decoration: none; }
-.doc-bar .feedback { flex: 1 1 100%; min-width: 0; max-height: 30vh; padding: 5px 8px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
-.doc-bar .feedback::placeholder { color: var(--ink-3); }
-.doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
 
 .composer-layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
 .composer-float { position: absolute; pointer-events: auto; }

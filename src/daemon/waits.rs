@@ -7,7 +7,8 @@ use api::graph::waits::{
 
 use super::*;
 use crate::protocol::ChoiceRequest;
-use api::graph::docs::DocQuestion;
+use api::graph::ProcessState;
+use api::graph::docs::{DocQuestion, DocTalk, PostTalk};
 use api::graph::search::WaitSearch;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -26,6 +27,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/docs/{id}/", get(doc))
         .route("/api/docs/{id}/download", get(download_doc))
         .route("/api/docs/{id}/question", get(doc_question))
+        .route("/api/docs/{id}/talk", get(doc_talk).post(post_talk))
         .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
 }
@@ -232,6 +234,57 @@ async fn doc_question(
     Ok(Json(app.graph.doc_question(&id)?))
 }
 
+async fn doc_talk(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<DocTalk>, DocProblem> {
+    let doc = doc_file(&id)?;
+    let version = tokio::task::spawn_blocking(move || {
+        std::fs::metadata(&doc.path).map(|m| {
+            let at = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            format!("{at}-{}", m.len())
+        })
+    })
+    .await
+    .map_err(internal)?
+    .map_err(|e| DocProblem::Missing(e.to_string()))?;
+    let to = match app.graph.doc_recipient(&id).map_err(internal)? {
+        Some(node) => Some(app.graph.talk_to(node).map_err(internal)?),
+        None => None,
+    };
+    let lines = app.graph.talk_lines(&id).map_err(internal)?;
+    Ok(Json(DocTalk { to, lines, version }))
+}
+
+async fn post_talk(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    Json(req): Json<PostTalk>,
+) -> Result<Json<()>, DocProblem> {
+    let doc = doc_file(&id)?;
+    let node = app
+        .graph
+        .doc_recipient(&id)
+        .map_err(internal)?
+        .ok_or_else(|| Problem::from(Refusal::NotFound(format!("문서 {id}의 에이전트"))))?;
+    if req.text.trim().is_empty() {
+        return Err(Problem::from(Refusal::EmptyAnswer).into());
+    }
+    let to = app.graph.talk_to(node).map_err(internal)?;
+    if matches!(to.process, ProcessState::Stopped { .. }) {
+        app.relaunch_by_id(node, crate::graph::Plan::Resume).await?;
+    }
+    app.graph
+        .post_talk(&id, &doc.path.display().to_string(), node, &req.text)
+        .map_err(Problem::from)?;
+    app.turn_ends.human(node, Some(&req.text));
+    Ok(Json(()))
+}
+
 async fn doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
     let shared = shared_doc(id).await?;
     Ok((
@@ -245,8 +298,15 @@ async fn doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
         .into_response())
 }
 
-async fn download_doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
+async fn download_doc(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Response, DocProblem> {
     let shared = shared_doc(id).await?;
+    let html = shared.html.replace(
+        user_doc::PAGE_LINK,
+        &format!("href=\"http://127.0.0.1:{}/docs/", app.port),
+    );
     let name = utf8_percent_encode(&shared.name, NON_ALPHANUMERIC);
     Ok((
         [
@@ -256,7 +316,7 @@ async fn download_doc(Path(id): Path<String>) -> Result<Response, DocProblem> {
                 format!("attachment; filename*=UTF-8''{name}"),
             ),
         ],
-        shared.html,
+        html,
     )
         .into_response())
 }

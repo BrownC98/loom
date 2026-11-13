@@ -77,8 +77,24 @@
   window.addEventListener('message', (e) => {
     if (e.source !== window.parent || e.data?.loom !== 'page') return;
     if (e.data.kind === 'show') show(e.data);
-    if (e.data.kind === 'hello') post({ kind: 'decisions', list });
+    if (e.data.kind === 'hello') {
+      post({ kind: 'decisions', list });
+      if (e.data.scroll) window.scrollTo(0, e.data.scroll);
+    }
     if (e.data.kind === 'focus') document.getElementById(e.data.id)?.scrollIntoView({ block: 'center' });
+  });
+  for (const link of document.querySelectorAll('a[href^="/docs/"]')) {
+    link.target = '_blank';
+    link.rel = 'noopener';
+  }
+  let scrolled = false;
+  window.addEventListener('scroll', () => {
+    if (scrolled) return;
+    scrolled = true;
+    requestAnimationFrame(() => {
+      scrolled = false;
+      post({ kind: 'scroll', y: window.scrollY });
+    });
   });
   post({ kind: 'decisions', list });
 })();

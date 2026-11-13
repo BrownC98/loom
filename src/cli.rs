@@ -145,6 +145,10 @@ pub fn answer(message: u32, body: String) -> Result<(), String> {
 }
 
 fn print_sent(sent: &Sent) {
+    if let Some(doc) = &sent.page {
+        println!("Answered #{} on the document page of {doc}.", sent.id.0);
+        return;
+    }
     match sent.recipient {
         Some(to) => println!("loom message #{} → node #{}", sent.id.0, to.0),
         None => println!(
@@ -261,7 +265,7 @@ fn reconnecting<T>(
     }
 }
 
-fn through_endpoint() -> bool {
+pub fn through_endpoint() -> bool {
     std::env::var_os(ENDPOINT_ENV).is_some()
 }
 

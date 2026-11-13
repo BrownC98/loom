@@ -78,11 +78,16 @@ async fn agent_show(
         .map_err(|e| for_agent(Refusal::from(e)))?
         .worktree;
     let file = crate::place::from_node(req.file, std::path::Path::new(&folder));
-    tokio::task::spawn_blocking(move || user_doc::take_step(app.files(), &file, req.step))
-        .await
-        .unwrap_or_else(|e| Err(e.to_string()))
-        .map(Json)
-        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))
+    let worker = app.clone();
+    let doc =
+        tokio::task::spawn_blocking(move || user_doc::take_step(worker.files(), &file, req.step))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()))
+            .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    app.graph
+        .wrote_doc(&doc.id, node)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    Ok(Json(doc))
 }
 
 #[derive(Serialize, Deserialize)]

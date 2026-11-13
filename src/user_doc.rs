@@ -19,6 +19,7 @@ pub use share::{Shared, shareable, with_bridge};
 
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
+pub const PAGE_LINK: &str = r#"href="/docs/"#;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +91,7 @@ fn html(path: &Path) -> bool {
 
 fn stamp_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, String> {
     let (path, text) = checked(files, path)?;
+    store.links(&text)?;
     let id = store.doc_id(&path)?;
     let title = bare_title(title(&text).unwrap_or_default()).to_owned();
     files
@@ -100,6 +102,7 @@ fn stamp_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, Str
 
 fn pass_in(store: &Store, files: Files<'_>, path: &Path) -> Result<WaitDoc, String> {
     let (path, text) = checked(files, path)?;
+    store.links(&text)?;
     let id = store.doc_id(&path)?;
     if stamp(&text, &id) != text {
         return Err(format!(
@@ -351,6 +354,22 @@ impl Store {
     fn passed(&self, text: &str) -> bool {
         let digest = crate::skills::digest(&[text]);
         fs::read_to_string(&self.passes).is_ok_and(|rows| rows.lines().any(|row| row == digest))
+    }
+
+    fn links(&self, html: &str) -> Result<(), String> {
+        let rows = self.rows();
+        let known = |id: &str| table_rows(&rows).any(|(_, row_id)| row_id == id);
+        match html
+            .split(PAGE_LINK)
+            .skip(1)
+            .map(|rest| &rest[..rest.find('"').unwrap_or(rest.len())])
+            .find(|id| !known(id))
+        {
+            Some(id) => Err(format!(
+                "링크 {PAGE_LINK}{id}\": 없는 문서 ID다. 링크는 <a href=\"/docs/<문서 ID>\"> 꼴로 쓴다"
+            )),
+            None => Ok(()),
+        }
     }
 
     fn rows(&self) -> String {

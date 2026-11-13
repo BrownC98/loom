@@ -66,11 +66,14 @@ export class ProblemError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
+const READ_LIMIT_MS = 10_000;
+
+async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { 'content-type': body.type },
     body: body?.data,
+    signal,
   });
   if (!res.ok) {
     const problem = (await res.json().catch(() => null)) as Problem | null;
@@ -82,6 +85,8 @@ async function request<T>(method: string, path: string, body?: { type: string; d
 const call = <T>(method: string, path: string, body?: unknown) =>
   request<T>(method, path, body === undefined ? undefined : { type: 'application/json', data: JSON.stringify(body) });
 
+const read = <T>(path: string) => request<T>('GET', path, undefined, AbortSignal.timeout(READ_LIMIT_MS));
+
 export const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 export const savePastedFile = (file: File, node: NodeId | null) =>
@@ -90,7 +95,7 @@ export const savePastedFile = (file: File, node: NodeId | null) =>
     data: file,
   });
 
-export const getNodes = () => call<NodeView[]>('GET', '/api/nodes');
+export const getNodes = () => read<NodeView[]>('/api/nodes');
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}`);
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
@@ -148,7 +153,7 @@ export const checkUpdate = () => call<UpdateView>('POST', '/api/update/check');
 export const installUpdate = () => call<UpdateView>('POST', '/api/update/install');
 export const getCommits = (repo: RepoId, range: CommitRange) =>
   call<CommitGraph>('GET', `/api/repos/${repo}/commits?skip=${range.skip}&limit=${range.limit}`);
-export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
+export const getRepos = () => read<RepoView[]>('/api/repos');
 export const getSpots = () => call<Layout>('GET', '/api/spots');
 export const putSpots = (placed: Placed[]) => call<null>('PUT', '/api/spots', placed);
 export const putArranged = (arranged: Arranged) => call<null>('PUT', '/api/spots/arranged', arranged);

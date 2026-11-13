@@ -428,9 +428,16 @@ pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), Stri
         .spawn(move || {
             while wanted.recv().is_ok() {
                 while wanted.try_recv().is_ok() {}
-                let event = load(&base);
-                if sink.send_blocking(event).is_err() {
-                    break;
+                loop {
+                    let event = load(&base);
+                    let failed = matches!(event, Graph::Failed { .. });
+                    if sink.send_blocking(event).is_err() {
+                        return;
+                    }
+                    if !failed {
+                        break;
+                    }
+                    std::thread::sleep(RECONNECT);
                 }
             }
         })

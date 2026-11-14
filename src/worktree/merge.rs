@@ -130,7 +130,10 @@ else
     echo "== the batch changes scripts/gate; loom runs its scripts/gate/check.sh, then the one of the target $base"
     (cd "$wt" && bash scripts/gate/check.sh) 9>&-
     code=$?
-    [ "$code" -ne 0 ] || git -C "$wt" checkout --quiet "$base" -- scripts/gate || exit 1
+    if [ "$code" -eq 0 ]; then
+      git -C "$wt" restore --quiet --source="$base" --staged --worktree -- scripts/gate &&
+        git -C "$wt" clean -fdxq -- scripts/gate || exit 1
+    fi
   fi
   if [ "$code" -eq 0 ]; then
     (cd "$wt" && bash scripts/gate/check.sh) 9>&-

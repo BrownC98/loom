@@ -112,8 +112,12 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 tip=$(git -C "$wt" rev-parse HEAD)
-key=$({ git -C "$wt" rev-parse 'HEAD^{tree}'; git -C "$wt" rev-list --no-merges HEAD | sort; } | git hash-object --stdin)
-if [ ! -f "$wt/scripts/gate/check.sh" ]; then
+gate=$(git rev-parse --verify --quiet "$base:scripts/gate/check.sh")
+key=$({ echo "gate $gate $(git rev-parse --verify --quiet "$base:scripts/gate")"; git -C "$wt" rev-parse 'HEAD^{tree}'; git -C "$wt" rev-list --no-merges HEAD | sort; } | git hash-object --stdin)
+if [ -n "$gate" ] && [ ! -f "$wt/scripts/gate/check.sh" ]; then
+  echo "== the batch deletes scripts/gate/check.sh, which the target $base has; loom refuses the batch"
+  exit 14
+elif [ ! -f "$wt/scripts/gate/check.sh" ]; then
   echo "== no scripts/gate/check.sh"
   pass
 elif grep -qxF "$key" "$trees" 2>/dev/null; then
@@ -121,8 +125,20 @@ elif grep -qxF "$key" "$trees" 2>/dev/null; then
   pass
 else
   start=$(date +%s)
-  (cd "$wt" && bash scripts/gate/check.sh) 9>&-
-  code=$?
+  code=0
+  if [ -n "$gate" ] && [ "$(git -C "$wt" rev-parse HEAD:scripts/gate)" != "$(git rev-parse "$base:scripts/gate")" ]; then
+    echo "== the batch changes scripts/gate; loom runs its scripts/gate/check.sh, then the one of the target $base"
+    (cd "$wt" && bash scripts/gate/check.sh) 9>&-
+    code=$?
+    if [ "$code" -eq 0 ]; then
+      git -C "$wt" restore --quiet --source="$base" --staged --worktree -- scripts/gate &&
+        git -C "$wt" clean -fdxq -- scripts/gate || exit 1
+    fi
+  fi
+  if [ "$code" -eq 0 ]; then
+    (cd "$wt" && bash scripts/gate/check.sh) 9>&-
+    code=$?
+  fi
   if [ "$code" -eq 0 ]; then
     pass
     { tail -n 199 "$trees" 2>/dev/null; echo "$key"; } > "$trees.new" && mv "$trees.new" "$trees"

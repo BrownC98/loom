@@ -112,14 +112,22 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 tip=$(git -C "$wt" rev-parse HEAD)
-key=$({ git -C "$wt" rev-parse 'HEAD^{tree}'; git -C "$wt" rev-list --no-merges HEAD | sort; } | git hash-object --stdin)
-if [ ! -f "$wt/scripts/gate/check.sh" ]; then
+gate=$(git rev-parse --verify --quiet "$base:scripts/gate/check.sh")
+key=$({ echo "gate $gate $(git rev-parse --verify --quiet "$base:scripts/gate")"; git -C "$wt" rev-parse 'HEAD^{tree}'; git -C "$wt" rev-list --no-merges HEAD | sort; } | git hash-object --stdin)
+if [ -n "$gate" ] && [ ! -f "$wt/scripts/gate/check.sh" ]; then
+  echo "== the batch deletes scripts/gate/check.sh, which the target $base has; loom refuses the batch"
+  exit 14
+elif [ ! -f "$wt/scripts/gate/check.sh" ]; then
   echo "== no scripts/gate/check.sh"
   pass
 elif grep -qxF "$key" "$trees" 2>/dev/null; then
   echo "== the same files and commits passed scripts/gate/check.sh before (key $key); loom does not run it again"
   pass
 else
+  if [ -n "$gate" ]; then
+    echo "== loom runs scripts/gate of the target $base; a change to scripts/gate takes effect from the next merge"
+    git -C "$wt" checkout --quiet "$base" -- scripts/gate || exit 1
+  fi
   start=$(date +%s)
   (cd "$wt" && bash scripts/gate/check.sh) 9>&-
   code=$?

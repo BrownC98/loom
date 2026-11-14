@@ -124,13 +124,18 @@ elif grep -qxF "$key" "$trees" 2>/dev/null; then
   echo "== the same files and commits passed scripts/gate/check.sh before (key $key); loom does not run it again"
   pass
 else
-  if [ -n "$gate" ]; then
-    echo "== loom runs scripts/gate of the target $base; a change to scripts/gate takes effect from the next merge"
-    git -C "$wt" checkout --quiet "$base" -- scripts/gate || exit 1
-  fi
   start=$(date +%s)
-  (cd "$wt" && bash scripts/gate/check.sh) 9>&-
-  code=$?
+  code=0
+  if [ -n "$gate" ] && [ "$(git -C "$wt" rev-parse HEAD:scripts/gate)" != "$(git rev-parse "$base:scripts/gate")" ]; then
+    echo "== the batch changes scripts/gate; loom runs its scripts/gate/check.sh, then the one of the target $base"
+    (cd "$wt" && bash scripts/gate/check.sh) 9>&-
+    code=$?
+    [ "$code" -ne 0 ] || git -C "$wt" checkout --quiet "$base" -- scripts/gate || exit 1
+  fi
+  if [ "$code" -eq 0 ]; then
+    (cd "$wt" && bash scripts/gate/check.sh) 9>&-
+    code=$?
+  fi
   if [ "$code" -eq 0 ]; then
     pass
     { tail -n 199 "$trees" 2>/dev/null; echo "$key"; } > "$trees.new" && mv "$trees.new" "$trees"

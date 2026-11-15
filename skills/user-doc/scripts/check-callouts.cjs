@@ -90,16 +90,14 @@ const CONTRAST = theme => {
     const e = t.parentElement;
     if (!t.textContent.trim() || e.closest('script, style, svg, .page, .xlwin, .shotwrap, :disabled, [aria-disabled="true"]') || !e.getClientRects().length) continue;
     const cs = getComputedStyle(e); if (cs.visibility !== 'visible') continue;
-    let fg = rgba(cs.color), op = 1, bg = [255, 255, 255, 1], layers = [];
-    for (let a = e; a; a = a.parentElement) {
-      const s = getComputedStyle(a); op *= +s.opacity;
-      if (s.backgroundImage !== 'none') { layers = null; break; }
-      const c = rgba(s.backgroundColor); if (c[3]) layers.push(c);
-      if (c[3] === 1) break;
-    }
-    if (!layers) continue;
-    for (const c of layers.reverse()) bg = over(c, bg);
-    fg = over([fg[0], fg[1], fg[2], fg[3] * op], bg);
+    const chain = []; for (let a = e; a; a = a.parentElement) chain.unshift(getComputedStyle(a));
+    if (chain.some(s => s.backgroundImage !== 'none')) continue;
+    const paint = (i, below, text) => {
+      const c = over(rgba(chain[i].backgroundColor), below);
+      const inner = i + 1 < chain.length ? paint(i + 1, c, text) : text ? over(rgba(cs.color), c) : c;
+      const o = +chain[i].opacity; return [0, 1, 2].map(k => below[k] * (1 - o) + inner[k] * o).concat(1);
+    };
+    const bg = paint(0, [255, 255, 255, 1], false), fg = paint(0, [255, 255, 255, 1], true);
     const [x, y] = [lum(fg), lum(bg)], ratio = (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
     const px = parseFloat(cs.fontSize), need = px >= 24 || (px >= 18.66 && +cs.fontWeight >= 700) ? 3 : 4.5;
     if (ratio < need) bad.add(`contrast ${ratio.toFixed(2)} < ${need} in ${theme}: "${t.textContent.trim().slice(0, 24)}" ${hex(fg)} on ${hex(bg)} <${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : ''}>`);
@@ -124,7 +122,8 @@ async function frameChecks(page) {
   await page.evaluate(() => { document.activeElement?.blur(); document.querySelectorAll('[data-chk-tab]').forEach(e => delete e.dataset.chkTab); scrollTo(0, 0); });
   bad.push(...await page.evaluate(CONTRAST, 'light'));
   const toggle = page.locator('.theme-toggle').first();
-  if (await toggle.count()) {
+  if (await toggle.count() && !await toggle.isVisible()) bad.push('dark contrast not checked: .theme-toggle is not visible');
+  else if (await toggle.count()) {
     await toggle.click(); await page.waitForTimeout(100);
     bad.push(...await page.evaluate(CONTRAST, 'dark'));
     await toggle.click(); await page.waitForTimeout(100);
@@ -359,9 +358,9 @@ async function checkPage(ctx, run) {
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });
-    if (run === MAIN) bad.push(...await frameChecks(page));
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }
     const res = await checkRun(page);
+    if (run === MAIN) bad.push(...await frameChecks(page));
     bad.push(...res.bad.map(x => label + x));
     return { bad, bubbles: res.bubbles, badges: res.badges.length };
   } finally { await page.close(); }

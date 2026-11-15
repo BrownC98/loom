@@ -285,7 +285,7 @@ function select(id){
   if(n.ex)h+=`<h3>${esc(META.exLabel)}</h3><div class="ex tblwrap">${n.ex}</div>`;
   if(n.fail&&n.fail.length)h+=`<h3>실제 실패 사례</h3>${n.fail.map(f=>`<div class="fail"><b>${esc(f[0])}</b> · ${f[1]}</div>`).join('')}`;
   panel.innerHTML=h;panel.scrollTop=0;
-  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);document.getElementById('card-'+t).scrollIntoView({block:'nearest',behavior:SCROLL});}));
+  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);const c=document.getElementById('card-'+t);c.scrollIntoView({block:'nearest',behavior:SCROLL});c.focus({preventScroll:true});}));
   highlight();
 }
 

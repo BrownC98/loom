@@ -44,6 +44,7 @@
     d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
   }
   const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    if (!fig.getClientRects().length) continue;
     const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
     fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
     if (!place(fig, src)) continue;
@@ -149,6 +150,22 @@
     if (bestO !== orders[orders.length - 1]) attempt(bestO);
     return bestR.fails;
   };
+  for (const cmp of document.querySelectorAll('.cmp')) {
+    const views = [...cmp.querySelectorAll(':scope > .fig[data-v]')], bar = document.createElement('div');
+    bar.className = 'cmp-bar'; bar.setAttribute('role', 'radiogroup'); bar.setAttribute('aria-label', cmp.dataset.label ?? '');
+    const select = i => views.forEach((v, j) => { v.hidden = j !== i; btns[j].setAttribute('aria-checked', j === i); btns[j].tabIndex = j === i ? 0 : -1; });
+    const btns = views.map((v, i) => {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'radio'); b.textContent = v.dataset.v;
+      b.addEventListener('click', () => { select(i); layout(); });
+      b.addEventListener('keydown', e => {
+        const k = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: views.length - 1 }[e.key];
+        if (k === undefined) return;
+        e.preventDefault(); const n = (k + views.length) % views.length; select(n); btns[n].focus(); layout();
+      });
+      return b;
+    });
+    bar.append(...btns); cmp.prepend(bar); select(0);
+  }
   document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
   let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
   if (document.readyState === 'complete') layout(); else addEventListener('load', layout);

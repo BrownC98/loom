@@ -19,7 +19,7 @@
   --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
   --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
   --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
-  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn: light-dark(oklch(47% 0.12 87), oklch(80% 0.15 87));
   --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
   --font: 'Pretendard', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -31,10 +31,10 @@ button { font: inherit; color: inherit; }
 .doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
 .who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
 .who b { color: var(--ink); }
-h1 { font-size: 18px; }
-h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h1 { font-size: 18px; text-wrap: balance; }
+h2 { font-size: 15px; text-wrap: balance; display: flex; gap: 8px; align-items: baseline; }
 h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
-.lead { color: var(--ink-2); max-width: 900px; }
+.lead { color: var(--ink-2); max-width: 900px; text-wrap: pretty; }
 .fig { display: grid; gap: 10px; }
 .note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
 .note li { margin-left: 18px; }

@@ -6,15 +6,15 @@
 <title>고객 문의 처리 정보 구조</title>
 <style>
 :root{
-  --bg:#f6f5f2; --surface:#ffffff; --surface2:#f0eee9; --ink:#1d1d1b; --ink2:#55534e; --ink3:#8a877f;
-  --line:#dcd9d1; --accent:#1f5fbf; --accent-soft:#e3ecfa; --need:#8a877f; --warn:#b4540a; --warn-soft:#fbeadb;
-  --out:#a8a59c; --ok:#2f7d4a;
-  --l0:#7a4fb5; --l1:#3f6fb0; --l2:#2e8a8a; --l3:#3d8a46; --l4:#a77a12; --l5:#c0572b; --l6:#b03a62; --lc:#5f5f5f; --lx:#a8a59c;
+  --bg:#f6f5f2; --surface:#ffffff; --surface2:#f0eee9; --ink:#1d1d1b; --ink2:#55534e; --ink3:#6d6a62;
+  --line:#dcd9d1; --accent:#1f5fbf; --accent-soft:#e3ecfa; --need:#8a877f; --warn:#ad4e00; --warn-soft:#fbeadb;
+  --out:#a8a59c; --ok:#2f7d4a; --err:#c0392b;
+  --l0:#7a4fb5; --l1:#3f6fb0; --l2:#228181; --l3:#378440; --l4:#996d00; --l5:#be5529; --l6:#b03a62; --lc:#5f5f5f; --lx:#78756c;
 }
 :root[data-theme="dark"]{
-  --bg:#151513; --surface:#1f1f1c; --surface2:#2a2a26; --ink:#ecebe6; --ink2:#b9b6ad; --ink3:#87847b;
+  --bg:#151513; --surface:#1f1f1c; --surface2:#2a2a26; --ink:#ecebe6; --ink2:#b9b6ad; --ink3:#959288;
   --line:#3a3934; --accent:#7aa7f0; --accent-soft:#22324d; --need:#87847b; --warn:#f0a35e; --warn-soft:#3d2a18;
-  --out:#5d5b55; --ok:#6cc08a; color-scheme: dark;
+  --out:#5d5b55; --ok:#6cc08a; --err:#e55c4b; color-scheme: dark;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;}
@@ -30,7 +30,7 @@ header p{margin:0;color:var(--ink2);max-width:900px}
 .toolbar button[hidden]{display:none}
 .legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;color:var(--ink2);font-size:12.5px;margin-left:auto}
 .legend svg{vertical-align:middle}
-#bad{display:none;margin:12px 20px 0;padding:8px 12px;border:2px solid #c0392b;color:#c0392b;border-radius:6px;font-weight:700;white-space:pre-line}
+#bad{display:none;margin:12px 20px 0;padding:8px 12px;border:2px solid var(--err);color:var(--err);border-radius:6px;font-weight:700;white-space:pre-line}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;align-items:start}
 #board{position:relative;padding:16px 16px 40px}
 #edges{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
@@ -79,7 +79,7 @@ body.noedges #edges path:not(.hot){opacity:0}
 .badge{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink2);margin-right:4px}
 .badge.in{border-color:var(--ok);color:var(--ok)}
 .badge.outb{border-color:var(--out);color:var(--ink3)}
-.link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.link{border:0;background:none;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .fnbox{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:6px 0;background:var(--surface2)}
 .fnbox .sig{font-weight:600}
 .fnbox .io{color:var(--ink2);font-size:12.5px}
@@ -183,6 +183,7 @@ const board=document.getElementById('board');
 const svg=document.getElementById('edges');
 const panel=document.getElementById('panel');
 const state={out:false,expandAll:false,sel:null,hover:null};
+const SCROLL=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 function validate(){
@@ -220,9 +221,9 @@ function render(){
       c.addEventListener('click',ev=>{
         if(ev.target.classList.contains('exp')){n._open=!n._open;render();ev.stopPropagation();return;}
         select(n.id);
-        if(matchMedia('(max-width: 980px)').matches)panel.scrollIntoView({behavior:'smooth'});
+        if(matchMedia('(max-width: 980px)').matches)panel.scrollIntoView({behavior:SCROLL});
       });
-      c.addEventListener('keydown',ev=>{if(ev.key==='Enter')select(n.id)});
+      c.addEventListener('keydown',ev=>{if(ev.target===c&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();select(n.id);}});
       c.addEventListener('mouseenter',()=>{state.hover=n.id;highlight()});
       c.addEventListener('mouseleave',()=>{state.hover=null;highlight()});
       wrap.appendChild(c);
@@ -273,7 +274,7 @@ function highlight(){
 function select(id){
   state.sel=id;const n=byId[id];const L=LAYERS.find(l=>l.id===n.layer);
   const ins=E.filter(e=>e[1]===id),outs=E.filter(e=>e[0]===id);
-  const lk=x=>`<span class="link" data-go="${x}">${esc(byId[x].ko)}</span>`;
+  const lk=x=>`<button type="button" class="link" data-go="${x}">${esc(byId[x].ko)}</button>`;
   let h=`<div><span class="badge" style="border-color:var(${L.color});color:var(${L.color})">${L.tag||L.id} ${esc(L.name)}</span><span class="badge ${n.out?'outb':'in'}">${n.out?'범위 밖':esc(META.scope)}</span></div>
   <h2 style="margin-top:8px">${esc(n.ko)}</h2><div class="cls mono">${n.out?'':'class '+n.id}</div><p>${esc(n.desc)}</p>`;
   if(n.checks)h+=`<h3>누락 검사</h3>${n.checks.map(k=>`<p><b style="color:var(--warn)">${k}</b> ${esc(CHECKS[k])}</p>`).join('')}`;
@@ -284,7 +285,7 @@ function select(id){
   if(n.ex)h+=`<h3>${esc(META.exLabel)}</h3><div class="ex tblwrap">${n.ex}</div>`;
   if(n.fail&&n.fail.length)h+=`<h3>실제 실패 사례</h3>${n.fail.map(f=>`<div class="fail"><b>${esc(f[0])}</b> · ${f[1]}</div>`).join('')}`;
   panel.innerHTML=h;panel.scrollTop=0;
-  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);document.getElementById('card-'+t).scrollIntoView({block:'nearest',behavior:'smooth'});}));
+  panel.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click',()=>{const t=a.dataset.go;if(byId[t].out&&!state.out){toggleOut();}select(t);const c=document.getElementById('card-'+t);c.scrollIntoView({block:'nearest',behavior:SCROLL});c.focus({preventScroll:true});}));
   highlight();
 }
 

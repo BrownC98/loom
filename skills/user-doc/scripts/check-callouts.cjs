@@ -66,6 +66,11 @@ const IDS = mockup => {
     if (!/^\d+$/.test(k)) bad.push(`callout "${cut(c)}" has no number (<b>n</b>)`); else use(k, 'callout "' + cut(c.querySelector(':scope > span') ?? c) + '"');
   }
   for (const m of document.querySelectorAll('.mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
+  for (const c of document.querySelectorAll('.cmp')) {
+    const vs = [...c.querySelectorAll(':scope > .fig[data-v]')].map(v => v.dataset.v.trim());
+    if (!c.dataset.label?.trim()) bad.push('compare view has no data-label');
+    if (vs.length < 2 || vs.some(v => !v) || new Set(vs).size !== vs.length) bad.push(`compare view "${c.dataset.label}" needs 2 or more .fig with different data-v labels`);
+  }
   if (mockup) {
     for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -73,6 +78,60 @@ const IDS = mockup => {
   }
   return [...new Set(bad)];
 };
+
+const CONTRAST = theme => {
+  const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgba = c => { cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); const d = cv.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };
+  const over = (f, b) => [0, 1, 2].map(i => f[i] * f[3] + b[i] * (1 - f[3])).concat(1);
+  const lum = c => { const [r, g, b] = c.slice(0, 3).map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const hex = c => '#' + c.slice(0, 3).map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  const bad = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let t; (t = w.nextNode());) {
+    const e = t.parentElement;
+    if (!t.textContent.trim() || e.closest('script, style, svg, .page, .xlwin, .shotwrap, :disabled, [aria-disabled="true"]') || !e.getClientRects().length) continue;
+    const cs = getComputedStyle(e); if (cs.visibility !== 'visible') continue;
+    let fg = rgba(cs.color), op = 1, bg = [255, 255, 255, 1], layers = [];
+    for (let a = e; a; a = a.parentElement) {
+      const s = getComputedStyle(a); op *= +s.opacity;
+      if (s.backgroundImage !== 'none') { layers = null; break; }
+      const c = rgba(s.backgroundColor); if (c[3]) layers.push(c);
+      if (c[3] === 1) break;
+    }
+    if (!layers) continue;
+    for (const c of layers.reverse()) bg = over(c, bg);
+    fg = over([fg[0], fg[1], fg[2], fg[3] * op], bg);
+    const [x, y] = [lum(fg), lum(bg)], ratio = (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    const px = parseFloat(cs.fontSize), need = px >= 24 || (px >= 18.66 && +cs.fontWeight >= 700) ? 3 : 4.5;
+    if (ratio < need) bad.add(`contrast ${ratio.toFixed(2)} < ${need} in ${theme}: "${t.textContent.trim().slice(0, 24)}" ${hex(fg)} on ${hex(bg)} <${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : ''}>`);
+  }
+  return [...bad];
+};
+
+async function frameChecks(page) {
+  const bad = [];
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    const r = await page.evaluate(() => {
+      const e = document.activeElement; if (!e || e === document.body || e.dataset.chkTab) return null;
+      e.dataset.chkTab = 1;
+      if (e.closest('.page, .xlwin, .shotwrap')) return { ring: true };
+      const cs = getComputedStyle(e), ring = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== 'none';
+      return { key: e.outerHTML.slice(0, 60), ring };
+    });
+    if (!r) break;
+    if (!r.ring) bad.push(`no visible focus ring on ${r.key}`);
+  }
+  await page.evaluate(() => { document.activeElement?.blur(); document.querySelectorAll('[data-chk-tab]').forEach(e => delete e.dataset.chkTab); scrollTo(0, 0); });
+  bad.push(...await page.evaluate(CONTRAST, 'light'));
+  const toggle = page.locator('.theme-toggle').first();
+  if (await toggle.count()) {
+    await toggle.click(); await page.waitForTimeout(100);
+    bad.push(...await page.evaluate(CONTRAST, 'dark'));
+    await toggle.click(); await page.waitForTimeout(100);
+    await page.evaluate(() => { document.activeElement?.blur(); scrollTo(0, 0); });
+  }
+  return [...new Set(bad)];
+}
 
 const DOM_PASS = LEADER_MAX => {
   const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
@@ -229,7 +288,6 @@ const PIXELS = async ({ shots, pins, bands }) => {
 };
 
 async function checkRun(page) {
-  await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });
   const res = await page.evaluate(DOM_PASS, LEADER_MAX);
   const vp = page.viewportSize(), OVERLAP = 40;
   const shot = async () => (await page.screenshot({ animations: 'disabled' })).toString('base64');
@@ -297,8 +355,11 @@ async function checkPage(ctx, run) {
     }
     const bad = [];
     if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
+    await page.evaluate(() => { document.querySelectorAll('.cmp > .fig[data-v]').forEach(v => { v.hidden = false; }); dispatchEvent(new Event('resize')); });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });
+    if (run === MAIN) bad.push(...await frameChecks(page));
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }
     const res = await checkRun(page);
     bad.push(...res.bad.map(x => label + x));

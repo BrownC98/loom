@@ -15,3 +15,9 @@
 .lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
 .lead-svg circle { fill: #D14343; }
 .shotwrap .mk { position: absolute; }
+.cmp { display: grid; gap: 12px; }
+.cmp > .fig[hidden] { display: none; }
+.cmp-bar { justify-self: start; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface-hover); }
+.cmp-bar button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: none; color: var(--ink-2); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
+.cmp-bar button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong), 0 1px 2px oklch(0% 0 0 / 0.12); }
+@media (prefers-reduced-motion: no-preference) { .cmp-bar button { transition: background-color 0.15s, color 0.15s; } }

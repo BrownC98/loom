@@ -91,13 +91,15 @@ const CONTRAST = theme => {
     if (!t.textContent.trim() || e.closest('script, style, svg, .page, .xlwin, .shotwrap, :disabled, [aria-disabled="true"]') || !e.getClientRects().length) continue;
     const cs = getComputedStyle(e); if (cs.visibility !== 'visible') continue;
     const chain = []; for (let a = e; a; a = a.parentElement) chain.unshift(getComputedStyle(a));
-    if (chain.some(s => s.backgroundImage !== 'none')) continue;
+    const lay = (f, b) => f[3] === 1 ? f : b && over(f, b);
     const paint = (i, below, text) => {
-      const c = over(rgba(chain[i].backgroundColor), below);
-      const inner = i + 1 < chain.length ? paint(i + 1, c, text) : text ? over(rgba(cs.color), c) : c;
-      const o = +chain[i].opacity; return [0, 1, 2].map(k => below[k] * (1 - o) + inner[k] * o).concat(1);
+      const c = chain[i].backgroundImage !== 'none' ? null : lay(rgba(chain[i].backgroundColor), below);
+      const inner = i + 1 < chain.length ? paint(i + 1, c, text) : text ? c && over(rgba(cs.color), c) : c;
+      const o = +chain[i].opacity; if (o === 1 || !inner) return inner;
+      return below && [0, 1, 2].map(k => below[k] * (1 - o) + inner[k] * o).concat(1);
     };
     const bg = paint(0, [255, 255, 255, 1], false), fg = paint(0, [255, 255, 255, 1], true);
+    if (!bg || !fg) continue;
     const [x, y] = [lum(fg), lum(bg)], ratio = (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
     const px = parseFloat(cs.fontSize), need = px >= 24 || (px >= 18.66 && +cs.fontWeight >= 700) ? 3 : 4.5;
     if (ratio < need) bad.add(`contrast ${ratio.toFixed(2)} < ${need} in ${theme}: "${t.textContent.trim().slice(0, 24)}" ${hex(fg)} on ${hex(bg)} <${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : ''}>`);

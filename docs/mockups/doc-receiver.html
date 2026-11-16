@@ -110,6 +110,16 @@ code { font-family: var(--mono); font-size: 12px; }
 .compose .box span { display: inline-block; }
 .compose .row { display: flex; align-items: center; gap: 8px; }
 .compose .row .hint { flex: 1; }
+.msg.typing { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.spin { width: 14px; height: 14px; fill: none; stroke: var(--ink-3); stroke-width: 3; stroke-dasharray: 40 60; stroke-linecap: round; }
+@media (prefers-reduced-motion: no-preference) { .spin { animation: spin 0.9s linear infinite; } }
+@keyframes spin { to { rotate: 360deg; } }
+.frame .dbox { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 8px 10px; border: 1.5px solid var(--warn); border-radius: 8px; font-size: 13px; max-width: 640px; }
+.frame .dopt { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; }
+.frame .dopt.on { border-color: var(--warn); font-weight: 600; }
+.frame .other { display: grid; gap: 6px; margin-top: 12px; padding: 8px 10px; border: 1.5px solid var(--warn); border-radius: 8px; font-size: 13px; max-width: 640px; }
+.frame .other .otext { padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.bar .feedback { flex: 1 1 100%; height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 18px; }
 .cmp > .fig { min-width: 0; }
 .states { border-collapse: collapse; font-size: 13px; max-width: 880px; margin-top: -12px; }
 .states th, .states td { padding: 6px 10px; border: 1px solid var(--line-strong); text-align: left; }
@@ -141,16 +151,17 @@ code { font-family: var(--mono); font-size: 12px; }
 
 </style>
 </head>
-<body data-ui=".pick, .btn, .state, .chrome .url, .msg, .compose .box, .qid, .cmp-bar">
+<body data-ui=".feedback, .dopt, .pick, .btn, .state, .chrome .url, .msg, .compose .box, .qid, .cmp-bar">
 <svg width="0" height="0" style="position:absolute"><symbol id="dl" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol><symbol id="fwd" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol><symbol id="ok" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol><symbol id="chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol></svg>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M146</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 문서대화대상</b></span><span>v1 · 2026-11-16</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M146</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 문서대화대상</b></span><span>v2 · 2026-11-16 · Q3533 D1·D2·D3 A</span></div>
   <h1>문서 페이지: 보내는 말을 받는 에이전트를 하나로 맞추기</h1>
-  <p class="lead">사람 지시: “지금 loom html의 에이전트와의 대화 대상과, 사용자 답변이 들어가는 에이전트가 서로 달라 혼동이 온다. 이에 대한 ui/ux를 개선하라”. 지금은 [보내기]가 고른 것이 있으면 질문한 에이전트(보통 총괄)에게 답을 보내고, 고른 것이 없으면 그 문서를 마지막으로 점검한 에이전트(보통 문서를 쓴 코디)에게 말을 보냅니다. 대화 칸 머리는 뒤의 이름만 보입니다. 문서 머리 줄의 「응답할 곳」은 문서를 쓴 에이전트가 손으로 적은 글이라 또 다를 수 있습니다. 그래서 한 화면에 이름이 셋까지 보입니다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳입니다. 위의 단추로 개선 전과 시안을 같은 자리에서 바꿔 봅니다.</p>
+  <p class="lead">사람 지시: “지금 loom html의 에이전트와의 대화 대상과, 사용자 답변이 들어가는 에이전트가 서로 달라 혼동이 온다. 이에 대한 ui/ux를 개선하라”. 지금은 [보내기]가 고른 것이 있으면 질문한 에이전트(보통 총괄)에게 답을 보내고, 고른 것이 없으면 그 문서를 마지막으로 점검한 에이전트(보통 문서를 쓴 코디)에게 말을 보냅니다. 대화 칸 머리는 뒤의 이름만 보입니다. 문서 머리 줄의 「응답할 곳」은 문서를 쓴 에이전트가 손으로 적은 글이라 또 다를 수 있습니다. 그래서 한 화면에 이름이 셋까지 보입니다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳입니다. 위의 단추로 개선 전과 개선 후를 같은 자리에서 바꿔 봅니다.</p>
+  <p class="lead">v1에 대한 답(Q3533): “D1: A, D2: A, D3: A”. 그래서 ①·②는 승인한 개선 후만 보입니다. 질문이 열려 있는 동안 질문한 에이전트가 답과 말을 모두 받습니다. 문서 머리 줄의 「응답할 곳」은 새 문서부터 뺍니다. 보낸 말의 상태는 문서 페이지 대화 칸에 보입니다. v2에서 새로 정할 것은 ④의 D4 하나입니다.</p>
 
   <div class="flow"><span>코디: 목업을 쓰고 점검함</span><i>→</i><span>총괄: 그 문서로 질문함</span><i>→</i><span>사람: 문서 페이지에서 고르고 말을 씀</span><i>→</i><span>[보내기]: 받는 에이전트 하나</span></div>
 
-  <div class="cmp" data-label="① 시안">
+  <div class="cmp" data-label="① 개선 전후">
     <div class="fig" data-v="개선 전">
       <h2>① 개선 전 <span class="tag">열린 질문 Q3301, 코디가 마지막으로 점검함</span></h2>
       <div class="page">
@@ -192,8 +203,8 @@ code { font-family: var(--mono); font-size: 12px; }
       </div>
     </div>
 
-    <div class="fig" data-v="D1-A">
-      <h2>① D1-A 질문이 열려 있으면 질문한 에이전트가 모두 받음 <span class="tag">같은 상황</span></h2>
+    <div class="fig" data-v="개선 후">
+      <h2>① 개선 후 질문이 열려 있으면 질문한 에이전트가 모두 받음 <span class="tag">같은 상황</span></h2>
       <div class="page">
         <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
         <div class="bar">
@@ -234,59 +245,11 @@ code { font-family: var(--mono); font-size: 12px; }
       </div>
     </div>
 
-    <div class="fig" data-v="D1-B">
-      <h2>① D1-B 받는 곳은 지금처럼 둘, 둘 다 보임 <span class="tag">같은 상황</span></h2>
-      <div class="page">
-        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
-        <div class="bar">
-          <span class="qid">Q3301</span><span class="bar-title">이 문서의 질문에 답합니다</span>
-          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
-          <span class="spacer"></span>
-          <span class="picks"><span class="pick on">D1: A</span><span class="pick empty">D2: —</span></span>
-        </div>
-        <div class="body">
-          <div class="frame">
-            <span class="dwho"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v2 · 2026-11-16</span></span>
-            <h3>알림 탭 정리 목업</h3>
-            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
-            <h4>D1 알림 줄의 열</h4>
-            <table><tr><th>시각</th><th>번호</th><th>노드</th><th>글</th></tr><tr><td>14:00</td><td>Q3301</td><td>loom 총괄</td><td>알림 탭을 바꿀까요?</td></tr><tr><td>13:41</td><td>Q3297</td><td>코디 약점보강</td><td>병합할까요?</td></tr></table>
-          </div>
-          <aside class="talk">
-            <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span><span class="two"><span class="th-in mk new" data-n="8"><span>답: <b>loom 총괄</b></span><span>그 밖의 말: <b>코디 알림정리</b></span></span></span></div>
-            <div class="thread">
-              <span class="msg me">표에서 시각 열을 맨 앞으로 옮겨 줘.</span>
-              <span class="meta r">코디 알림정리 · 14:01 · 받음</span>
-              <span class="msg ag">시각 열을 맨 앞으로 옮겼습니다.</span>
-              <span class="meta l">코디 알림정리 · 14:03</span>
-            </div>
-            <div class="compose">
-              <span class="with mk" data-n="9">Q3301 답으로 loom 총괄에게 보냅니다: D1: A, D2: A(권장, 고르지 않음)</span>
-              <span class="box">에이전트에게 보낼 말</span>
-              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
-            </div>
-          </aside>
-        </div>
-      </div>
-      <div class="calls">
-        <div><b>8</b><span>받는 곳 두 이름을 함께 보입니다. 무엇을 골랐는지에 따라 받는 곳이 바뀝니다.</span></div>
-        <div><b>9</b><span>고른 것이 있으면 이 줄이 나오고, 말은 loom 총괄에게 갑니다.</span></div>
-      </div>
-    </div>
   </div>
 
-  <section class="decision" id="D1" data-for="4 8">
-    <h3><span class="did">D1</span>질문이 열려 있을 때 대화 칸의 말을 누가 받는가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">질문한 에이전트가 답과 말을 모두 받는다<span class="mark">권장</span><span class="sub">지금: 답은 loom 총괄, 말은 코디 알림정리 → 바뀐 뒤: 둘 다 loom 총괄, 총괄이 고칠 일을 코디에게 넘김 · 비용: 데몬 조회 순서 한 줄, 화면 글 세 곳 · 위험: 질문이 열린 동안 고친 판이 한 단계 늦게 옴 · 되돌리기: 조회 순서를 되돌림</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">받는 곳은 지금처럼 둘로 두고 두 이름을 함께 보인다<span class="sub">지금: 이름 하나만 보임 → 바뀐 뒤: 「답: loom 총괄 · 그 밖의 말: 코디 알림정리」 · 비용: 질문 응답에 이름 칸 하나, 머리 줄 하나 · 위험: 사람이 고른 것에 따라 받는 곳이 바뀌는 규칙은 남음 · 되돌리기: 줄을 지움</span></span></div>
-    </div>
-    <ul class="why"><li>받는 곳이 하나면 머리의 이름이 늘 맞습니다. 사람이 규칙을 외울 필요가 없습니다.</li><li>새 칸·새 타입이 없습니다. 질문이 없으면 받는 곳은 지금과 같습니다.</li><li>문서 스킬은 이미 받은 말을 쓴 에이전트에게 넘기라고 합니다.</li></ul>
-  </section>
-
-  <div class="cmp" data-label="② 시안">
-    <div class="fig" data-v="D2-A">
-      <h2>② D2-A 답한 뒤, 문서 머리 줄에서 「응답할 곳」을 뺌 <span class="tag">Q3301에 답함, 코디가 다시 점검함</span></h2>
+  <div class="cmp" data-label="② 개선 전후">
+    <div class="fig" data-v="개선 전">
+      <h2>② 개선 전 답한 뒤, 문서 안과 대화 칸의 이름이 다름 <span class="tag">같은 상황</span></h2>
       <div class="page">
         <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
         <div class="bar done">
@@ -296,46 +259,7 @@ code { font-family: var(--mono); font-size: 12px; }
         </div>
         <div class="body">
           <div class="frame">
-            <span class="dwho mk" data-n="12"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v3 · 2026-11-16</span></span>
-            <h3>알림 탭 정리 목업</h3>
-            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
-            <h4>D1 알림 줄의 열</h4>
-            <table><tr><th>시각</th><th>번호</th><th>노드</th><th>글</th></tr><tr><td>14:00</td><td>Q3301</td><td>loom 총괄</td><td>알림 탭을 바꿀까요?</td></tr><tr><td>13:41</td><td>Q3297</td><td>코디 약점보강</td><td>병합할까요?</td></tr></table>
-          </div>
-          <aside class="talk">
-            <div class="talk-head"><span class="th-in mk" data-n="10"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 알림정리</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
-            <div class="thread">
-              <span class="msg me">D1: A, D2: A(권장, 고르지 않음)</span>
-              <span class="meta r">loom 총괄 · 14:05 · Q3301 답 · 받음</span>
-              <span class="msg me">필터 단추를 조금 더 크게 해 줘.</span>
-              <span class="meta r mk" data-n="11">코디 알림정리 · 14:07 · 받음</span>
-            </div>
-            <div class="compose">
-              <span class="box">코디 알림정리에게 보낼 말</span>
-              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
-            </div>
-          </aside>
-        </div>
-      </div>
-      <div class="calls">
-        <div><b>10</b><span>질문이 닫히면 받는 곳은 지금처럼 문서를 마지막으로 점검한 에이전트입니다. 머리의 이름이 바로 바뀝니다.</span></div>
-        <div><b>11</b><span>앞의 답은 loom 총괄, 이 말은 코디 알림정리가 받았다고 줄마다 보입니다.</span></div>
-        <div><b>12</b><span>머리 줄은 문서 ID, 연 담당, 판만 둡니다. 받는 곳은 대화 칸만 보입니다.</span></div>
-      </div>
-    </div>
-
-    <div class="fig" data-v="D2-B">
-      <h2>② D2-B 답한 뒤, 「응답할 곳」을 그대로 둠 <span class="tag">같은 상황</span></h2>
-      <div class="page">
-        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
-        <div class="bar done">
-          <svg class="okmark"><use href="#ok"/></svg><span class="bar-title">Q3301에 답했습니다 · 11-16 14:05</span><span class="sent">D1: A, D2: A(권장, 고르지 않음)</span>
-          <span class="spacer"></span>
-          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
-        </div>
-        <div class="body">
-          <div class="frame">
-            <span class="dwho mk" data-n="13"><span>문서 ID: M140</span><span>응답할 곳: 총괄 · loom 총괄</span><span>연 담당: 코디 · 코디 알림정리</span><span>v3 · 2026-11-16</span></span>
+            <span class="dwho mk" data-n="8"><span>문서 ID: M140</span><span>응답할 곳: 총괄 · loom 총괄</span><span>연 담당: 코디 · 코디 알림정리</span><span>v3 · 2026-11-16</span></span>
             <h3>알림 탭 정리 목업</h3>
             <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
             <h4>D1 알림 줄의 열</h4>
@@ -357,25 +281,55 @@ code { font-family: var(--mono); font-size: 12px; }
         </div>
       </div>
       <div class="calls">
-        <div><b>13</b><span>문서 안에는 loom 총괄, 대화 칸에는 코디 알림정리가 보입니다.</span></div>
+        <div><b>8</b><span>문서 안에는 loom 총괄, 대화 칸에는 코디 알림정리가 보입니다.</span></div>
       </div>
     </div>
+    <div class="fig" data-v="개선 후">
+      <h2>② 개선 후 답한 뒤, 문서 머리 줄에서 「응답할 곳」을 뺌 <span class="tag">Q3301에 답함, 코디가 다시 점검함</span></h2>
+      <div class="page">
+        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
+        <div class="bar done">
+          <svg class="okmark"><use href="#ok"/></svg><span class="bar-title">Q3301에 답했습니다 · 11-16 14:05</span><span class="sent">D1: A, D2: A(권장, 고르지 않음)</span>
+          <span class="spacer"></span>
+          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+        </div>
+        <div class="body">
+          <div class="frame">
+            <span class="dwho mk" data-n="11"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v3 · 2026-11-16</span></span>
+            <h3>알림 탭 정리 목업</h3>
+            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
+            <h4>D1 알림 줄의 열</h4>
+            <table><tr><th>시각</th><th>번호</th><th>노드</th><th>글</th></tr><tr><td>14:00</td><td>Q3301</td><td>loom 총괄</td><td>알림 탭을 바꿀까요?</td></tr><tr><td>13:41</td><td>Q3297</td><td>코디 약점보강</td><td>병합할까요?</td></tr></table>
+          </div>
+          <aside class="talk">
+            <div class="talk-head"><span class="th-in mk" data-n="9"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 알림정리</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
+            <div class="thread">
+              <span class="msg me">D1: A, D2: A(권장, 고르지 않음)</span>
+              <span class="meta r">loom 총괄 · 14:05 · Q3301 답 · 받음</span>
+              <span class="msg me">필터 단추를 조금 더 크게 해 줘.</span>
+              <span class="meta r mk" data-n="10">코디 알림정리 · 14:07 · 받음</span>
+            </div>
+            <div class="compose">
+              <span class="box">코디 알림정리에게 보낼 말</span>
+              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="calls">
+        <div><b>9</b><span>질문이 닫히면 받는 곳은 지금처럼 문서를 마지막으로 점검한 에이전트입니다. 머리의 이름이 바로 바뀝니다.</span></div>
+        <div><b>10</b><span>앞의 답은 loom 총괄, 이 말은 코디 알림정리가 받았다고 줄마다 보입니다.</span></div>
+        <div><b>11</b><span>머리 줄은 문서 ID, 연 담당, 판만 둡니다. 받는 곳은 대화 칸만 보입니다.</span></div>
+      </div>
+    </div>
+
   </div>
 
-  <section class="decision" id="D2" data-for="12 13">
-    <h3><span class="did">D2</span>문서 머리 줄의 「응답할 곳」을 둘 것인가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">새 문서부터 뺀다<span class="mark">권장</span><span class="sub">지금: 문서 안 「응답할 곳: 총괄 · loom 총괄」과 대화 칸 이름이 다를 수 있음 → 바뀐 뒤: 받는 곳은 대화 칸에만 보임 · 비용: 점검(loom show) 조건 하나와 문서 스킬·틀 글을 지움 · 위험: 내려받은 HTML에는 받는 곳이 없음 · 되돌리기: 조건을 되살림</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">그대로 둔다<span class="sub">에이전트가 손으로 적은 이름이 대화 칸 이름과 어긋날 수 있음 · 비용 없음</span></span></div>
-    </div>
-    <ul class="why"><li>받는 곳은 질문이 닫히거나 다른 에이전트가 점검하면 바뀝니다. 파일에 적은 글은 따라 바뀌지 않습니다.</li><li>이미 만든 문서는 그대로 남습니다. 새 문서만 이 줄이 없습니다.</li></ul>
-  </section>
-
-  <p class="lead">두 번째 사람 지시: “그리고 사용자가 질문을 보냈을때 해당 에이전트가 사용자 메시지를 받았는지, 바빠서 아직 못 받았는지, 답변을 작성하고 있는지등의 상태를 표시해줘, 지금은 사용자 경험이 좋지 않음”. 지금은 보낸 말 아래에 「보냄」 또는 「받음」만 보입니다. 바뀐 뒤에는 아직 답이 없는 마지막 말 아래에 받는 에이전트의 지금 상태를 한 줄로 보입니다.</p>
+  <p class="lead">두 번째 사람 지시: “그리고 사용자가 질문을 보냈을때 해당 에이전트가 사용자 메시지를 받았는지, 바빠서 아직 못 받았는지, 답변을 작성하고 있는지등의 상태를 표시해줘, 지금은 사용자 경험이 좋지 않음”. v1에 대한 답(Q3533): “에이전트가 응답하는 중이라는 표시를 실시간으로 표시해주고 (스피너가 있는 챗 ui 라던가)”. 그래서 v2는 에이전트가 말을 받고 일하는 동안 대화 칸에 에이전트 쪽 말풍선과 스피너를 보입니다. 에이전트가 답하면 그 자리에 답이 들어옵니다.</p>
 
   <div class="cmp" data-label="③ 개선 전후">
     <div class="fig" data-v="개선 전">
-      <h2>③ 개선 전 보낸 말의 상태 <span class="tag">에이전트가 작업 중일 때 말을 보냄</span></h2>
+      <h2>③ 개선 전 보낸 말의 상태 <span class="tag">에이전트가 말을 받고 일하는 중</span></h2>
       <div class="page">
         <div class="chrome"><span class="tabt">R412 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/R412</span></div>
         <div class="bar done">
@@ -395,26 +349,26 @@ code { font-family: var(--mono); font-size: 12px; }
             <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 큐측정</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
             <div class="thread">
               <span class="msg me">검사 단계를 Linux와 Windows로 나눠 줘.</span>
-              <span class="meta r">15:12 · 받음</span>
+              <span class="meta r">코디 큐측정 · 15:12 · 받음</span>
               <span class="msg ag">두 갈래로 나눴습니다.</span>
               <span class="meta l">코디 큐측정 · 15:14</span>
               <span class="msg me">최대값이 나온 날도 적어 줘.</span>
-              <span class="meta r mk" data-n="14">15:16 · 보냄</span>
+              <span class="meta r mk" data-n="12">15:16 · 받음</span>
             </div>
             <div class="compose">
-              <span class="box">에이전트에게 보낼 말</span>
+              <span class="box">코디 큐측정에게 보낼 말</span>
               <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
             </div>
           </aside>
         </div>
       </div>
       <div class="calls">
-        <div><b>14</b><span>「보냄」만 보입니다. 에이전트가 바빠 못 받았는지, 받고 쉬는지 알 수 없습니다.</span></div>
+        <div><b>12</b><span>「받음」만 보입니다. 에이전트가 이 말에 답하는 중인지, 받고 쉬는지 알 수 없습니다.</span></div>
       </div>
     </div>
 
-    <div class="fig" data-v="개선 후">
-      <h2>③ 개선 후 보낸 말의 상태 <span class="tag">같은 상황</span></h2>
+    <div class="fig" data-v="v1">
+      <h2>③ v1 상태 한 줄 <span class="tag">같은 상황</span></h2>
       <div class="page">
         <div class="chrome"><span class="tabt">R412 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/R412</span></div>
         <div class="bar done">
@@ -439,7 +393,7 @@ code { font-family: var(--mono); font-size: 12px; }
               <span class="meta l">코디 큐측정 · 15:14</span>
               <span class="msg me">최대값이 나온 날도 적어 줘.</span>
               <span class="meta r">코디 큐측정 · 15:16</span>
-              <span class="meta r mk new" data-n="15">아직 받지 않았습니다 · 작업 중이라 하던 일 사이에 받습니다</span>
+              <span class="meta r mk" data-n="13">받았습니다 · 작업 중</span>
             </div>
             <div class="compose">
               <span class="box">코디 큐측정에게 보낼 말</span>
@@ -449,32 +403,179 @@ code { font-family: var(--mono); font-size: 12px; }
         </div>
       </div>
       <div class="calls">
-        <div><b>15</b><span>답이 아직 없는 마지막 말 아래에 받는 에이전트의 지금 상태를 보입니다. 상태가 바뀌면 이 줄이 바로 바뀝니다. 답이 오면 줄이 없어집니다.</span></div>
+        <div><b>13</b><span>v1은 글 한 줄만 보였습니다.</span></div>
+      </div>
+    </div>
+
+    <div class="fig" data-v="v2">
+      <h2>③ v2 응답하는 중 말풍선과 스피너 <span class="tag">같은 상황</span></h2>
+      <div class="page">
+        <div class="chrome"><span class="tabt">R412 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/R412</span></div>
+        <div class="bar done">
+          <svg class="okmark"><use href="#ok"/></svg><span class="bar-title">Q3310에 답했습니다 · 11-16 15:10</span><span class="sent">A</span>
+          <span class="spacer"></span>
+          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+        </div>
+        <div class="body">
+          <div class="frame">
+            <span class="dwho"><span>문서 ID: R412</span><span>v2 · 2026-11-16</span></span>
+            <h3>병합 큐 대기 시간 보고서</h3>
+            <p>지난 사흘 병합 큐의 대기 시간을 잽니다. 검사 단계가 대기의 대부분을 씁니다.</p>
+            <h4>단계별 대기</h4>
+            <table><tr><th>단계</th><th>중앙값</th><th>최대</th></tr><tr><td>검토</td><td>4분</td><td>31분</td></tr><tr><td>검사</td><td>12분</td><td>48분</td></tr></table>
+          </div>
+          <aside class="talk">
+            <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">코디 큐측정</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
+            <div class="thread">
+              <span class="msg me">검사 단계를 Linux와 Windows로 나눠 줘.</span>
+              <span class="meta r">코디 큐측정 · 15:12 · 받음</span>
+              <span class="msg ag">두 갈래로 나눴습니다.</span>
+              <span class="meta l">코디 큐측정 · 15:14</span>
+              <span class="msg me">최대값이 나온 날도 적어 줘.</span>
+              <span class="meta r">코디 큐측정 · 15:16 · 받음</span>
+              <span class="msg ag typing mk new" data-n="14"><svg class="spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>코디 큐측정이 응답하는 중</span>
+            </div>
+            <div class="compose">
+              <span class="box">코디 큐측정에게 보낼 말</span>
+              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="calls">
+        <div><b>14</b><span>에이전트가 말을 받고 일하는 동안 스피너가 돕니다. 답이 오면 이 말풍선이 답으로 바뀝니다. 답 없이 쉬면 「받았습니다 · 답 없이 쉽니다」로 바뀝니다.</span></div>
       </div>
     </div>
   </div>
 
   <table class="states">
-    <tr><th>상태 줄(15번 자리)</th><th>loom이 아는 신호</th></tr>
+    <tr><th>답이 아직 없는 마지막 말 아래</th><th>loom이 아는 신호</th></tr>
     <tr><td>아직 받지 않았습니다 · 작업 중이라 하던 일 사이에 받습니다</td><td>메시지 <code>delivered = 0</code>, 받는 노드 「작업 중」</td></tr>
     <tr><td>아직 받지 않았습니다 · 에이전트를 깨우는 중입니다</td><td><code>delivered = 0</code>, 받는 노드 「잠」·「멈춤」(보내기가 다시 띄움)</td></tr>
     <tr><td>아직 받지 않았습니다 · 에이전트가 사람의 응답을 기다립니다</td><td><code>delivered = 0</code>, 받는 노드 「막힘」(권한 창 등)</td></tr>
-    <tr><td>받았습니다 · 작업 중</td><td><code>delivered = 1</code>, 받는 노드 「작업 중」</td></tr>
-    <tr><td>받았습니다 · 답 없이 쉽니다</td><td><code>delivered = 1</code>, 받는 노드 「쉼」·「잠」, 그 뒤 에이전트 답 줄 없음</td></tr>
-    <tr><td>(줄 없음, 답이 보임)</td><td>그 말 뒤에 에이전트 답 줄(<code>loom answer</code>)이 있음</td></tr>
+    <tr><td>스피너 말풍선 「…이 응답하는 중」</td><td><code>delivered = 1</code>, 받는 노드 「작업 중」</td></tr>
+    <tr><td>받았습니다 · 답 없이 쉽니다</td><td><code>delivered = 1</code>, 받는 노드 「쉼」·「잠」</td></tr>
+    <tr><td>(답 말풍선)</td><td>그 말 뒤에 에이전트 답 줄(<code>loom answer</code>)이 있음</td></tr>
   </table>
   <ul class="note">
-    <li>loom은 에이전트가 답을 쓰는 중인지 알 수 없습니다. 받은 뒤 일하는지(「작업 중」)만 압니다. 그래서 「답을 쓰는 중」은 보이지 않습니다.</li>
-    <li>앞의 말(답이 온 말)은 받은 에이전트 이름, 시각, 「받음」만 둡니다.</li>
+    <li>「응답하는 중」은 에이전트가 사람의 말을 받은 뒤 일하는 동안입니다. loom은 그 일이 답을 쓰는 일인지 따로 알지 못합니다.</li>
+    <li>질문의 답을 보낸 뒤에도 같은 표시가 납니다. 총괄은 답을 받고 일을 이어 가며, 페이지에 답을 쓰지 않으면 일을 마친 뒤 「답 없이 쉽니다」가 됩니다.</li>
   </ul>
 
-  <section class="decision" id="D3" data-for="15">
-    <h3><span class="did">D3</span>보낸 말의 상태를 어디에 보일 것인가</h3>
-    <div class="opts">
-      <div class="opt" data-recommended><span class="key">A</span><span class="label">문서 페이지 대화 칸만<span class="mark">권장</span><span class="sub">지금: 「보냄」·「받음」 → 바뀐 뒤: ③처럼 상태 한 줄 · 비용: 대화 줄 응답에 받는 노드 상태 칸 하나, 화면 줄 하나 · 위험: 작음 · 되돌리기: 줄을 지움</span></span></div>
-      <div class="opt"><span class="key">B</span><span class="label">문서 페이지와 받은편지함의 답한 질문<span class="sub">받은편지함에서 답한 뒤 그 질문 줄에도 같은 상태를 보임 · 비용: 받은편지함 기록 응답에 메시지 받음과 상태 칸, 기록 줄 화면 · 위험: 받은편지함 화면이 바뀜, 별도 목업 필요 · 되돌리기: 칸을 지움</span></span></div>
+  <p class="lead">세 번째 사람 지시(Q3533): “지금은 이전처럼 어떤 질문에도 속하지 않는 기타 피드백을 보내는 방법이 채팅말고 없어졌다. 기타 피드백을 달 방법도 추가해줘”. 지금은 고른 것이 있을 때 대화 칸에 쓴 말이 답 끝에 붙습니다. 그러나 화면은 그 사실을 알리지 않고, 결정 상자 밖의 의견을 쓸 자리가 대화 칸뿐입니다.</p>
+
+  <div class="cmp" data-label="④ 시안">
+    <div class="fig" data-v="개선 전">
+      <h2>④ 개선 전 기타 의견을 쓸 곳 <span class="tag">열린 질문 Q3301, 결정 상자 둘</span></h2>
+      <div class="page">
+        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
+        <div class="bar">
+          <span class="qid">Q3301</span><span class="bar-title">이 문서의 질문에 답합니다</span>
+          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+          <span class="spacer"></span>
+          <span class="picks"><span class="pick on">D1: A</span><span class="pick on">D2: B</span></span>
+        </div>
+        <div class="body">
+          <div class="frame">
+            <span class="dwho"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v2 · 2026-11-16</span></span>
+            <h3>알림 탭 정리 목업</h3>
+            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
+            <div class="dbox"><b>D2</b> 필터를 어디에 둘까 <span class="dopt">A 목록 위</span><span class="dopt on">B 목록 왼쪽</span></div>
+          </div>
+          <aside class="talk">
+            <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">loom 총괄</span><span class="state"><i></i>쉼</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
+            <div class="thread"></div>
+            <div class="compose">
+              <span class="with">Q3301 답으로 loom 총괄에게 보냅니다: D1: A, D2: B</span>
+              <span class="box mk" data-n="15">필터 단추 색도 알림 색과 맞춰 줘.</span>
+              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="calls">
+        <div><b>15</b><span>결정 상자 밖의 의견은 여기에만 쓸 수 있습니다. 이 말은 답 끝에 붙지만 화면은 그렇다고 알리지 않습니다.</span></div>
+      </div>
     </div>
-    <ul class="why"><li>사람이 에이전트와 말을 주고받는 곳은 문서 페이지 대화 칸입니다. 받은편지함 답은 한 번 보내고 끝납니다.</li><li>그래프의 입력창은 터미널에 바로 칩니다. 사람이 터미널에서 결과를 곧 봅니다. 메일함을 거치지 않아 대상이 아닙니다.</li><li>A는 이미 있는 신호 둘(받음, 프로세스 상태)만 씁니다.</li></ul>
+
+    <div class="fig" data-v="D4-A">
+      <h2>④ D4-A 문서 끝에 「기타 의견」 상자 <span class="tag">같은 상황</span></h2>
+      <div class="page">
+        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
+        <div class="bar">
+          <span class="qid">Q3301</span><span class="bar-title">이 문서의 질문에 답합니다</span>
+          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+          <span class="spacer"></span>
+          <span class="picks"><span class="pick on">D1: A</span><span class="pick on">D2: B</span><span class="pick on mk new" data-n="17">기타: 필터 단추 색도…</span></span>
+        </div>
+        <div class="body">
+          <div class="frame">
+            <span class="dwho"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v2 · 2026-11-16</span></span>
+            <h3>알림 탭 정리 목업</h3>
+            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
+            <div class="dbox"><b>D2</b> 필터를 어디에 둘까 <span class="dopt">A 목록 위</span><span class="dopt on">B 목록 왼쪽</span></div>
+            <div class="other mk new" data-n="16"><b>기타 의견</b><span class="otext">필터 단추 색도 알림 색과 맞춰 줘.</span></div>
+          </div>
+          <aside class="talk">
+            <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">loom 총괄</span><span class="state"><i></i>쉼</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
+            <div class="thread"></div>
+            <div class="compose">
+              <span class="with mk" data-n="18">Q3301 답으로 loom 총괄에게 보냅니다: D1: A, D2: B, 기타: 필터 단추 색도 알림 색과 맞춰 줘.</span>
+              <span class="box">loom 총괄에게 보낼 말</span>
+              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="calls">
+        <div><b>16</b><span>문서 맨 끝, 마지막 결정 상자 뒤에 붙는 입력칸입니다. 어떤 결정에도 속하지 않는 의견을 씁니다.</span></div>
+        <div><b>17</b><span>위 막대에도 결정과 같은 칩으로 보입니다. 누르면 그 칸으로 갑니다.</span></div>
+        <div><b>18</b><span>기타 의견은 답과 함께 갑니다. 대화 칸에 쓴 말은 답에 붙지 않고 따로 대화로 갑니다.</span></div>
+      </div>
+    </div>
+
+    <div class="fig" data-v="D4-B">
+      <h2>④ D4-B 위 막대에 「기타 의견」 칸 <span class="tag">같은 상황</span></h2>
+      <div class="page">
+        <div class="chrome"><span class="tabt">M140 · 문서 페이지</span><span class="url">127.0.0.1:7420/docs/M140</span></div>
+        <div class="bar">
+          <span class="qid">Q3301</span><span class="bar-title">이 문서의 질문에 답합니다</span>
+          <a class="btn ghost sm"><svg><use href="#dl"/></svg>HTML로 내려받기</a>
+          <span class="spacer"></span>
+          <span class="picks"><span class="pick on">D1: A</span><span class="pick on">D2: B</span></span>
+          <span class="feedback mk new" data-n="19">기타 의견: 필터 단추 색도 알림 색과 맞춰 줘.</span>
+        </div>
+        <div class="body">
+          <div class="frame">
+            <span class="dwho"><span>문서 ID: M140</span><span>연 담당: 코디 · 코디 알림정리</span><span>v2 · 2026-11-16</span></span>
+            <h3>알림 탭 정리 목업</h3>
+            <p>알림 줄의 열 순서를 바꾸고 필터를 위로 올립니다.</p>
+            <div class="dbox"><b>D2</b> 필터를 어디에 둘까 <span class="dopt">A 목록 위</span><span class="dopt on">B 목록 왼쪽</span></div>
+          </div>
+          <aside class="talk">
+            <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>에이전트와 대화</b><span class="to">loom 총괄</span><span class="state"><i></i>쉼</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#fwd"/></svg>접기</span></div>
+            <div class="thread"></div>
+            <div class="compose">
+              <span class="with">Q3301 답으로 loom 총괄에게 보냅니다: D1: A, D2: B, 기타: 필터 단추 색도 알림 색과 맞춰 줘.</span>
+              <span class="box">loom 총괄에게 보낼 말</span>
+              <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="calls">
+        <div><b>19</b><span>11월 13일에 지운 칸을 되살립니다. 문서를 읽는 자리에서 먼 위쪽에 있습니다.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="decision" id="D4" data-for="16 19">
+    <h3><span class="did">D4</span>질문에 속하지 않는 기타 의견을 어디에 쓰는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">문서 끝에 「기타 의견」 상자를 붙이고, 대화 칸 말은 답에 붙이지 않는다<span class="mark">권장</span><span class="sub">지금: 대화 칸 말이 알림 없이 답 끝에 붙음 → 바뀐 뒤: 답은 고른 것과 기타 의견, 대화 칸 말은 늘 대화 · 비용: 다리 스크립트가 상자 하나를 더 붙임, 답 글 조립 한 곳 · 위험: 대화 칸에 의견을 쓰던 버릇이 있으면 그 말은 답이 아니라 대화로 감(같은 에이전트가 받음) · 되돌리기: 상자를 빼고 옛 규칙으로</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">위 막대에 「기타 의견」 칸을 되살린다<span class="sub">지금 → 바뀐 뒤: 막대에 입력칸 하나 · 비용: 막대 칸과 상태 · 위험: 11월 13일 Q3267에서 대화 칸과 겹친다고 지운 칸 · 되돌리기: 칸을 지움</span></span></div>
+    </div>
+    <ul class="why"><li>사람은 문서를 읽고 결정 상자에서 고릅니다. 기타 의견도 같은 자리, 같은 꼴에 둡니다.</li><li>답에 들어가는 글과 대화가 나뉘어 겹치지 않습니다.</li><li>선택지도 결정 상자도 없는 질문은 지금처럼 대화 칸 말이 곧 답입니다. 상자를 붙이지 않습니다.</li></ul>
   </section>
 
   <ul class="note">

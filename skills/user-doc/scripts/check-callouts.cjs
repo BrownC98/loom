@@ -66,11 +66,6 @@ const IDS = mockup => {
     if (!/^\d+$/.test(k)) bad.push(`callout "${cut(c)}" has no number (<b>n</b>)`); else use(k, 'callout "' + cut(c.querySelector(':scope > span') ?? c) + '"');
   }
   for (const m of document.querySelectorAll('.mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
-  for (const c of document.querySelectorAll('.cmp')) {
-    const vs = [...c.querySelectorAll(':scope > .fig[data-v]')].map(v => v.dataset.v.trim());
-    if (!c.dataset.label?.trim()) bad.push('compare view has no data-label');
-    if (vs.length < 2 || vs.some(v => !v) || new Set(vs).size !== vs.length) bad.push(`compare view "${c.dataset.label}" needs 2 or more .fig with different data-v labels`);
-  }
   if (mockup) {
     for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -356,7 +351,6 @@ async function checkPage(ctx, run) {
     }
     const bad = [];
     if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
-    await page.evaluate(() => { document.querySelectorAll('.cmp > .fig[data-v]').forEach(v => { v.hidden = false; }); dispatchEvent(new Event('resize')); });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });

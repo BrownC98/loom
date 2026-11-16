@@ -264,6 +264,7 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
     claim.announce(&node_url(listen), ready_to)?;
     tokio::spawn(app.update.clone().run());
     tokio::spawn(queue::run(app.clone()));
+    tokio::spawn(waits::keep_old_images(app.clone()));
     crate::log::logln!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     let endpoint = axum::serve(endpoint_door, endpoint_routes(&app)).into_future();

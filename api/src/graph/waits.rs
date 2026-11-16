@@ -274,7 +274,7 @@ pub struct ClosedPage {
     pub more: bool,
 }
 
-/// 사람이 화면에서 `loom ask` 질문에 쓴 답. `images`는 답에 붙인 그림의 데몬 기계 경로다(`POST /api/pastes`가 준 값, 목업 M30).
+/// 사람이 화면에서 `loom ask` 질문에 쓴 답. `images`는 답에 붙인 그림의 노드 기계 경로다(`POST /api/pastes`가 준 값, 목업 M30).
 #[derive(Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AnswerWait {

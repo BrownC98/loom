@@ -395,7 +395,6 @@ fn sent_image(app: &App, wait: WaitId, part: ImagePart, index: usize) -> Result<
     Ok((
         [
             (header::CONTENT_TYPE, kind.essence_str().to_owned()),
-            (header::CACHE_CONTROL, IMMUTABLE.to_owned()),
             (header::CONTENT_SECURITY_POLICY, DOC_SANDBOX.to_owned()),
         ],
         image.bytes,
@@ -403,7 +402,18 @@ fn sent_image(app: &App, wait: WaitId, part: ImagePart, index: usize) -> Result<
         .into_response())
 }
 
-const IMMUTABLE: &str = "private, max-age=31536000, immutable";
+pub(super) async fn keep_old_images(app: Arc<App>) {
+    let unkept = match app.graph.unkept_images() {
+        Ok(unkept) => unkept,
+        Err(e) => return crate::log::logln!("loom: 옛 완료 그림을 읽지 못했다: {e}"),
+    };
+    for (wait, paths) in unkept {
+        let sent = sent_images(paths.into_iter().map(Into::into).collect()).await;
+        if let Err(e) = app.graph.keep_old_images(wait, &sent) {
+            crate::log::logln!("loom: {wait}의 그림을 간직하지 못했다: {e}");
+        }
+    }
+}
 
 pub(super) async fn sent_images(paths: Vec<std::path::PathBuf>) -> Vec<SentImage> {
     tokio::task::spawn_blocking(move || {

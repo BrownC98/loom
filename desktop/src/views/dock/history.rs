@@ -60,6 +60,7 @@ impl Dock {
     }
 
     pub(super) fn load_history(&mut self, cx: &mut Context<Self>) {
+        self.shots.update(cx, |shots, _| shots.retry());
         let query = self.search_text(cx);
         let wanted = query.clone();
         let task = self

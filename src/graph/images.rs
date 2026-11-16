@@ -60,6 +60,37 @@ pub(super) fn prune(db: &Connection) -> rusqlite::Result<()> {
 }
 
 impl Graph {
+    pub fn unkept_images(&self) -> rusqlite::Result<Vec<(WaitId, Vec<String>)>> {
+        let db = self.lock();
+        let mut stmt = db.prepare(
+            "SELECT w.wait ->> 'id', w.wait ->> 'images' FROM
+               (SELECT wait FROM dones UNION ALL SELECT wait FROM closed_waits) w
+             WHERE json_valid(w.wait) AND json_array_length(w.wait, '$.images') > 0
+               AND NOT EXISTS (SELECT 1 FROM kept_images k
+                 WHERE k.wait = w.wait ->> 'id' AND k.part = ?1)",
+        )?;
+        stmt.query_map([ImagePart::Report.key()], |row| {
+            let paths: String = row.get(1)?;
+            Ok((
+                WaitId(row.get(0)?),
+                serde_json::from_str(&paths).unwrap_or_default(),
+            ))
+        })?
+        .collect()
+    }
+
+    pub fn keep_old_images(&self, wait: WaitId, sent: &[SentImage]) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        put(&tx, wait, ImagePart::Report, sent)?;
+        let names: Vec<&str> = sent.iter().map(|i| i.name.as_str()).collect();
+        tx.execute(
+            "UPDATE dones SET wait = json_set(wait, '$.images', json(?2)) WHERE id = ?1",
+            params![wait.0, serde_json::to_string(&names).unwrap_or_default()],
+        )?;
+        tx.commit()
+    }
+
     pub fn sent_image(
         &self,
         wait: WaitId,

@@ -39,6 +39,10 @@ impl Shots {
         }
     }
 
+    pub(crate) fn retry(&mut self) {
+        self.failed.clear();
+    }
+
     fn load(&mut self, key: Key, cx: &mut Context<Self>) {
         if self.images.contains_key(&key) || self.failed.contains(&key) || !self.loading.insert(key)
         {

@@ -913,6 +913,10 @@ impl Graph {
                 _ => Held::default(),
             };
             let target = row.target_kind();
+            let parent_told = match call {
+                GateCall::End(MergeEnd::Merged) => parent_receives(&tx, &row, call, target)?,
+                _ => false,
+            };
             for receiver in policy::receivers(call, target) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
@@ -944,10 +948,8 @@ impl Graph {
                 if !held.needs_gate() && !policy::wakes(call, *receiver, target) {
                     mailbox::record_only(&tx, id)?;
                 }
-                if *receiver == Receiver::Owner
-                    && call == GateCall::End(MergeEnd::Merged)
-                    && parent_of(&tx, to_node)?.is_some()
-                {
+                if *receiver == Receiver::Owner && parent_told {
+                    mailbox::record_only(&tx, id)?;
                     finish_work(&tx, to_node)?;
                 }
                 sent.push(to_node);
@@ -1116,6 +1118,28 @@ fn withdraw(
         )?;
     }
     Ok(reviewers.into_iter().map(|(node, ..)| node).collect())
+}
+
+fn parent_receives(
+    tx: &Transaction,
+    row: &Row,
+    call: GateCall,
+    target: Target,
+) -> rusqlite::Result<bool> {
+    let Some(parent) = parent_of(tx, row.owner)? else {
+        return Ok(false);
+    };
+    for receiver in policy::receivers(call, target) {
+        let told = match receiver {
+            Receiver::Owner => false,
+            Receiver::Gate => row.gate == parent,
+            Receiver::Root => root_of(tx, row.owner)? == parent,
+        };
+        if told {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn steer_kind(linked: fn(&AgentId) -> bool, agent: &Option<AgentId>) -> Kind {

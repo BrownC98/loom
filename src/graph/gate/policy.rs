@@ -219,7 +219,7 @@ pub(super) fn next_step(
             "Next: accept the result. This message replaces the owner's `loom done`: the result line is the first line of its result file. loom removes the owner node, its reviewers, its clean worktree and the branch.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
-            "Next: do not commit to this branch again. If you have a parent, loom marked you done and sent it the first line of your result.md; if work of yours remains, finish it, then call `loom done`.".to_owned()
+            "Next: do not commit to this branch again. Your parent did not get this merged: if you have a parent, report the result with `loom done`.".to_owned()
         }
         (GateCall::End(MergeEnd::Failed), Receiver::Root | Receiver::Gate) => format!(
             "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."

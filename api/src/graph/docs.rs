@@ -98,6 +98,10 @@ pub enum Said {
         to: String,
         answer: Option<WaitId>,
         received: bool,
+        /// 받는 노드의 지금 프로세스 상태. 그 노드를 지웠으면 없다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        process: Option<ProcessState>,
     },
     /// 에이전트가 `loom answer`로 페이지에 쓴 답.
     Agent { name: String },

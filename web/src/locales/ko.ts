@@ -503,6 +503,16 @@ const ko: typeof en = {
     },
   },
   docPage: {
+    other: '기타: {{text}}',
+    feedback: '기타 의견(선택). 어떤 결정에도 속하지 않는 의견을 씁니다',
+    responding: '{{name}}이(가) 응답하는 중',
+    waiting: {
+      queuedBusy: '아직 받지 않았습니다 · 작업 중이라 하던 일 사이에 받습니다',
+      queuedWaking: '아직 받지 않았습니다 · 에이전트를 깨우는 중입니다',
+      queuedBlocked: '아직 받지 않았습니다 · 에이전트가 사람의 응답을 기다립니다',
+      receivedBlocked: '받았습니다 · 에이전트가 사람의 응답을 기다립니다',
+      restingNoReply: '받았습니다 · 답 없이 쉽니다',
+    },
     answering: '이 문서의 질문에 답합니다',
     noQuestion: '이 문서에 열린 질문이 없습니다',
     answered: '{{id}}에 답했습니다 · {{time}}',

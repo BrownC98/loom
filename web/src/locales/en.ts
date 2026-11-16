@@ -501,6 +501,16 @@ const en = {
     },
   },
   docPage: {
+    other: 'Other: {{text}}',
+    feedback: 'Other feedback (optional). Write feedback that belongs to no decision',
+    responding: '{{name}} is responding',
+    waiting: {
+      queuedBusy: 'Not received yet · the agent is working and gets it between steps',
+      queuedWaking: 'Not received yet · waking the agent',
+      queuedBlocked: 'Not received yet · the agent waits for a human response',
+      receivedBlocked: 'Received · the agent waits for a human response',
+      restingNoReply: 'Received · the agent rests without a reply',
+    },
     answering: 'Answer the question of this document',
     noQuestion: 'This document has no open question',
     answered: 'Answered {{id}} · {{time}}',

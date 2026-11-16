@@ -1174,3 +1174,10 @@ li[data-by="agent"] > .talk-text { border: 1px solid var(--line-strong); border-
 .phone .composer-line { gap: 6px; }
 .phone .composer-line textarea { padding: 10px 12px; border-radius: 10px; font-size: 16px; line-height: 22px; }
 .phone .composer :is(.attach, .send) { width: 44px; height: 44px; border-radius: 10px; }
+.doc-bar .feedback { flex: 1 1 100%; min-width: 0; max-height: 30vh; padding: 5px 8px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
+.doc-bar .feedback::placeholder { color: var(--ink-3); }
+.doc-bar .feedback:focus-visible { outline: none; border-color: var(--warn); }
+.talk-thread > .talk-state { margin-top: -7px; }
+.talk-typing > .talk-text { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.talk-typing .spin { animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .talk-typing .spin { animation: none; } }

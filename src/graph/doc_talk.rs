@@ -59,8 +59,10 @@ impl Graph {
     pub fn talk_lines(&self, doc: &str) -> rusqlite::Result<Vec<TalkLine>> {
         let db = self.lock();
         let mut stmt = db.prepare_cached(
-            "SELECT t.id, t.said, t.name, t.text, t.at, t.wait, coalesce(m.delivered, 0)
+            "SELECT t.id, t.said, t.name, t.text, t.at, t.wait, coalesce(m.delivered, 0),
+                    n.id, n.process, (SELECT state FROM agent_states WHERE node = n.id)
              FROM doc_talk t LEFT JOIN messages m ON m.id = t.message
+             LEFT JOIN nodes n ON n.id = m.recipient
              WHERE t.doc = ?1 ORDER BY t.id",
         )?;
         stmt.query_map([doc], |row| {
@@ -72,6 +74,14 @@ impl Graph {
                     to: name,
                     answer: row.get::<_, Option<u32>>(5)?.map(WaitId),
                     received: row.get(6)?,
+                    process: match row.get::<_, Option<u32>>(7)? {
+                        Some(_) => {
+                            let process = optional_json::<ProcessOutcome>(row, 8)?;
+                            let agent = optional_json::<AgentState>(row, 9)?;
+                            Some(process_state(process, agent.as_ref()))
+                        }
+                        None => None,
+                    },
                 },
             };
             Ok(TalkLine {

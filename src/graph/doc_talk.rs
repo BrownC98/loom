@@ -12,8 +12,8 @@ const BY_HUMAN: &str = "human";
 const BY_AGENT: &str = "agent";
 
 const RECIPIENTS: [&str; 4] = [
-    "SELECT node FROM doc_authors WHERE doc = ?1",
     "SELECT node FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
+    "SELECT node FROM doc_authors WHERE doc = ?1",
     "SELECT node FROM dones WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
     "SELECT n.id FROM events e JOIN nodes n ON n.id = e.entry ->> '$.node.id'
      WHERE json_valid(e.entry) AND e.entry ->> 'kind' IN ('asked', 'reported') AND e.entry ->> '$.doc.id' = ?1

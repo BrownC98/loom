@@ -150,6 +150,7 @@ export function DocPage({ id }: { id: string }) {
   const unpickedWord = t('docPage.unpickedAnswer');
   const preview = answering === null ? '' : answerText(picked, decisions, picks, unpickedWord, '');
   const to = talk?.to ?? null;
+  const placeholder = to ? t('docPage.messageTo', { name: to.name }) : t('docPage.message');
   const ready = !busy && (answering !== null ? anyPick || message.trim() !== '' : to !== null && message.trim() !== '');
 
   const refresh = () => {
@@ -284,14 +285,14 @@ export function DocPage({ id }: { id: string }) {
                   <span className="talk-meta">
                     {line.said.by === 'agent'
                       ? `${line.said.name} · ${hourMinute(line.at * 1000)}`
-                      : [hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
+                      : [line.said.to, hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
                   </span>
                 </li>
               ))}
             </ol>
             <div className="talk-compose">
-              {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}` })}</p>}
-              <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={t('docPage.message')} placeholder={t('docPage.message')} />
+              {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, name: to?.name, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}`, name: to?.name })}</p>}
+              <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={placeholder} placeholder={placeholder} />
               <span className="talk-row">
                 <span className="hint">{t('docPage.keys')}</span>
                 <button type="button" className="btn send" disabled={!ready} onClick={send}>

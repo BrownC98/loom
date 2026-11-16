@@ -52,6 +52,11 @@ pub struct Checked {
     pub log: String,
 }
 
+pub(super) struct ResultFile {
+    pub path: String,
+    pub text: Option<String>,
+}
+
 struct Owned {
     mine: api::repos::Worktree,
     gate: NodeId,
@@ -239,21 +244,31 @@ impl App {
     }
 
     async fn written_result(&self, node: NodeId, branch: &str) -> Result<(), Refusal> {
-        let dir = self.task_dir(node).await.map_err(|e| match e {
+        let result = self.result_file(node).await.map_err(|e| match e {
             Problem::Refused(refusal) => refusal,
             e => Refusal::Launch(for_agent(e).1),
         })?;
-        let written = self
-            .files()
-            .read(&dir.local.join(crate::task::RESULT))
-            .is_ok_and(|bytes| !String::from_utf8_lossy(&bytes).trim().is_empty());
-        match written {
-            true => Ok(()),
-            false => Err(Refusal::NoResult {
+        match result.text {
+            Some(_) => Ok(()),
+            None => Err(Refusal::NoResult {
                 branch: branch.to_owned(),
-                path: format!("{}/{}", dir.shown, crate::task::RESULT),
+                path: result.path,
             }),
         }
+    }
+
+    pub(super) async fn result_file(&self, node: NodeId) -> Result<ResultFile, Problem> {
+        let dir = self.task_dir(node).await?;
+        let text = self
+            .files()
+            .read(&dir.local.join(crate::task::RESULT))
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .filter(|text| !text.trim().is_empty());
+        Ok(ResultFile {
+            path: format!("{}/{}", dir.shown, crate::task::RESULT),
+            text,
+        })
     }
 
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {

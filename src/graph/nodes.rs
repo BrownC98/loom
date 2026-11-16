@@ -10,7 +10,7 @@ use super::{
     note_state, optional_json, parent_of, place_label, place_of, process_of, process_state,
     running_live, state_of, to_json, waits,
 };
-use crate::protocol::{AdapterRecord, Model, Session, StartDigests};
+use crate::protocol::{AdapterRecord, MessageId, Model, Session, StartDigests};
 use api::graph::errors::{BRIEF_LIMIT_BYTES, Refusal};
 use api::graph::events::{AgentEvent, Entry};
 use api::graph::messages::{Kind, MessageKind};
@@ -548,8 +548,13 @@ impl Graph {
             .optional()
     }
 
-    pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
-        self.restarted(id, launched, |_| Ok(0))
+    pub fn relaunched(
+        &self,
+        id: NodeId,
+        launched: &Launched,
+        first_mail: &[MessageId],
+    ) -> rusqlite::Result<()> {
+        self.restarted(id, launched, |tx| mailbox::print_handed(tx, id, first_mail))
     }
 
     pub fn switched(

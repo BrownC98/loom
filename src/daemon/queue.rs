@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use super::App;
-use super::gate::target_of;
+use super::gate::{ResultFile, target_of};
 use crate::git;
 use crate::graph::{BatchId, Ended, Merge, Outcome, Queued};
 use crate::protocol::{self, Deploy};
@@ -386,7 +386,7 @@ impl Batch<'_> {
                 )
                 .await?;
                 match code {
-                    0 => self.merged(members, landed, None, into),
+                    0 => self.merged(members, landed, None, into).await,
                     DIRTY => {
                         self.dirty(members, worktree);
                         Ok(())
@@ -512,7 +512,7 @@ impl Batch<'_> {
             .rev()
             .find_map(|(m, landed)| Some((m, landed.own.clone()?)));
         let Some((last, merged)) = last else {
-            return self.merged(members, landed, None, &Dest::Base);
+            return self.merged(members, landed, None, &Dest::Base).await;
         };
         let args = [
             format!("batch-{}-publish.log", self.id.0),
@@ -525,7 +525,7 @@ impl Batch<'_> {
         match code {
             0 => {
                 let unseen = match self.ships().await {
-                    Ok(false) => return self.merged(members, landed, None, &Dest::Base),
+                    Ok(false) => return self.merged(members, landed, None, &Dest::Base).await,
                     Ok(true) => None,
                     Err(e) => {
                         crate::log::logln!("loom: merge queue deploy {merged}: {e}");
@@ -555,7 +555,7 @@ impl Batch<'_> {
                         protocol::SHIP_SCRIPT
                     ),
                 };
-                let settled = self.merged(members, landed, Some(line), &Dest::Base);
+                let settled = self.merged(members, landed, Some(line), &Dest::Base).await;
                 if let Some(deploy) = deploy {
                     super::deploy::start(self.app, deploy);
                 }
@@ -601,14 +601,18 @@ impl Batch<'_> {
         Ok(all)
     }
 
-    fn merged(
+    async fn merged(
         &self,
         members: &[Queued],
         landed: Vec<Landed>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
-        let settled = self.settle_merged(members, landed, deploy, into);
+        let mut results = Vec::new();
+        for m in members {
+            results.push(self.app.result_file(m.owner).await.ok());
+        }
+        let settled = self.settle_merged(members, landed, results, deploy, into);
         tokio::spawn(super::reclaim::run(self.app.clone()));
         settled
     }
@@ -617,11 +621,12 @@ impl Batch<'_> {
         &self,
         members: &[Queued],
         landed: Vec<Landed>,
+        results: Vec<Option<ResultFile>>,
         deploy: Option<String>,
         into: &Dest,
     ) -> Result<(), Refusal> {
         let into_base = matches!(into, Dest::Base);
-        for (m, landed) in members.iter().zip(landed) {
+        for ((m, landed), result) in members.iter().zip(landed).zip(results) {
             let Some(sha) = landed.sha else {
                 self.settle(
                     m,
@@ -657,12 +662,23 @@ impl Batch<'_> {
                     Deploy::SKIP_MARK
                 ));
             }
+            let summary = result.as_ref().and_then(|r| {
+                let first = r
+                    .text
+                    .as_deref()?
+                    .lines()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())?;
+                Some(format!("result: {first}"))
+            });
+            lines.extend(summary);
             self.settle(
                 m,
                 Ended {
                     outcome: Outcome::Merged(Merge {
                         sha: &sha,
                         target: &self.target,
+                        file: result.filter(|r| r.text.is_some()).map(|r| r.path),
                     }),
                     cause: None,
                     log: None,

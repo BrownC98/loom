@@ -132,11 +132,6 @@ pub(super) fn wakes(call: GateCall, to: Receiver, target: Target) -> bool {
                 Receiver::Gate | Receiver::Root,
                 _,
             )
-            | (
-                GateCall::End(MergeEnd::Merged),
-                Receiver::Owner,
-                Target::Coordinator
-            )
     )
 }
 
@@ -221,10 +216,10 @@ pub(super) fn next_step(
         ) => "Next: wait for the owner's next `loom ready`.".to_owned(),
         (GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
         (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate) => {
-            "Next: accept the result. loom removes the owner node, its reviewers, its clean worktree and the branch.".to_owned()
+            "Next: accept the result. This message replaces the owner's `loom done`: the result line is the first line of its result file. loom removes the owner node, its reviewers, its clean worktree and the branch.".to_owned()
         }
         (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
-            "Next: nothing. Do not commit to this branch again.".to_owned()
+            "Next: do not commit to this branch again. Your parent did not get this merged: if you have a parent, report the result with `loom done`.".to_owned()
         }
         (GateCall::End(MergeEnd::Failed), Receiver::Root | Receiver::Gate) => format!(
             "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
@@ -233,6 +228,10 @@ pub(super) fn next_step(
             "Next: wait for the decision of your gate or root, then fix and call `loom ready {branch}` again."
         ),
     }
+}
+
+pub(super) fn told_owner_step() -> String {
+    "Next: nothing. loom marked you done and sent your parent the merged with your result line. Do not commit to this branch again.".to_owned()
 }
 
 pub(super) fn withdrawn_step(branch: &str, findings: &str) -> String {

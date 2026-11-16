@@ -386,12 +386,9 @@ impl Graph {
             if !taken.is_empty() && total > limit_bytes {
                 break;
             }
-            tx.execute(
-                "UPDATE messages SET sent_at = unixepoch() WHERE id = ?1",
-                [delivery.id.0],
-            )?;
             taken.push(delivery);
         }
+        hand(&tx, &taken)?;
         let resumed = !taken.is_empty() && resume(&tx, node)?;
         tx.commit()?;
         if resumed {
@@ -429,6 +426,13 @@ impl Graph {
         Ok(())
     }
 
+    pub fn resume_work(&self, node: NodeId) -> rusqlite::Result<()> {
+        if resume(&self.lock(), node)? {
+            self.publish_nodes();
+        }
+        Ok(())
+    }
+
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
         let db = self.lock();
         let agent: Option<AgentId> = db
@@ -462,8 +466,6 @@ impl Graph {
     }
 
     fn ack_in(&self, mut db: Db<'_>, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
-        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
-            .expect("숫자 목록은 늘 직렬화된다");
         let agent: Option<AgentId> = db
             .query_row("SELECT agent FROM nodes WHERE id = ?1", [node.0], |row| {
                 from_json(row, 0)
@@ -472,21 +474,15 @@ impl Graph {
             .flatten();
         let linked = agent.as_ref().is_some_and(self.linked);
         let tx = db.transaction()?;
-        let handed = match linked {
-            true => "AND sent_at IS NOT NULL",
-            false => "",
-        };
-        tx.execute(
-            &format!(
-                "UPDATE messages SET printed = 1
-                 WHERE recipient = ?1 AND delivered = 0 {handed}
-                 AND id IN (SELECT value FROM json_each(?2))"
-            ),
-            params![node.0, ids],
-        )?;
         let read = match linked {
-            true => 0,
-            false => read(&tx, node)?,
+            true => {
+                print_handed(&tx, node, ids)?;
+                0
+            }
+            false => {
+                print(&tx, node, ids)?;
+                read(&tx, node)?
+            }
         };
         tx.commit()?;
         if read > 0 {
@@ -497,12 +493,10 @@ impl Graph {
 
     pub fn release(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
         let db = self.lock();
-        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
-            .expect("숫자 목록은 늘 직렬화된다");
         let released = db.execute(
             "UPDATE messages SET sent_at = NULL, printed = 0
              WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
-            params![node.0, ids],
+            params![node.0, id_list(ids)],
         )?;
         if released > 0 {
             self.publish_nodes();
@@ -512,8 +506,7 @@ impl Graph {
 
     pub fn release_refused(&self, node: NodeId, ids: &[MessageId]) -> Result<bool, Refusal> {
         let mut db = self.lock();
-        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
-            .expect("숫자 목록은 늘 직렬화된다");
+        let ids = id_list(ids);
         let tx = db.transaction()?;
         let again: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM messages WHERE recipient = ?1 AND refused = 1
@@ -725,6 +718,65 @@ pub(super) fn read(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
         events::write(db, &entry, Some(id))?;
     }
     Ok(read.len())
+}
+
+fn id_list(ids: &[MessageId]) -> String {
+    serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("숫자 목록은 늘 직렬화된다")
+}
+
+fn hand(db: &Connection, taken: &[Delivery]) -> rusqlite::Result<()> {
+    for delivery in taken {
+        db.execute(
+            "UPDATE messages SET sent_at = unixepoch() WHERE id = ?1",
+            [delivery.id.0],
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn hand_first_input(
+    db: &Connection,
+    node: NodeId,
+    room: usize,
+) -> rusqlite::Result<Vec<Delivery>> {
+    let (queued, wakes) = takeable(db, node, Kind::ALL, Hold::Started)?;
+    let mut total = 0;
+    let fits: Vec<(Delivery, bool)> = queued
+        .into_iter()
+        .zip(wakes)
+        .take_while(|(delivery, _)| {
+            total += delivery.text().len() + BATCH_SEPARATOR.len();
+            total <= room
+        })
+        .collect();
+    if !fits.iter().any(|(_, wakes)| *wakes) {
+        return Ok(Vec::new());
+    }
+    let taken: Vec<Delivery> = fits.into_iter().map(|(delivery, _)| delivery).collect();
+    hand(db, &taken)?;
+    Ok(taken)
+}
+
+fn print(db: &Connection, node: NodeId, ids: &[MessageId]) -> rusqlite::Result<usize> {
+    db.execute(
+        "UPDATE messages SET printed = 1
+         WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
+        params![node.0, id_list(ids)],
+    )
+}
+
+pub(super) fn print_handed(
+    db: &Connection,
+    node: NodeId,
+    ids: &[MessageId],
+) -> rusqlite::Result<usize> {
+    db.execute(
+        "UPDATE messages SET printed = 1
+         WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NOT NULL
+         AND id IN (SELECT value FROM json_each(?2))",
+        params![node.0, id_list(ids)],
+    )
 }
 
 pub(super) fn requeue_unprinted(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {

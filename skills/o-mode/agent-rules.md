@@ -30,7 +30,7 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 - The report gives the cause, changed files, check commands and results, evidence paths, branch and commit SHA. If something is not committed, say so.
 - Keep remaining risks apart from candidates outside the scope. Fix each defect that you can fix now.
 - Write an HTML report only if your parent says that the human asked for one, in the form of [reference "Reports to the human"](reference.md#reports-to-the-human). Write long results for agents to a file.
-- A branch owner (the node whose own worktree is on the branch) follows [o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup) for `loom ready` and rework. A node that spawns workers follows [o-mode "Roles and assignment"](SKILL.md#roles-and-assignment).
+- A branch owner (the node whose own worktree is on the branch) follows [o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup) for `loom ready` and rework. A node that spawns workers follows [o-mode "Roles and assignment"](SKILL.md#roles-and-assignment). Before its first spawn it reads `loom spawn --help`, and `loom done --help` for `--keep`.
 - Report feedback and rework after completion with the procedure above. Do not delete your worktree before your parent examines the result.
 - Before `loom done`, stop or delete the test daemons, background processes and temporary folders that you started. Keep only evidence files. A node's PTY host (`loom pty-host`) stays alive after its daemon stops: stop all loom processes that have your test `HOME` in their environment, also the installed `loom`. Clean up your children as [reference "Cleanup"](reference.md#cleanup) tells.
 - In the result, write your worktree path and if follow-up work is necessary.

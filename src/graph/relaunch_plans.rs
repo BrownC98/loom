@@ -2,6 +2,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::{Graph, agent_state, from_json, mailbox, to_json};
+use crate::protocol::Delivery;
 use api::ids::{AgentId, NodeId};
 use api::start::ModelChoice;
 
@@ -96,6 +97,13 @@ fn running(plan: Plan) -> Decided<Next> {
     (Some((Phase::Running, plan.clone())), Next::Start(plan))
 }
 
+fn revived(now: Now, asked: &Plan) -> Decided<Next> {
+    match now.pending {
+        Some(pending) if pending.0.started() => started(pending, asked),
+        _ => running(asked.clone()),
+    }
+}
+
 fn claimed_turn_end(pending: Option<(Phase, Plan)>) -> Decided<Option<Plan>> {
     match pending {
         Some((Phase::AtTurnEnd, plan)) => (Some((Phase::Running, plan.clone())), Some(plan)),
@@ -134,10 +142,18 @@ impl Graph {
     }
 
     pub fn claim_revive(&self, node: NodeId, asked: &Plan) -> rusqlite::Result<Next> {
-        self.decide(node, |now| match now.pending {
-            Some(pending) if pending.0.started() => started(pending, asked),
-            _ => running(asked.clone()),
-        })
+        self.decide(node, |now| revived(now, asked))
+    }
+
+    pub fn claim_wake(&self, node: NodeId, room: usize) -> rusqlite::Result<(Next, Vec<Delivery>)> {
+        self.decide_then(
+            node,
+            |now| revived(now, &Plan::Resume),
+            |tx, next| match next {
+                Next::Start(_) => mailbox::hand_first_input(tx, node, room),
+                _ => Ok(Vec::new()),
+            },
+        )
     }
 
     pub fn claim_unserved(&self, node: NodeId) -> rusqlite::Result<Next> {
@@ -197,6 +213,16 @@ impl Graph {
     }
 
     fn decide<R>(&self, node: NodeId, rule: impl FnOnce(Now) -> Decided<R>) -> rusqlite::Result<R> {
+        self.decide_then(node, rule, |_, _| Ok(()))
+            .map(|(result, ())| result)
+    }
+
+    fn decide_then<R, T>(
+        &self,
+        node: NodeId,
+        rule: impl FnOnce(Now) -> Decided<R>,
+        before_plan: impl FnOnce(&Connection, &R) -> rusqlite::Result<T>,
+    ) -> rusqlite::Result<(R, T)> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let ended: bool = tx
@@ -216,6 +242,7 @@ impl Graph {
             pending: before,
         });
         let changed = had != next.is_some();
+        let then = before_plan(&tx, &result)?;
         match next {
             Some((phase, plan)) => put(&tx, node, phase, &plan)?,
             None => tx.execute("DELETE FROM relaunch_plans WHERE node = ?1", [node.0])?,
@@ -224,7 +251,7 @@ impl Graph {
         if changed {
             self.publish_nodes();
         }
-        Ok(result)
+        Ok((result, then))
     }
 
     pub fn plan_resume(&self, node: NodeId) -> rusqlite::Result<bool> {

@@ -17,9 +17,9 @@ use crate::process_tree::Snapshot;
 use crate::profile;
 use crate::profile::adapter::{Carry, ResumeError};
 use crate::profile::process::Served;
-use crate::protocol::{Model, Session};
+use crate::protocol::{Delivery, MessageId, Model, Session};
 use crate::screen::Screen;
-use api::graph::errors::{Problem, Refusal};
+use api::graph::errors::{BRIEF_LIMIT_BYTES, Problem, Refusal};
 use api::graph::events::{AgentEvent, AgentSwitch, Entry, IdleEnd, Who};
 use api::ids::{AgentId, NodeId};
 use api::profile::{ModelRule, Profile, Provider};
@@ -30,12 +30,11 @@ use api::start::{ModelChoice, Start};
 pub(super) const EXIT_WAIT: Duration = crate::node_host::STOP_WAIT;
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
-const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session. \
-     Messages that came for you arrive next.";
+const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 const HOST_GONE_NOTICE: &str = "Your host stopped (for example a WSL shutdown or a reboot), and loom started your process again in the same session. \
-     Messages that came for you arrive next. If your last turn was cut, continue it. Otherwise end your turn.";
+     If your last turn was cut, continue it.";
 pub(super) const FINISH_TURN: &str = "loom relaunches you when this turn ends. If you have no work in progress, end this turn now; otherwise continue.";
 const STOPPED_LINE_CHARS: usize = 200;
 
@@ -225,7 +224,17 @@ impl App {
             Some(ProcessOutcome::HostGone) => HOST_GONE_NOTICE,
             _ => REVIVED_NOTICE,
         };
-        let plan = match self.graph.claim_revive(id, &plan).map_err(internal)? {
+        let (claimed, mail) = match (waiting, &plan) {
+            (true, Plan::Resume) => self
+                .graph
+                .claim_wake(id, first_input_room(notice))
+                .map_err(internal)?,
+            _ => (
+                self.graph.claim_revive(id, &plan).map_err(internal)?,
+                Vec::new(),
+            ),
+        };
+        let plan = match claimed {
             Next::Start(plan) => plan,
             Next::Refuse => return Err(Refusal::Relaunching(node.name).into()),
             Next::Keep | Next::Wait | Next::ReviveEnded => return Ok(Relaunched::Now),
@@ -235,10 +244,11 @@ impl App {
             name: node.name.clone(),
         };
         let switched = switch_of(&node, &plan);
+        let handed = ids_of(&mail);
         let app = self.clone();
         let result = tokio::spawn(async move {
             match plan {
-                Plan::Resume => app.revive(node, notice).await,
+                Plan::Resume => app.revive(node, notice, &mail).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
                     if let Err(e) = app.end_detached(&node).await {
@@ -251,6 +261,14 @@ impl App {
         })
         .await
         .unwrap_or_else(|e| Err(ResumeError::Failed(e.to_string())));
+        if result.is_err()
+            && let Err(e) = self.graph.release(id, &handed)
+        {
+            crate::log::logln!(
+                "loom: 노드 {}의 첫 입력 메일을 큐로 돌리지 못했다: {e}",
+                id.0
+            );
+        }
         self.finish_plan(id);
         let kept = match &result {
             Err(ResumeError::NoSession(_)) if waiting => self.graph.sleep_lost(id),
@@ -520,7 +538,7 @@ impl App {
             let _ = self.graph.relaunch_lost(node.id, &error);
             return Err(error);
         }
-        self.run_resumed(node.id, prepared)
+        self.run_resumed(node.id, prepared, &[])
             .await
             .map(|()| Stop::Stopped)
     }
@@ -687,16 +705,24 @@ impl App {
         Ok(())
     }
 
-    pub(super) async fn revive(
+    async fn revive(
         self: &Arc<Self>,
         node: Active,
         notice: &str,
+        mail: &[Delivery],
     ) -> Result<(), ResumeError> {
-        let (prepared, profile, site) = self.prepare_revive(&node, notice).await?;
+        let brief = profile::hook_text(mail, Some(notice)).unwrap_or_default();
+        let (prepared, profile, site) = self.prepare_revive(&node, brief).await?;
         let _ = profile::adapter(profile)
             .end_detached(&self.record_of(&node), &site)
             .await;
-        Ok(self.run_resumed(node.id, prepared).await?)
+        self.run_resumed(node.id, prepared, &ids_of(mail)).await?;
+        if !mail.is_empty()
+            && let Err(e) = self.graph.resume_work(node.id)
+        {
+            crate::log::logln!("loom: 노드 {}의 일 상태를 쓰지 못했다: {e}", node.id.0);
+        }
+        Ok(())
     }
 
     pub(super) async fn revive_detached_ended(
@@ -704,14 +730,14 @@ impl App {
         node: Active,
         notice: &str,
     ) -> Result<(), ResumeError> {
-        let (prepared, ..) = self.prepare_revive(&node, notice).await?;
-        Ok(self.run_resumed(node.id, prepared).await?)
+        let (prepared, ..) = self.prepare_revive(&node, notice.to_owned()).await?;
+        Ok(self.run_resumed(node.id, prepared, &[]).await?)
     }
 
     async fn prepare_revive(
         self: &Arc<Self>,
         node: &Active,
-        notice: &str,
+        brief: String,
     ) -> Result<(super::Prepared, Profile, Site), ResumeError> {
         let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(node)) else {
             return Err(ResumeError::NoSession(
@@ -721,7 +747,7 @@ impl App {
         let settings = self.settings.get().map_err(|e| e.to_string())?;
         let (resume, site) = self.resumable(node, profile, &settings).await?;
         let prepared = self
-            .prepare_resumed(node, &agent, profile, &resume, notice.to_owned())
+            .prepare_resumed(node, &agent, profile, &resume, brief)
             .await?;
         Ok((prepared, profile, site))
     }
@@ -811,6 +837,7 @@ impl App {
         self: &Arc<Self>,
         id: NodeId,
         mut prepared: super::Prepared,
+        first_mail: &[MessageId],
     ) -> Result<(), String> {
         let discard = prepared.discarder();
         if let Err(e) = prepared.before_start().await {
@@ -818,7 +845,7 @@ impl App {
             let _ = self.graph.relaunch_lost(id, &e);
             return Err(e);
         }
-        if let Err(e) = self.graph.relaunched(id, &prepared.launched()) {
+        if let Err(e) = self.graph.relaunched(id, &prepared.launched(), first_mail) {
             discard();
             let _ = self.graph.relaunch_lost(id, &e.to_string());
             return Err(e.to_string());
@@ -949,6 +976,16 @@ fn handoff(from: &AgentId, role: Option<&str>, record: Option<&str>) -> String {
         "loom replaced agent {} in this node with you. A session cannot move between agents, so you start a new session. The node keeps its ID, name, parent, children, mailbox, and worktree.{role}\n{record}\nThen run `git status`, look at the worktree, and continue the task.",
         from.0
     )
+}
+
+fn first_input_room(notice: &str) -> usize {
+    BRIEF_LIMIT_BYTES
+        .min(profile::BATCH_LIMIT_BYTES)
+        .saturating_sub(notice.len())
+}
+
+fn ids_of(mail: &[Delivery]) -> Vec<MessageId> {
+    mail.iter().map(|delivery| delivery.id).collect()
 }
 
 fn stopped_notice(commands: &[String]) -> String {

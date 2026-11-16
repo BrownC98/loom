@@ -121,6 +121,8 @@ pub enum MessageKind {
         /// 병합 커밋.
         sha: String,
         log: Option<String>,
+        /// 담당의 `result.md`. 비었거나 없으면 없다. 담당의 `loom done`을 갈음한다.
+        file: Option<String>,
     },
     Rework {
         branch: String,
@@ -373,10 +375,12 @@ impl MessageKind {
                 head,
                 sha,
                 log,
+                file,
             } => {
                 let mut fields = branch(b, head);
                 fields.push((Field::Sha, sha.clone()));
                 fields.extend(some(Field::Log, log));
+                fields.extend(some(Field::File, file));
                 fields
             }
             MessageKind::Withdrawn { branch: b, head } => branch(b, head),

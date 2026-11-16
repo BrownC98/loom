@@ -230,6 +230,10 @@ pub(super) fn next_step(
     }
 }
 
+pub(super) fn told_owner_step() -> String {
+    "Next: nothing. loom marked you done and sent your parent the merged with your result line. Do not commit to this branch again. If work of yours remains, finish it, then call `loom done`.".to_owned()
+}
+
 pub(super) fn withdrawn_step(branch: &str, findings: &str) -> String {
     format!(
         "Next: write your findings so far to {findings}, then stop reviewing {branch}. loom refuses verdicts until the owner's next `loom ready`, which sends you a new round."

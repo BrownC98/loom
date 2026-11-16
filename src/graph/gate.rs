@@ -931,10 +931,15 @@ impl Graph {
                     continue;
                 }
                 let mut body = lines.clone();
-                body.push(match held.is_empty() {
-                    true => policy::next_step(call, *receiver, target, branch, &row.head),
-                    false => policy::held_step(*receiver, branch, &held),
-                });
+                body.push(
+                    match (held.is_empty(), *receiver == Receiver::Owner && parent_told) {
+                        (true, true) => policy::told_owner_step(),
+                        (true, false) => {
+                            policy::next_step(call, *receiver, target, branch, &row.head)
+                        }
+                        (false, _) => policy::held_step(*receiver, branch, &held),
+                    },
+                );
                 let id = post(
                     &tx,
                     caller,
@@ -949,7 +954,6 @@ impl Graph {
                     mailbox::record_only(&tx, id)?;
                 }
                 if *receiver == Receiver::Owner && parent_told {
-                    mailbox::record_only(&tx, id)?;
                     finish_work(&tx, to_node)?;
                 }
                 sent.push(to_node);

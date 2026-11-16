@@ -179,7 +179,7 @@ const SCREEN_QUIET: Duration = Duration::from_millis(500);
 
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
-const OLD_IMAGES_LIMIT: Duration = Duration::from_secs(30);
+const OLD_IMAGES_LIMIT: Duration = Duration::from_secs(10);
 
 pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io::Result<()> {
     let claim = launch::Claim::take()?;

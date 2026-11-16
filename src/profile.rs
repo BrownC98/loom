@@ -639,11 +639,8 @@ async fn agent_command(
 }
 
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
-- loom spawn <name> --role <role> [--worktree <branch>] [--agent <agent-id>] [--model <model>] [--effort <effort>]: create a child. Pick the role by its duty from loom roles. The role's settings choose its agent, model and effort; give --agent, --model or --effort (each replaces the role's value) only when the human or your brief names them. Write the brief to a file and give --file <path>. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. With no parent, each child needs --worktree or is a reviewer of your own branch. In a folder without git, loom has no worktree, check or merge gate: give no --worktree, each child works in your folder, and loom done reports the result.
 - loom status: your ID, parent and children, each with its work state and process state. loom status --all lists every node.
-", crate::message_usage!(), "- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
-- loom adopt <name>, loom detach <name>, loom rm <target>, loom relaunch [<target>] [--agent <agent-id>]: become a node's parent, make it a root, remove it, or restart an agent process. Details: loom <command> --help.
-All commands return at once. loom picks receivers.
+", crate::message_usage!(), "All commands return at once. loom picks receivers.
 Run a command in the background if you do not need its result for your next step (a build, a test, a deploy wait, a server), however long it takes. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal: results go in loom done or loom note. After loom ask, done, note or verdict, end the turn. Write no text when you end a turn. A direct answer to the human's terminal question stays, but must not repeat a done or an ask.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.

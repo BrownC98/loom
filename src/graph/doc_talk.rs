@@ -12,8 +12,8 @@ const BY_HUMAN: &str = "human";
 const BY_AGENT: &str = "agent";
 
 const RECIPIENTS: [&str; 4] = [
-    "SELECT node FROM doc_authors WHERE doc = ?1",
     "SELECT node FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
+    "SELECT node FROM doc_authors WHERE doc = ?1",
     "SELECT node FROM dones WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
     "SELECT n.id FROM events e JOIN nodes n ON n.id = e.entry ->> '$.node.id'
      WHERE json_valid(e.entry) AND e.entry ->> 'kind' IN ('asked', 'reported') AND e.entry ->> '$.doc.id' = ?1
@@ -59,8 +59,10 @@ impl Graph {
     pub fn talk_lines(&self, doc: &str) -> rusqlite::Result<Vec<TalkLine>> {
         let db = self.lock();
         let mut stmt = db.prepare_cached(
-            "SELECT t.id, t.said, t.name, t.text, t.at, t.wait, coalesce(m.delivered, 0)
+            "SELECT t.id, t.said, t.name, t.text, t.at, t.wait, coalesce(m.delivered, 0),
+                    n.id, n.process, (SELECT state FROM agent_states WHERE node = n.id)
              FROM doc_talk t LEFT JOIN messages m ON m.id = t.message
+             LEFT JOIN nodes n ON n.id = m.recipient
              WHERE t.doc = ?1 ORDER BY t.id",
         )?;
         stmt.query_map([doc], |row| {
@@ -72,6 +74,14 @@ impl Graph {
                     to: name,
                     answer: row.get::<_, Option<u32>>(5)?.map(WaitId),
                     received: row.get(6)?,
+                    process: match row.get::<_, Option<u32>>(7)? {
+                        Some(_) => {
+                            let process = optional_json::<ProcessOutcome>(row, 8)?;
+                            let agent = optional_json::<AgentState>(row, 9)?;
+                            Some(process_state(process, agent.as_ref()))
+                        }
+                        None => None,
+                    },
                 },
             };
             Ok(TalkLine {

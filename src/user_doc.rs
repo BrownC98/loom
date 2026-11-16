@@ -618,7 +618,6 @@ fn check(html: &str) -> Result<(), String> {
             r#"class="theme-toggle""#,
             "라이트/다크 전환 버튼(.theme-toggle)이 없다",
         ),
-        ("응답할 곳", "머리 줄 「응답할 곳」이 없다"),
         (WHO, r#"머리 줄(<div class="who">)이 없다"#),
     ];
     match marks.iter().find(|(mark, _)| !html.contains(mark)) {

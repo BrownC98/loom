@@ -1,9 +1,11 @@
-import { Check, ChevronRight, Download, MessageSquare } from 'lucide-react';
+import { Check, ChevronRight, Download, LoaderCircle, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, docUrl, getDocQuestion, getDocTalk, postDocTalk } from './api';
 import type { DocQuestion } from './gen/DocQuestion';
 import type { DocTalk } from './gen/DocTalk';
+import type { ProcessState } from './gen/ProcessState';
+import type { TalkLine } from './gen/TalkLine';
 import { dateAndTime, hourMinute } from './i18n';
 
 type Decision = { id: string; keys: string[]; recommended: string | null };
@@ -23,7 +25,7 @@ export function docPageId(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function answerText(choice: string | null, decisions: readonly Decision[], picks: Picks, unpicked: string, message: string): string {
+function answerText(choice: string | null, decisions: readonly Decision[], picks: Picks, unpicked: string, other: string): string {
   const boxes = decisions
     .map((d) => {
       const value = pickText(picks[d.id]);
@@ -31,7 +33,12 @@ function answerText(choice: string | null, decisions: readonly Decision[], picks
       return d.recommended && `${d.id}: ${d.recommended}(${unpicked})`;
     });
   const picked = [choice, ...boxes].filter(Boolean).join(ANSWER_JOIN);
-  return [picked, message.trim()].filter(Boolean).join(MESSAGE_JOIN);
+  return [picked, other].filter(Boolean).join(MESSAGE_JOIN);
+}
+
+function pending(lines: readonly TalkLine[]): TalkLine | null {
+  const last = lines.at(-1);
+  return last?.said.by === 'human' ? last : null;
 }
 
 function pickText(pick: Pick | undefined): string {
@@ -67,6 +74,7 @@ export function DocPage({ id }: { id: string }) {
   const [picks, setPicks] = useState<Picks>({});
   const [choice, setChoice] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [folded, setFolded] = useState(() => localStorage.getItem(FOLDED_KEY) === '1');
@@ -111,6 +119,7 @@ export function DocPage({ id }: { id: string }) {
   }, [changedAt]);
 
   const lineCount = talk?.lines.length ?? 0;
+  const waiting = pending(talk?.lines ?? []);
   useEffect(() => {
     thread.current?.scrollTo({ top: thread.current.scrollHeight });
   }, [lineCount, folded]);
@@ -132,6 +141,7 @@ export function DocPage({ id }: { id: string }) {
   useEffect(() => {
     setChoice(null);
     setPicks({});
+    setFeedback('');
   }, [openWait]);
 
   const shown = question?.kind === 'answered' ? picksOf(question.text, decisions) : picks;
@@ -146,11 +156,14 @@ export function DocPage({ id }: { id: string }) {
   const picked = choices.some((c) => c.key === choice) ? choice : null;
   const anyPick = picked !== null || decisions.some((d) => pickText(picks[d.id]) !== '');
   const nothingToPick = choices.length === 0 && decisions.length === 0;
-  const answering = question?.kind === 'open' && (anyPick || nothingToPick) ? question.wait : null;
+  const other = feedback.trim() === '' ? '' : t('docPage.other', { text: feedback.trim() });
+  const answering = question?.kind === 'open' && (anyPick || other !== '' || nothingToPick) ? question.wait : null;
   const unpickedWord = t('docPage.unpickedAnswer');
-  const preview = answering === null ? '' : answerText(picked, decisions, picks, unpickedWord, '');
+  const preview = answering === null ? '' : answerText(picked, decisions, picks, unpickedWord, other);
   const to = talk?.to ?? null;
-  const ready = !busy && (answering !== null ? anyPick || message.trim() !== '' : to !== null && message.trim() !== '');
+  const placeholder = to ? t('docPage.messageTo', { name: to.name }) : t('docPage.message');
+  const typed = message.trim() !== '';
+  const ready = !busy && (answering !== null ? anyPick || other !== '' || typed : to !== null && typed);
 
   const refresh = () => {
     getDocQuestion(id).then(setQuestion, () => {});
@@ -159,11 +172,17 @@ export function DocPage({ id }: { id: string }) {
 
   const send = () => {
     if (!ready) return;
+    if (folded) return fold(false);
     setBusy(true);
     setRefusal(null);
-    const sent = answering !== null ? answerWait(answering, answerText(picked, decisions, picks, unpickedWord, message), []) : postDocTalk(id, message);
-    sent
-      .then(() => setMessage(''), (err: Error) => setRefusal(err.message))
+    const talks = typed && (answering === null || !nothingToPick);
+    const answer = nothingToPick ? message : answerText(picked, decisions, picks, unpickedWord, other);
+    (talks ? postDocTalk(id, message).then(() => setMessage('')) : Promise.resolve())
+      .then(() => {
+        if (answering === null) return;
+        return answerWait(answering, answer, []).then(() => (setFeedback(''), setMessage('')));
+      })
+      .catch((err: Error) => setRefusal(err.message))
       .finally(() => {
         setBusy(false);
         refresh();
@@ -211,6 +230,7 @@ export function DocPage({ id }: { id: string }) {
                 </button>
               );
             })}
+            {!nothingToPick && <textarea className="feedback" rows={1} value={feedback} disabled={busy} onChange={(e) => (setFeedback(e.target.value), folded && fold(false))} onKeyDown={onKey} aria-label={t('docPage.feedback')} placeholder={t('docPage.feedback')} />}
           </>
         )}
         {question?.kind === 'answered' && (
@@ -284,14 +304,15 @@ export function DocPage({ id }: { id: string }) {
                   <span className="talk-meta">
                     {line.said.by === 'agent'
                       ? `${line.said.name} · ${hourMinute(line.at * 1000)}`
-                      : [hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
+                      : [line.said.to, hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
                   </span>
                 </li>
               ))}
+              {waiting?.said.by === 'human' && waiting.said.process && <Waiting name={waiting.said.to} received={waiting.said.received} process={waiting.said.process} />}
             </ol>
             <div className="talk-compose">
-              {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}` })}</p>}
-              <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={t('docPage.message')} placeholder={t('docPage.message')} />
+              {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, name: to?.name, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}`, name: to?.name })}</p>}
+              <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={placeholder} placeholder={placeholder} />
               <span className="talk-row">
                 <span className="hint">{t('docPage.keys')}</span>
                 <button type="button" className="btn send" disabled={!ready} onClick={send}>
@@ -303,5 +324,25 @@ export function DocPage({ id }: { id: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+function Waiting({ name, received, process }: { name: string; received: boolean; process: ProcessState }) {
+  const { t } = useTranslation();
+  if (received && process.kind === 'working')
+    return (
+      <li data-by="agent" className="talk-typing" role="status">
+        <p className="talk-text">
+          <LoaderCircle className="spin" aria-hidden="true" />
+          {t('docPage.responding', { name })}
+        </p>
+      </li>
+    );
+  const blocked = process.kind === 'blocked';
+  const state = received ? (blocked ? 'receivedBlocked' : 'restingNoReply') : blocked ? 'queuedBlocked' : process.kind === 'working' ? 'queuedBusy' : 'queuedWaking';
+  return (
+    <li data-by="human" className="talk-state" role="status">
+      <span className="talk-meta">{t(`docPage.waiting.${state}`)}</span>
+    </li>
   );
 }

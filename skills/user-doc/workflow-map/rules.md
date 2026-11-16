@@ -11,7 +11,7 @@ The reference is [example.html](example.html) (실시예 분석 정보 구조 v0
 1. Copy [template.html](template.html). Change only the data block (from `const META=` to the end of `const E=[…];`) and the text of `<header>`, `<footer>` and `<title>`. Do not change the styles or the engine code below the data block.
 2. Match the density and tone of [example.html](example.html). Read it once when you make your first document.
 3. Render the file with `show.sh --quick` ([SKILL.md "Display"](../SKILL.md#display)). If a red 「데이터 오류」 box shows at the top, fix the data. The box shows layer, node and check IDs that do not exist, nodes without edges and duplicate IDs.
-4. Set 「응답할 곳」 in `<div class="who">` to your node name, then show the file to the human as SKILL.md "Display" tells.
+4. Show the file to the human as SKILL.md "Display" tells.
 
 ## Data form
 

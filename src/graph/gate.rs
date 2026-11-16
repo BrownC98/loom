@@ -954,6 +954,7 @@ impl Graph {
                     mailbox::record_only(&tx, id)?;
                 }
                 if *receiver == Receiver::Owner && parent_told {
+                    mailbox::record_only(&tx, id)?;
                     finish_work(&tx, to_node)?;
                 }
                 sent.push(to_node);

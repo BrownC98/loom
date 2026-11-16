@@ -23,9 +23,7 @@ use api::graph::waits::WaitDoc;
 use api::graph::{NodeState, Toward};
 use api::ids::{AgentId, NodeId};
 
-const NOTICE: &str = "(what ->> 'kind' IN ('exited', 'removed', 'adopted')
-    OR (what ->> 'kind' = 'merged' AND EXISTS (SELECT 1 FROM gates g JOIN nodes o ON o.id = g.owner
-        WHERE g.owner = recipient AND g.branch = what ->> 'branch' AND o.state ->> 'kind' = 'done')))";
+const NOTICE: &str = "what ->> 'kind' IN ('exited', 'removed', 'adopted')";
 
 fn wakes() -> String {
     format!(r#"(kind != '"queue"' OR what IS NULL OR NOT {NOTICE})"#)

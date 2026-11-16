@@ -229,7 +229,7 @@ export function DocPage({ id }: { id: string }) {
                 </button>
               );
             })}
-            {!nothingToPick && <textarea className="feedback" rows={1} value={feedback} disabled={busy} onChange={(e) => setFeedback(e.target.value)} onKeyDown={onKey} aria-label={t('docPage.feedback')} placeholder={t('docPage.feedback')} />}
+            {!nothingToPick && <textarea className="feedback" rows={1} value={feedback} disabled={busy} onChange={(e) => (setFeedback(e.target.value), folded && fold(false))} onKeyDown={onKey} aria-label={t('docPage.feedback')} placeholder={t('docPage.feedback')} />}
           </>
         )}
         {question?.kind === 'answered' && (

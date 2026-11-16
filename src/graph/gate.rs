@@ -71,6 +71,7 @@ pub struct Reclaim {
 pub struct Merge<'a> {
     pub sha: &'a str,
     pub target: &'a str,
+    pub file: Option<String>,
 }
 
 pub enum Outcome<'a> {
@@ -140,6 +141,7 @@ impl Step<'_> {
                 head,
                 sha: merge.sha.to_owned(),
                 log: log.clone(),
+                file: merge.file.clone(),
             },
             Step::End(Ended {
                 outcome: Outcome::Rework,
@@ -941,9 +943,12 @@ impl Graph {
                 )?;
                 if !held.needs_gate() && !policy::wakes(call, *receiver, target) {
                     mailbox::record_only(&tx, id)?;
-                    if *receiver == Receiver::Owner && call == GateCall::End(MergeEnd::Merged) {
-                        finish_work(&tx, to_node)?;
-                    }
+                }
+                if *receiver == Receiver::Owner
+                    && call == GateCall::End(MergeEnd::Merged)
+                    && parent_of(&tx, to_node)?.is_some()
+                {
+                    finish_work(&tx, to_node)?;
                 }
                 sent.push(to_node);
             }

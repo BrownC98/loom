@@ -1,6 +1,6 @@
 ---
 name: raptor-3
-description: 랩터-3 (raptor-3): fewest parts in a code base. Find parts with no requirement, reinvented code and duplicate state. Use for "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검", "사이클 타임 단축".
+description: '랩터-3 (raptor-3): fewest parts in a code base. Find parts with no requirement, reinvented code and duplicate state. Use for "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검", "사이클 타임 단축".'
 ---
 
 # Raptor-3

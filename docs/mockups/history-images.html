@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M145 loom 기록 탭 그림 다시 보기 목업</title>
+<title>M151 loom 기록 탭 그림 다시 보기 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -75,12 +75,6 @@ table.num td.r { text-align: right; font-variant-numeric: tabular-nums; }
 .lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
 .lead-svg circle { fill: #D14343; }
 .shotwrap .mk { position: absolute; }
-.cmp { display: grid; gap: 12px; }
-.cmp > .fig[hidden] { display: none; }
-.cmp-bar { justify-self: start; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface-hover); }
-.cmp-bar button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: none; color: var(--ink-2); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
-.cmp-bar button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong), 0 1px 2px oklch(0% 0 0 / 0.12); }
-@media (prefers-reduced-motion: no-preference) { .cmp-bar button { transition: background-color 0.15s, color 0.15s; } }
 
 
 /* product drawing */
@@ -145,7 +139,7 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 </head>
 <body data-ui=".tabs button, .seg button, .choice, .zoom, .inbox-search, .side .row, .card">
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M145</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 기록이미지</b></span><span>v1 · 2026-11-16 · 승인 Q3530(D1 A)</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M151</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 기록이미지</b></span><span>v1 · 2026-11-16 · 승인 Q3530(D1 A)</span></div>
   <h1>알림 「기록」 탭에서 사람이 보낸 그림 다시 보기</h1>
   <p class="lead">사람 지시: "알림 기록에 사용자가 전송했던 이미지들도 다시 조회 하게 해줘, 스토리지 부담이 너무 크려나?" 지금 답·지시에 붙인 그림은 OS 임시 폴더에만 있어 WSL을 다시 켜면 사라집니다. 「기록」 탭은 그림을 보이지 않습니다. 바꾼 뒤에는 데몬이 그림을 데이터 폴더의 DB(<code>loom.db</code>)에 함께 적고, 「기록」 줄에 축소 그림을 보입니다. 기록 줄이 30일 뒤 지워질 때 그림도 함께 지워집니다.</p>
 
@@ -434,22 +428,6 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
     if (bestO !== orders[orders.length - 1]) attempt(bestO);
     return bestR.fails;
   };
-  for (const cmp of document.querySelectorAll('.cmp')) {
-    const views = [...cmp.querySelectorAll(':scope > .fig[data-v]')], bar = document.createElement('div');
-    bar.className = 'cmp-bar'; bar.setAttribute('role', 'radiogroup'); bar.setAttribute('aria-label', cmp.dataset.label ?? '');
-    const select = i => views.forEach((v, j) => { v.hidden = j !== i; btns[j].setAttribute('aria-checked', j === i); btns[j].tabIndex = j === i ? 0 : -1; });
-    const btns = views.map((v, i) => {
-      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'radio'); b.textContent = v.dataset.v;
-      b.addEventListener('click', () => { select(i); layout(); });
-      b.addEventListener('keydown', e => {
-        const k = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: views.length - 1 }[e.key];
-        if (k === undefined) return;
-        e.preventDefault(); const n = (k + views.length) % views.length; select(n); btns[n].focus(); layout();
-      });
-      return b;
-    });
-    bar.append(...btns); cmp.prepend(bar); select(0);
-  }
   document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
   let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
   if (document.readyState === 'complete') layout(); else addEventListener('load', layout);

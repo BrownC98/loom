@@ -84,9 +84,14 @@ impl Graph {
         let tx = db.transaction()?;
         put(&tx, wait, ImagePart::Report, sent)?;
         let names: Vec<&str> = sent.iter().map(|i| i.name.as_str()).collect();
+        let names = serde_json::to_string(&names).unwrap_or_default();
         tx.execute(
             "UPDATE dones SET wait = json_set(wait, '$.images', json(?2)) WHERE id = ?1",
-            params![wait.0, serde_json::to_string(&names).unwrap_or_default()],
+            params![wait.0, names],
+        )?;
+        tx.execute(
+            "UPDATE closed_waits SET wait = json_set(wait, '$.images', json(?2)) WHERE wait ->> 'id' = ?1",
+            params![wait.0, names],
         )?;
         tx.commit()
     }

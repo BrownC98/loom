@@ -179,6 +179,8 @@ const SCREEN_QUIET: Duration = Duration::from_millis(500);
 
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
+const OLD_IMAGES_LIMIT: Duration = Duration::from_secs(30);
+
 pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io::Result<()> {
     let claim = launch::Claim::take()?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
@@ -247,6 +249,12 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
             origin::human_site,
         ))
         .with_state(app.clone());
+    if tokio::time::timeout(OLD_IMAGES_LIMIT, waits::keep_old_images(app.clone()))
+        .await
+        .is_err()
+    {
+        crate::log::logln!("loom: 옛 완료 그림 읽기가 {OLD_IMAGES_LIMIT:?}을 넘어 멈췄다");
+    }
     app.door.set_router(router.clone());
     if !app
         .devices
@@ -264,7 +272,6 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
     claim.announce(&node_url(listen), ready_to)?;
     tokio::spawn(app.update.clone().run());
     tokio::spawn(queue::run(app.clone()));
-    tokio::spawn(waits::keep_old_images(app.clone()));
     crate::log::logln!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     let endpoint = axum::serve(endpoint_door, endpoint_routes(&app)).into_future();

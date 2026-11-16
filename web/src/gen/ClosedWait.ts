@@ -18,4 +18,8 @@ node: Who, closedAt: number, how: Closed,
 /**
  * 답이 선택지 하나의 `key`와 같으면 그 `key`다.
  */
-chosen: string | null, };
+chosen: string | null, 
+/**
+ * 사람이 답·이어서 맡김에 붙인 그림의 이름. 화면은 `GET /api/waits/{id}/answer-images/{index}`로 읽는다.
+ */
+answerImages: Array<string>, };

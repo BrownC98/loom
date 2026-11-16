@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M145 loom 기록 탭 그림 다시 보기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(47% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; text-wrap: balance; }
+h2 { font-size: 15px; text-wrap: balance; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; text-wrap: pretty; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.flow span { padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+table.num { border-collapse: collapse; font-size: 13px; }
+table.num th, table.num td { border: 1px solid var(--line-strong); padding: 5px 10px; text-align: left; }
+table.num th { background: var(--panel); font-weight: 600; }
+table.num td.r { text-align: right; font-variant-numeric: tabular-nums; }
+
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+.cmp { display: grid; gap: 12px; }
+.cmp > .fig[hidden] { display: none; }
+.cmp-bar { justify-self: start; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface-hover); }
+.cmp-bar button { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: none; color: var(--ink-2); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
+.cmp-bar button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong), 0 1px 2px oklch(0% 0 0 / 0.12); }
+@media (prefers-reduced-motion: no-preference) { .cmp-bar button { transition: background-color 0.15s, color 0.15s; } }
+
+
+/* product drawing */
+.page { --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0)); --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0)); position: relative; width: 1360px; height: 760px; display: grid; grid-template-rows: 32px 1fr 26px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; font-size: 13px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; font-weight: 600; }
+.bar .sub { font-weight: 400; color: var(--ink-3); }
+.main { display: flex; min-height: 0; }
+.side { width: 210px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.side .row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 14px); border-radius: 6px; white-space: nowrap; }
+.side .row.on { background: var(--accent-wash); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.ok { background: var(--ok); }
+.canvas { position: relative; flex: 1; min-width: 0; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.card { position: absolute; width: 290px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.card-head { border-radius: var(--radius) var(--radius) 0 0; display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.card-head .name { font-weight: 600; }
+.term { padding: 8px 10px; font: 11.5px/1.45 var(--mono); height: 54px; color: var(--ink-2); }
+.dock { width: 470px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs button { height: 34px; padding: 0 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font-size: 13px; }
+.tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.inbox-tabs { display: grid; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.seg { display: flex; padding: 2px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--bg); }
+.seg button { flex: 1; height: 26px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.seg button.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line-strong); }
+.seg .count { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--warn); color: #fff; }
+.inbox-search { display: flex; align-items: center; height: 28px; padding: 0 9px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink-3); font-size: 13px; }
+.wait-list { list-style: none; margin: 0; padding: 0 6px; overflow: hidden; }
+.history-row { display: grid; gap: 6px; padding: 8px 8px 10px; }
+.history-row + .history-row { border-top: 1px solid var(--line); }
+.top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; row-gap: 2px; min-width: 0; }
+.kind-mark { width: 15px; height: 15px; color: var(--warn); }
+.kind-mark.ok { color: var(--ok); }
+.kind { color: var(--ink-3); font-size: 12px; }
+.qid { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font: 600 11px/18px var(--mono); }
+.node { font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.published { margin-left: auto; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.instruction { font-size: 12px; white-space: pre-wrap; }
+.full { font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.choice .key { font-weight: 700; }
+.choice[data-unchosen] { opacity: 0.55; }
+.choice[data-chosen] { border: 2px solid var(--ink); padding: 2px 9px; font-weight: 600; }
+.choice .chosen { font-size: 11px; font-weight: 700; }
+.closed { color: var(--ink-2); font-size: 12px; }
+.closed b { color: var(--ink); font-weight: 600; }
+.closed .said::before { content: ' · '; }
+.answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; width: fit-content; flex-wrap: wrap; gap: 8px; }
+.answer-images li { width: 64px; height: 44px; }
+.answer-images .zoom { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 6px; background: none; cursor: zoom-in; }
+.answer-images img { display: block; width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--panel); font: 11px var(--mono); color: var(--ink-2); }
+.shade { position: absolute; inset: 0; z-index: 5; background: rgb(0 0 0 / 0.7); display: grid; place-items: center; }
+.shade img { width: 900px; height: 562px; border-radius: 8px; background: var(--panel); }
+.page.gpui { grid-template-rows: 36px 1fr 26px; }
+.page.gpui .bar { gap: 8px; }
+.page.gpui .bar .winbtns { margin-left: auto; display: flex; gap: 18px; color: var(--ink-3); font-weight: 400; }
+</style>
+</head>
+<body data-ui=".tabs button, .seg button, .choice, .zoom, .inbox-search, .side .row, .card">
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M145</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 기록이미지</b></span><span>v1 · 2026-11-16 · 승인 Q3530(D1 A)</span></div>
+  <h1>알림 「기록」 탭에서 사람이 보낸 그림 다시 보기</h1>
+  <p class="lead">사람 지시: "알림 기록에 사용자가 전송했던 이미지들도 다시 조회 하게 해줘, 스토리지 부담이 너무 크려나?" 지금 답·지시에 붙인 그림은 OS 임시 폴더에만 있어 WSL을 다시 켜면 사라집니다. 「기록」 탭은 그림을 보이지 않습니다. 바꾼 뒤에는 데몬이 그림을 데이터 폴더의 DB(<code>loom.db</code>)에 함께 적고, 「기록」 줄에 축소 그림을 보입니다. 기록 줄이 30일 뒤 지워질 때 그림도 함께 지워집니다.</p>
+
+  <div class="flow"><span>그림을 붙여 답하거나 맡김</span>→<span>데몬이 그림을 DB에 적음</span>→<span>「기록」 줄에 축소 그림</span>→<span>눌러서 크게 보기</span>→<span>30일 뒤 기록 줄과 함께 지움</span></div>
+
+  <table class="num">
+    <tr><th>저장량 실측(2026-11-16, 사람의 데몬)</th><th>값</th></tr>
+    <tr><td>그림 한 장 평균(<code>/tmp/loom-paste</code> 19장)</td><td class="r">184 KiB</td></tr>
+    <tr><td>답·이어서 맡김에 붙인 그림(11-14~11-15, 이틀)</td><td class="r">8장</td></tr>
+    <tr><td>완료에 붙은 그림(<code>loom done --image</code>, 기록 19일)</td><td class="r">49장</td></tr>
+    <tr><td>30일 예상: 약 200장</td><td class="r">약 36 MiB</td></tr>
+    <tr><td>지금 DB 크기</td><td class="r">7.3 MiB</td></tr>
+  </table>
+
+  <div class="fig">
+    <h2>① 웹 화면: 알림 › 기록 <span class="tag">GET /api/waits/closed</span></h2>
+    <div class="page">
+      <div class="bar">loom <span class="sub">loom · main</span></div>
+      <div class="main">
+        <div class="side">
+          <h3>노드</h3>
+          <div class="row on"><span class="dot ok"></span>loom 총괄</div>
+          <div class="row" style="--d:1"><span class="dot"></span>코디 기록이미지</div>
+          <div class="row" style="--d:1"><span class="dot ok"></span>코디 알림접기</div>
+          <div class="row" style="--d:2"><span class="dot"></span>워커 화면</div>
+        </div>
+        <div class="canvas">
+          <div class="card" style="left:60px; top:70px"><div class="card-head"><span class="dot ok"></span><span class="name">loom 총괄</span></div><div class="term">loom ask "목업 v1을 승인할까요?"<br>Q3301</div></div>
+          <div class="card" style="left:120px; top:230px"><div class="card-head"><span class="dot"></span><span class="name">코디 기록이미지</span></div><div class="term">cargo clippy --all-targets<br>Finished dev</div></div>
+        </div>
+        <div class="dock">
+          <div class="tabs"><button class="on">알림</button><button>이벤트</button><button>커밋</button><button>문서</button><button>터미널</button></div>
+          <div class="inbox-tabs">
+            <div class="seg"><button>새 알림 <span class="count">2</span></button><button class="on">기록</button></div>
+            <div class="inbox-search">알림 찾기</div>
+          </div>
+          <ul class="wait-list">
+            <li class="history-row">
+              <div class="top"><svg class="i kind-mark ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span class="kind">완료</span><span class="node">loom 총괄</span><span class="published">11/15 21:02</span></div>
+              <p class="instruction">지시: 알림 카드가 겹쳐 보여. 이 화면 봐줘</p>
+              <ul class="answer-images"><li><span class="mk new" data-n="1"><button class="zoom" aria-label="image.png 크게 보기"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%231d1f23'/><rect width='900' height='34' fill='%232b2e33'/><circle cx='20' cy='17' r='6' fill='%23e5534b'/><circle cx='40' cy='17' r='6' fill='%23d4a72c'/><circle cx='60' cy='17' r='6' fill='%2357ab5a'/><g fill='%238b949e'><rect x='30' y='70' width='420' height='14' rx='3'/><rect x='30' y='100' width='560' height='14' rx='3'/><rect x='30' y='130' width='330' height='14' rx='3'/></g><g fill='%2357ab5a'><rect x='30' y='170' width='240' height='14' rx='3'/></g><g fill='%238b949e'><rect x='30' y='200' width='610' height='14' rx='3'/><rect x='30' y='230' width='470' height='14' rx='3'/><rect x='30' y='260' width='520' height='14' rx='3'/></g><rect x='30' y='300' width='12' height='18' fill='%23c9d1d9'/></svg>"></button></span></li></ul>
+              <p class="full">알림 카드 겹침을 고쳐 main에 병합했습니다.</p>
+              <p class="closed"><b>이어서 맡김</b> 2026/11/15 21:10:44<span class="said">아직 겹쳐. 이것도 봐</span></p>
+              <ul class="answer-images"><li><span class="mk new" data-n="2"><span style="display:flex; gap:8px"><button class="zoom" style="width:64px; height:44px" aria-label="image.png 크게 보기"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%23f6f6f6'/><rect width='900' height='40' fill='%23fbfbfb'/><rect y='40' width='900' height='1' fill='%23dcdcdc'/><rect x='0' y='41' width='170' height='521' fill='%23fbfbfb'/><rect x='170' y='41' width='1' height='521' fill='%23dcdcdc'/><g fill='%23bdbdbd'><rect x='20' y='70' width='110' height='12' rx='3'/><rect x='34' y='100' width='100' height='12' rx='3'/><rect x='34' y='130' width='90' height='12' rx='3'/></g><rect x='250' y='110' width='330' height='170' rx='10' fill='%23fff' stroke='%23c4c4c4' stroke-width='2'/><rect x='330' y='170' width='330' height='170' rx='10' fill='%23fff' stroke='%23b8860b' stroke-width='3'/><g fill='%239e9e9e'><rect x='350' y='200' width='200' height='12' rx='3'/><rect x='350' y='228' width='260' height='12' rx='3'/></g><rect x='350' y='290' width='90' height='28' rx='6' fill='%23b8860b'/><circle cx='640' cy='320' r='46' fill='none' stroke='%23d14343' stroke-width='5'/></svg>"></button><button class="zoom" style="width:64px; height:44px" aria-label="image (2).png 크게 보기"><img alt="image (2).png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%231d1f23'/><rect width='900' height='34' fill='%232b2e33'/><circle cx='20' cy='17' r='6' fill='%23e5534b'/><circle cx='40' cy='17' r='6' fill='%23d4a72c'/><circle cx='60' cy='17' r='6' fill='%2357ab5a'/><g fill='%238b949e'><rect x='30' y='70' width='420' height='14' rx='3'/><rect x='30' y='100' width='560' height='14' rx='3'/><rect x='30' y='130' width='330' height='14' rx='3'/></g><g fill='%2357ab5a'><rect x='30' y='170' width='240' height='14' rx='3'/></g><g fill='%238b949e'><rect x='30' y='200' width='610' height='14' rx='3'/><rect x='30' y='230' width='470' height='14' rx='3'/><rect x='30' y='260' width='520' height='14' rx='3'/></g><rect x='30' y='300' width='12' height='18' fill='%23c9d1d9'/></svg>"></button></span></span></li></ul>
+            </li>
+            <li class="history-row">
+              <div class="top"><svg class="i kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg><span class="kind">질문</span><span class="qid">Q3288</span><span class="node">코디 알림접기</span><span class="published">11/15 18:40</span></div>
+              <p class="full">알림 카드 접기 목업 v2를 승인할까요?</p>
+              <div class="choices"><span class="choice" data-chosen><span class="key">A</span>승인 <span class="chosen">✓ 고름</span></span><span class="choice" data-unchosen><span class="key">B</span>다시 그림</span></div>
+              <p class="closed"><b>답함</b> 2026/11/15 18:52:03<span class="said">A, 버튼 위치는 이 그림처럼</span></p>
+              <ul class="answer-images"><li><span class="mk new" data-n="3"><button class="zoom" aria-label="image.png 크게 보기"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%23f6f6f6'/><rect width='900' height='40' fill='%23fbfbfb'/><rect y='40' width='900' height='1' fill='%23dcdcdc'/><rect x='0' y='41' width='170' height='521' fill='%23fbfbfb'/><rect x='170' y='41' width='1' height='521' fill='%23dcdcdc'/><g fill='%23bdbdbd'><rect x='20' y='70' width='110' height='12' rx='3'/><rect x='34' y='100' width='100' height='12' rx='3'/><rect x='34' y='130' width='90' height='12' rx='3'/></g><rect x='250' y='110' width='330' height='170' rx='10' fill='%23fff' stroke='%23c4c4c4' stroke-width='2'/><rect x='330' y='170' width='330' height='170' rx='10' fill='%23fff' stroke='%23b8860b' stroke-width='3'/><g fill='%239e9e9e'><rect x='350' y='200' width='200' height='12' rx='3'/><rect x='350' y='228' width='260' height='12' rx='3'/></g><rect x='350' y='290' width='90' height='28' rx='6' fill='%23b8860b'/><circle cx='640' cy='320' r='46' fill='none' stroke='%23d14343' stroke-width='5'/></svg>"></button></span></li></ul>
+            </li>
+            <li class="history-row">
+              <div class="top"><svg class="i kind-mark ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span class="kind">완료</span><span class="node">워커 화면</span><span class="published">11/15 16:05</span></div>
+              <p class="full">상태 줄의 글꼴 크기를 맞췄습니다.</p>
+              <p class="closed"><b>확인함</b> 2026/11/15 16:20:11</p>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="statusbar"><span>127.0.0.1:7420</span><span>노드 4</span></div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>완료 줄: 지시와 함께 보낸 그림을 지시 줄 아래에 보입니다.</span></div>
+      <div><b>2</b><span>[이어서 맡김]에 붙인 그림을 닫힌 줄 아래에 보입니다.</span></div>
+      <div><b>3</b><span>질문에 답할 때 붙인 그림도 같은 자리에 보입니다. 컴퓨터를 다시 켜거나 데몬을 다시 띄워도 남습니다.</span></div>
+    </div>
+  </div>
+
+  <section class="decision" id="D1" data-for="1 2 3">
+    <h3><span class="did">D1</span>그림을 얼마나 오래 두는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">기록 줄과 같이 30일<span class="mark">권장</span><span class="sub">지금: 다시 켜면 사라짐 → 바뀐 뒤: 30일 동안 보임 · 약 36 MiB · 위험 작음 · 되돌리기: 그림 표를 지움</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">30일, 그리고 전체 200 MiB를 넘으면 오래된 그림부터 지움<span class="sub">많이 붙인 달에도 크기가 정해짐 · 상한 검사 코드가 더 듦 · 30일보다 먼저 사라지는 그림이 생김</span></span></div>
+    </div>
+    <ul class="why"><li>실측 예상량(약 36 MiB)이 작습니다. 상한이 막을 일이 지금은 없습니다.</li><li>그림이 기록 줄과 함께 지워져 「기록」에 깨진 그림이 남지 않습니다.</li></ul>
+  </section>
+
+  <div class="fig">
+    <h2>② 크게 보기 <span class="tag">새 알림과 같은 확대 창</span></h2>
+    <div class="page">
+      <div class="bar">loom <span class="sub">loom · main</span></div>
+      <div class="main"><div class="canvas"></div></div>
+      <div class="statusbar"><span>127.0.0.1:7420</span></div>
+      <div class="shade"><span class="mk" data-n="4"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%23f6f6f6'/><rect width='900' height='40' fill='%23fbfbfb'/><rect y='40' width='900' height='1' fill='%23dcdcdc'/><rect x='0' y='41' width='170' height='521' fill='%23fbfbfb'/><rect x='170' y='41' width='1' height='521' fill='%23dcdcdc'/><g fill='%23bdbdbd'><rect x='20' y='70' width='110' height='12' rx='3'/><rect x='34' y='100' width='100' height='12' rx='3'/><rect x='34' y='130' width='90' height='12' rx='3'/></g><rect x='250' y='110' width='330' height='170' rx='10' fill='%23fff' stroke='%23c4c4c4' stroke-width='2'/><rect x='330' y='170' width='330' height='170' rx='10' fill='%23fff' stroke='%23b8860b' stroke-width='3'/><g fill='%239e9e9e'><rect x='350' y='200' width='200' height='12' rx='3'/><rect x='350' y='228' width='260' height='12' rx='3'/></g><rect x='350' y='290' width='90' height='28' rx='6' fill='%23b8860b'/><circle cx='640' cy='320' r='46' fill='none' stroke='%23d14343' stroke-width='5'/></svg>"></span></div>
+    </div>
+    <div class="calls">
+      <div><b>4</b><span>축소 그림을 누르면 새 알림과 같은 확대 창이 열립니다. 손가락·휠로 키우고, 바깥을 누르거나 Esc로 닫습니다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 데스크톱 앱: 알림 › 기록 <span class="tag">loom-desktop</span></h2>
+    <div class="page gpui">
+      <div class="bar">loom <span class="sub">loom · main</span><span class="winbtns"><span>—</span><span>☐</span><span>✕</span></span></div>
+      <div class="main">
+        <div class="side">
+          <h3>노드</h3>
+          <div class="row on"><span class="dot ok"></span>loom 총괄</div>
+          <div class="row" style="--d:1"><span class="dot"></span>코디 기록이미지</div>
+          <div class="row" style="--d:1"><span class="dot ok"></span>코디 알림접기</div>
+        </div>
+        <div class="canvas"></div>
+        <div class="dock">
+          <div class="tabs"><button class="on">알림</button><button>이벤트</button><button>문서</button><button>터미널</button></div>
+          <div class="inbox-tabs">
+            <div class="seg"><button>새 알림 <span class="count">2</span></button><button class="on">기록</button></div>
+            <div class="inbox-search">알림 찾기</div>
+          </div>
+          <ul class="wait-list">
+            <li class="history-row">
+              <div class="top"><svg class="i kind-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg><span class="kind">질문</span><span class="qid">Q3288</span><span class="node">코디 알림접기</span><span class="published">11/15 18:40</span></div>
+              <p class="full">알림 카드 접기 목업 v2를 승인할까요?</p>
+              <div class="choices"><span class="choice" data-chosen><span class="key">A</span>승인 <span class="chosen">✓ 고름</span></span><span class="choice" data-unchosen><span class="key">B</span>다시 그림</span></div>
+              <p class="closed"><b>답함</b> 2026/11/15 18:52:03<span class="said">A, 버튼 위치는 이 그림처럼</span></p>
+              <ul class="answer-images"><li><span class="mk new" data-n="5"><button class="zoom" aria-label="image.png 크게 보기"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%23f6f6f6'/><rect width='900' height='40' fill='%23fbfbfb'/><rect y='40' width='900' height='1' fill='%23dcdcdc'/><rect x='0' y='41' width='170' height='521' fill='%23fbfbfb'/><rect x='170' y='41' width='1' height='521' fill='%23dcdcdc'/><g fill='%23bdbdbd'><rect x='20' y='70' width='110' height='12' rx='3'/><rect x='34' y='100' width='100' height='12' rx='3'/><rect x='34' y='130' width='90' height='12' rx='3'/></g><rect x='250' y='110' width='330' height='170' rx='10' fill='%23fff' stroke='%23c4c4c4' stroke-width='2'/><rect x='330' y='170' width='330' height='170' rx='10' fill='%23fff' stroke='%23b8860b' stroke-width='3'/><g fill='%239e9e9e'><rect x='350' y='200' width='200' height='12' rx='3'/><rect x='350' y='228' width='260' height='12' rx='3'/></g><rect x='350' y='290' width='90' height='28' rx='6' fill='%23b8860b'/><circle cx='640' cy='320' r='46' fill='none' stroke='%23d14343' stroke-width='5'/></svg>"></button></span></li></ul>
+            </li>
+            <li class="history-row">
+              <div class="top"><svg class="i kind-mark ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span class="kind">완료</span><span class="node">loom 총괄</span><span class="published">11/15 21:02</span></div>
+              <p class="instruction">지시: 알림 카드가 겹쳐 보여. 이 화면 봐줘</p>
+              <ul class="answer-images"><li><button class="zoom" aria-label="image.png 크게 보기"><img alt="image.png" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='562' viewBox='0 0 900 562'><rect width='900' height='562' fill='%231d1f23'/><rect width='900' height='34' fill='%232b2e33'/><circle cx='20' cy='17' r='6' fill='%23e5534b'/><circle cx='40' cy='17' r='6' fill='%23d4a72c'/><circle cx='60' cy='17' r='6' fill='%2357ab5a'/><g fill='%238b949e'><rect x='30' y='70' width='420' height='14' rx='3'/><rect x='30' y='100' width='560' height='14' rx='3'/><rect x='30' y='130' width='330' height='14' rx='3'/></g><g fill='%2357ab5a'><rect x='30' y='170' width='240' height='14' rx='3'/></g><g fill='%238b949e'><rect x='30' y='200' width='610' height='14' rx='3'/><rect x='30' y='230' width='470' height='14' rx='3'/><rect x='30' y='260' width='520' height='14' rx='3'/></g><rect x='30' y='300' width='12' height='18' fill='%23c9d1d9'/></svg>"></button></li></ul>
+              <p class="full">알림 카드 겹침을 고쳐 main에 병합했습니다.</p>
+              <p class="closed"><b>확인함</b> 2026/11/15 21:10:44</p>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="statusbar"><span>127.0.0.1:7420</span><span>노드 3</span></div>
+    </div>
+    <div class="calls">
+      <div><b>5</b><span>데스크톱 앱도 웹과 같은 자리에 축소 그림을 보이고, 누르면 새 알림의 확대 창을 엽니다.</span></div>
+    </div>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    if (!fig.getClientRects().length) continue;
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  for (const cmp of document.querySelectorAll('.cmp')) {
+    const views = [...cmp.querySelectorAll(':scope > .fig[data-v]')], bar = document.createElement('div');
+    bar.className = 'cmp-bar'; bar.setAttribute('role', 'radiogroup'); bar.setAttribute('aria-label', cmp.dataset.label ?? '');
+    const select = i => views.forEach((v, j) => { v.hidden = j !== i; btns[j].setAttribute('aria-checked', j === i); btns[j].tabIndex = j === i ? 0 : -1; });
+    const btns = views.map((v, i) => {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'radio'); b.textContent = v.dataset.v;
+      b.addEventListener('click', () => { select(i); layout(); });
+      b.addEventListener('keydown', e => {
+        const k = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: views.length - 1 }[e.key];
+        if (k === undefined) return;
+        e.preventDefault(); const n = (k + views.length) % views.length; select(n); btns[n].focus(); layout();
+      });
+      return b;
+    });
+    bar.append(...btns); cmp.prepend(bar); select(0);
+  }
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ use rusqlite::{Connection, Row, params};
 
 use api::graph::waits::{Closed, ClosedPage, ClosedWait, HumanWait};
 
+use super::images::{self, ImagePart};
 use super::{Graph, from_json, name_of, to_json};
 use api::graph::events::Who;
 use api::graph::search::WaitSearch;
@@ -82,7 +83,7 @@ fn prune(db: &Connection) -> rusqlite::Result<()> {
         "DELETE FROM closed_waits WHERE closed_at < unixepoch() - ?1",
         [KEEP_SECS],
     )?;
-    Ok(())
+    images::prune(db)
 }
 
 impl Graph {
@@ -100,8 +101,11 @@ impl Graph {
         )?;
         let mut waits = Vec::new();
         for wait in stmt.query_map([before.map_or(i64::MAX, i64::from)], closed_row)? {
-            let wait = wait?;
+            let mut wait = wait?;
             if search.is_none_or(|s| s.finds_closed(&wait)) {
+                let id = wait.wait.wait.id;
+                wait.wait.wait.images = images::names(&db, id, ImagePart::Report)?;
+                wait.answer_images = images::names(&db, id, ImagePart::Answer)?;
                 waits.push(wait);
             }
             if waits.len() > PAGE {
@@ -137,5 +141,6 @@ fn closed_row(row: &Row) -> rusqlite::Result<ClosedWait> {
         closed_at: row.get(4)?,
         how,
         chosen,
+        answer_images: Vec::new(),
     })
 }

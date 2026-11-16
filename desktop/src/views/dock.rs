@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use self::answers::Answers;
+use self::shots::Shots;
 use super::anchor::Anchors;
 use super::field::{self, Field, FieldEvent};
 use super::icons::Lucide;
@@ -35,6 +36,7 @@ pub(crate) mod find;
 mod history;
 mod lanes;
 pub(crate) mod questions;
+mod shots;
 mod strip;
 mod strokes;
 mod tabs;
@@ -129,6 +131,7 @@ pub struct Dock {
     tab: Tab,
     inbox: Inbox,
     answers: Entity<Answers>,
+    shots: Entity<Shots>,
     open_key: String,
     shown: Tab,
     arrange_menu: Option<bool>,
@@ -171,6 +174,7 @@ pub fn dock(
             tab: Tab::Questions,
             inbox: Inbox::New,
             answers: cx.new(|cx| Answers::new(store.clone(), shelf, cx)),
+            shots: cx.new(|cx| Shots::new(store.clone(), cx)),
             open_key: String::new(),
             shown: Tab::Questions,
             arrange_menu: None,
@@ -210,6 +214,8 @@ pub fn dock(
             .push(cx.observe(&store, |dock: &mut Dock, _, cx| dock.commits_follow(cx)));
         dock.subscriptions
             .push(cx.observe(&dock.answers, |_, _, cx| cx.notify()));
+        dock.subscriptions
+            .push(cx.observe(&dock.shots, |_, _, cx| cx.notify()));
         dock.subscriptions
             .push(cx.observe(&query, |_, _, cx| cx.notify()));
         dock.subscriptions

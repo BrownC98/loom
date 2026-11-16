@@ -2,7 +2,7 @@ import { ArrowUp, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type MouseEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, typeText } from './api';
-import { ImageList, MB, useImages, ZoomImage } from './attachments';
+import { ImageList, MB, SentImages, useImages } from './attachments';
 import { DocBlocks } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
@@ -183,15 +183,7 @@ export function WaitContent(props: { node: NodeId; wait: ScreenWait; hints?: boo
   };
   return (
     <>
-      {wait.images.length > 0 && (
-        <ul className="answer-images">
-          {wait.images.map((path, index) => (
-            <li key={path}>
-              <ZoomImage src={doneImageUrl(wait.id, index)} name={path.split(/[\\/]/).pop() ?? path} title={path} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <SentImages names={wait.images} url={(index) => doneImageUrl(wait.id, index)} />
       {prompt && (
         <PromptBody
           prompt={prompt}

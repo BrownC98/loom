@@ -33,7 +33,7 @@ answerable: boolean, doc: WaitDoc | null,
  */
 instruction?: string, 
 /**
- * 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
+ * 완료(`Done`)만: 사람이 그 지시에 준 그림의 이름(`loom done --image`). 데몬이 그림을 DB에 간직한다. 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
  */
 images: Array<string>, 
 /**

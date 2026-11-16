@@ -2,7 +2,8 @@ import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { getClosedWaits } from './api';
+import { answerImageUrl, doneImageUrl, getClosedWaits } from './api';
+import { SentImages } from './attachments';
 import { useShowNodes } from './camera';
 import { DocBlocks } from './DocText';
 import type { Closed } from './gen/Closed';
@@ -202,6 +203,7 @@ const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (
           <Published wait={wait} />
         </div>
         {wait.instruction && <Instruction text={wait.instruction} />}
+        <SentImages names={wait.images} url={(index) => doneImageUrl(wait.id, index)} />
         <div className="wait-body" data-tone={wait.tone}>
           {(wait.text || wait.doc) && (
             <div className="full" data-find>
@@ -228,6 +230,7 @@ const HistoryRow = memo(function HistoryRow(props: { closed: ClosedWait; onGo: (
             </div>
           )}
           <ClosedLine closed={props.closed} t={t} />
+          <SentImages names={props.closed.answerImages} url={(index) => answerImageUrl(wait.id, index)} />
         </div>
       </div>
     </li>

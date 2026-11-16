@@ -128,6 +128,7 @@ export const getDocTalk = (id: string) => call<DocTalk>('GET', `/api/docs/${enco
 export const postDocTalk = (id: string, text: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}/talk`, { text } satisfies PostTalk);
 export const docPageUrl = (id: string) => `/docs/${encodeURIComponent(id)}`;
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
+export const answerImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/answer-images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
 export async function shutdown(): Promise<void> {

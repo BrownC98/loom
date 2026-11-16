@@ -28,6 +28,12 @@ const PROMPT_CHANGED: &str = "promptChanged";
 const REACH_EVERY: Duration = Duration::from_secs(5);
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SentPart {
+    Report,
+    Answer,
+}
+
 pub struct Store {
     base: Option<String>,
     status: String,
@@ -753,12 +759,17 @@ impl Store {
     pub fn wait_image(
         &self,
         wait: WaitId,
+        part: SentPart,
         index: usize,
         cx: &mut Context<Self>,
     ) -> Task<Result<Arc<Image>, String>> {
+        let route = match part {
+            SentPart::Report => "images",
+            SentPart::Answer => "answer-images",
+        };
         self.call(cx, move |base| {
             let (mime, bytes) =
-                link::image(base, &format!("/api/waits/{}/images/{index}", wait.0))?;
+                link::image(base, &format!("/api/waits/{}/{route}/{index}", wait.0))?;
             let format = ImageFormat::from_mime_type(&mime)
                 .ok_or_else(|| Failure::Other(format!("image type {mime}")))?;
             Ok(Arc::new(Image::from_bytes(format, bytes)))

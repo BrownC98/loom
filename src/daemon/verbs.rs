@@ -427,15 +427,10 @@ pub(super) async fn agent_done(
         warning: warning.clone(),
         keep: &req.keep,
     };
+    let sent = super::waits::sent_images(req.images.clone()).await;
     let done = word.and_then(|()| {
-        app.graph.done(
-            node,
-            &report,
-            req.asked.as_deref(),
-            &req.images,
-            doc,
-            Some(&via),
-        )
+        app.graph
+            .done(node, &report, req.asked.as_deref(), &sent, doc, Some(&via))
     });
     let done = match done {
         Ok(unkept) => {

@@ -1,10 +1,10 @@
-use std::path::PathBuf;
 use std::pin::pin;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::events;
+use super::images::SentImage;
 use super::token::{NodeLaunch, current_in};
 use super::turns::TYPED;
 use super::{Db, hosts, waits};
@@ -536,7 +536,7 @@ impl Graph {
         node: NodeId,
         report: &Report,
         asked: Option<&str>,
-        images: &[PathBuf],
+        sent: &[SentImage],
         doc: Option<WaitDoc>,
         via: Option<&Via>,
     ) -> Result<Vec<String>, Refusal> {
@@ -584,7 +584,7 @@ impl Graph {
         }
         match asked {
             Some(asked) if parent.is_none() => {
-                waits::put_done(&tx, node, asked, summary, images, doc)?
+                waits::put_done(&tx, node, asked, summary, sent, doc)?
             }
             _ => {
                 let stamp = Stamp {

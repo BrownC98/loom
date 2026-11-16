@@ -172,6 +172,7 @@ export function DocPage({ id }: { id: string }) {
 
   const send = () => {
     if (!ready) return;
+    if (folded) return fold(false);
     setBusy(true);
     setRefusal(null);
     const talks = typed && (answering === null || !nothingToPick);

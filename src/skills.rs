@@ -283,7 +283,8 @@ fn parts(launch: Launch) -> Vec<&'static str> {
         Position::Child => MODE_CHILD,
     };
     [
-        (true, ASK_SOURCE),
+        (launch.position == Position::Root, ROOT_SOURCE),
+        (launch.position == Position::Root, ASK_SOURCE),
         (launch.skills.ste_orwell, STE_SOURCE),
         (launch.skills.raptor3, RAPTOR_SOURCE),
         (launch.skills.o_mode, mode),
@@ -293,6 +294,7 @@ fn parts(launch: Launch) -> Vec<&'static str> {
     .collect()
 }
 
+const ROOT_SOURCE: &str = "root-commands";
 const ASK_SOURCE: &str = "ask-human/SKILL.md";
 const STE_SOURCE: &str = "ste-orwell/SKILL.md";
 const RAPTOR_SOURCE: &str = "raptor-3/SKILL.md";
@@ -301,6 +303,7 @@ const MODE_CHILD: &str = "o-mode/agent-rules.md";
 
 fn part(source: &str) -> Option<String> {
     match source {
+        ROOT_SOURCE => Some(ROOT_COMMANDS.to_owned()),
         ASK_SOURCE => Some(ask_rules()),
         STE_SOURCE => Some(body(&text(source)).to_owned()),
         RAPTOR_SOURCE => {
@@ -319,6 +322,12 @@ fn part(source: &str) -> Option<String> {
 pub fn ask_rules() -> String {
     body(&text(ASK_SOURCE)).to_owned()
 }
+
+const ROOT_COMMANDS: &str = "- With no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below. Your loom ask goes to the human, not to a parent. loom done also carries interim results, with --asked <the human's instruction, short> and --image <path> per image the human gave; it is the only way to tell the human that a result is ready. --keep <name>=<reason> keeps a done child for more work; a message to that child ends the keep.
+- loom spawn <name> --role <role> [--worktree <branch>] [--agent <agent-id>] [--model <model>] [--effort <effort>]: create a child. Pick the role by its duty from loom roles. The role's settings choose its agent, model and effort; give --agent, --model or --effort (each replaces the role's value) only when the human or your brief names them. Write the brief to a file and give --file <path>. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. With no parent, each child needs --worktree or is a reviewer of your own branch. In a folder without git, loom has no worktree, check or merge gate: give no --worktree, each child works in your folder, and loom done reports the result.
+- loom ready --no-deploy: on a merge into the original checkout, the merge commit carries [skip ci], so the remote CI and its deploy do not run; into a coordinator branch it does nothing, and the coordinator gives it on its own loom ready.
+- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
+- loom adopt <name>, loom detach <name>, loom rm <target>, loom relaunch [<target>] [--agent <agent-id>]: become a node's parent, make it a root, remove it, or restart an agent process. Details: loom <command> --help.";
 
 const MODE_NOTE: &str = "The o-mode text below always applies. Its relative links start in the built-in skill folder `o-mode`.";
 

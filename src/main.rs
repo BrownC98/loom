@@ -97,6 +97,9 @@ enum Cli {
         from: PathBuf,
     },
     /// 자식 노드를 만든다. 지시문은 `--file`로 받는다.
+    /// 역할은 `loom roles`의 책임을 보고 고른다. 에이전트·모델·강도는 역할의 값이다: `--agent`·`--model`·`--effort`는 사람이나 지시문이 이름을 댈 때만 준다.
+    /// 자식은 작업 폴더 `$LOOM_TASK_DIR`(brief.md, result.md, review/, logs/)를 받는다: `--worktree`면 새 작업이고, 아니면 내 작업 폴더를 같이 쓴다.
+    /// 부모 없는 노드의 자식은 `--worktree`나 `--review`가 꼭 있다. git 없는 폴더는 워크트리와 검사·병합 관문이 없다: `--worktree` 없이 자식이 내 폴더에서 일하고 `loom done`이 결과를 알린다.
     Spawn {
         /// 노드 이름. `--review`면 주지 않는다: loom이 `<역할> <브랜치>`로 짓는다.
         #[arg(required_unless_present = "review", conflicts_with = "review")]

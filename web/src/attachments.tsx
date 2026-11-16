@@ -117,6 +117,19 @@ export function ZoomImage(props: { src: string; name: string; title: string }) {
   );
 }
 
+export function SentImages(props: { names: readonly string[]; url: (index: number) => string }) {
+  if (props.names.length === 0) return null;
+  return (
+    <ul className="answer-images">
+      {props.names.map((name, index) => (
+        <li key={index}>
+          <ZoomImage src={props.url(index)} name={name} title={name} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ImageList(props: { images: readonly AttachedImage[]; onRemove: (image: AttachedImage) => void }) {
   const { t } = useTranslation();
   if (props.images.length === 0) return null;

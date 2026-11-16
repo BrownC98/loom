@@ -6,6 +6,7 @@ use api::graph::waits::{
 };
 
 use super::*;
+use crate::graph::{ImagePart, SentImage};
 use crate::protocol::ChoiceRequest;
 use api::graph::ProcessState;
 use api::graph::docs::{DocQuestion, DocTalk, PostTalk};
@@ -29,7 +30,8 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/docs/{id}/question", get(doc_question))
         .route("/api/docs/{id}/talk", get(doc_talk).post(post_talk))
         .route("/docs/{id}", get(super::settings::index))
-        .route("/api/waits/{wait}/images/{index}", get(done_image_file))
+        .route("/api/waits/{wait}/images/{index}", get(report_image))
+        .route("/api/waits/{wait}/answer-images/{index}", get(answer_image))
 }
 
 #[derive(Deserialize)]
@@ -74,7 +76,16 @@ async fn answer_wait(
         app.turn_ends.human(node, Some(&req.text));
         return Ok(Json(()));
     }
-    let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
+    let node = app.graph.wait_node(WaitId(wait))?;
+    let machine = app.node_machine(Some(node))?;
+    let local = req
+        .images
+        .iter()
+        .map(|p| machine.local(&p.to_string_lossy()).into());
+    let sent = sent_images(local.collect()).await;
+    let node = app
+        .graph
+        .answer(WaitId(wait), &req.text, &req.images, &sent)?;
     app.turn_ends.human(node, Some(&req.text));
     Ok(Json(()))
 }
@@ -364,13 +375,56 @@ pub(super) fn doc_file(id: &str) -> Result<user_doc::DocFile, DocProblem> {
     user_doc::doc_file(id).map_err(DocProblem::Missing)
 }
 
-async fn done_image_file(
+async fn report_image(
     State(app): State<Arc<App>>,
     Path((wait, index)): Path<(u32, usize)>,
-    request: axum::extract::Request,
 ) -> Result<Response, Problem> {
-    let path = app.graph.done_image(WaitId(wait), index)?;
-    serve_file(&path, request).await
+    sent_image(&app, WaitId(wait), ImagePart::Report, index)
+}
+
+async fn answer_image(
+    State(app): State<Arc<App>>,
+    Path((wait, index)): Path<(u32, usize)>,
+) -> Result<Response, Problem> {
+    sent_image(&app, WaitId(wait), ImagePart::Answer, index)
+}
+
+fn sent_image(app: &App, wait: WaitId, part: ImagePart, index: usize) -> Result<Response, Problem> {
+    let image = app.graph.sent_image(wait, part, index)?;
+    let kind = mime_guess::from_path(&image.name).first_or_octet_stream();
+    Ok((
+        [
+            (header::CONTENT_TYPE, kind.essence_str().to_owned()),
+            (header::CACHE_CONTROL, IMMUTABLE.to_owned()),
+            (header::CONTENT_SECURITY_POLICY, DOC_SANDBOX.to_owned()),
+        ],
+        image.bytes,
+    )
+        .into_response())
+}
+
+const IMMUTABLE: &str = "private, max-age=31536000, immutable";
+
+pub(super) async fn sent_images(paths: Vec<std::path::PathBuf>) -> Vec<SentImage> {
+    tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .filter_map(|path| match paste::read(path) {
+                Ok(bytes) => Some(SentImage {
+                    name: path
+                        .file_name()
+                        .map_or_else(|| "image".to_owned(), |n| n.to_string_lossy().into_owned()),
+                    bytes,
+                }),
+                Err(e) => {
+                    crate::log::logln!("loom: 그림 {}을 간직하지 못했다: {e}", path.display());
+                    None
+                }
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 const TEXT_TYPE: &str = "text/plain; charset=utf-8";

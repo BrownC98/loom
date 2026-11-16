@@ -12,3 +12,13 @@ pub fn save(temp: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     std::fs::write(&path, bytes)?;
     Ok(path)
 }
+
+pub fn read(path: &Path) -> std::io::Result<Vec<u8>> {
+    let size = std::fs::metadata(path)?.len();
+    if size > LIMIT_BYTES as u64 {
+        return Err(std::io::Error::other(format!(
+            "{size} bytes, over {LIMIT_BYTES}"
+        )));
+    }
+    std::fs::read(path)
+}

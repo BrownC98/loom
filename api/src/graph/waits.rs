@@ -172,7 +172,7 @@ pub struct HumanWait {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub instruction: Option<String>,
-    /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
+    /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 이름(`loom done --image`). 데몬이 그림을 DB에 간직한다. 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
     /// 신호(훅·서버·화면)의 대기만: 지금 터미널 화면에서 읽은 창이나 서버가 준 창. 읽지 못했으면 없다. 대기와 함께 DB에 둔다(`Graph::set_wait`).
@@ -261,6 +261,9 @@ pub struct ClosedWait {
     pub how: Closed,
     /// 답이 선택지 하나의 `key`와 같으면 그 `key`다.
     pub chosen: Option<char>,
+    /// 사람이 답·이어서 맡김에 붙인 그림의 이름. 화면은 `GET /api/waits/{id}/answer-images/{index}`로 읽는다.
+    #[serde(default)]
+    pub answer_images: Vec<String>,
 }
 
 /// 닫힌 알림 한 쪽. 새것부터.

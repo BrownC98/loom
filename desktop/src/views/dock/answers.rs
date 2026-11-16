@@ -22,7 +22,7 @@ use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, SMALL};
 use crate::link;
 use crate::settings::settings_patch;
-use crate::store::{BusyChanged, DraftChanged, Slot, Store};
+use crate::store::{BusyChanged, DraftChanged, SentPart, Slot, Store};
 use crate::strings::Str;
 use crate::theme::mix;
 use crate::views::cardlink;
@@ -305,9 +305,9 @@ impl Answers {
             if self.images.contains_key(&key) || !self.loading.insert(key) {
                 continue;
             }
-            let task = self
-                .store
-                .update(cx, |store, cx| store.wait_image(id, index, cx));
+            let task = self.store.update(cx, |store, cx| {
+                store.wait_image(id, SentPart::Report, index, cx)
+            });
             cx.spawn(async move |this, cx| {
                 let result = task.await;
                 let _ = this.update(cx, |answers, cx| {
@@ -941,11 +941,7 @@ fn wait_content(
                 .children(shots.into_iter().map(|(index, image)| {
                     let owner = answers.clone();
                     let opened = image.clone();
-                    let name = wait.wait.images[index]
-                        .rsplit(['/', '\\'])
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned();
+                    let name = wait.wait.images[index].clone();
                     div()
                         .id(("shot", id as usize * 256 + index % 256))
                         .cursor_pointer()

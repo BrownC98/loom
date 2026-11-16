@@ -13,6 +13,7 @@ use super::agent_state;
 use super::closed::{self, Open};
 use super::doc_talk;
 use super::events;
+use super::images::{self, ImagePart, SentImage};
 use super::mailbox;
 use crate::choices::{choices, offers_choices_without_tail, without_tail};
 use crate::link_text::{bare_link, markdown, parts};
@@ -307,7 +308,13 @@ impl Graph {
         Ok(asked)
     }
 
-    pub fn answer(&self, wait: WaitId, text: &str, images: &[PathBuf]) -> Result<NodeId, Refusal> {
+    pub fn answer(
+        &self,
+        wait: WaitId,
+        text: &str,
+        images: &[PathBuf],
+        sent: &[SentImage],
+    ) -> Result<NodeId, Refusal> {
         let text = text.trim();
         if text.is_empty() && images.is_empty() {
             return Err(Refusal::EmptyAnswer);
@@ -367,6 +374,7 @@ impl Graph {
             doc_talk::said_by_human(&tx, doc, node, &text, message, Some(wait))?;
         }
         closed::close(&tx, open, wait, &how)?;
+        images::put(&tx, wait, ImagePart::Answer, sent)?;
         let entry = record(events::who(&tx, node)?, wait, text, count);
         events::write(&tx, &entry, None)?;
         tx.commit()?;
@@ -590,17 +598,13 @@ impl Graph {
         Ok(())
     }
 
-    pub fn done_image(&self, wait: WaitId, index: usize) -> Result<PathBuf, Refusal> {
-        let done: Option<String> = self
-            .lock()
-            .query_row("SELECT wait FROM dones WHERE id = ?1", [wait.0], |row| {
-                row.get(0)
-            })
-            .optional()?;
-        done.and_then(|d| serde_json::from_str::<HumanWait>(&d).ok())
-            .and_then(|d| d.images.into_iter().nth(index))
-            .map(PathBuf::from)
-            .ok_or(Refusal::NoWait(wait))
+    pub fn wait_node(&self, wait: WaitId) -> Result<NodeId, Refusal> {
+        let db = self.lock();
+        match open_ask(&db, wait) {
+            Ok((node, _)) => Ok(node),
+            Err(Refusal::NoWait(_)) => done_node(&db, wait),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn dialog(&self, wait: WaitId) -> Result<(NodeId, Option<AgentId>), Refusal> {
@@ -624,10 +628,11 @@ pub(super) fn put_done(
     id: NodeId,
     asked: &str,
     summary: &str,
-    images: &[PathBuf],
+    sent: &[SentImage],
     doc: Option<WaitDoc>,
 ) -> rusqlite::Result<()> {
-    put_finished(db, id, WaitKind::Done, asked, summary, images, doc)
+    let done = put_finished(db, id, WaitKind::Done, asked, summary, sent, doc)?;
+    images::put(db, done, ImagePart::Report, sent)
 }
 
 pub(super) fn put_reply(
@@ -636,7 +641,7 @@ pub(super) fn put_reply(
     heard: &str,
     reply: &str,
 ) -> rusqlite::Result<()> {
-    put_finished(db, id, WaitKind::Reply, heard, reply, &[], None)
+    put_finished(db, id, WaitKind::Reply, heard, reply, &[], None).map(drop)
 }
 
 fn put_finished(
@@ -645,17 +650,14 @@ fn put_finished(
     kind: WaitKind,
     asked: &str,
     summary: &str,
-    images: &[PathBuf],
+    sent: &[SentImage],
     doc: Option<WaitDoc>,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<WaitId> {
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
     let mut wait = new_wait(db, kind, summary.clone(), true, doc.clone())?;
     wait.instruction = (!instruction.is_empty()).then(|| instruction.clone());
-    wait.images = images
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+    wait.images = sent.iter().map(|i| i.name.clone()).collect();
     let done = wait.id;
     db.execute(
         "INSERT INTO dones (id, node, wait) VALUES (?1, ?2, ?3)",
@@ -668,7 +670,8 @@ fn put_finished(
         instruction,
         doc,
     };
-    events::write(db, &entry, None)
+    events::write(db, &entry, None)?;
+    Ok(done)
 }
 
 pub(super) fn open_stopped(

@@ -12,8 +12,10 @@ use super::blocks;
 use super::entry::{self, Choice, Look};
 use super::find::{self, Find};
 use super::questions::kind_label;
+use super::shots::Shots;
 use super::ui::{self, GAP, SMALL};
 use super::{Dock, Inbox};
+use crate::store::SentPart;
 use crate::strings::Str;
 
 const TIME: &str = "%Y/%m/%d %H:%M:%S";
@@ -263,6 +265,13 @@ impl Dock {
                     .child(find::instruction(find, cx, text)),
             );
         }
+        row = row.children(Shots::strip(
+            &self.shots,
+            wait.id,
+            SentPart::Report,
+            &wait.images,
+            cx,
+        ));
         if !wait.text.is_empty() || wait.doc.is_some() {
             row = row.child(div().text_size(px(ui::TEXT)).child(blocks::render(
                 ("history-text", seq),
@@ -321,6 +330,13 @@ impl Dock {
             }
             _ => None,
         };
+        let answered = Shots::strip(
+            &self.shots,
+            wait.id,
+            SentPart::Answer,
+            &closed.answer_images,
+            cx,
+        );
         row.child(
             div()
                 .text_size(px(SMALL))
@@ -336,5 +352,6 @@ impl Dock {
                 .child(format!(" {}", ui::clock(closed.closed_at, TIME)))
                 .children(said.map(|text| find::line(find, " \u{00b7} ", &text, ""))),
         )
+        .children(answered)
     }
 }

@@ -1078,7 +1078,10 @@ fn withdraw(
 ) -> rusqlite::Result<Vec<NodeId>> {
     let reviewers: Vec<(NodeId, String, Option<AgentId>)> = tx
         .prepare(&format!(
-            "SELECT n.id, n.name, n.agent FROM nodes n WHERE {} AND n.id != ?3 ORDER BY n.id",
+            "SELECT n.id, n.name, n.agent FROM nodes n WHERE {} AND n.id != ?3
+             AND NOT EXISTS (SELECT 1 FROM gate_votes v WHERE v.branch = ?4 AND v.reviewer = n.id
+                 AND v.head = ?5 AND v.vote IS NOT NULL)
+             ORDER BY n.id",
             in_round("?1", "?2", "?4")
         ))?
         .query_map(
@@ -1086,7 +1089,8 @@ fn withdraw(
                 row.gate.0,
                 row.owner.0,
                 caller.node().map_or(0, |n| n.0),
-                branch
+                branch,
+                row.head
             ],
             |r| Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?)),
         )?
@@ -1320,10 +1324,6 @@ pub(super) fn close_owned(
             "UPDATE gates SET queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
             params![repo.0, branch],
         )?;
-        tx.execute(
-            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
-            params![repo.0, branch],
-        )?;
         let trace = trace(
             tx,
             Caller::Loom,
@@ -1334,6 +1334,10 @@ pub(super) fn close_owned(
             Vec::new(),
         )?;
         sent.extend(withdraw(tx, Caller::Loom, &row, &branch, &trace, linked)?);
+        tx.execute(
+            "UPDATE gate_votes SET vote = NULL WHERE repo = ?1 AND branch = ?2",
+            params![repo.0, branch],
+        )?;
     }
     Ok(sent)
 }

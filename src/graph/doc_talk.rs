@@ -108,7 +108,7 @@ impl Graph {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let body = format!(
-            "The human wrote this on the loom document page of {doc} (file: {file}):\n{text}\nIf the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
+            "{text}\nThe human wrote this on the loom document page of {doc} (file: {file}). If the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
         );
         let message = mailbox::enqueue_human(&tx, node, &MessageKind::Note, &body)?;
         said_by_human(&tx, doc, node, text, message, None)?;

@@ -18,7 +18,7 @@ The loom inbox shows the human only questions in this form.
 - In question and done text, put URLs and absolute paths only in markdown links.
 - After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox.
 - Ask each question of a set with its own `loom ask`. Earlier questions stay open.
-- An inbox answer comes as a `loom message` from human: "Answer to loom ask question Q12 (…): A". The question is closed. Do not call `loom answered`. Do what the answer tells.
+- An inbox answer comes as a `loom message` from human: "A" and then "This is the human's answer from the loom inbox to your loom ask question Q12 (…)". The question is closed. Do not call `loom answered`. Do what the answer tells.
 - An answer to an approval or decision question can name only some decisions. Each decision that the human does not name takes its recommended option. Do not ask about it again.
 - You decide if terminal text from the human answers an open question. It can start with the number: "Q12: A". While one is open, loom tells you in that turn how to close it.
 - Do not use the Claude question tool (`AskUserQuestion`): loom refuses it. Use `loom ask`.

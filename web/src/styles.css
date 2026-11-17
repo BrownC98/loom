@@ -1027,6 +1027,8 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .doc-changed > span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid var(--ok); border-radius: 14px; background: color-mix(in srgb, var(--ok) 10%, var(--surface)); box-shadow: 0 2px 8px var(--shadow); font-size: 12px; white-space: nowrap; }
 .doc-changed svg { width: 14px; height: 14px; color: var(--ok); }
 .doc-talk { flex: none; width: 360px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--line-strong); background: var(--panel); }
+.doc-main.room { justify-content: center; }
+.doc-talk.room { width: min(760px, 100%); border-right: 1px solid var(--line-strong); }
 .doc-talk.folded { width: auto; display: flex; align-items: flex-start; padding: 10px; }
 .doc-talk svg { width: 15px; height: 15px; flex: none; }
 .talk-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); }

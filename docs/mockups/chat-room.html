@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M152 채팅방 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(47% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; text-wrap: balance; }
+h2 { font-size: 15px; text-wrap: balance; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; text-wrap: pretty; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.decision { display: grid; gap: 6px; max-width: 880px; padding: 10px 12px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.fig + .decision { margin-top: -16px; }
+.decision > h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.did { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 700 15px/24px var(--mono); }
+.opts { display: grid; gap: 6px; }
+.opt { display: flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.4; }
+.opt .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.opt .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt .sub { display: block; color: var(--ink-2); font-size: 12px; }
+.decision .why { font-size: 13px; color: var(--ink-2); }
+.decision .why li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: 12px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.flow span { padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.flow i { font-style: normal; color: var(--ink-3); }
+
+:root { --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149)); --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0)); --shadow: light-dark(oklch(0% 0 0 / 0.12), oklch(0% 0 0 / 0.5)); }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--ink); text-decoration: none; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn.dark { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.page { width: 1360px; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg); box-shadow: 0 2px 10px var(--shadow); font-size: 13px; }
+.chrome { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; background: var(--surface-hover); border-bottom: 1px solid var(--line-strong); color: var(--ink-2); }
+.chrome .url { flex: 1; height: 26px; padding: 0 12px; border-radius: 13px; background: var(--surface); font: 12px/26px var(--mono); color: var(--ink-2); }
+.chrome .tabt { padding: 0 10px; height: 26px; line-height: 26px; border-radius: 6px 6px 0 0; background: var(--surface); color: var(--ink); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+.bar.done { border-bottom-color: var(--ok); background: color-mix(in srgb, var(--ok) 6%, var(--panel)); }
+.bar .spacer { flex: 1; }
+.bar .bar-title { font-weight: 600; }
+.bar .sent { color: var(--ink-2); font-size: 12px; }
+.bar .okmark { width: 16px; height: 16px; stroke: var(--ok); fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.qid { display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font: 600 12px var(--mono); }
+.pick { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); font-size: 12px; white-space: nowrap; }
+.pick.on { border-color: var(--warn); font-weight: 600; }
+.pick.empty { border-style: dashed; color: var(--ink-3); }
+.picks { display: inline-flex; gap: 8px; }
+.body { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 520px; }
+.frame { position: relative; overflow: hidden; padding: 26px 40px; background: var(--surface); }
+.frame .dwho { display: inline-flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
+.frame h3 { margin: 10px 0 6px; font-size: 17px; }
+.frame p { max-width: 640px; color: var(--ink-2); line-height: 1.6; }
+.frame h4 { margin: 18px 0 6px; font-size: 14px; }
+.frame table { margin-top: 6px; border-collapse: collapse; font-size: 12px; }
+.frame th, .frame td { padding: 5px 12px; border: 1px solid var(--line); text-align: left; }
+.frame th { background: var(--panel); }
+.talk { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--line-strong); background: var(--panel); }
+.talk-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.talk-head b { font-size: 13px; }
+.th-in { display: inline-flex; align-items: center; gap: 8px; }
+.talk-head .to { color: var(--ink-2); font-size: 12px; }
+.talk-head .two { flex-basis: 100%; display: flex; gap: 12px; font-size: 12px; color: var(--ink-2); }
+.talk-head .two b { font-size: 12px; color: var(--ink); }
+.state { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-wash); font-size: 11px; font-weight: 600; }
+.state i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.thread { display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: hidden; }
+.msg { max-width: 300px; padding: 7px 10px; border-radius: 10px; line-height: 1.5; }
+.msg.me { align-self: flex-end; background: var(--accent); color: var(--bg); border-bottom-right-radius: 3px; }
+.msg.ag { align-self: flex-start; border: 1px solid var(--line-strong); background: var(--surface); border-bottom-left-radius: 3px; }
+.meta { font-size: 11px; color: var(--ink-3); }
+.meta.r { align-self: flex-end; margin-top: -6px; }
+.meta.l { align-self: flex-start; margin-top: -6px; }
+.compose { display: grid; gap: 6px; padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+.compose .with { justify-self: start; padding: 3px 8px; border: 1px solid var(--warn); border-radius: 6px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 12px; }
+.compose .box { min-height: 52px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink-3); line-height: 1.5; }
+.compose .box span { display: inline-block; }
+.compose .row { display: flex; align-items: center; gap: 8px; }
+.compose .row .hint { flex: 1; }
+.msg.typing { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.spin { width: 14px; height: 14px; fill: none; stroke: var(--ink-3); stroke-width: 3; stroke-dasharray: 40 60; stroke-linecap: round; }
+@media (prefers-reduced-motion: no-preference) { .spin { animation: spin 0.9s linear infinite; } }
+@keyframes spin { to { rotate: 360deg; } }
+.frame .dbox { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 8px 10px; border: 1.5px solid var(--warn); border-radius: 8px; font-size: 13px; max-width: 640px; }
+.frame .dopt { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; }
+.frame .dopt.on { border-color: var(--warn); font-weight: 600; }
+.frame .other { display: grid; gap: 6px; margin-top: 12px; padding: 8px 10px; border: 1.5px solid var(--warn); border-radius: 8px; font-size: 13px; max-width: 640px; }
+.frame .other .otext { padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.bar .feedback { flex: 1 1 100%; height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 18px; }
+.states { border-collapse: collapse; font-size: 13px; max-width: 880px; margin-top: -12px; }
+.states th, .states td { padding: 6px 10px; border: 1px solid var(--line-strong); text-align: left; }
+.states th { background: var(--panel); }
+
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co .dref { flex: none; height: 22px; margin-top: 1px; padding: 0 5px; border: 1px solid #C08A1E; border-radius: 4px; background: #FDF3DC; color: #171B22; font: 700 12px/20px var(--mono); font-style: normal; }
+.decision > .for { font-size: 13px; font-weight: 600; }
+.co b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font-size: 14px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 28px; height: 28px; border-radius: 50%; background: #D14343; color: #fff; font: 700 15px/28px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+
+.canvas { position: relative; height: 420px; padding: 40px; background: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 20px 20px; display: flex; gap: 60px; align-items: flex-start; }
+.card { position: relative; width: 360px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 1px 4px var(--shadow); }
+.card.dim { opacity: 0.85; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.card-head .spacer { flex: 1; }
+.btn.icon { width: 26px; padding: 0; justify-content: center; }
+.btn.icon svg { fill: currentColor; }
+.card-body { padding: 10px 12px; min-height: 120px; font: 12px/1.6 var(--mono); color: var(--ink-2); }
+.menu { position: absolute; top: 40px; right: -150px; z-index: 5; display: grid; min-width: 190px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px var(--shadow); }
+.menu .mi { padding: 6px 10px; border-radius: 5px; font-size: 13px; }
+.menu .mi.danger { color: var(--err); }
+.room { display: grid; justify-content: center; height: 560px; background: var(--bg); }
+.room .talk { width: 760px; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); }
+.room .msg { max-width: 520px; }
+.pickto { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.namebox { justify-self: start; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink-2); }
+</style>
+</head>
+<body data-ui=".btn, .state, .chrome .url, .msg, .compose .box, .menu .mi, .pickto, .namebox">
+<svg width="0" height="0" style="position:absolute"><symbol id="fwd" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol><symbol id="chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol><symbol id="link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol><symbol id="dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></symbol><symbol id="down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol></svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M152</b></span><span>연 담당: <b>코디 · 코디 채팅방</b></span><span>v1 · 2026-11-17 · 승인 「일단 목업 구현해」(D1~D4 A)</span></div>
+  <h1>채팅방: loom 밖의 사람·에이전트와 loom 에이전트가 주고받는 방</h1>
+  <p class="lead">사람 지시: “방금 문서에서 서로 채팅한것처럼 loom 안 밖을 연결해주는 전용 채팅방 하나 만들어줘”. 방금 대화는 문서 R427의 「에이전트와 대화」 칸에서 있었습니다. 15:45와 15:51에 loom 밖에서 Okta를 다루던 쪽이 그 칸에 글을 쓰고, ktasearch 총괄이 <code>loom answer</code>로 그 칸에 답했습니다. 같은 글은 loom 총괄 터미널에도 손으로 들어갔습니다(15:43, 15:51, 15:54). 문서 없이 이 대화 칸만 쓰는 페이지가 채팅방입니다. 받는 노드, 읽음, 응답하는 중 표시, 답 줄은 문서 페이지와 같습니다.</p>
+  <p class="lead">「loom 밖」은 loom 노드가 아닌 쪽입니다: 브라우저나 폰의 사람, 그리고 사람의 브라우저에서 일하는 바깥 에이전트(예: Claude in Chrome)입니다. 그들은 방 주소를 열어 글을 씁니다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳입니다.</p>
+
+  <div class="flow"><span>사람: 카드 ⋯ › 채팅방 열기</span><i>→</i><span>새 탭: 그 노드의 채팅방</span><i>→</i><span>[링크 복사] → 바깥 에이전트나 폰에 줌</span><i>→</i><span>같은 방에 글을 씀 → 노드가 메모로 받음</span><i>→</i><span>노드: loom answer로 방에 답함</span></div>
+
+  <div class="fig">
+    <h2>① 개선 후 카드 메뉴에서 방 열기 <span class="tag">그래프 화면</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="tabt">loom</span><span class="url">127.0.0.1:7420/</span></div>
+      <div class="canvas">
+        <div class="card">
+          <div class="card-head"><b>ktasearch 총괄</b><span class="state"><i></i>쉼</span><span class="spacer"></span><span class="btn ghost sm icon"><svg><use href="#dots"/></svg></span></div>
+          <div class="card-body">$ 가이드 1장 Okta 절을 고쳤습니다.<br>$ loom answer 38653 "…"</div>
+          <div class="menu">
+            <span class="mi">터미널 카드로 보기</span>
+            <span class="mi">기본 크기로 되돌리기</span>
+            <span class="mi">다시 띄우기</span>
+            <span class="mi mk new" data-n="1">채팅방 열기</span>
+            <span class="mi danger">노드 제거</span>
+          </div>
+        </div>
+        <div class="card dim">
+          <div class="card-head"><b>loom 총괄</b><span class="state"><i></i>쉼</span><span class="spacer"></span><span class="btn ghost sm icon"><svg><use href="#dots"/></svg></span></div>
+          <div class="card-body">$ loom spawn 코디 채팅방 …</div>
+        </div>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>새 메뉴 항목입니다. 그 노드의 채팅방을 새 탭으로 엽니다. 방은 노드마다 하나입니다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② D1-A 노드 하나의 채팅방 <span class="tag">바깥 에이전트와 사람이 같은 방에 씀</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="tabt">채팅방 · ktasearch 총괄</span><span class="url">127.0.0.1:7420/rooms/2253</span></div>
+      <div class="room">
+        <aside class="talk">
+          <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>채팅방</b><span class="to">ktasearch 총괄</span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm mk new" data-n="2"><svg><use href="#link"/></svg>링크 복사</span></div>
+          <div class="thread">
+            <span class="msg me">R427대로 Okta 앱을 만들었는데 email_verified에서 막혔습니다. 답만 주세요.</span>
+            <span class="meta r">ktasearch 총괄 · 15:45 · 읽음</span>
+            <span class="msg ag">default 서버에는 그 이름으로 더할 수 없습니다. 표준 클레임 이름이라 Okta가 막습니다.</span>
+            <span class="meta l">ktasearch 총괄 · 15:48</span>
+            <span class="msg me">정정합니다. 실제 토큰으로 검증했고, email_verified는 /userinfo로 옵니다. 가이드를 고쳐 주세요.</span>
+            <span class="meta r mk" data-n="3">ktasearch 총괄 · 15:51 · 읽음</span>
+            <span class="msg ag typing"><svg class="spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>ktasearch 총괄이 응답하는 중</span>
+          </div>
+          <div class="compose">
+            <span class="box">ktasearch 총괄에게 보낼 말</span>
+            <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>2</b><span>방 주소(끝이 받는 노드 번호)를 복사해 바깥 에이전트나 휴대폰에 줍니다.</span></div>
+      <div><b>3</b><span>받는 노드, 읽음, 응답하는 중은 문서 페이지 대화 칸과 같은 규칙입니다.</span></div>
+    </div>
+  </div>
+
+  <section class="decision" id="D1" data-for="1 2 4">
+    <h3><span class="did">D1</span>방은 몇 개이고, 누가 받는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">노드마다 방 하나, 받는 노드는 방 주소가 정한다<span class="mark">권장</span><span class="sub">지금: 문서가 있어야 대화 칸이 있음 → 바뀐 뒤: 카드 ⋯ › 채팅방 열기 · 비용: 메뉴 항목 하나, 페이지 하나 · 위험: 노드를 지우면 그 방은 보낼 수 없음(기록은 남음) · 되돌리기: 메뉴 항목과 페이지를 지움</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">방은 하나(<code>/room</code>), 머리에서 받는 노드를 고른다<span class="sub">지금 → 바뀐 뒤: 한 방에 여러 노드와 나눈 말이 섞임 · 비용: 고르기 칸, 고른 노드를 DB에 둠(바깥 쪽도 같은 노드를 봐야 함) · 위험: 바깥 에이전트가 모르는 사이 받는 노드가 바뀜 · 되돌리기: 고르기 칸을 지움</span></span></div>
+    </div>
+    <ul class="why"><li>방금 대화도 한 노드(ktasearch 총괄)와만 했습니다.</li><li>주소 하나가 받는 곳을 정하므로 고른 상태를 저장하지 않습니다.</li></ul>
+  </section>
+
+  <div class="fig">
+    <h2>③ D1-B 방 하나에서 받는 노드를 고름 <span class="tag">같은 상황</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="tabt">채팅방</span><span class="url">127.0.0.1:7420/room</span></div>
+      <div class="room">
+        <aside class="talk">
+          <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>채팅방</b><span class="pickto mk new" data-n="4">받는 노드: ktasearch 총괄<svg width="12" height="12" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#down"/></svg></span><span class="state"><i></i>작업 중</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#link"/></svg>링크 복사</span></div>
+          <div class="thread">
+            <span class="msg me">오늘 병합 큐에 남은 브랜치를 알려 줘.</span>
+            <span class="meta r">loom 총괄 · 15:30 · 읽음</span>
+            <span class="msg ag">남은 브랜치는 없습니다.</span>
+            <span class="meta l">loom 총괄 · 15:31</span>
+            <span class="msg me">R427대로 Okta 앱을 만들었는데 email_verified에서 막혔습니다. 답만 주세요.</span>
+            <span class="meta r">ktasearch 총괄 · 15:45 · 읽음</span>
+            <span class="msg ag typing"><svg class="spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>ktasearch 총괄이 응답하는 중</span>
+          </div>
+          <div class="compose">
+            <span class="box">ktasearch 총괄에게 보낼 말</span>
+            <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>4</b><span>고르기 칸입니다. 고른 노드가 다음 말을 받습니다. 앞선 다른 노드와의 말도 한 줄기에 남습니다.</span></div>
+    </div>
+  </div>
+
+  <section class="decision" id="D2" data-for="2">
+    <h3><span class="did">D2</span>누가 방에 들어오는가(인증)</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">이미 데몬에 닿는 곳만: 이 PC의 브라우저와 그 안의 바깥 에이전트, 짝지은 휴대폰<span class="mark">권장</span><span class="sub">지금: 문서 페이지와 같은 문 → 바뀐 뒤: 같은 문, 새 인증 없음 · 비용: 없음 · 위험: 다른 PC나 웹의 ChatGPT·Claude는 들어올 수 없음 · 되돌리기: 해당 없음</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">링크 토큰을 가진 누구나: 다른 PC, 웹의 에이전트<span class="sub">지금 → 바뀐 뒤: 방마다 비밀 링크 · 비용: 인터넷에 여는 문(Tailscale Funnel 등), 토큰 저장·끊기 단추, 그 문만 방 API로 막는 검사 · 위험: 링크가 새면 누구나 노드에 일을 시킴 · 되돌리기: 토큰을 끊고 문을 닫음</span></span></div>
+    </div>
+    <ul class="why"><li>방금 대화를 한 바깥 쪽은 사람의 브라우저에서 일했습니다. A로 충분합니다.</li><li>B는 노드에 일을 시키는 문을 인터넷에 엽니다. 2026-10-22 결정(Q418 C)은 중계·터널을 두지 않았습니다.</li></ul>
+  </section>
+
+  <div class="fig">
+    <h2>④ D3-B 보내는 이 이름을 적음 <span class="tag">같은 방, 바깥 에이전트가 씀</span></h2>
+    <div class="page">
+      <div class="chrome"><span class="tabt">채팅방 · ktasearch 총괄</span><span class="url">127.0.0.1:7420/rooms/2253</span></div>
+      <div class="room">
+        <aside class="talk">
+          <div class="talk-head"><span class="th-in"><svg width="15" height="15" style="stroke:currentColor;fill:none;stroke-width:2"><use href="#chat"/></svg><b>채팅방</b><span class="to">ktasearch 총괄</span><span class="state"><i></i>쉼</span></span><span class="spacer" style="flex:1"></span><span class="btn ghost sm"><svg><use href="#link"/></svg>링크 복사</span></div>
+          <div class="thread">
+            <span class="msg me">이 가이드의 2장도 같은 방식으로 확인했나요?</span>
+            <span class="meta r">사람 → ktasearch 총괄 · 16:02 · 읽음</span>
+            <span class="msg ag">아니요. 2장은 아직 실제 토큰으로 보지 않았습니다.</span>
+            <span class="meta l">ktasearch 총괄 · 16:03</span>
+            <span class="msg me">2장도 토큰 교환으로 확인했습니다. 결과를 붙입니다.</span>
+            <span class="meta r mk new" data-n="5">Claude in Chrome → ktasearch 총괄 · 16:10 · 읽음</span>
+          </div>
+          <div class="compose">
+            <span class="namebox mk new" data-n="6">보내는 이: Claude in Chrome</span>
+            <span class="box">ktasearch 총괄에게 보낼 말</span>
+            <span class="row"><span class="hint">Enter로 보내기 · Shift+Enter로 줄 바꾸기</span><span class="btn sm dark">보내기</span></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>5</b><span>말마다 보낸 이를 보입니다. 받는 노드도 「Claude in Chrome이 썼다」는 글을 받습니다.</span></div>
+      <div><b>6</b><span>보내는 이 칸입니다. 비우면 「사람」입니다. 브라우저가 기억합니다.</span></div>
+    </div>
+  </div>
+
+  <section class="decision" id="D3" data-for="3 5 6">
+    <h3><span class="did">D3</span>누가 썼는지 방에 보이는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">보이지 않는다: 모든 말이 「사람」의 말이다(②처럼)<span class="mark">권장</span><span class="sub">지금: 문서 페이지도 모두 사람 → 바뀐 뒤: 같음 · 비용: 없음 · 위험: 노드가 바깥 에이전트의 말을 사람의 지시로 받음(R427 대화와 같음) · 되돌리기: 해당 없음</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">보내는 이 칸을 둔다(④처럼)<span class="sub">지금 → 바뀐 뒤: 줄마다 「Claude in Chrome → ktasearch 총괄」 · 비용: 입력칸, DB 열 하나, 메모 글 바꿈 · 위험: 이름은 쓴 쪽이 적은 글이라 확인하지 않음 · 되돌리기: 칸을 숨김(열은 남음)</span></span></div>
+    </div>
+    <ul class="why"><li>D2-A에서 방에 들어오는 쪽은 모두 사람이 허락한 쪽입니다.</li><li>이름을 확인할 방법이 없어 B의 이름도 믿을 근거가 되지 않습니다.</li></ul>
+  </section>
+
+  <section class="decision" id="D4" data-for="3">
+    <h3><span class="did">D4</span>방의 기록을 얼마나 두는가</h3>
+    <div class="opts">
+      <div class="opt" data-recommended><span class="key">A</span><span class="label">문서 대화처럼 DB에 계속 둔다. 노드를 지워도 남고, 방은 읽기만 된다<span class="mark">권장</span><span class="sub">지금: 문서 대화 줄은 지우지 않음 → 바뀐 뒤: 같음 · 비용: 없음 · 위험: 줄이 쌓임(문서 대화와 같은 표) · 되돌리기: 해당 없음</span></span></div>
+      <div class="opt"><span class="key">B</span><span class="label">노드를 지우면 그 방의 줄도 지운다<span class="sub">지금 → 바뀐 뒤: 지운 노드의 방 주소는 빈 방 · 비용: 노드 지우기에 한 줄 · 위험: 바깥 쪽과 나눈 답을 잃음 · 되돌리기: 지운 줄은 되살릴 수 없음</span></span></div>
+    </div>
+    <ul class="why"><li>문서 대화 줄도 같은 규칙입니다. 규칙을 둘로 나누지 않습니다.</li></ul>
+  </section>
+
+  <table class="states">
+    <tr><th>부품</th><th>다시 씀 / 새로 만듦</th></tr>
+    <tr><td>대화 줄 표 <code>doc_talk</code>, 사람 말 → 메모(<code>human</code>), <code>loom answer</code> → 방의 답 줄, 읽음·응답하는 중 계산, 멈춘 노드 다시 띄우기</td><td>다시 씀. 줄의 자리(문서 ID)에 방(노드 번호)을 더함</td></tr>
+    <tr><td>문서 페이지의 대화 칸 화면(머리, 줄, 스피너, 입력칸)</td><td>다시 씀. 대화 칸을 따로 떼어 문서 페이지와 채팅방이 함께 씀</td></tr>
+    <tr><td>문 검사(이 PC, 짝지은 휴대폰)</td><td>다시 씀(D2-A)</td></tr>
+    <tr><td>방 주소 <code>/rooms/&lt;노드 번호&gt;</code>와 그 API, 카드 메뉴 「채팅방 열기」, [링크 복사]</td><td>새로 만듦</td></tr>
+  </table>
+  <ul class="note">
+    <li>노드가 받는 메모는 「사람이 채팅방에 썼다. <code>loom answer &lt;번호&gt;</code>로 방에 답하라」를 알립니다. 문서 경로는 없습니다.</li>
+    <li>GPUI 데스크톱과 앱은 같은 페이지를 브라우저로 엽니다. 받은편지함 알림은 만들지 않습니다(문서 대화와 같음).</li>
+  </ul>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const refs = new Map();
+  const name = fig => [...fig.querySelector('h2')?.childNodes ?? []].filter(c => !c.classList?.contains('tag')).map(c => c.textContent).join('').trim();
+  for (const d of document.querySelectorAll('.decision[data-for]')) {
+    const groups = new Map();
+    for (const n of d.dataset.for.match(/\d+/g) ?? []) {
+      refs.set(n, [...(refs.get(n) ?? []), d.id]);
+      const fig = document.querySelector(`.mk[data-n="${n}"]`)?.closest('.fig'); if (!fig) continue;
+      groups.set(fig, [...(groups.get(fig) ?? []), n]);
+    }
+    const line = document.createElement('p'); line.className = 'for';
+    line.textContent = '대상: ' + [...groups].map(([fig, ns]) => `${name(fig)} · ${ns.join(', ')}번`).join(' / ');
+    d.querySelector(':scope > .for')?.remove(); d.querySelector(':scope > h3')?.after(line);
+  }
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    if (!fig.getClientRects().length) continue;
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    if (!place(fig, src)) continue;
+    const pad = x => { fig.style.paddingBottom = base + x + 'px'; return place(fig, src); };
+    let lo = 0, hi = 1200;
+    if (pad(hi)) continue;
+    while (hi - lo > 20) { const mid = Math.round((lo + hi) / 40) * 20; if (pad(mid)) lo = mid; else hi = mid; }
+    pad(hi);
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = new Map([...src.querySelectorAll(':scope > div')].map(d => [d.querySelector(':scope > b')?.textContent.trim(), d.querySelector(':scope > span')?.innerHTML]));
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 14], [(o.l + o.r) / 2, o.b + 14], [o.l - 14, o.t + 14], [o.r + 14, o.t + 14]].map(([x, y]) => ({ l: x - 14, t: y - 14, r: x + 14, b: y + 14 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts.get(String(n))) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b>${(refs.get(String(n)) ?? []).map(k => `<i class="dref">${k}</i>`).join('')}<span>${texts.get(String(n))}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 16, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

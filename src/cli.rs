@@ -146,8 +146,8 @@ pub fn answer(message: u32, body: String) -> Result<(), String> {
 }
 
 fn print_sent(sent: &Sent) {
-    if let Some(doc) = &sent.page {
-        println!("Answered #{} on the document page of {doc}.", sent.id.0);
+    if let Some(page) = &sent.page {
+        println!("Answered #{} on the page {page}.", sent.id.0);
         return;
     }
     match sent.recipient {

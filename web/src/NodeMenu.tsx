@@ -1,11 +1,12 @@
-import { Ellipsis, PanelTop, RefreshCw, RotateCcw, SquareTerminal, Trash2 } from 'lucide-react';
+import { Ellipsis, MessageSquare, PanelTop, RefreshCw, RotateCcw, SquareTerminal, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { clearCardView, relaunchNode, setCardView } from './api';
+import { clearCardView, relaunchNode, roomPageUrl, setCardView } from './api';
 import { menuSwitch } from './cardView';
 import type { DefaultCardView } from './gen/DefaultCardView';
 import type { NodeView } from './gen/NodeView';
 import { Menu } from './Menu';
+import { openLink } from './openLink';
 
 export function NodeMenu(props: { view: NodeView; defaultView: DefaultCardView; onResetSize?: () => void; onRemove: () => void; onRefusal: (text: string) => void }) {
   const { t } = useTranslation();
@@ -42,7 +43,11 @@ export function NodeMenu(props: { view: NodeView; defaultView: DefaultCardView; 
               {view.relaunch === 'queued' ? t('node.relaunchQueued') : t('node.relaunch')}
             </button>
           )}
-          {(view.relaunch || props.onResetSize) && <hr />}
+          <button role="menuitem" onClick={() => run(() => openLink(new URL(roomPageUrl(view.id), location.href).href, null))}>
+            <MessageSquare />
+            {t('node.openRoom')}
+          </button>
+          <hr />
           <button role="menuitem" className="danger" onClick={() => run(props.onRemove)}>
             <Trash2 />
             {t('node.remove')}

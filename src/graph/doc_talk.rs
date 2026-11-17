@@ -10,6 +10,7 @@ use crate::protocol::MessageId;
 
 const BY_HUMAN: &str = "human";
 const BY_AGENT: &str = "agent";
+const ROOM: &str = "room/";
 
 const RECIPIENTS: [&str; 4] = [
     "SELECT node FROM questions WHERE json_valid(wait) AND wait ->> '$.doc.id' = ?1 ORDER BY id DESC LIMIT 1",
@@ -94,6 +95,10 @@ impl Graph {
         .collect()
     }
 
+    pub fn room_lines(&self, node: NodeId) -> rusqlite::Result<Vec<TalkLine>> {
+        self.talk_lines(&room_key(node))
+    }
+
     pub fn post_talk(
         &self,
         doc: &str,
@@ -101,17 +106,34 @@ impl Graph {
         node: NodeId,
         text: &str,
     ) -> Result<(), Refusal> {
+        self.say(doc, node, text, |text| format!(
+            "{text}\nThe human wrote this on the loom document page of {doc} (file: {file}). If the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
+        ))
+    }
+
+    pub fn post_room(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
+        let key = room_key(node);
+        let page = page_of(&key);
+        self.say(&key, node, text, |text| format!(
+            "{text}\nThe human wrote this in your loom chat room ({page}). Reply in the room with loom answer <this message id> \"<reply>\"."
+        ))
+    }
+
+    fn say(
+        &self,
+        key: &str,
+        node: NodeId,
+        text: &str,
+        body: impl FnOnce(&str) -> String,
+    ) -> Result<(), Refusal> {
         let text = text.trim();
         if text.is_empty() {
             return Err(Refusal::EmptyAnswer);
         }
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let body = format!(
-            "{text}\nThe human wrote this on the loom document page of {doc} (file: {file}). If the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
-        );
-        let message = mailbox::enqueue_human(&tx, node, &MessageKind::Note, &body)?;
-        said_by_human(&tx, doc, node, text, message, None)?;
+        let message = mailbox::enqueue_human(&tx, node, &MessageKind::Note, &body(text))?;
+        said_by_human(&tx, key, node, text, message, None)?;
         tx.commit()?;
         drop(db);
         self.publish_nodes();
@@ -147,7 +169,18 @@ impl Graph {
                 params![doc, BY_AGENT, name_of(&db, from)?, text],
             )?;
         }
-        Ok(doc)
+        Ok(doc.as_deref().map(page_of))
+    }
+}
+
+fn room_key(node: NodeId) -> String {
+    format!("{ROOM}{}", node.0)
+}
+
+fn page_of(key: &str) -> String {
+    match key.strip_prefix(ROOM) {
+        Some(node) => format!("/rooms/{node}"),
+        None => format!("/docs/{key}"),
     }
 }
 

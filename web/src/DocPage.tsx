@@ -1,12 +1,11 @@
-import { Check, ChevronRight, Download, LoaderCircle, MessageSquare } from 'lucide-react';
+import { Check, ChevronRight, Download, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, docUrl, getDocQuestion, getDocTalk, postDocTalk } from './api';
 import type { DocQuestion } from './gen/DocQuestion';
 import type { DocTalk } from './gen/DocTalk';
-import type { ProcessState } from './gen/ProcessState';
-import type { TalkLine } from './gen/TalkLine';
 import { dateAndTime, hourMinute } from './i18n';
+import { TalkThread } from './TalkThread';
 
 type Decision = { id: string; keys: string[]; recommended: string | null };
 type Pick = { key?: string; text?: string };
@@ -36,11 +35,6 @@ function answerText(choice: string | null, decisions: readonly Decision[], picks
   return [picked, other].filter(Boolean).join(MESSAGE_JOIN);
 }
 
-function pending(lines: readonly TalkLine[]): TalkLine | null {
-  const last = lines.at(-1);
-  return last?.said.by === 'human' ? last : null;
-}
-
 function pickText(pick: Pick | undefined): string {
   return [pick?.key, pick?.text?.trim()].filter(Boolean).join(NOTE_JOIN);
 }
@@ -62,7 +56,6 @@ function picksOf(text: string, decisions: readonly Decision[]): Picks {
 export function DocPage({ id }: { id: string }) {
   const { t } = useTranslation();
   const frame = useRef<HTMLIFrameElement>(null);
-  const thread = useRef<HTMLOListElement>(null);
   const scrollY = useRef(0);
   const lastVersion = useRef<string | null>(null);
   const shownVersion = useRef<string | null>(null);
@@ -119,10 +112,6 @@ export function DocPage({ id }: { id: string }) {
   }, [changedAt]);
 
   const lineCount = talk?.lines.length ?? 0;
-  const waiting = pending(talk?.lines ?? []);
-  useEffect(() => {
-    thread.current?.scrollTo({ top: thread.current.scrollHeight });
-  }, [lineCount, folded]);
 
   useEffect(() => {
     const heard = (e: MessageEvent<FromDoc>) => {
@@ -296,20 +285,7 @@ export function DocPage({ id }: { id: string }) {
                 {t('docPage.fold')}
               </button>
             </div>
-            <ol className="talk-thread" ref={thread}>
-              {lineCount === 0 && <li className="talk-empty">{to ? t('docPage.talkEmpty', { name: to.name }) : t('docPage.noAgent')}</li>}
-              {talk?.lines.map((line) => (
-                <li key={line.id} data-by={line.said.by}>
-                  <p className="talk-text">{line.text}</p>
-                  <span className="talk-meta">
-                    {line.said.by === 'agent'
-                      ? `${line.said.name} · ${hourMinute(line.at * 1000)}`
-                      : [line.said.to, hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
-                  </span>
-                </li>
-              ))}
-              {waiting?.said.by === 'human' && waiting.said.process && <Waiting name={waiting.said.to} received={waiting.said.received} process={waiting.said.process} />}
-            </ol>
+            <TalkThread lines={talk?.lines ?? []} empty={to ? t('docPage.talkEmpty', { name: to.name }) : t('docPage.noAgent')} />
             <div className="talk-compose">
               {answering !== null && <p className="talk-with">{preview ? t('docPage.asAnswer', { id: `Q${answering}`, name: to?.name, text: preview }) : t('docPage.asAnswerOnly', { id: `Q${answering}`, name: to?.name })}</p>}
               <textarea rows={3} value={message} disabled={busy || (answering === null && to === null)} onChange={(e) => setMessage(e.target.value)} onKeyDown={onKey} aria-label={placeholder} placeholder={placeholder} />
@@ -324,25 +300,5 @@ export function DocPage({ id }: { id: string }) {
         )}
       </div>
     </div>
-  );
-}
-
-function Waiting({ name, received, process }: { name: string; received: boolean; process: ProcessState }) {
-  const { t } = useTranslation();
-  if (received && process.kind === 'working')
-    return (
-      <li data-by="agent" className="talk-typing" role="status">
-        <p className="talk-text">
-          <LoaderCircle className="spin" aria-hidden="true" />
-          {t('docPage.responding', { name })}
-        </p>
-      </li>
-    );
-  const blocked = process.kind === 'blocked';
-  const state = received ? (blocked ? 'receivedBlocked' : 'restingNoReply') : blocked ? 'queuedBlocked' : process.kind === 'working' ? 'queuedBusy' : 'queuedWaking';
-  return (
-    <li data-by="human" className="talk-state" role="status">
-      <span className="talk-meta">{t(`docPage.waiting.${state}`)}</span>
-    </li>
   );
 }

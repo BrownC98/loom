@@ -84,6 +84,7 @@ const en = {
     relaunchQueued: 'Relaunches when this turn ends',
     toStandard: 'Show as terminal card',
     toSimple: 'Show as simple card',
+    openRoom: 'Open chat room',
     state: {
       running: 'running',
       done: 'done',
@@ -499,6 +500,14 @@ const en = {
       nodeRemoved: 'Closed: node removed',
       by: { human: 'Closed without an answer', agent: 'Closed by the agent', restart: 'Closed: node relaunched', exit: 'Closed: node ended' },
     },
+  },
+  room: {
+    title: 'Chat room',
+    tab: 'Chat room · {{name}}',
+    copyLink: 'Copy link',
+    copied: 'Copied',
+    empty: 'No messages yet. {{name}} receives what you write.',
+    gone: 'This node was removed. You can only read the history.',
   },
   docPage: {
     other: 'Other: {{text}}',

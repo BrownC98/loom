@@ -265,12 +265,12 @@ impl Graph {
             loop {
                 let mut notified = pin!(self.mail_changed());
                 notified.as_mut().enable();
-                if let Some(merged) = self.unseen_merged(launch)? {
-                    return Ok(merged);
-                }
                 let mut taken = self.take(launch, Kind::ALL, 0, Hold::Started)?;
                 if !taken.is_empty() {
                     return Ok(taken.remove(0));
+                }
+                if let Some(merged) = self.merged_owner_copy(launch)? {
+                    return Ok(merged);
                 }
                 notified.await;
             }
@@ -293,24 +293,21 @@ impl Graph {
         }
     }
 
-    fn unseen_merged(&self, launch: NodeLaunch<'_>) -> Result<Option<Delivery>, Refusal> {
+    fn merged_owner_copy(&self, launch: NodeLaunch<'_>) -> Result<Option<Delivery>, Refusal> {
         let db = self.lock();
         current_in(&db, launch)?;
-        let delivery = db
+        Ok(db
             .query_row(
-                "SELECT id, sender_name, kind, body, what FROM messages
-                 WHERE recipient = ?1 AND what ->> 'kind' = 'merged'
-                 AND delivered = 1 AND sent_at IS NULL
+                r#"SELECT m.id, m.sender_name, m.kind, m.body, m.what FROM messages m
+                 JOIN gates g ON g.owner = m.recipient AND g.state = '"merged"'
+                     AND g.branch = m.what ->> 'branch' AND g.head = m.what ->> 'head'
+                 WHERE m.recipient = ?1 AND m.what ->> 'kind' = 'merged' AND m.delivered = 1
                  AND EXISTS (SELECT 1 FROM nodes WHERE id = ?1 AND state ->> 'kind' = 'done')
-                 ORDER BY id LIMIT 1",
+                 ORDER BY m.id DESC LIMIT 1"#,
                 [launch.node.0],
                 read_delivery,
             )
-            .optional()?;
-        if let Some(delivery) = &delivery {
-            hand(&db, std::slice::from_ref(delivery))?;
-        }
-        Ok(delivery)
+            .optional()?)
     }
 
     fn answer_to(

@@ -38,7 +38,7 @@ pub fn read(node: u32, after: u32, wait: u64) -> Result<(), String> {
     loop {
         let talk: RoomTalk = get(&url, &format!("/api/rooms/{node}/talk"))?;
         let new: Vec<&TalkLine> = talk.lines.iter().filter(|l| l.id > after).collect();
-        let replied = new.iter().any(|l| answers_outside(&talk.lines, &l.said));
+        let replied = new.iter().any(|l| answers(&talk.lines, after, &l.said));
         if replied || Instant::now() >= until {
             for line in &new {
                 println!("#{} {}: {}", line.id, who(&line.said), line.text);
@@ -52,7 +52,7 @@ pub fn read(node: u32, after: u32, wait: u64) -> Result<(), String> {
     }
 }
 
-fn answers_outside(lines: &[TalkLine], said: &Said) -> bool {
+fn answers(lines: &[TalkLine], after: u32, said: &Said) -> bool {
     let Said::Agent {
         reply_to: Some(asked),
         ..
@@ -60,9 +60,15 @@ fn answers_outside(lines: &[TalkLine], said: &Said) -> bool {
     else {
         return false;
     };
-    lines
-        .iter()
-        .any(|l| l.id == *asked && matches!(l.said, Said::Outside { .. }))
+    let outside = |id: u32| {
+        lines
+            .iter()
+            .any(|l| l.id == id && matches!(l.said, Said::Outside { .. }))
+    };
+    match outside(after) {
+        true => *asked == after,
+        false => outside(*asked),
+    }
 }
 
 fn who(said: &Said) -> String {

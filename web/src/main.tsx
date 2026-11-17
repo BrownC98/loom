@@ -7,6 +7,7 @@ import './styles.css';
 import './i18n';
 import { App } from './App';
 import { DocPage, docPageId } from './DocPage';
+import { RoomPage, roomPageNode } from './RoomPage';
 import { showClippedText } from './clippedText';
 
 showClippedText(document);
@@ -17,4 +18,5 @@ for (const type of ['dragover', 'drop'] as const)
   });
 
 const docId = docPageId();
-createRoot(document.getElementById('root')!).render(<StrictMode>{docId ? <DocPage id={docId} /> : <App />}</StrictMode>);
+const roomNode = roomPageNode();
+createRoot(document.getElementById('root')!).render(<StrictMode>{docId ? <DocPage id={docId} /> : roomNode !== null ? <RoomPage node={roomNode} /> : <App />}</StrictMode>);

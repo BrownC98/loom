@@ -5,6 +5,7 @@ import type { AgentView } from './gen/AgentView';
 import type { DocQuestion } from './gen/DocQuestion';
 import type { DocTalk } from './gen/DocTalk';
 import type { PostTalk } from './gen/PostTalk';
+import type { RoomTalk } from './gen/RoomTalk';
 import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
@@ -127,6 +128,9 @@ export const getDocQuestion = (id: string) => call<DocQuestion>('GET', `/api/doc
 export const getDocTalk = (id: string) => call<DocTalk>('GET', `/api/docs/${encodeURIComponent(id)}/talk`);
 export const postDocTalk = (id: string, text: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}/talk`, { text } satisfies PostTalk);
 export const docPageUrl = (id: string) => `/docs/${encodeURIComponent(id)}`;
+export const roomPageUrl = (node: NodeId) => `/rooms/${node}`;
+export const getRoomTalk = (node: NodeId) => call<RoomTalk>('GET', `/api/rooms/${node}/talk`);
+export const postRoomTalk = (node: NodeId, text: string) => call<null>('POST', `/api/rooms/${node}/talk`, { text } satisfies PostTalk);
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const answerImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/answer-images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);

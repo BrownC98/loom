@@ -262,8 +262,18 @@ impl Graph {
     ) -> Result<Delivery, Refusal> {
         let node = launch.node;
         let Some(request) = reply_to else {
-            let mut taken = self.next(launch, Kind::ALL, 0).await?;
-            return Ok(taken.remove(0));
+            loop {
+                let mut notified = pin!(self.mail_changed());
+                notified.as_mut().enable();
+                if let Some(merged) = self.unseen_merged(launch)? {
+                    return Ok(merged);
+                }
+                let mut taken = self.take(launch, Kind::ALL, 0, Hold::Started)?;
+                if !taken.is_empty() {
+                    return Ok(taken.remove(0));
+                }
+                notified.await;
+            }
         };
         let owns: bool = self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND sender = ?2)",
@@ -281,6 +291,26 @@ impl Graph {
             }
             notified.await;
         }
+    }
+
+    fn unseen_merged(&self, launch: NodeLaunch<'_>) -> Result<Option<Delivery>, Refusal> {
+        let db = self.lock();
+        current_in(&db, launch)?;
+        let delivery = db
+            .query_row(
+                "SELECT id, sender_name, kind, body, what FROM messages
+                 WHERE recipient = ?1 AND what ->> 'kind' = 'merged'
+                 AND delivered = 1 AND sent_at IS NULL
+                 AND EXISTS (SELECT 1 FROM nodes WHERE id = ?1 AND state ->> 'kind' = 'done')
+                 ORDER BY id LIMIT 1",
+                [launch.node.0],
+                read_delivery,
+            )
+            .optional()?;
+        if let Some(delivery) = &delivery {
+            hand(&db, std::slice::from_ref(delivery))?;
+        }
+        Ok(delivery)
     }
 
     fn answer_to(
@@ -308,23 +338,6 @@ impl Graph {
             )?;
         }
         Ok(delivery)
-    }
-
-    pub async fn next(
-        &self,
-        launch: NodeLaunch<'_>,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        loop {
-            let mut notified = pin!(self.mail_changed());
-            notified.as_mut().enable();
-            let taken = self.take(launch, kinds, limit_bytes, Hold::Started)?;
-            if !taken.is_empty() {
-                return Ok(taken);
-            }
-            notified.await;
-        }
     }
 
     pub fn interrupt_pending(&self, node: NodeId) -> rusqlite::Result<bool> {

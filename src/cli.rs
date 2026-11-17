@@ -501,6 +501,9 @@ pub fn ready(branch: String, deploy: crate::protocol::Deploy) -> Result<(), Stri
         "Sent {branch} to its gate {} (target {}).",
         readied.gate, readied.target
     );
+    println!(
+        "On merge, if your parent gets the merged, loom marks you done, does not wake you and removes this node when your turn ends; `loom wait` returns that merged at once. Do follow-up work before `loom ready`."
+    );
     for problem in &readied.unseated {
         println!(
             "loom could not spawn the reviewer {problem}. Call `loom ready {branch}` again to try again."

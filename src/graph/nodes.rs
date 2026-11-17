@@ -1073,7 +1073,7 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
         let what = MessageKind::Removed {
             node: name_of(tx, id)?,
         };
-        mailbox::enqueue(
+        let notice = mailbox::enqueue(
             tx,
             id,
             Some(parent),
@@ -1082,6 +1082,9 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
             "",
             Default::default(),
         )?;
+        if state_of(tx, parent)? == NodeState::Done {
+            mailbox::record_only(tx, notice)?;
+        }
     }
     tx.execute(
         "UPDATE messages SET recipient = NULL

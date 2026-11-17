@@ -21,11 +21,18 @@ export function TalkThread({ lines, empty }: { lines: readonly TalkLine[]; empty
           <span className="talk-meta">
             {line.said.by === 'agent'
               ? `${line.said.name} · ${hourMinute(line.at * 1000)}`
-              : [line.said.to, hourMinute(line.at * 1000), line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }), line.said.received ? t('docPage.received') : t('docPage.sentOnly')].filter(Boolean).join(' · ')}
+              : [
+                  line.said.by === 'outside' ? t('docPage.outsideTo', { from: line.said.from, to: line.said.to }) : line.said.to,
+                  hourMinute(line.at * 1000),
+                  line.said.by === 'human' && line.said.answer !== null && t('docPage.asAnswerOf', { id: `Q${line.said.answer}` }),
+                  line.said.received ? t('docPage.received') : t('docPage.sentOnly'),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </span>
         </li>
       ))}
-      {last?.said.by === 'human' && last.said.process && <Waiting name={last.said.to} received={last.said.received} process={last.said.process} />}
+      {last && last.said.by !== 'agent' && last.said.process && <Waiting name={last.said.to} received={last.said.received} process={last.said.process} />}
     </ol>
   );
 }

@@ -543,6 +543,7 @@ const ko: typeof en = {
     keys: 'Enter로 보내기 · Shift+Enter로 줄 바꾸기',
     asAnswer: '{{id}} 답으로 {{name}}에게 보냅니다: {{text}}',
     asAnswerOnly: '{{id}} 답으로 {{name}}에게 보냅니다',
+    outsideTo: '외부 에이전트 · {{from}} → {{to}}',
     asAnswerOf: '{{id}} 답',
     received: '읽음',
     sentOnly: '보냄',

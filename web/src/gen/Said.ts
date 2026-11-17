@@ -6,4 +6,4 @@ export type Said = { "by": "human", to: string, answer: WaitId | null, received:
 /**
  * 받는 노드의 지금 프로세스 상태. 그 노드를 지웠으면 없다.
  */
-process?: ProcessState, } | { "by": "agent", name: string, };
+process?: ProcessState, } | { "by": "agent", name: string, reply_to?: number, } | { "by": "outside", from: string, to: string, received: boolean, process?: ProcessState, };

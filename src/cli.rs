@@ -30,6 +30,7 @@ use api::start::ModelChoice;
 
 mod endpoint;
 mod hook;
+pub mod room;
 
 pub use hook::hook;
 

@@ -1038,11 +1038,12 @@ button.chips:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .talk-head .spacer { flex: 1; }
 .talk-thread { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 14px; overflow-y: auto; list-style: none; }
 .talk-thread > li { display: flex; flex-direction: column; gap: 3px; max-width: 88%; }
-.talk-thread > li[data-by="human"] { align-self: flex-end; align-items: flex-end; }
+.talk-thread > li[data-by="human"], .talk-thread > li[data-by="outside"] { align-self: flex-end; align-items: flex-end; }
 .talk-thread > li[data-by="agent"] { align-self: flex-start; }
 .talk-thread > .talk-empty { align-self: center; max-width: none; margin-top: 40px; color: var(--ink-3); font-size: 12px; text-align: center; }
 .talk-text { margin: 0; padding: 7px 10px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 li[data-by="human"] > .talk-text { border-bottom-right-radius: 3px; background: var(--accent); color: var(--bg); }
+li[data-by="outside"] > .talk-text { border: 1px solid var(--line-strong); border-bottom-right-radius: 3px; background: var(--accent-wash); color: var(--ink); }
 li[data-by="agent"] > .talk-text { border: 1px solid var(--line-strong); border-bottom-left-radius: 3px; background: var(--surface); }
 .talk-meta { color: var(--ink-3); font-size: 11px; }
 .talk-compose { display: grid; gap: 6px; padding: 10px 14px 12px; border-top: 1px solid var(--line); }

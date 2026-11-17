@@ -113,8 +113,30 @@ pub enum Said {
         #[ts(optional)]
         process: Option<ProcessState>,
     },
-    /// 에이전트가 `loom answer`로 페이지에 쓴 답.
-    Agent { name: String },
+    /// 에이전트가 `loom answer`로 페이지에 쓴 답. `reply_to`는 그 답이 답한 줄의 번호다. 옛 줄에는 없다.
+    Agent {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        reply_to: Option<u32>,
+    },
+    /// loom 밖의 에이전트가 `loom room send --from <from>`으로 채팅방에 쓴 말. `from`은 보낸 쪽이 적은 이름이고 loom은 확인하지 않는다.
+    Outside {
+        from: String,
+        to: String,
+        received: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        process: Option<ProcessState>,
+    },
+}
+
+/// loom 밖의 에이전트가 채팅방에 쓰는 말(`POST /api/rooms/{node}/outside`).
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PostOutside {
+    pub from: String,
+    pub text: String,
 }
 
 /// 사람이 대화 칸에서 보낸 말(`POST /api/docs/{id}/talk`, `POST /api/rooms/{node}/talk`).

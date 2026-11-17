@@ -1,10 +1,11 @@
 use super::*;
 use api::graph::ProcessState;
-use api::graph::docs::{PostTalk, RoomTalk, TalkTo};
+use api::graph::docs::{PostOutside, PostTalk, RoomTalk, TalkTo};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/rooms/{node}/talk", get(room_talk).post(post_room))
+        .route("/api/rooms/{node}/outside", post(post_outside))
         .route("/rooms/{node}", get(super::settings::index))
 }
 
@@ -43,4 +44,16 @@ async fn post_room(
     app.graph.post_room(node, &req.text)?;
     app.turn_ends.human(node, Some(&req.text));
     Ok(Json(()))
+}
+
+async fn post_outside(
+    State(app): State<Arc<App>>,
+    Path(node): Path<u32>,
+    Json(req): Json<PostOutside>,
+) -> Result<Json<u32>, Problem> {
+    Ok(Json(app.graph.post_outside(
+        NodeId(node),
+        &req.from,
+        &req.text,
+    )?))
 }

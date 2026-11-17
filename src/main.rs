@@ -62,6 +62,29 @@ enum RolesAction {
     },
 }
 
+#[derive(clap::Subcommand)]
+enum RoomAction {
+    /// 산 에이전트 노드를 한 줄씩 출력한다: `#<번호> <이름> (<워크트리>)`.
+    Nodes,
+    /// 노드의 채팅방에 한 줄을 쓴다. 노드는 사람이 아니라 `--from` 이름의 외부 에이전트가 쓴 메모로 받고 `loom answer`로 방에 답한다. 끝난 노드는 거절한다.
+    Send {
+        /// 노드 번호(`loom room nodes`).
+        node: u32,
+        text: String,
+        /// 보내는 에이전트의 이름. 채팅방에 「외부 에이전트 · <이름>」으로 보인다.
+        #[arg(long)]
+        from: String,
+    },
+    /// 채팅방에서 `--after` 줄 번호 뒤의 줄을 `#<줄 번호> <보낸 이>: <말>`로 출력한다. 노드의 답이 오거나 `--wait` 초가 지나면 끝난다.
+    Read {
+        node: u32,
+        #[arg(long, default_value_t = 0)]
+        after: u32,
+        #[arg(long, default_value_t = 0)]
+        wait: u64,
+    },
+}
+
 #[derive(Parser)]
 #[command(name = "loom", version = protocol::VERSION)]
 enum Cli {
@@ -130,6 +153,11 @@ enum Cli {
     Roles {
         #[command(subcommand)]
         action: Option<RolesAction>,
+    },
+    /// loom 밖의 에이전트(예: Aside)가 노드의 채팅방으로 노드와 주고받는다. 노드 토큰 없이 이 PC의 데몬에 붙는다.
+    Room {
+        #[command(subcommand)]
+        action: RoomAction,
     },
     /// 메모(종류 note)를 보낸다. 다른 종류(질문, 답, 완료, 관문)에 맞지 않는 메시지다. 종류 낱말(QUESTION, DONE, READY 등)로 시작하면 거절한다.
     Note {
@@ -296,6 +324,15 @@ fn main() -> ExitCode {
             agent.map(api::ids::AgentId),
             ModelChoice { model, effort },
         ),
+        Cli::Room {
+            action: RoomAction::Nodes,
+        } => cli::room::nodes(),
+        Cli::Room {
+            action: RoomAction::Send { node, text, from },
+        } => cli::room::send(node, from, text),
+        Cli::Room {
+            action: RoomAction::Read { node, after, wait },
+        } => cli::room::read(node, after, wait),
         Cli::Roles { action: None } => cli::roles(),
         Cli::Roles {
             action:

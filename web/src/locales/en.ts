@@ -541,6 +541,7 @@ const en = {
     keys: 'Enter to send · Shift+Enter for a new line',
     asAnswer: 'Sends to {{name}} as the answer to {{id}}: {{text}}',
     asAnswerOnly: 'Sends to {{name}} as the answer to {{id}}',
+    outsideTo: 'outside agent · {{from}} → {{to}}',
     asAnswerOf: 'answer to {{id}}',
     received: 'read',
     sentOnly: 'sent',

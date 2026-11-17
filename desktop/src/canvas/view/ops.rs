@@ -86,6 +86,15 @@ impl CanvasView {
         self.call(cx, move |base| cardlink::wake(base, id));
     }
 
+    fn open_room(&mut self, id: u32, cx: &mut Context<Self>) {
+        let opened = self
+            .store
+            .read(cx)
+            .room_url(id)
+            .and_then(|url| crate::views::ui::open_url(&url));
+        self.report(opened, cx);
+    }
+
     fn bookmark(&mut self, id: u32, cx: &mut Context<Self>) {
         let on = self
             .store
@@ -234,9 +243,14 @@ impl CanvasView {
                 run: run(|this, id, cx| this.call(cx, move |b| cardlink::relaunch(b, id))),
             }));
         }
-        if node.relaunch.is_some() || (sized && current == CardView::Standard) {
-            entries.push(Entry::Rule);
-        }
+        entries.push(Entry::Item(Item {
+            icon: Lucide::MessageSquare,
+            label: Str::NodeOpenRoom.text(lang).to_owned(),
+            danger: false,
+            disabled: false,
+            run: run(|this, id, cx| this.open_room(id, cx)),
+        }));
+        entries.push(Entry::Rule);
         entries.push(Entry::Item(Item {
             icon: Lucide::Trash2,
             label: Str::NodeRemove.text(lang).to_owned(),

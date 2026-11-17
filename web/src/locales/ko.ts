@@ -86,6 +86,7 @@ const ko: typeof en = {
     relaunchQueued: '턴이 끝나면 다시 띄웁니다',
     toStandard: '터미널 카드로 보기',
     toSimple: '심플 카드로 보기',
+    openRoom: '채팅방 열기',
     state: {
       running: '진행',
       done: '완료',
@@ -501,6 +502,14 @@ const ko: typeof en = {
       nodeRemoved: '노드를 지워 닫힘',
       by: { human: '답 없이 닫음', agent: '에이전트가 닫음', restart: '다시 띄워 닫힘', exit: '노드가 끝나 닫힘' },
     },
+  },
+  room: {
+    title: '채팅방',
+    tab: '채팅방 · {{name}}',
+    copyLink: '링크 복사',
+    copied: '복사했습니다',
+    empty: '아직 주고받은 말이 없습니다. 쓰면 {{name}}이(가) 받습니다.',
+    gone: '이 노드는 지워졌습니다. 기록만 볼 수 있습니다.',
   },
   docPage: {
     other: '기타: {{text}}',

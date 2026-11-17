@@ -829,6 +829,13 @@ impl Store {
             None => Err(self.status.clone()),
         }
     }
+
+    pub fn room_url(&self, node: u32) -> Result<String, String> {
+        match &self.base {
+            Some(base) => Ok(format!("{base}/rooms/{node}")),
+            None => Err(self.status.clone()),
+        }
+    }
 }
 
 impl Store {

@@ -68,6 +68,16 @@ pub struct DocTalk {
     pub version: String,
 }
 
+/// 채팅방 페이지(`/rooms/{node}`, 목업 docs/mockups/chat-room.html M152 v1)의 대화. 페이지가 짧은 간격으로 읽는다.
+#[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RoomTalk {
+    /// 방의 노드. 지운 노드면 없고, 방은 읽기만 된다.
+    pub to: Option<TalkTo>,
+    pub lines: Vec<TalkLine>,
+}
+
 #[derive(Serialize, Deserialize, TS, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -107,7 +117,7 @@ pub enum Said {
     Agent { name: String },
 }
 
-/// 사람이 대화 칸에서 보낸 말(`POST /api/docs/{id}/talk`).
+/// 사람이 대화 칸에서 보낸 말(`POST /api/docs/{id}/talk`, `POST /api/rooms/{node}/talk`).
 #[derive(Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct PostTalk {

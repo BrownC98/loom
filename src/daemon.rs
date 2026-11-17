@@ -17,6 +17,7 @@ mod queue;
 mod reclaim;
 mod relaunch;
 mod repos;
+mod rooms;
 mod runtime;
 mod sessions;
 mod settings;
@@ -235,6 +236,7 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         .merge(repos::routes())
         .merge(nodes::routes())
         .merge(waits::routes())
+        .merge(rooms::routes())
         .merge(system::routes())
         .merge(settings::routes())
         .merge(places::routes())

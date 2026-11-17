@@ -29,15 +29,20 @@ export function RoomPage({ node }: { node: NodeId }) {
 
   useEffect(() => {
     let stopped = false;
+    let timer = 0;
+    const next = () => {
+      if (!stopped) timer = window.setTimeout(poll, POLL_MS);
+    };
     const poll = () => {
-      if (document.visibilityState === 'hidden') return;
-      getRoomTalk(node).then((now) => stopped || setTalk(now), (err: Error) => stopped || setRefusal(err.message));
+      if (document.visibilityState === 'hidden') return next();
+      getRoomTalk(node)
+        .then((now) => stopped || setTalk(now), (err: Error) => stopped || setRefusal(err.message))
+        .finally(next);
     };
     poll();
-    const timer = setInterval(poll, POLL_MS);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [node]);
 

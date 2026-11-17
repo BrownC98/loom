@@ -129,7 +129,7 @@ export const getDocTalk = (id: string) => call<DocTalk>('GET', `/api/docs/${enco
 export const postDocTalk = (id: string, text: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}/talk`, { text } satisfies PostTalk);
 export const docPageUrl = (id: string) => `/docs/${encodeURIComponent(id)}`;
 export const roomPageUrl = (node: NodeId) => `/rooms/${node}`;
-export const getRoomTalk = (node: NodeId) => call<RoomTalk>('GET', `/api/rooms/${node}/talk`);
+export const getRoomTalk = (node: NodeId) => read<RoomTalk>(`/api/rooms/${node}/talk`);
 export const postRoomTalk = (node: NodeId, text: string) => call<null>('POST', `/api/rooms/${node}/talk`, { text } satisfies PostTalk);
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const answerImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/answer-images/${index}`;

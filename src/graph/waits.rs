@@ -126,8 +126,6 @@ impl Stored {
 
 const TEXT_LIMIT_CHARS: usize = 200;
 const QUESTION_LIMIT_CHARS: usize = 1000;
-pub const HUMAN: &str = "human";
-
 impl Graph {
     pub fn set_wait(
         &self,

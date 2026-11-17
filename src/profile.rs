@@ -715,8 +715,10 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
 }
 
 pub fn message_text(taken: &[Delivery]) -> String {
-    taken
-        .iter()
+    let (human, rest): (Vec<_>, Vec<_>) = taken.iter().partition(|d| d.by_human());
+    human
+        .into_iter()
+        .chain(rest)
         .map(Delivery::text)
         .collect::<Vec<_>>()
         .join(crate::protocol::BATCH_SEPARATOR)

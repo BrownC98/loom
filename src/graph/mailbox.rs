@@ -9,13 +9,13 @@ use super::token::{NodeLaunch, current_in};
 use super::turns::TYPED;
 use super::{Db, hosts, waits};
 use super::{
-    Graph, HUMAN, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json,
-    parent_of, set_work, state_of, to_json,
+    Graph, Hold, REACHABLE, Work, ambiguous, finish_work, from_json, optional_json, parent_of,
+    set_work, state_of, to_json,
 };
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::process_tree::Identity;
-use crate::protocol::{BATCH_SEPARATOR, Delivery, LOOM, MessageId};
+use crate::protocol::{BATCH_SEPARATOR, Delivery, HUMAN, LOOM, MessageId};
 use api::graph::errors::{BRIEF_LIMIT_BYTES, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES};
 use api::graph::events::{Entry, GateTrace, Step, Via};
 use api::graph::messages::{Kind, MessageKind, Question};

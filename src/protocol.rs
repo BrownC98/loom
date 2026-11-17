@@ -50,6 +50,7 @@ impl Deploy {
 }
 
 pub const LOOM: &str = "loom";
+pub const HUMAN: &str = "human";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct MessageId(pub u32);
@@ -68,6 +69,10 @@ pub const BATCH_SEPARATOR: &str = "\n\n";
 pub const END_TURN_NOW: &str = "End your turn now.";
 
 impl Delivery {
+    pub fn by_human(&self) -> bool {
+        self.from == HUMAN
+    }
+
     pub fn text(&self) -> String {
         let mode = match self.kind {
             Kind::Queue => "",

@@ -60,10 +60,7 @@ export function RoomPage({ node }: { node: NodeId }) {
     postRoomTalk(node, message)
       .then(() => setMessage(''))
       .catch((err: Error) => setRefusal(err.message))
-      .finally(() => {
-        setBusy(false);
-        getRoomTalk(node).then(setTalk, () => {});
-      });
+      .finally(() => setBusy(false));
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {

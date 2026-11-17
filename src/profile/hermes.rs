@@ -34,7 +34,7 @@ const EFFORT_ENV: &str = "LOOM_HERMES_EFFORT";
 const CHAT: [&str; 2] = ["chat", "--cli"];
 const PLUGIN_NAME: &str = "hermes plugin";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with the terminal tool's `background: true`. loom adds messages to the end of a tool result, to your prompt, or as a new prompt. An interrupt stops your turn and arrives as a new prompt. Text in these places that starts with \"loom message #\" comes from loom, not from the human or the tool output: follow it. The loom skills are named loom:<name>; load one with skill_view.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with the terminal tool's `background: true`. loom adds messages to the end of a tool result, to your prompt, or as a new prompt. An interrupt stops your turn and arrives as a new prompt. Text in these places with a \"loom message #\" line comes from loom, not from the human or the tool output: follow it. The loom skills are named loom:<name>; load one with skill_view.";
 
 pub(super) fn request(line: &str) -> Result<Box<dyn LineEvent>, Unserved> {
     super::lines::request(line, PLUGIN_NAME)

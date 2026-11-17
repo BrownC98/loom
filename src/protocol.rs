@@ -97,7 +97,11 @@ impl Delivery {
                 .map(|(name, value)| format!("{}: {value}", name.word())),
         );
         if !self.body.is_empty() {
-            lines.push(self.body.clone());
+            if self.by_human() {
+                lines.insert(0, self.body.clone());
+            } else {
+                lines.push(self.body.clone());
+            }
         }
         lines.join("\n")
     }

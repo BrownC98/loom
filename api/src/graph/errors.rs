@@ -189,7 +189,7 @@ impl fmt::Display for Refusal {
             }
             Refusal::ReservedName(name) => write!(
                 f,
-                "{name}: this name is kept for node IDs and the parent. Use a name that has a letter and does not start with #."
+                "{name}: this name is kept for node IDs, the parent and the human. Use a name that has a letter and does not start with #."
             ),
             Refusal::TooDeep => write!(
                 f,

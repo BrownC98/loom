@@ -18,7 +18,7 @@ const EXTENSIONS: [(&str, &str); 2] = [("loom-hook.ts", HOOK), (EXTENSION_FILE, 
 pub(super) const IDLE_FLAG: &str = "--loom-idle";
 const EXTENSION_NAME: &str = "pi extension";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places with a \"loom message #\" line comes from loom, not from the tool output: follow it.";
 
 pub(super) const WORK_METHOD: &str = "Work method (speed; follow it):
 - Read a whole file, or a range of 400 lines or more, in one call, not 100-line pieces. Read related files in the same turn and collect searches into one command.

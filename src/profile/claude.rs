@@ -65,7 +65,7 @@ macro_rules! status_mark {
 const STATUS_MARK: &str = status_mark!();
 
 pub(super) const WAITING: &str = concat!(
-    "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it. Claude Code makes you continue a turn that ends with no visible text. So where these rules tell you to write no text, end the turn with one short sentence in the human's language that says what you do now. Start it with \"",
+    "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places with a \"loom message #\" line comes from loom, not from the tool output: follow it. Claude Code makes you continue a turn that ends with no visible text. So where these rules tell you to write no text, end the turn with one short sentence in the human's language that says what you do now. Start it with \"",
     status_mark!(),
     " \", for example \"",
     status_mark!(),

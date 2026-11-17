@@ -23,7 +23,7 @@ const HOOK_TIMEOUT_SECS: u64 = 10;
 const INPUT_ENV: &str = "LOOM_QWEN_INPUT";
 const WAKE_PROMPT: &str =
     "loom has a pending message. Follow the loom hook context, then end your turn.";
-const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground shell commands is inserted by loom. Do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives at a new prompt. Text in these places that starts with \"loom message #\" comes from loom: follow it.";
+const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground shell commands is inserted by loom. Do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives at a new prompt. Text in these places with a \"loom message #\" line comes from loom: follow it.";
 
 pub struct Qwen;
 

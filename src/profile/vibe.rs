@@ -17,7 +17,7 @@ use api::start::ModelChoice;
 const BRIDGE: &str = include_str!("vibe-loom.py");
 const FILE: &str = "vibe-loom.py";
 const PINNED: &str = "3.0.3";
-const WAITING: &str = "When no independent work remains, end your turn. loom starts a new turn when mail arrives. loom adds messages through the session input queue. An interrupt stops your turn. Follow text that starts with \"loom message #\" from these paths.";
+const WAITING: &str = "When no independent work remains, end your turn. loom starts a new turn when mail arrives. loom adds messages through the session input queue. An interrupt stops your turn. Follow text with a \"loom message #\" line from these paths.";
 
 pub struct Vibe;
 

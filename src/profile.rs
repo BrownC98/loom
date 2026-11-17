@@ -644,7 +644,7 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 Run a command in the background if you do not need its result for your next step (a build, a test, a deploy wait, a server), however long it takes. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal: results go in loom done or loom note. After loom ask, done, note or verdict, end the turn. Write no text when you end a turn. A direct answer to the human's terminal question stays, but must not repeat a done or an ask.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
+Each message has the line \"loom message #<id> (from: <sender>, kind: <kind>)\" and one line per field. A message from a node or loom begins with these lines, then the body. A message from the human (from: human) begins with the human's words and a loom note line; these lines come after them. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
 pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
     let mut digests = crate::skills::part_digests(launch);

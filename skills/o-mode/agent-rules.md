@@ -16,7 +16,7 @@ Loom child nodes follow [o-mode](SKILL.md). The brief gives the role and the sco
 - Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits).
 - Apply a steer message to your current work.
 - loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. If one changes the scope or a contract, wait for your parent's answer before you edit. A coordinator sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
-- Browser work (a site behind the human's login, a page check): only when the human asks for it, give it to Aside, the human's AI browser, in plain words: `aside.exe "<task>"`. It prints Aside's answer.
+- Browser work (a site behind the human's login, a page check): only when the human asks for it, give it to Aside, the human's AI browser, in plain words: `aside.exe --timeout 10m "<task>"`. It prints Aside's answer. After the timeout the task keeps running: read it later with `aside.exe session inspect <id>`.
 - Do not use `git stash`. All worktrees share it. Keep existing changes.
 - Examine the real behavior and the done-when conditions. Do not make a test or an assertion weaker to pass.
 - Do not accept review findings without examination.

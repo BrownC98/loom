@@ -1,1 +1,2 @@
 ALTER TABLE doc_talk ADD COLUMN sender TEXT;
+ALTER TABLE doc_talk ADD COLUMN reply_to INTEGER;

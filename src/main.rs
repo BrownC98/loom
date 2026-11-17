@@ -20,7 +20,6 @@ mod process_tree;
 mod profile;
 mod protocol;
 mod roles;
-
 mod screen;
 mod search_path;
 mod settings;

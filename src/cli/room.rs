@@ -9,7 +9,6 @@ use serde::de::DeserializeOwned;
 const CALL_FOR: Duration = Duration::from_secs(10);
 const POLL_EVERY: Duration = Duration::from_secs(1);
 
-#[allow(clippy::disallowed_macros)]
 pub fn nodes() -> Result<(), String> {
     let nodes: Vec<NodeView> = get(&daemon()?, "/api/nodes")?;
     for node in nodes
@@ -21,30 +20,25 @@ pub fn nodes() -> Result<(), String> {
     Ok(())
 }
 
-#[allow(clippy::disallowed_macros)]
 pub fn send(node: u32, from: String, text: String) -> Result<(), String> {
-    let url = daemon()?;
-    let talk: RoomTalk = get(&url, &format!("/api/rooms/{node}/talk"))?;
-    post::<()>(
-        &url,
+    let line: u32 = post(
+        &daemon()?,
         &format!("/api/rooms/{node}/outside"),
         &PostOutside { from, text },
     )?;
-    let after = talk.lines.last().map_or(0, |line| line.id);
     println!(
-        "Sent to #{node}. Read the reply with: loom room read {node} --after {after} --wait 60"
+        "Sent to #{node} as line #{line}. Read the reply with: loom room read {node} --after {line} --wait 60"
     );
     Ok(())
 }
 
-#[allow(clippy::disallowed_macros)]
 pub fn read(node: u32, after: u32, wait: u64) -> Result<(), String> {
     let url = daemon()?;
     let until = Instant::now() + Duration::from_secs(wait);
     loop {
         let talk: RoomTalk = get(&url, &format!("/api/rooms/{node}/talk"))?;
         let new: Vec<&TalkLine> = talk.lines.iter().filter(|l| l.id > after).collect();
-        let replied = new.iter().any(|l| matches!(l.said, Said::Agent { .. }));
+        let replied = new.iter().any(|l| answers_outside(&talk.lines, &l.said));
         if replied || Instant::now() >= until {
             for line in &new {
                 println!("#{} {}: {}", line.id, who(&line.said), line.text);
@@ -58,9 +52,22 @@ pub fn read(node: u32, after: u32, wait: u64) -> Result<(), String> {
     }
 }
 
+fn answers_outside(lines: &[TalkLine], said: &Said) -> bool {
+    let Said::Agent {
+        reply_to: Some(asked),
+        ..
+    } = said
+    else {
+        return false;
+    };
+    lines
+        .iter()
+        .any(|l| l.id == *asked && matches!(l.said, Said::Outside { .. }))
+}
+
 fn who(said: &Said) -> String {
     match said {
-        Said::Agent { name } => name.clone(),
+        Said::Agent { name, .. } => name.clone(),
         Said::Human { to, .. } => format!("human -> {to}"),
         Said::Outside { from, to, .. } => format!("{from} -> {to}"),
     }

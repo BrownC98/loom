@@ -50,13 +50,10 @@ async fn post_outside(
     State(app): State<Arc<App>>,
     Path(node): Path<u32>,
     Json(req): Json<PostOutside>,
-) -> Result<Json<()>, Problem> {
-    let node = NodeId(node);
-    let to = room_node(&app, node)?
-        .ok_or_else(|| Problem::from(Refusal::NotFound(format!("노드 #{}", node.0))))?;
-    if matches!(to.process, ProcessState::Stopped { .. }) {
-        return Err(Refusal::Ended(to.name).into());
-    }
-    app.graph.post_outside(node, &req.from, &req.text)?;
-    Ok(Json(()))
+) -> Result<Json<u32>, Problem> {
+    Ok(Json(app.graph.post_outside(
+        NodeId(node),
+        &req.from,
+        &req.text,
+    )?))
 }

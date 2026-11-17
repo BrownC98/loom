@@ -271,6 +271,10 @@ fn log_hint() -> String {
     format!("{last} (see {})", path.display())
 }
 
+pub fn daemon_url() -> Option<String> {
+    read_daemon_file().map(|f| f.url)
+}
+
 fn read_daemon_file() -> Option<DaemonFile> {
     let text = std::fs::read(data_file("daemon.json").ok()?).ok()?;
     serde_json::from_slice(&text).ok()

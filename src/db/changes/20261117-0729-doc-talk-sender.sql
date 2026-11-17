@@ -1,0 +1,1 @@
+ALTER TABLE doc_talk ADD COLUMN sender TEXT;

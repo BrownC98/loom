@@ -975,11 +975,21 @@ pub(super) fn enqueue_human(
     what: &MessageKind,
     body: &str,
 ) -> Result<MessageId, Refusal> {
+    enqueue_unsigned(db, to, HUMAN, what, body)
+}
+
+pub(super) fn enqueue_unsigned(
+    db: &Connection,
+    to: NodeId,
+    sender: &str,
+    what: &MessageKind,
+    body: &str,
+) -> Result<MessageId, Refusal> {
     let name = super::name_of(db, to)?;
     check_room(db, to, &name)?;
     db.execute(
         "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
-        params![to.0, HUMAN, to_json(&Kind::Queue), body, to_json(what)],
+        params![to.0, sender, to_json(&Kind::Queue), body, to_json(what)],
     )?;
     Ok(MessageId(db.last_insert_rowid() as u32))
 }

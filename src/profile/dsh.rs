@@ -28,7 +28,7 @@ const WORKSPACE: &str = ".";
 const PLUGIN_NAME: &str = "dsh plugin";
 const URL_ESCAPED: &AsciiSet = &CONTROLS.add(b' ').add(b'#').add(b'%').add(b'?');
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`. loom adds messages as a user message after a tool result, after your prompt, or as a new prompt. An interrupt stops your turn and arrives as a new prompt. Text in these places that starts with \"loom message #\" comes from loom, not from the human or the tool output: follow it.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`. loom adds messages as a user message after a tool result, after your prompt, or as a new prompt. An interrupt stops your turn and arrives as a new prompt. Text in these places with a \"loom message #\" line comes from loom, not from the human or the tool output: follow it.";
 
 struct Patch {
     file: String,

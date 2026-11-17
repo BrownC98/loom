@@ -126,8 +126,6 @@ impl Stored {
 
 const TEXT_LIMIT_CHARS: usize = 200;
 const QUESTION_LIMIT_CHARS: usize = 1000;
-pub const HUMAN: &str = "human";
-
 impl Graph {
     pub fn set_wait(
         &self,
@@ -335,7 +333,7 @@ impl Graph {
                 {
                     doc = question.doc.map(|d| d.id);
                     format!(
-                        "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
+                        "{text}\nThis is the human's answer from the loom inbox to your loom ask question {wait} ({}). The question is closed: do not call loom answered.{images}",
                         question.text
                     )
                 },
@@ -350,7 +348,7 @@ impl Graph {
                 done_node(&db, wait)?,
                 MessageKind::Note,
                 format!(
-                    "New instruction from the human in the loom inbox, after your done report: {text}{images}"
+                    "{text}\nThis is a new instruction from the human in the loom inbox, after your done report.{images}"
                 ),
                 |node, wait, text, images| Entry::Instructed {
                     node,
@@ -402,7 +400,7 @@ impl Graph {
         let text = text.trim();
         let db = self.lock();
         let body = format!(
-            "New instruction from the human in the loom inbox, sent while your process was stopped: {text}{}",
+            "{text}\nThis is a new instruction from the human in the loom inbox, sent while your process was stopped.{}",
             images_line(images)
         );
         mailbox::enqueue_human(&db, node, &MessageKind::Note, &body)?;

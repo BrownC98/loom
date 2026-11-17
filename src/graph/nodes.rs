@@ -1361,6 +1361,7 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
         "" => Err(Refusal::EmptyName),
         name if name.starts_with('#')
             || name == mailbox::PARENT
+            || name == crate::protocol::HUMAN
             || name.bytes().all(|b| b.is_ascii_digit()) =>
         {
             Err(Refusal::ReservedName(name.to_owned()))

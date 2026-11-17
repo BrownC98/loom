@@ -41,7 +41,7 @@ pub use nodes::{Active, Launched, Listed, NewChild, Relations, TaskPins};
 pub use relaunch_plans::{Attempt, DeafClaim, Hold, NewAgent, Next, Phase, Plan};
 pub use token::{NodeLaunch, NodeToken};
 pub use turns::{Nudge, TurnMark};
-pub use waits::{HUMAN, WaitSource};
+pub use waits::WaitSource;
 
 use crate::db::Database;
 use api::graph::errors::Refusal;

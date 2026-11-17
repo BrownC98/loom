@@ -108,7 +108,7 @@ impl Graph {
         text: &str,
     ) -> Result<(), Refusal> {
         self.say(doc, node, text, |text| format!(
-            "The human wrote this on the loom document page of {doc} (file: {file}):\n{text}\nIf the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
+            "{text}\nThe human wrote this on the loom document page of {doc} (file: {file}). If the human asks for a change, edit that file: the open page shows each saved version at once. Reply on the page with loom answer <this message id> \"<reply>\"."
         ))
     }
 
@@ -116,7 +116,7 @@ impl Graph {
         let key = room_key(node);
         let page = page_of(&key);
         self.say(&key, node, text, |text| format!(
-            "The human wrote this in your loom chat room ({page}):\n{text}\nReply in the room with loom answer <this message id> \"<reply>\"."
+            "{text}\nThe human wrote this in your loom chat room ({page}). Reply in the room with loom answer <this message id> \"<reply>\"."
         ))
     }
 

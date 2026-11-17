@@ -19,7 +19,7 @@ use api::start::ModelChoice;
 
 const START_ENV: &str = "LOOM_CRUSH_START";
 const HOOK: &str = "loom hook crush";
-const WAITING: &str = "When no independent work remains, end your turn. loom wakes you on a new message. loom adds messages as hook context between tool calls. An interrupt cancels your current turn and starts a new prompt. Follow text that starts with \"loom message #\". Run persistent processes in the background.";
+const WAITING: &str = "When no independent work remains, end your turn. loom wakes you on a new message. loom adds messages as hook context between tool calls. An interrupt cancels your current turn and starts a new prompt. Follow text with a \"loom message #\" line. Run persistent processes in the background.";
 
 pub struct Crush;
 

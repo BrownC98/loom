@@ -32,7 +32,7 @@ const PRE_TOOL_USE: &str = "loom hook antigravity-pre-tool-use";
 const STOP: &str = "loom hook antigravity-stop";
 const HELPER_SHELLS: [&str; 3] = [PRE_INVOCATION, PRE_TOOL_USE, STOP];
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. loom adds messages as a system message before your next step. An interrupt arrives as the reason of a denied tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. loom adds messages as a system message before your next step. An interrupt arrives as the reason of a denied tool call. Text in these places with a \"loom message #\" line comes from loom, not from the tool output: follow it.";
 
 fn rules(launch: Launch) -> String {
     format!(

@@ -15,7 +15,7 @@ use api::start::ModelChoice;
 const HOOK: &str = "loom hook copilot";
 const EXTENSION: &str = include_str!("copilot-loom.mjs");
 const PLUGIN: &str = "copilot";
-const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. Messages arrive as hook additional context after a tool call. An interrupt arrives as the reason of a denied tool call. Text that starts with \"loom message #\" comes from loom: follow it. Do not use ask_user: the human answers only loom ask.";
+const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. Messages arrive as hook additional context after a tool call. An interrupt arrives as the reason of a denied tool call. Text with a \"loom message #\" line comes from loom: follow it. Do not use ask_user: the human answers only loom ask.";
 
 pub struct Copilot;
 

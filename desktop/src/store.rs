@@ -42,6 +42,8 @@ pub struct Store {
     loaded: u64,
     settings: SettingsView,
     settings_key: String,
+    saving: usize,
+    settings_from: u64,
     selected: Option<u32>,
     chosen: Option<String>,
     wanted: Option<u32>,
@@ -194,6 +196,8 @@ impl Store {
             loaded: 0,
             settings,
             settings_key: String::new(),
+            saving: 0,
+            settings_from: 0,
             selected: None,
             chosen: None,
             wanted: None,
@@ -447,10 +451,7 @@ impl Store {
         if self.current_repo() == Some(repo) {
             return;
         }
-        self.settings.repo = Some(repo);
-        self.settings_key.clear();
         self.save_settings(serde_json::json!({ "repo": repo }), cx);
-        cx.notify();
     }
 
     fn repo_of(&self, node: u32) -> Option<RepoId> {
@@ -492,27 +493,50 @@ impl Store {
         }
     }
 
-    pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
+    pub fn save_settings(&mut self, patch: serde_json::Value, cx: &mut Context<Self>) {
+        let mut value = serde_json::to_value(&self.settings).unwrap_or_default();
+        api::settings::merge(&mut value, &patch);
+        if let Ok(next) = serde_json::from_value(value) {
+            self.take_settings(next, cx);
+            if self.snapshot.is_some() {
+                self.revision += 1;
+            }
+            cx.notify();
+        }
         let Some(base) = self.base.clone() else {
             return;
         };
+        self.saving += 1;
         cx.spawn(async move |this, cx| {
             let saved = cx
                 .background_spawn(async move { link::put_settings(&base, &patch) })
                 .await;
-            let _ = this.update(cx, |store, cx| match saved {
-                Ok(()) => store.reload(cx),
-                Err(error) => {
+            let _ = this.update(cx, |store, cx| {
+                store.saving -= 1;
+                store.settings_from = link::issued();
+                if let Err(error) = saved {
                     let text = error.text(*cx.global::<strings::Lang>());
                     store.tell(text, cx);
-                    store.reload(cx)
                 }
+                store.reload(cx)
             });
         })
         .detach();
     }
 
-    pub fn set_pane_open(&self, pane: &str, open: bool, cx: &mut Context<Self>) {
+    fn take_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
+        let key = serde_json::to_string(&settings).unwrap_or_default();
+        if key != self.settings_key {
+            apply_settings(&settings, cx);
+            if settings.closed_panes.dock {
+                self.picked = None;
+            }
+            self.settings = settings;
+            self.settings_key = key;
+        }
+    }
+
+    pub fn set_pane_open(&mut self, pane: &str, open: bool, cx: &mut Context<Self>) {
         self.save_settings(serde_json::json!({ "closedPanes": { pane: !open } }), cx);
     }
 
@@ -592,14 +616,8 @@ impl Store {
             return;
         }
         self.status = self.base.clone().unwrap_or_default();
-        let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
-        if key != self.settings_key {
-            apply_settings(&loaded.settings, cx);
-            if loaded.settings.closed_panes.dock {
-                self.picked = None;
-            }
-            self.settings = loaded.settings;
-            self.settings_key = key;
+        if self.saving == 0 && loaded.order > self.settings_from {
+            self.take_settings(loaded.settings, cx);
         }
         self.snapshot = Some(loaded.snapshot);
         self.revision += 1;

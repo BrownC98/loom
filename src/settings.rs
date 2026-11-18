@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use api::settings::{FloatPlace, Language, SettingsView};
+use api::settings::{FloatPlace, Language, SettingsView, merge};
 
 use crate::db::Database;
 use crate::roles::{self, ChoiceCheck, RoleProblem, SetRole};
@@ -147,27 +147,6 @@ fn checked(value: &serde_json::Value, check: ChoiceCheck) -> Result<SettingsView
     match problem {
         Some(problem) => Err(problem),
         None => Ok(view),
-    }
-}
-
-fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
-    let serde_json::Value::Object(fields) = patch else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_object() {
-        *target = serde_json::Value::Object(serde_json::Map::new());
-    }
-    let map = target.as_object_mut().expect("바로 위에서 객체로 만들었다");
-    for (key, value) in fields {
-        if value.is_null() {
-            map.remove(key);
-        } else {
-            merge(
-                map.entry(key.clone()).or_insert(serde_json::Value::Null),
-                value,
-            );
-        }
     }
 }
 

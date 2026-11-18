@@ -231,10 +231,7 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
     }
     app.start_nodes();
     let node_routes = commands::node_routes();
-    let router = node_routes
-        .clone()
-        .merge(commands::routes())
-        .merge(repos::routes())
+    let human_routes = repos::routes()
         .merge(nodes::routes())
         .merge(waits::routes())
         .merge(rooms::routes())
@@ -246,6 +243,12 @@ pub async fn serve(listen: SocketAddr, ready_to: Option<SocketAddr>) -> std::io:
         .merge(passes::routes())
         .merge(relaunch::routes())
         .merge(carry::routes())
+        .route_layer(axum::middleware::from_fn(origin::writes_from_page));
+    let router = node_routes
+        .clone()
+        .merge(commands::routes())
+        .merge(rooms::outside_routes())
+        .merge(human_routes)
         .fallback(system::asset)
         .layer(axum::middleware::from_fn_with_state(
             app.devices.clone(),

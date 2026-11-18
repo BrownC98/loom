@@ -8,14 +8,8 @@ use crate::place::Machine;
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
-        .route(
-            "/api/files/open",
-            post(open_file).layer(axum::middleware::from_fn(origin::from_page)),
-        )
-        .route(
-            "/api/links/open",
-            post(open_link).layer(axum::middleware::from_fn(origin::from_page)),
-        )
+        .route("/api/files/open", post(open_file))
+        .route("/api/links/open", post(open_link))
         .route("/api/files/view/{node}/{*path}", get(view_file))
         .route("/api/shutdown", post(shutdown))
         .route("/api/update", get(update_view))

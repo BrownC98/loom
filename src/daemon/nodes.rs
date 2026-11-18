@@ -28,7 +28,7 @@ pub(super) fn routes() -> Router<Arc<App>> {
         )
         .route(
             "/api/nodes/{id}/pty",
-            get(pty).layer(axum::middleware::from_fn(origin::speech_from_page)),
+            get(pty).layer(axum::middleware::from_fn(origin::from_page)),
         )
         .route("/api/nodes/{id}/process-log", get(process_log))
         .route(

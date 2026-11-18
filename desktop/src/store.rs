@@ -19,7 +19,7 @@ use gpui::{
 
 use crate::canvas::drag::Arrange;
 use crate::canvas::repos::{chosen_repo, groups_of};
-use crate::link::{self, Graph, Loaded, Snapshot};
+use crate::link::{self, Fresh, Graph, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::{strings, theme};
 
@@ -561,6 +561,7 @@ impl Store {
     fn apply(&mut self, event: Graph, cx: &mut Context<Self>) {
         match event {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
+            Graph::Nodes(fresh) => self.refresh(*fresh),
             Graph::Feed(event) => cx.emit(*event),
             Graph::Link => {}
             Graph::Failed { order, error } => {
@@ -603,6 +604,26 @@ impl Store {
         }
         self.snapshot = Some(loaded.snapshot);
         self.revision += 1;
+        self.reselect();
+    }
+
+    fn refresh(&mut self, fresh: Fresh) {
+        if !self.newer(fresh.order) {
+            return;
+        }
+        let Some(snapshot) = &mut self.snapshot else {
+            return;
+        };
+        self.status = self.base.clone().unwrap_or_default();
+        snapshot.nodes = fresh.nodes;
+        if let Some(repos) = fresh.repos {
+            snapshot.repos = repos;
+        }
+        self.revision += 1;
+        self.reselect();
+    }
+
+    fn reselect(&mut self) {
         let Some(snapshot) = &self.snapshot else {
             return;
         };

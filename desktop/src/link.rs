@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -411,8 +411,87 @@ pub fn load(base: &str) -> Graph {
     }
 }
 
+pub struct Fresh {
+    pub order: u64,
+    pub nodes: Vec<NodeView>,
+    pub repos: Option<Vec<RepoView>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Read {
+    Nodes,
+    All,
+}
+
+struct Seen {
+    nodes: HashSet<NodeId>,
+    worktrees: HashSet<String>,
+}
+
+impl Seen {
+    fn of(nodes: &[NodeView], repos: &[RepoView]) -> Self {
+        let mut seen = Self {
+            nodes: HashSet::new(),
+            worktrees: HashSet::new(),
+        };
+        seen.note(nodes, Some(repos));
+        seen
+    }
+
+    fn wants_repos(&self, nodes: &[NodeView]) -> bool {
+        let now: HashSet<NodeId> = nodes.iter().map(|n| n.id).collect();
+        self.nodes.iter().any(|id| !now.contains(id))
+            || nodes
+                .iter()
+                .any(|n| !self.worktrees.contains(&n.place.worktree))
+    }
+
+    fn note(&mut self, nodes: &[NodeView], repos: Option<&[RepoView]>) {
+        self.nodes = nodes.iter().map(|n| n.id).collect();
+        let Some(repos) = repos else {
+            return;
+        };
+        self.worktrees = repos
+            .iter()
+            .flat_map(|r| r.worktrees.iter().map(|w| w.path.clone()))
+            .chain(nodes.iter().map(|n| n.place.worktree.clone()))
+            .collect();
+    }
+}
+
+fn reread(base: &str, wanted: Read, seen: &mut Option<Seen>) -> Graph {
+    let Some(was) = seen.as_mut().filter(|_| wanted == Read::Nodes) else {
+        let event = load(base);
+        if let Graph::Loaded(loaded) = &event {
+            *seen = Some(Seen::of(&loaded.snapshot.nodes, &loaded.snapshot.repos));
+        }
+        return event;
+    };
+    let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
+    let fresh = || -> Result<Fresh, Failure> {
+        let nodes: Vec<NodeView> = read(base, "/api/nodes")?;
+        let repos = match was.wants_repos(&nodes) {
+            true => Some(read(base, "/api/repos")?),
+            false => None,
+        };
+        Ok(Fresh {
+            order,
+            nodes,
+            repos,
+        })
+    };
+    match fresh() {
+        Ok(fresh) => {
+            was.note(&fresh.nodes, fresh.repos.as_deref());
+            Graph::Nodes(Box::new(fresh))
+        }
+        Err(error) => Graph::Failed { order, error },
+    }
+}
+
 pub enum Graph {
     Loaded(Box<Loaded>),
+    Nodes(Box<Fresh>),
     Feed(Box<GraphEvent>),
     Failed { order: u64, error: Failure },
     Link,
@@ -420,16 +499,17 @@ pub enum Graph {
 
 pub fn watch(base: &str, graph: async_channel::Sender<Graph>) -> Result<(), String> {
     let host = host(base)?.to_owned();
-    let (reload, wanted) = mpsc::channel::<()>();
+    let (reload, wanted) = mpsc::channel::<Read>();
     let base = base.to_owned();
     let sink = graph.clone();
     std::thread::Builder::new()
         .name("reload".to_owned())
         .spawn(move || {
-            while wanted.recv().is_ok() {
-                while wanted.try_recv().is_ok() {}
+            let mut seen = None;
+            while let Ok(first) = wanted.recv() {
+                let read = wanted.try_iter().fold(first, Read::max);
                 loop {
-                    let event = load(&base);
+                    let event = reread(&base, read, &mut seen);
                     let failed = matches!(event, Graph::Failed { .. });
                     if sink.send_blocking(event).is_err() {
                         return;
@@ -507,7 +587,7 @@ fn socket(host: &str, path: &str) -> Result<WebSocket<TcpStream>, String> {
 enum Target {
     Events {
         graph: async_channel::Sender<Graph>,
-        reload: mpsc::Sender<()>,
+        reload: mpsc::Sender<Read>,
     },
     Pty {
         route: String,
@@ -574,7 +654,10 @@ impl Conn {
         }
         self.state = state;
         match &self.target {
-            Target::Events { graph, .. } => graph.send_blocking(Graph::Link).is_ok(),
+            Target::Events { graph, reload } => {
+                graph.send_blocking(Graph::Link).is_ok()
+                    && (state != LinkState::Connected || reload.send(Read::All).is_ok())
+            }
             Target::Pty { .. } => true,
         }
     }
@@ -678,9 +761,9 @@ impl Conn {
                         self.limit = Duration::from_millis(quiet_ms.into());
                         None
                     }
-                    Ok(GraphEvent::Nodes) => reload.send(()).err().map(|_| Fate::Dead),
+                    Ok(GraphEvent::Nodes) => reload.send(Read::Nodes).err().map(|_| Fate::Dead),
                     Ok(GraphEvent::ViewChanged) => {
-                        let reloaded = reload.send(()).err().map(|_| Fate::Dead);
+                        let reloaded = reload.send(Read::All).err().map(|_| Fate::Dead);
                         let fed = graph
                             .send_blocking(Graph::Feed(Box::new(GraphEvent::ViewChanged)))
                             .err()

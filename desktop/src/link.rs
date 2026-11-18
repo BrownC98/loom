@@ -352,6 +352,10 @@ pub struct Snapshot {
 
 static LOADS: AtomicU64 = AtomicU64::new(0);
 
+pub fn order() -> u64 {
+    LOADS.fetch_add(1, Ordering::Relaxed) + 1
+}
+
 pub fn issued() -> u64 {
     LOADS.load(Ordering::Relaxed)
 }
@@ -392,7 +396,7 @@ fn frame(request: &impl Serialize) -> Message {
 }
 
 pub fn load(base: &str) -> Graph {
-    let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
+    let order = order();
     let read_all = || -> Result<Loaded, Failure> {
         Ok(Loaded {
             order,
@@ -467,7 +471,7 @@ fn reread(base: &str, wanted: Read, seen: &mut Option<Seen>) -> Graph {
         }
         return event;
     };
-    let order = LOADS.fetch_add(1, Ordering::Relaxed) + 1;
+    let order = order();
     let fresh = || -> Result<Fresh, Failure> {
         let nodes: Vec<NodeView> = read(base, "/api/nodes")?;
         let repos = match was.wants_repos(&nodes) {

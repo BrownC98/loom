@@ -40,6 +40,8 @@ pub struct Store {
     snapshot: Option<Snapshot>,
     revision: u64,
     loaded: u64,
+    nodes_at: u64,
+    repos_at: u64,
     settings: SettingsView,
     settings_key: String,
     selected: Option<u32>,
@@ -107,6 +109,14 @@ impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
 
+fn newer(at: &mut u64, order: u64) -> bool {
+    let newer = order > *at;
+    if newer {
+        *at = order;
+    }
+    newer
+}
+
 fn unreached_of(base: &str, hosts: Vec<String>) -> HashSet<String> {
     hosts
         .into_iter()
@@ -160,12 +170,13 @@ impl Store {
                     loop {
                         cx.background_executor().timer(REPOS_EVERY).await;
                         let base = reach_base.clone();
+                        let order = link::order();
                         let repos: Result<Vec<RepoView>, _> = cx
                             .background_spawn(async move { link::read(&base, "/api/repos") })
                             .await;
                         let Ok(hosts) = this.update(cx, |store, cx| {
                             if let Ok(repos) = repos {
-                                store.keep_repos(repos, cx);
+                                store.keep_repos(order, repos, cx);
                             }
                             store.ssh_hosts()
                         }) else {
@@ -201,6 +212,8 @@ impl Store {
             snapshot: None,
             revision: 0,
             loaded: 0,
+            nodes_at: 0,
+            repos_at: 0,
             settings,
             settings_key: String::new(),
             selected: None,
@@ -574,7 +587,7 @@ impl Store {
             Graph::Feed(event) => cx.emit(*event),
             Graph::Link => {}
             Graph::Failed { order, error } => {
-                if !self.newer(order) {
+                if order <= self.loaded.max(self.nodes_at) {
                     return;
                 }
                 let text = error.text(*cx.global::<strings::Lang>());
@@ -589,54 +602,83 @@ impl Store {
         cx.notify();
     }
 
-    fn newer(&mut self, order: u64) -> bool {
-        let newer = order > self.loaded;
-        if newer {
-            self.loaded = order;
+    fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
+        let Loaded {
+            order,
+            snapshot: read,
+            settings,
+        } = loaded;
+        let Some(snapshot) = &mut self.snapshot else {
+            self.snapshot = Some(read);
+            (self.loaded, self.nodes_at, self.repos_at) = (order, order, order);
+            self.take_settings(settings, cx);
+            self.revision += 1;
+            self.reselect();
+            return;
+        };
+        let mut used = false;
+        if newer(&mut self.nodes_at, order) {
+            snapshot.nodes = read.nodes;
+            used = true;
         }
-        newer
+        if newer(&mut self.repos_at, order) {
+            snapshot.repos = read.repos;
+            used = true;
+        }
+        if newer(&mut self.loaded, order) {
+            snapshot.layout = read.layout;
+            snapshot.sizes = read.sizes;
+            self.take_settings(settings, cx);
+            used = true;
+        }
+        if used {
+            self.revision += 1;
+            self.reselect();
+        }
     }
 
-    fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
-        if !self.newer(loaded.order) {
-            return;
-        }
+    fn take_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
         self.status = self.base.clone().unwrap_or_default();
-        let key = serde_json::to_string(&loaded.settings).unwrap_or_default();
+        let key = serde_json::to_string(&settings).unwrap_or_default();
         if key != self.settings_key {
-            apply_settings(&loaded.settings, cx);
-            if loaded.settings.closed_panes.dock {
+            apply_settings(&settings, cx);
+            if settings.closed_panes.dock {
                 self.picked = None;
             }
-            self.settings = loaded.settings;
+            self.settings = settings;
             self.settings_key = key;
         }
-        self.snapshot = Some(loaded.snapshot);
-        self.revision += 1;
-        self.reselect();
     }
 
     fn refresh(&mut self, fresh: Fresh) {
-        if !self.newer(fresh.order) {
-            return;
-        }
         let Some(snapshot) = &mut self.snapshot else {
             return;
         };
-        self.status = self.base.clone().unwrap_or_default();
-        snapshot.nodes = fresh.nodes;
-        if let Some(repos) = fresh.repos {
-            snapshot.repos = repos;
+        let mut used = false;
+        if newer(&mut self.nodes_at, fresh.order) {
+            snapshot.nodes = fresh.nodes;
+            used = true;
         }
-        self.revision += 1;
-        self.reselect();
+        if let Some(repos) = fresh.repos
+            && newer(&mut self.repos_at, fresh.order)
+        {
+            snapshot.repos = repos;
+            used = true;
+        }
+        if used {
+            self.status = self.base.clone().unwrap_or_default();
+            self.revision += 1;
+            self.reselect();
+        }
     }
 
-    fn keep_repos(&mut self, repos: Vec<RepoView>, cx: &mut Context<Self>) {
+    fn keep_repos(&mut self, order: u64, repos: Vec<RepoView>, cx: &mut Context<Self>) {
         let Some(snapshot) = &mut self.snapshot else {
             return;
         };
-        if serde_json::to_string(&snapshot.repos).ok() == serde_json::to_string(&repos).ok() {
+        if !newer(&mut self.repos_at, order)
+            || serde_json::to_string(&snapshot.repos).ok() == serde_json::to_string(&repos).ok()
+        {
             return;
         }
         snapshot.repos = repos;

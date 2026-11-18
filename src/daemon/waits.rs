@@ -1,3 +1,4 @@
+use axum::handler::Handler;
 use axum::http::HeaderValue;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
@@ -16,10 +17,22 @@ pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/waits/closed", get(closed_waits))
         .route("/api/waits/{wait}", delete(dismiss_wait))
-        .route("/api/waits/{wait}/answer", post(answer_wait))
-        .route("/api/waits/{wait}/choose", post(choose_wait))
-        .route("/api/waits/{wait}/type", post(type_wait))
-        .route("/api/waits/{wait}/keys", post(press_keys))
+        .route(
+            "/api/waits/{wait}/answer",
+            post(answer_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
+        )
+        .route(
+            "/api/waits/{wait}/choose",
+            post(choose_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
+        )
+        .route(
+            "/api/waits/{wait}/type",
+            post(type_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
+        )
+        .route(
+            "/api/waits/{wait}/keys",
+            post(press_keys).layer(axum::middleware::from_fn(origin::speech_from_page)),
+        )
         .route("/api/docs", get(list_docs))
         .route(
             "/api/docs/{id}",
@@ -28,7 +41,11 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/docs/{id}/", get(doc))
         .route("/api/docs/{id}/download", get(download_doc))
         .route("/api/docs/{id}/question", get(doc_question))
-        .route("/api/docs/{id}/talk", get(doc_talk).post(post_talk))
+        .route(
+            "/api/docs/{id}/talk",
+            get(doc_talk)
+                .post(post_talk.layer(axum::middleware::from_fn(origin::speech_from_page))),
+        )
         .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(report_image))
         .route("/api/waits/{wait}/answer-images/{index}", get(answer_image))

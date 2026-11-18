@@ -6,6 +6,7 @@ use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use polling::{Event as Ready, Events, Poller};
+use tungstenite::client::IntoClientRequest;
 use tungstenite::{Message, WebSocket};
 
 use api::canvas::{Arranged, CardSize, CommitGraph, Layout, Placed};
@@ -132,10 +133,31 @@ fn host(base: &str) -> Result<&str, String> {
         .ok_or_else(|| format!("not a loopback http url: {base}"))
 }
 
+fn origin(host: &str) -> String {
+    format!("{HTTP}{host}")
+}
+
+fn with_origin(
+    mut request: ureq::http::Request<ureq::SendBody>,
+    next: ureq::middleware::MiddlewareNext,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    if let Some(value) = request
+        .uri()
+        .authority()
+        .and_then(|host| ureq::http::HeaderValue::try_from(origin(host.as_str())).ok())
+    {
+        request
+            .headers_mut()
+            .insert(ureq::http::header::ORIGIN, value);
+    }
+    next.handle(request)
+}
+
 fn agent_within(limit: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(limit))
         .http_status_as_error(false)
+        .middleware(with_origin)
         .build()
         .into()
 }
@@ -580,8 +602,14 @@ fn socket(host: &str, path: &str) -> Result<WebSocket<TcpStream>, String> {
     stream
         .set_write_timeout(Some(CONNECT_LIMIT))
         .map_err(|e| e.to_string())?;
-    let (socket, _) =
-        tungstenite::client(format!("ws://{host}{path}"), stream).map_err(|e| e.to_string())?;
+    let mut request = format!("ws://{host}{path}")
+        .into_client_request()
+        .map_err(|e| e.to_string())?;
+    request.headers_mut().insert(
+        tungstenite::http::header::ORIGIN,
+        tungstenite::http::HeaderValue::try_from(origin(host)).map_err(|e| e.to_string())?,
+    );
+    let (socket, _) = tungstenite::client(request, stream).map_err(|e| e.to_string())?;
     let stream = socket.get_ref();
     stream.set_read_timeout(None).map_err(|e| e.to_string())?;
     stream.set_write_timeout(None).map_err(|e| e.to_string())?;

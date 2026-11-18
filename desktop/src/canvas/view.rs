@@ -32,6 +32,7 @@ use super::popover;
 use super::repos::GroupKind;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
+use crate::fonts;
 use crate::link;
 use crate::scale::{self, fixed as px};
 use crate::store::{NodeMenu, NodeStatus, Show, Store, Target, ZoomTo};
@@ -100,6 +101,24 @@ pub struct CanvasView {
     traffic: Traffic,
     titles: Vec<(Vec<layout::Point>, String)>,
     tip: Option<(String, Point<Pixels>)>,
+}
+
+const CHIP_TEXT_SIZE: f32 = 12.0;
+
+fn with_chip_text<R>(cx: &App, build: impl FnOnce(&scene::ChipText) -> R) -> R {
+    let lang = *cx.global::<Lang>();
+    let width = |text: &str, bold: bool| {
+        let weight = if bold {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        };
+        f64::from(fonts::ui_width(cx, text, CHIP_TEXT_SIZE, weight))
+    };
+    build(&scene::ChipText {
+        heading: Str::GraphChips.text(lang),
+        width: &width,
+    })
 }
 
 fn snapped(zoom: f32) -> f32 {
@@ -210,13 +229,16 @@ impl CanvasView {
         let overlay = self
             .moves
             .overlay(store.settings(), self.scene.outers.clone());
-        let mut next = scene::build(
-            snapshot,
-            &store.shown_repos(),
-            store.settings().card_view,
-            &self.resizer.sizes(),
-            &overlay,
-        );
+        let mut next = with_chip_text(cx, |text| {
+            scene::build(
+                snapshot,
+                &store.shown_repos(),
+                store.settings().card_view,
+                &self.resizer.sizes(),
+                &overlay,
+                text,
+            )
+        });
         self.resizer.place(&mut next);
         if !self.moves.dragging()
             && !self.resizer.busy()
@@ -255,13 +277,16 @@ impl CanvasView {
         let overlay = self
             .moves
             .arranging(&self.scene, settings, direction, scope);
-        let cleared = scene::build(
-            snapshot,
-            &store.shown_repos(),
-            settings.card_view,
-            &self.resizer.sizes(),
-            &overlay,
-        );
+        let cleared = with_chip_text(cx, |text| {
+            scene::build(
+                snapshot,
+                &store.shown_repos(),
+                settings.card_view,
+                &self.resizer.sizes(),
+                &overlay,
+                text,
+            )
+        });
         let job = self.moves.arranged(
             &self.scene,
             &cleared,

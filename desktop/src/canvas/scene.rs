@@ -22,7 +22,14 @@ const CARD_X: f64 = 20.0;
 const GROUP_HEAD: f64 = 43.0;
 const REPO_HEAD: f64 = 46.0;
 const CARD_GAP: f64 = 17.0;
-const CHIP_ROW: f64 = GROUP_HEAD;
+const CHIP_HEIGHT: f64 = 28.0;
+const CHIP_PAD: f64 = 7.0;
+const CHIP_SIDE: f64 = 14.0;
+const CHIP_GAP_X: f64 = 12.0;
+const CHIP_GAP_Y: f64 = 6.0;
+const CHIP_EXTRA: f64 = 8.0 + 4.0 + 24.0 + 24.0 + 4.0 + 3.0 + 2.0;
+const CHIP_LABEL_MAX: f64 = 240.0;
+const CHIP_HEADING_GAP: f64 = 2.0;
 const EMPTY_GROUP: Size = Size {
     width: 320.0,
     height: 100.0,
@@ -98,6 +105,26 @@ fn shown_simple() -> Size {
     }
 }
 
+pub struct ChipText<'a> {
+    pub heading: &'a str,
+    pub width: &'a dyn Fn(&str, bool) -> f64,
+}
+
+fn chip_row(widths: &[f64], frame: f64) -> f64 {
+    let room = frame - 2.0 * CHIP_SIDE * step();
+    let gap = CHIP_GAP_X * step();
+    let (mut lines, mut used) = (1.0, 0.0);
+    for w in widths {
+        if used > 0.0 && used + gap + w > room {
+            lines += 1.0;
+            used = *w;
+        } else {
+            used += if used > 0.0 { gap + w } else { *w };
+        }
+    }
+    (CHIP_HEIGHT * lines + CHIP_GAP_Y * (lines - 1.0) + 2.0 * CHIP_PAD) * step() + 1.0
+}
+
 pub struct Frame {
     pub key: String,
     pub label: String,
@@ -133,6 +160,7 @@ pub struct Scene {
 
 struct Laid {
     group: usize,
+    inset: Inset,
     members: Vec<NodeId>,
     local: BTreeMap<String, Point>,
     auto: BTreeMap<String, Point>,
@@ -168,7 +196,7 @@ struct Level<'a> {
     members: Vec<Vec<&'a NodeView>>,
     nest: Vec<NestGroup>,
     tree: Nested,
-    chips: HashSet<String>,
+    chips: HashMap<String, Vec<f64>>,
     size_of: &'a dyn Fn(NodeId) -> Size,
     placement: Placement<'a>,
 }
@@ -195,14 +223,13 @@ fn unpiled(
 }
 
 impl Level<'_> {
-    fn inset(&self, path: &str) -> Inset {
+    fn inset(&self, path: &str, frame: f64) -> Inset {
         Inset {
             top: card_top()
-                + if self.chips.contains(path) {
-                    banded(CHIP_ROW)
-                } else {
-                    0.0
-                },
+                + self
+                    .chips
+                    .get(path)
+                    .map_or(0.0, |widths| chip_row(widths, frame)),
             side: CARD_X,
         }
     }
@@ -240,15 +267,20 @@ impl Level<'_> {
             &items,
             self.placement.overlay,
         );
-        let rect = if items.is_empty() {
-            Rect {
-                at: Point { x: 0.0, y: 0.0 },
-                size: Size {
-                    width: self.nest[i].empty.width,
-                    height: self.nest[i].empty.height + self.inset(&self.groups[i].path).top
-                        - card_top(),
+        let path = &self.groups[i].path;
+        let (rect, inset) = if items.is_empty() {
+            let frame = self.nest[i].empty.width;
+            let inset = self.inset(path, frame);
+            (
+                Rect {
+                    at: Point { x: 0.0, y: 0.0 },
+                    size: Size {
+                        width: frame,
+                        height: self.nest[i].empty.height + inset.top - card_top(),
+                    },
                 },
-            }
+                inset,
+            )
         } else {
             let contents: Vec<Rect> = items
                 .iter()
@@ -257,7 +289,15 @@ impl Level<'_> {
                     size: it.size,
                 })
                 .collect();
-            cover(&contents, self.inset(&self.groups[i].path))
+            let plain = cover(
+                &contents,
+                Inset {
+                    top: card_top(),
+                    side: CARD_X,
+                },
+            );
+            let inset = self.inset(path, plain.size.width);
+            (cover(&contents, inset), inset)
         };
         let tier = Rc::new(Tier {
             boxes: items
@@ -275,7 +315,7 @@ impl Level<'_> {
                 .map(|(k, _)| (self.groups[k.group].path.clone(), k.lead))
                 .collect(),
             parent: Some(self.groups[i].path.clone()),
-            shell: self.inset(&self.groups[i].path),
+            shell: inset,
         });
         let auto = items
             .iter()
@@ -297,6 +337,7 @@ impl Level<'_> {
             tier,
             lead: rect.at,
             size: rect.size,
+            inset,
             kids: kids.into_iter().map(|(k, _)| k).collect(),
         }
     }
@@ -356,7 +397,7 @@ impl Level<'_> {
                     },
                     size: (self.size_of)(id),
                 },
-                inset: self.inset(&self.groups[g.group].path),
+                inset: g.inset,
             });
         }
         for k in &g.kids {
@@ -422,6 +463,7 @@ pub fn build(
     card_view: DefaultCardView,
     resized: &HashMap<u32, Size>,
     overlay: &Overlay,
+    text: &ChipText,
 ) -> Scene {
     let repo_of = |spot: &Spot| match spot {
         Spot::Repo { repo } | Spot::Worktree { repo, .. } => Some(repo.0),
@@ -522,11 +564,17 @@ pub fn build(
         let (boxes, chips) = split_chips(groups_of(repo, &repo_views), &repo_views);
         let mut groups = boxes;
         groups.sort_by(|a, b| rank(&a.path).total_cmp(&rank(&b.path)));
-        let mut chip_hosts = HashSet::new();
+        let mut chip_hosts: HashMap<String, Vec<f64>> = HashMap::new();
         if let Some(host) = groups.iter().find(|g| g.kind != GroupKind::Linked)
             && !chips.is_empty()
         {
-            chip_hosts.insert(host.path.clone());
+            let lead = ((text.width)(text.heading, false) + CHIP_HEADING_GAP) * step();
+            let widths = std::iter::once(lead)
+                .chain(chips.iter().map(|c| {
+                    ((text.width)(&c.label, true).min(CHIP_LABEL_MAX) + CHIP_EXTRA) * step()
+                }))
+                .collect();
+            chip_hosts.insert(host.path.clone(), widths);
             scene
                 .chips
                 .extend(chips.iter().map(|c| (c.path.clone(), host.path.clone())));

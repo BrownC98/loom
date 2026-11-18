@@ -765,6 +765,13 @@ const en = {
     huge: 'Extra large',
     preview: 'Preview · {{size}}',
     sampleNode: 'coordinator',
+    sampleWorker: 'worker',
+    sampleAsk: 'Approve?',
+    sampleYes: 'Yes',
+    sampleNo: 'No',
+    uiSize: 'Text size',
+    uiSizeHint: 'The size of text and buttons in the title bar, sidebar, notifications, status bar, settings, menus and graph card heads. All windows show it at once.',
+    uiSizeHint2: 'Change terminal text in Terminal › Font size, and the input bar in Graph › Input bar size.',
   },
   terminal: {
     copy: 'Copy',

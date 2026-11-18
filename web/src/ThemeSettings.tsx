@@ -17,7 +17,8 @@ import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
 import { FLOAT_SIZES } from './floatPlace';
 import type { FloatSize } from './gen/FloatSize';
-import { ComposerPreview, type SizePreview } from './SizePreview';
+import { ComposerPreview, UiPreview, type SizePreview } from './SizePreview';
+import { uiZoom } from './uiZoom';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -94,6 +95,7 @@ export function DisplayTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('theme.systemHint')}</span>
       </section>
+      <SizeChoice field="uiSize" settings={settings} onSettings={onSettings} />
       <ColorsSection colors={settings.colors} theme={settings.theme} onColors={(colors) => onSettings({ ...settings, colors })} />
       <section>
         <h4>
@@ -167,7 +169,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </label>
         <span className="hint">{t('composer.hint')}</span>
       </section>
-      <SizeChoice id="t-composer-size" field="composerSize" Preview={ComposerPreview} settings={settings} onSettings={onSettings} />
+      <SizeChoice field="composerSize" settings={settings} onSettings={onSettings} />
       <section>
         <h4>
           {t('composer.place')}
@@ -179,9 +181,16 @@ export function GraphTab({ settings, onSettings }: TabProps) {
   );
 }
 
-function SizeChoice({ id, field, Preview, settings, onSettings }: TabProps & { id: string; field: 'composerSize'; Preview: SizePreview }) {
+const SIZE_FIELDS = {
+  composerSize: { Preview: ComposerPreview, hints: ['composerSizeHint'] },
+  uiSize: { Preview: UiPreview, hints: ['uiSizeHint', 'uiSizeHint2'] },
+} as const satisfies Record<string, { Preview: SizePreview; hints: readonly string[] }>;
+
+function SizeChoice({ field, settings, onSettings }: TabProps & { field: keyof typeof SIZE_FIELDS }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState<FloatSize | null>(null);
+  const { Preview, hints } = SIZE_FIELDS[field];
+  const id = `t-${field}`;
   return (
     <section>
       <h4>
@@ -197,7 +206,14 @@ function SizeChoice({ id, field, Preview, settings, onSettings }: TabProps & { i
         ))}
       </div>
       <Preview size={hovered ?? settings[field]} />
-      <span className="hint">{t(`floatSize.${field}Hint`)}</span>
+      <span className="hint">
+        {hints.map((hint, i) => (
+          <Fragment key={hint}>
+            {i > 0 && <br />}
+            {t(`floatSize.${hint}`)}
+          </Fragment>
+        ))}
+      </span>
     </section>
   );
 }
@@ -311,7 +327,7 @@ function ThemePicker(props: { label: string; value: TerminalThemeName; onChoose:
     const box = list.current;
     const row = box?.querySelector(':checked')?.closest('label');
     if (!box || !row) return;
-    const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    const top = (row.getBoundingClientRect().top - box.getBoundingClientRect().top) / uiZoom() + box.scrollTop;
     box.scrollTop = top - (box.clientHeight - row.offsetHeight) / 2;
   }, []);
   return (

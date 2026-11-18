@@ -12,6 +12,7 @@ import type { Status } from './gen/Status';
 import i18next, { clockTime, duration } from './i18n';
 import { asking, bySince, NoticeTags } from './notice';
 import { useDismiss } from './popover';
+import { uiZoom } from './uiZoom';
 
 type Links = { views: ReadonlyMap<NodeId, NodeView>; goTo: (id: NodeId) => void; showEvents: (name: string) => void };
 
@@ -314,7 +315,8 @@ function StatusPopover(props: { view: NodeView; anchor: RefObject<HTMLButtonElem
   const clock = useNow();
   const [at, setAt] = useState(() => {
     const r = props.anchor.current!.getBoundingClientRect();
-    return { top: r.bottom + 6, left: Math.max(POP_GAP, Math.min(r.right - POP_WIDTH, innerWidth - POP_WIDTH - POP_GAP)) };
+    const width = POP_WIDTH * uiZoom();
+    return { top: r.bottom + 6, left: Math.max(POP_GAP, Math.min(r.right - width, innerWidth - width - POP_GAP)) };
   });
   const [history, setHistory] = useState<EventRecord[]>([]);
   useEffect(() => {
@@ -329,14 +331,15 @@ function StatusPopover(props: { view: NodeView; anchor: RefObject<HTMLButtonElem
     const el = box.current!;
     const rect = props.anchor.current!.getBoundingClientRect();
     const below = rect.bottom + 6;
-    setAt((prev) => ({ ...prev, top: below + el.offsetHeight > innerHeight - POP_GAP ? Math.max(POP_GAP, rect.top - 6 - el.offsetHeight) : below }));
+    const height = el.offsetHeight * uiZoom();
+    setAt((prev) => ({ ...prev, top: below + height > innerHeight - POP_GAP ? Math.max(POP_GAP, rect.top - 6 - height) : below }));
   }, [history.length]);
   const go = (id: NodeId) => {
     onClose();
     links.goTo(id);
   };
   return createPortal(
-    <div ref={box} className="status-pop" role="dialog" aria-label={props.label} style={at}>
+    <div ref={box} className="status-pop" role="dialog" aria-label={props.label} style={{ top: at.top / uiZoom(), left: at.left / uiZoom() }}>
       <div className="pop-head">
         <b>{view.name}</b>
         <StatusPills view={view} rework />

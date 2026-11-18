@@ -1096,19 +1096,48 @@ fn screen_keys(answers: &Entity<Answers>, wait: &ScreenWait, z: f32, cx: &App) -
                 owner.update(cx, |answers, cx| answers.press(id, keys, cx))
             })
         });
-    let rows = wait.wait.screen.join("\n");
+    let rows = wait.wait.screen.iter().enumerate().map(|(index, row)| {
+        let line = div().child(row.clone());
+        let Some(option) = option_of(row) else {
+            return line.into_any_element();
+        };
+        let (owner, screen) = (answers.clone(), wait.wait.screen.clone());
+        let hover = c.surface_hover;
+        line.id(("screen-option", id as usize * 64 + index))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, _, cx| {
+                let keys = PressKeys {
+                    screen: screen.clone(),
+                    press: Press::Char(option),
+                };
+                owner.update(cx, |answers, cx| answers.press(id, keys, cx))
+            })
+            .into_any_element()
+    });
     Some(
         div()
             .flex()
             .flex_col()
             .gap(px(GAP * z))
             .child(
-                entry::prompt_box(rows, z, &c)
+                entry::prompt_box(div().flex().flex_col().children(rows), z, &c)
                     .whitespace_nowrap()
                     .overflow_hidden(),
             )
             .child(div().flex().flex_wrap().gap(px(GAP * z)).children(keys)),
     )
+}
+
+fn option_of(row: &str) -> Option<char> {
+    let row = row.trim_start();
+    let row = row
+        .strip_prefix(['\u{276f}', '\u{203a}', '>'])
+        .map_or(row, str::trim_start);
+    let mut chars = row.chars();
+    let digit = chars.next().filter(|c| matches!(c, '1'..='9'))?;
+    (chars.next() == Some('.') && chars.next().is_some_and(char::is_whitespace)).then_some(digit)
 }
 
 fn kind_acts(

@@ -170,7 +170,7 @@ async fn press_keys(
     };
     tokio::task::spawn_blocking(move || {
         app.host.strokes_if(node, KEY_GAP, |keys| {
-            match !shown.is_empty() && screen::rows(&keys.screen()) == shown {
+            match screen::same_rows(&shown, &screen::rows(&keys.screen())) {
                 true => Ok(strokes),
                 false => Err(Refusal::PromptChanged(wait)),
             }

@@ -27,6 +27,8 @@ const SCREEN_KEYS: readonly { label: string; press: Press }[] = [
   { label: 'n', press: { kind: 'char', value: 'n' } },
 ];
 
+const OPTION_ROW = /^\s*(?:[❯›>]\s*)?([1-9])\.\s/;
+
 export function pressScreen(wait: WaitId, screen: string[], press: Press): Promise<null> {
   return pressKeys(wait, { screen, press }).catch((err: unknown) => {
     const changed = err instanceof ProblemError && err.problem.code === 'refused' && err.problem.value.code === 'promptChanged';
@@ -60,7 +62,17 @@ function ScreenKeys(props: { wait: WaitId; screen: string[] }) {
   return (
     <>
       <pre className="prompt screen" data-find>
-        {props.screen.join('\n')}
+        {props.screen.map((row, i) => {
+          const option = OPTION_ROW.exec(row)?.[1];
+          const line = i === 0 ? row : `\n${row}`;
+          return option ? (
+            <span key={i} className="screen-option" onClick={() => run(() => pressScreen(props.wait, props.screen, { kind: 'char', value: option }))}>
+              {line}
+            </span>
+          ) : (
+            line
+          );
+        })}
       </pre>
       <div className="choices keys" role="group" aria-label={t('phone.keys')}>
         {SCREEN_KEYS.map((k) => (

@@ -66,6 +66,43 @@ pub fn rows(screen: &Screen) -> Vec<String> {
     rows
 }
 
+pub fn same_rows(shown: &[String], now: &[String]) -> bool {
+    !shown.is_empty()
+        && shown.len() == now.len()
+        && shown
+            .iter()
+            .zip(now)
+            .all(|(a, b)| without_clocks(a) == without_clocks(b))
+}
+
+fn without_clocks(row: &str) -> String {
+    let mut out = String::with_capacity(row.len());
+    let mut token = String::new();
+    for c in row.chars().chain(std::iter::once('\n')) {
+        if c.is_ascii_digit() || c == ':' {
+            token.push(c);
+            continue;
+        }
+        out.push_str(if is_clock(&token) { "0:00" } else { &token });
+        token.clear();
+        out.push(c);
+    }
+    out.pop();
+    out
+}
+
+fn is_clock(token: &str) -> bool {
+    let mut parts = token.split(':');
+    let first = parts.next().unwrap_or_default();
+    let rest: Vec<&str> = parts.collect();
+    !first.is_empty()
+        && first.bytes().all(|b| b.is_ascii_digit())
+        && !rest.is_empty()
+        && rest
+            .iter()
+            .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
 pub fn find(dialogs: &[Dialog], screen: &str, session: SessionStart) -> Option<(WaitKind, String)> {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
     let panel_start = lines

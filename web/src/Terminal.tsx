@@ -251,11 +251,11 @@ export function SizingTerminal(props: TerminalProps) {
           ended = false;
           held.length = 0;
           settled = false;
-          xterm.reset();
           decide();
         },
         onBacklog: (bytes) =>
           feed(() => {
+            xterm.reset();
             if (!settled) return xterm.write(bytes);
             replaying += 1;
             xterm.write(bytes, () => (replaying -= 1));
@@ -266,6 +266,7 @@ export function SizingTerminal(props: TerminalProps) {
             ended = true;
             feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
           }
+          else if (notice === 'removed') ended = true;
           else if (notice === 'settled')
             feed(() => {
               settled = true;

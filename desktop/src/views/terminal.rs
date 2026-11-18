@@ -358,13 +358,13 @@ impl TerminalView {
             }
             Event::Settled => self.settled = true,
             Event::Reset => {
-                self.vt.feed(RESET);
                 self.settled = false;
                 self.sent = (0, 0);
                 self.ended = None;
                 self.gone = false;
             }
             Event::Backlog(bytes) => {
+                self.vt.feed(RESET);
                 self.vt.feed(&bytes);
                 let replies = self.vt.take_replies();
                 if !self.settled {
@@ -380,6 +380,7 @@ impl TerminalView {
                 self.gone = true;
                 self.ended = Some("the terminal is gone".to_owned());
             }
+            Event::Removed => self.gone = true,
             Event::Closed(reason) => {
                 self.ended = Some(if reason.is_empty() {
                     "connection closed".to_owned()

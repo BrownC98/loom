@@ -288,15 +288,19 @@ fn coming_pty(
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                let reachable = app.graph.reachable(id).unwrap_or(false);
-                if app.host.attach(id).is_some() || (gone && reachable) {
+                let reachable = app.graph.reachable(id);
+                if app.host.attach(id).is_some() || (gone && matches!(reachable, Ok(true))) {
                     let _ = socket.send(Message::Close(None)).await;
                     return;
                 }
-                if !gone && !reachable {
+                if !gone && !matches!(reachable, Ok(true)) {
                     gone = true;
+                    let notice = match reachable {
+                        Err(rusqlite::Error::QueryReturnedNoRows) => PtyNotice::Removed,
+                        _ => PtyNotice::Gone,
+                    };
                     let notice =
-                        serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                        serde_json::to_string(&notice).expect("PtyNotice는 늘 직렬화된다");
                     if socket.send(Message::Text(notice.into())).await.is_err() {
                         return;
                     }

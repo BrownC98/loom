@@ -19,8 +19,8 @@ export function useViewportWidth(): number {
 
 export const paneWidth = (pane: Pane, saved: number | null) => clamp(pane, saved ?? pane.initial);
 
-export function Splitter(props: { pane: Pane; width: number; onCommit: (width: number) => void; label: string }) {
-  const { pane, width } = props;
+export function Splitter(props: { pane: Pane; width: number; scale: number; onCommit: (width: number) => void; label: string }) {
+  const { pane, width, scale } = props;
   const onCommit = (next: number) => props.onCommit(clamp(pane, next));
   const edge = pane.grow === 1 ? 'left' : 'right';
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -30,9 +30,9 @@ export function Splitter(props: { pane: Pane; width: number; onCommit: (width: n
     el.setPointerCapture(e.pointerId);
     let last: number | null = null;
     const move = (ev: globalThis.PointerEvent) => {
-      last = clamp(pane, width + pane.grow * (ev.clientX - startX));
-      el.parentElement!.style.setProperty(pane.cssVar, `${last}px`);
-      el.style.setProperty(edge, `${last}px`);
+      last = clamp(pane, width + (pane.grow * (ev.clientX - startX)) / scale);
+      el.parentElement!.style.setProperty(pane.cssVar, `${last * scale}px`);
+      el.style.setProperty(edge, `${last * scale}px`);
       el.setAttribute('aria-valuenow', String(last));
     };
     el.addEventListener('pointermove', move);
@@ -61,7 +61,7 @@ export function Splitter(props: { pane: Pane; width: number; onCommit: (width: n
       aria-valuemin={pane.min}
       aria-valuemax={pane.max}
       tabIndex={0}
-      style={{ [edge]: width }}
+      style={{ [edge]: width * scale }}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       onDoubleClick={() => onCommit(pane.initial)}

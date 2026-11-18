@@ -1,11 +1,12 @@
 use api::graph::events::{Entry, EventRecord};
 use gpui::{
     Context, Div, Entity, EventEmitter, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px,
+    KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::{Tone, chip, line, pill, rework, since_short};
 use crate::fonts;
+use crate::scale::px;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};

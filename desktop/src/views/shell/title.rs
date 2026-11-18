@@ -1,9 +1,10 @@
 use gpui::{
     Bounds, Div, InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Styled, Window,
-    canvas, div, fill, point, px, size,
+    canvas, div, fill, point, size,
 };
 
 use crate::platform;
+use crate::scale::px;
 use crate::strings::Lang;
 use crate::theme::Colors;
 

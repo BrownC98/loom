@@ -2,11 +2,13 @@ use std::ops::RangeInclusive;
 
 use gpui::{
     AppContext, Context, Entity, EventEmitter, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    StatefulInteractiveElement, Styled, Subscription, Window, div,
 };
 
 use super::btn::button;
 use super::text::{Text, TextEvent};
+
+use crate::scale::px;
 
 const FIELD_W: f32 = 56.0;
 const BOX_W: f32 = 120.0;

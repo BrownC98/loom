@@ -4,9 +4,10 @@ use std::rc::Rc;
 use gpui::{
     App, Bounds, Corners, Div, Hitbox, HitboxBehavior, IntoElement, ListState, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels, Rgba,
-    ScrollHandle, Styled, UniformListScrollHandle, Window, canvas, div, fill, point, px, rgb,
+    ScrollHandle, Styled, UniformListScrollHandle, Window, canvas, div, fill, point, rgb,
 };
 
+use crate::scale::fixed as px;
 use crate::theme::{Scheme, Theme};
 
 const WIDTH: f32 = 15.0;

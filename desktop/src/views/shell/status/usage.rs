@@ -13,11 +13,12 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, Div, Entity, FocusHandle, FontFeatures,
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 
 use crate::fonts;
 use crate::link::{self, VERSION};
+use crate::scale::px;
 use crate::settings::{keep_focus, modal, settings_patch};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
@@ -350,11 +351,11 @@ fn provider_mark(provider: Provider, c: &Colors) -> AnyElement {
         Provider::Claude => ("claude", "Claude"),
         Provider::Codex => ("codex", "Codex"),
     };
-    agent_mark(Some(id), label, MARK, c.ink_2)
+    agent_mark(Some(id), label, px(MARK), c.ink_2)
 }
 
 fn cursor_mark(c: &Colors) -> AnyElement {
-    agent_mark(Some("cursor"), "Cursor", MARK, c.ink_2)
+    agent_mark(Some("cursor"), "Cursor", px(MARK), c.ink_2)
 }
 
 fn chevron(up: bool, c: &Colors) -> gpui::Svg {
@@ -364,7 +365,7 @@ fn chevron(up: bool, c: &Colors) -> gpui::Svg {
         } else {
             Lucide::ChevronDown
         },
-        MARK,
+        px(MARK),
         c.ink_3,
     )
 }
@@ -458,7 +459,7 @@ impl Render for Usage {
                     this.refresh(cx);
                 }
             }))
-            .child(icon(Lucide::RotateCw, MARK, c.ink_2));
+            .child(icon(Lucide::RotateCw, px(MARK), c.ink_2));
 
         let mut host = div()
             .relative()

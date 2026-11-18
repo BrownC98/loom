@@ -7,7 +7,7 @@ use gpui::{
     App, AppContext, Bounds, Context, Div, Entity, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, PinchEvent, Pixels, Point, Render, ScrollEvent, StatefulInteractiveElement,
-    Styled, Window, canvas, div, point, px, size,
+    Styled, Window, canvas, div, point, size,
 };
 
 use api::graph::pty::Pace;
@@ -32,7 +32,9 @@ use super::popover;
 use super::repos::GroupKind;
 use super::resize::{self, Resizer};
 use super::scene::{self, Scene};
+use crate::fonts;
 use crate::link;
+use crate::scale::{self, fixed as px};
 use crate::store::{NodeMenu, NodeStatus, Show, Store, Target, ZoomTo};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
@@ -51,8 +53,6 @@ const TIP_FONT: f32 = 12.0;
 const TERMINAL_STEP: f32 = 1.03;
 const HIDDEN_KEEP: Duration = Duration::from_secs(3);
 const GRAB_SLOP: f32 = 3.0;
-const REPO_HEAD: f32 = 46.0;
-const GROUP_HEAD: f32 = 43.0;
 const TITLE_INSET: f32 = 16.0;
 const TITLE_SIZE: f32 = 18.0;
 const TITLE_GAP: f32 = 8.0;
@@ -101,6 +101,24 @@ pub struct CanvasView {
     traffic: Traffic,
     titles: Vec<(Vec<layout::Point>, String)>,
     tip: Option<(String, Point<Pixels>)>,
+}
+
+const CHIP_TEXT_SIZE: f32 = 12.0;
+
+fn with_chip_text<R>(cx: &App, build: impl FnOnce(&scene::ChipText) -> R) -> R {
+    let lang = *cx.global::<Lang>();
+    let width = |text: &str, bold: bool| {
+        let weight = if bold {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        };
+        f64::from(fonts::ui_width(cx, text, CHIP_TEXT_SIZE, weight))
+    };
+    build(&scene::ChipText {
+        heading: Str::GraphChips.text(lang),
+        width: &width,
+    })
 }
 
 fn snapped(zoom: f32) -> f32 {
@@ -211,13 +229,16 @@ impl CanvasView {
         let overlay = self
             .moves
             .overlay(store.settings(), self.scene.outers.clone());
-        let mut next = scene::build(
-            snapshot,
-            &store.shown_repos(),
-            store.settings().card_view,
-            &self.resizer.sizes(),
-            &overlay,
-        );
+        let mut next = with_chip_text(cx, |text| {
+            scene::build(
+                snapshot,
+                &store.shown_repos(),
+                store.settings().card_view,
+                &self.resizer.sizes(),
+                &overlay,
+                text,
+            )
+        });
         self.resizer.place(&mut next);
         if !self.moves.dragging()
             && !self.resizer.busy()
@@ -256,13 +277,16 @@ impl CanvasView {
         let overlay = self
             .moves
             .arranging(&self.scene, settings, direction, scope);
-        let cleared = scene::build(
-            snapshot,
-            &store.shown_repos(),
-            settings.card_view,
-            &self.resizer.sizes(),
-            &overlay,
-        );
+        let cleared = with_chip_text(cx, |text| {
+            scene::build(
+                snapshot,
+                &store.shown_repos(),
+                settings.card_view,
+                &self.resizer.sizes(),
+                &overlay,
+                text,
+            )
+        });
         let job = self.moves.arranged(
             &self.scene,
             &cleared,
@@ -359,17 +383,23 @@ impl CanvasView {
 
     fn frame_head_at(&self, window_pos: Point<Pixels>) -> Option<String> {
         let at = self.camera.to_graph(self.local(window_pos));
-        let hit = |frame: &scene::Frame, head: f32| {
+        let hit = |frame: &scene::Frame, head: f64| {
             let r = frame.rect;
             let (x, y) = (f64::from(at.x), f64::from(at.y));
-            x >= r.at.x && x < r.at.x + r.size.width && y >= r.at.y && y < r.at.y + f64::from(head)
+            x >= r.at.x && x < r.at.x + r.size.width && y >= r.at.y && y < r.at.y + head
         };
         self.scene
             .groups
             .iter()
             .rev()
-            .find(|f| hit(f, GROUP_HEAD))
-            .or_else(|| self.scene.repos.iter().rev().find(|f| hit(f, REPO_HEAD)))
+            .find(|f| hit(f, scene::group_head()))
+            .or_else(|| {
+                self.scene
+                    .repos
+                    .iter()
+                    .rev()
+                    .find(|f| hit(f, scene::repo_head()))
+            })
             .map(|f| f.key.clone())
     }
 
@@ -380,7 +410,7 @@ impl CanvasView {
         };
         let top = self.camera.screen_box(bounds_of(card.rect)).origin.y;
         let inside = f32::from(self.local(e.position).y - top);
-        if simple || inside < card::HEAD * self.camera.zoom {
+        if simple || inside < card::head_height() * self.camera.zoom {
             self.grab(&node.to_string(), e.position, cx);
         }
     }
@@ -447,27 +477,27 @@ impl CanvasView {
         Some(
             div()
                 .absolute()
-                .top(px(TITLE_INSET))
-                .left(px(TITLE_INSET))
+                .top(scale::px(TITLE_INSET))
+                .left(scale::px(TITLE_INSET))
                 .flex()
                 .items_center()
-                .gap(px(TITLE_GAP))
-                .text_size(px(TITLE_SIZE))
+                .gap(scale::px(TITLE_GAP))
+                .text_size(scale::px(TITLE_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.ink)
                 .child(repo.name.clone())
                 .children(tag.map(|text| {
                     div()
                         .flex_none()
-                        .h(px(TAG_HEIGHT))
-                        .px(px(TAG_PAD))
+                        .h(scale::px(TAG_HEIGHT))
+                        .px(scale::px(TAG_PAD))
                         .flex()
                         .items_center()
-                        .rounded(px(TAG_HEIGHT / 2.0))
+                        .rounded(scale::px(TAG_HEIGHT / 2.0))
                         .border_1()
                         .border_color(colors.line_strong)
                         .text_color(colors.ink_2)
-                        .text_size(px(TAG_SIZE))
+                        .text_size(scale::px(TAG_SIZE))
                         .child(text)
                 })),
         )
@@ -934,14 +964,14 @@ impl Render for CanvasView {
         let tip = self.tip.as_ref().map(|(text, at)| {
             div()
                 .absolute()
-                .left(at.x + px(TIP_OFFSET))
-                .top(at.y + px(TIP_OFFSET))
-                .px(px(8.0))
-                .py(px(4.0))
-                .rounded(px(6.0))
+                .left(at.x + scale::px(TIP_OFFSET))
+                .top(at.y + scale::px(TIP_OFFSET))
+                .px(scale::px(8.0))
+                .py(scale::px(4.0))
+                .rounded(scale::px(6.0))
                 .bg(colors.surface)
                 .text_color(colors.ink)
-                .text_size(px(TIP_FONT))
+                .text_size(scale::px(TIP_FONT))
                 .child(text.clone())
         });
         let handles = self
@@ -1124,7 +1154,7 @@ impl Render for CanvasView {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                        let head = f32::from(screen.origin.y) + card::HEAD * camera.zoom;
+                        let head = f32::from(screen.origin.y) + card::head_height() * camera.zoom;
                         let top = f32::from(this.local(e.position).y);
                         if e.click_count == 2 && top <= head && standard {
                             this.expand(id, cx);

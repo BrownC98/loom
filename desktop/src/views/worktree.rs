@@ -4,11 +4,12 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Context, Div, Entity, EventEmitter, FocusHandle, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px,
+    Styled, Subscription, Window, div,
 };
 
 use crate::fonts;
 use crate::link::Snapshot;
+use crate::scale::px;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
@@ -301,7 +302,7 @@ impl Render for NewWorktreeView {
             .bg(c.bg)
             .cursor_pointer()
             .child(current)
-            .child(icon(Lucide::ChevronDown, 14.0, c.ink_3))
+            .child(icon(Lucide::ChevronDown, px(14.0), c.ink_3))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| {

@@ -12,6 +12,7 @@ mod linux;
 mod macos;
 mod problem;
 mod program;
+mod scale;
 mod settings;
 mod store;
 mod strings;

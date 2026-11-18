@@ -6,11 +6,12 @@ use api::ids::NodeId;
 use gpui::{
     App, AppContext, ClipboardEntry, Context, Div, Entity, EventEmitter, Image, ImageFormat,
     InteractiveElement, MouseButton, ObjectFit, ParentElement, PathPromptOptions,
-    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
+    StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
 };
 
 use super::dock::ui;
 use super::tooltip::tip;
+use crate::scale::fixed as px;
 use crate::store::Store;
 use crate::strings::Str;
 

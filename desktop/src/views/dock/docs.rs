@@ -1,13 +1,14 @@
 use api::graph::docs::{DocGroup, DocRow};
 use gpui::{
     Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div,
 };
 
 use super::Dock;
 use super::body::Target;
 use super::ui::{self, SMALL, TEXT};
 use crate::fonts;
+use crate::scale::px;
 use crate::strings::Lang;
 use crate::strings::Str;
 use crate::views::icons::{Lucide, icon};
@@ -139,7 +140,7 @@ impl Dock {
                         .text_color(c.ink)
                         .underline()
                         .child(div().min_w_0().truncate().child(doc.title.clone()))
-                        .child(icon(Lucide::ExternalLink, 12.0, c.ink))
+                        .child(icon(Lucide::ExternalLink, px(12.0), c.ink))
                         .on_click(cx.listener(move |dock, _, _, cx| {
                             dock.follow(Target::Doc(id.clone()), cx)
                         }))

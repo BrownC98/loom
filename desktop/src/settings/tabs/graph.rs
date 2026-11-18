@@ -2,10 +2,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use api::settings::{DefaultCardView, EdgeStyle, FloatSize, GraphScope, SettingsView};
-use gpui::{App, Div, ParentElement, SharedString, Styled, Window, div, px};
+use gpui::{App, Div, ParentElement, SharedString, Styled, Window, div};
 
 mod preview;
 
+use crate::scale::px;
 use crate::settings::widgets::{field_reset, segmented, segmented_on, switch};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
@@ -32,6 +33,13 @@ fn hint(section: &mut Section, text: Str, cx: &App) -> Div {
         .text_size(px(SMALL))
         .text_color(colors(cx).ink_3)
         .child(section.text(say(cx, text), cx))
+}
+
+fn hints(section: &mut Section, texts: &[Str], cx: &App) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .children(texts.iter().map(|text| hint(section, *text, cx)))
 }
 
 fn with_reset(
@@ -79,8 +87,30 @@ fn choice<T: Copy + PartialEq + 'static>(
     with_reset(section.child(radios).child(note), reset.0, reset.1, ctx, cx)
 }
 
-fn preview(section: &mut Section, shown: FloatSize, cx: &App) -> Div {
+pub(super) type Face = fn(FloatSize, &mut Section, &App) -> Div;
+
+fn composer_face(size: FloatSize, section: &mut Section, cx: &App) -> Div {
     let name = say(cx, Str::FloatSizeSampleNode);
+    let _ = section.text(name, cx);
+    preview::composer(size, name, cx)
+}
+
+pub(super) fn ui_face(size: FloatSize, section: &mut Section, cx: &App) -> Div {
+    let [node, worker, ask, yes, no] = [
+        Str::FloatSizeSampleNode,
+        Str::FloatSizeSampleWorker,
+        Str::FloatSizeSampleAsk,
+        Str::FloatSizeSampleYes,
+        Str::FloatSizeSampleNo,
+    ]
+    .map(|text| say(cx, text));
+    for text in [node, worker, ask, yes, no] {
+        let _ = section.text(text, cx);
+    }
+    preview::ui(size, [node, worker], ask, [yes, no], cx)
+}
+
+fn preview(section: &mut Section, shown: FloatSize, face: Face, cx: &App) -> Div {
     let size_label = SIZES
         .iter()
         .find(|(size, _)| *size == shown)
@@ -90,23 +120,20 @@ fn preview(section: &mut Section, shown: FloatSize, cx: &App) -> Div {
         &crate::views::dock::ui::say_with(cx, Str::FloatSizePreview, &[("size", size_label)]),
         cx,
     );
-    let _ = section.text(name, cx);
-    preview::frame(
-        cap,
-        preview::composer(shown, name, cx),
-        preview::composer(FloatSize::Huge, name, cx),
-        cx,
-    )
+    let shown = face(shown, section, cx);
+    let room = face(FloatSize::Huge, section, cx);
+    preview::frame(cap, shown, room, cx)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn size_choice(
+pub(super) fn size_choice(
     id: &'static str,
     field: fn(&SettingsView) -> FloatSize,
     set: fn(&mut SettingsView, FloatSize),
     heading: Str,
-    hint_text: Str,
+    hint_texts: &[Str],
     reset: (&'static str, &'static [&'static str]),
+    face: Face,
     hovered: &Rc<Cell<Option<FloatSize>>>,
     ctx: &Ctx,
     cx: &App,
@@ -131,8 +158,8 @@ fn size_choice(
         cx,
     );
     let shown = hovered.get().unwrap_or(current);
-    let sample = preview(&mut section, shown, cx);
-    let note = hint(&mut section, hint_text, cx);
+    let sample = preview(&mut section, shown, face, cx);
+    let note = hints(&mut section, hint_texts, cx);
     with_reset(
         section.child(radios).child(sample).child(note),
         reset.0,
@@ -232,8 +259,9 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
             |view| view.composer_size,
             |view, value| view.composer_size = value,
             Str::FloatSizeComposerSize,
-            Str::FloatSizeComposerSizeHint,
+            &[Str::FloatSizeComposerSizeHint],
             ("graph-composer-size-reset", &["composerSize"]),
+            composer_face,
             &state.composer_hover,
             ctx,
             cx,

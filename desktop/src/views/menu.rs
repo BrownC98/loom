@@ -3,9 +3,10 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Point, Styled, Window, deferred, div, px,
+    ParentElement, Pixels, Point, Styled, Window, deferred, div,
 };
 
+use crate::scale::px;
 use crate::theme::Colors;
 use crate::views::icons::{Lucide, icon};
 
@@ -85,7 +86,7 @@ pub fn menu(
                         }
                         cx.stop_propagation();
                     })
-                    .child(icon(item.icon, ICON, color))
+                    .child(icon(item.icon, px(ICON), color))
                     .child(item.label)
                     .into_any_element()
             }

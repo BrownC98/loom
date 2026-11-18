@@ -1,7 +1,9 @@
 use gpui::{
     Bounds, Div, InteractiveElement, ParentElement, Rgba, SharedString, Stateful, Styled, canvas,
-    div, fill, point, px, size,
+    div, fill, point, size,
 };
+
+use crate::scale::px;
 
 pub const NAME_LIFT: f32 = 2.0;
 

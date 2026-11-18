@@ -1,5 +1,6 @@
-use gpui::{AnyView, App, AppContext, IntoElement, ParentElement, Render, Styled, Window, div, px};
+use gpui::{AnyView, App, AppContext, IntoElement, ParentElement, Render, Styled, Window, div};
 
+use crate::scale::px;
 use crate::theme::Theme;
 
 const SIZE: f32 = 12.0;

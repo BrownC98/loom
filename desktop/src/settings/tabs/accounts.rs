@@ -5,13 +5,14 @@ use api::profile::Provider;
 use api::settings::accounts::AccountView;
 use gpui::{
     AnyElement, App, AppContext as _, Div, Entity, FocusHandle, FontWeight, IntoElement,
-    ParentElement, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    ParentElement, Stateful, StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::agents::parts;
 use crate::fonts;
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::px;
 use crate::settings::widgets::{field_reset, inert, switch};
 use crate::settings::{Ctx, Section, Writer};
 use crate::strings::{Lang, Str};
@@ -199,7 +200,7 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
                             .border_t_1()
                             .border_color(c.line)
                             .text_size(px(TEXT))
-                            .child(icon(glyph, 15.0, c.ink_2))
+                            .child(icon(glyph, px(15.0), c.ink_2))
                             .child(div().font_weight(FontWeight::SEMIBOLD).child(name_text))
                             .child(div().text_size(px(SMALL)).text_color(c.ink_3).child(uses)),
                     ),
@@ -293,7 +294,7 @@ fn provider_body(
     let add_label = section.text(say(cx, Str::AccountsAdd), cx);
     *ids += 1;
     let mut add = ghost_small(("account-add", *ids), cx)
-        .child(icon(Lucide::Plus, 14.0, colors(cx).ink_2))
+        .child(icon(Lucide::Plus, px(14.0), colors(cx).ink_2))
         .child(add_label);
     if missing {
         let reason = say_with(cx, Str::AccountsAddNeedsCli, &[("provider", label)]);

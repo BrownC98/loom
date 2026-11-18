@@ -1,11 +1,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, Div, FontWeight, InteractiveElement, KeyDownEvent, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div,
 };
 
 use super::ui;
 use super::{Dock, Tab};
+use crate::scale::px;
 use crate::views::icons::icon;
 use crate::views::tooltip::tip;
 
@@ -48,7 +49,7 @@ impl Dock {
                 .when(on, |tab| tab.flex_none().font_weight(FontWeight::SEMIBOLD))
                 .when(!on, |tab| tab.hover(move |style| style.text_color(hover)))
                 .tooltip(tip(label.to_owned()))
-                .child(icon(tab.glyph(), 14.0, color))
+                .child(icon(tab.glyph(), px(14.0), color))
                 .child(
                     div()
                         .min_w_0()

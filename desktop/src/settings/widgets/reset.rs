@@ -1,7 +1,8 @@
-use gpui::{Div, ElementId, ParentElement, Stateful, StatefulInteractiveElement, Styled, px};
+use gpui::{Div, ElementId, ParentElement, Stateful, StatefulInteractiveElement, Styled};
 use serde_json::Value;
 
 use super::btn::ghost;
+use crate::scale::px;
 use crate::settings::Ctx;
 use crate::strings::Str;
 use crate::views::dock::ui::{SMALL, colors, say};
@@ -32,7 +33,7 @@ pub fn field_reset(
             .px(px(8.0))
             .text_size(px(SMALL))
             .tooltip(tip(say(cx, Str::SettingsFieldResetHint).to_owned()))
-            .child(icon(Lucide::RotateCcw, 14.0, colors(cx).ink_2))
+            .child(icon(Lucide::RotateCcw, px(14.0), colors(cx).ink_2))
             .child(say(cx, Str::SettingsFieldReset))
             .on_click(move |_, _, cx| {
                 let keys: Vec<&str> = path.iter().map(String::as_str).collect();

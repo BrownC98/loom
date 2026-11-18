@@ -1,8 +1,9 @@
 use api::graph::waits::{ScreenWait, WaitTone};
 use api::graph::{NodeView, Status};
 use chrono::Local;
-use gpui::{Div, FontWeight, ParentElement, Rgba, Styled, div, px};
+use gpui::{Div, FontWeight, ParentElement, Rgba, Styled, div};
 
+use crate::scale::px;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::ui;

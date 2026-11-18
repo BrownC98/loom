@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismiss } from './popover';
+import { uiZoom } from './uiZoom';
 
 const MENU_WIDTH = 180;
 
@@ -9,8 +10,9 @@ export function Menu(props: { anchor: RefObject<HTMLElement | null>; label: stri
   const [at] = useState(() => {
     const r = props.anchor.current?.getBoundingClientRect();
     if (!r) return { top: 0, left: 0 };
-    const left = r.right - MENU_WIDTH;
-    return r.bottom > window.innerHeight / 2 ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left };
+    const zoom = uiZoom();
+    const left = (r.right - MENU_WIDTH * zoom) / zoom;
+    return r.bottom > window.innerHeight / 2 ? { bottom: (window.innerHeight - r.top + 4) / zoom, left } : { top: (r.bottom + 4) / zoom, left };
   });
   const live = () => [...(box.current?.querySelectorAll<HTMLButtonElement>('button:enabled') ?? [])];
   useEffect(() => {

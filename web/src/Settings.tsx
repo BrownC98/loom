@@ -43,6 +43,7 @@ const RESET_TAB = {
   theme: 'display',
   colors: 'display',
   language: 'display',
+  uiSize: 'display',
   cardView: 'graph',
   graphScope: 'graph',
   edgeStyle: 'graph',

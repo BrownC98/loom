@@ -3,9 +3,10 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Div, ElementId, FontWeight, InteractiveElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
+use crate::scale::px;
 use crate::views::dock::ui::{TEXT, colors};
 use crate::views::scrollbar::Bar;
 

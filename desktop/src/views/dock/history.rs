@@ -5,7 +5,7 @@ use api::graph::search::WaitSearch;
 use api::graph::waits::{Closed, ClosedWait, WaitKind};
 use gpui::{
     Context, Div, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div,
 };
 
 use super::blocks;
@@ -15,6 +15,7 @@ use super::questions::kind_label;
 use super::shots::Shots;
 use super::ui::{self, GAP, SMALL};
 use super::{Dock, Inbox};
+use crate::scale::{self, px};
 use crate::store::SentPart;
 use crate::strings::Str;
 
@@ -203,7 +204,7 @@ impl Dock {
             find::chip(
                 find,
                 wait.id.0,
-                entry::qid(wait.id.to_string(), tone, 20.0, 1.0, &c),
+                entry::qid(wait.id.to_string(), tone, 20.0, scale::get(), &c),
             )
         });
         let name = match closed.node.id {
@@ -239,7 +240,7 @@ impl Dock {
             .items_center()
             .gap_x(px(GAP))
             .gap_y(px(2.0))
-            .child(entry::mark(wait.kind, tone, 1.0, &c))
+            .child(entry::mark(wait.kind, tone, scale::get(), &c))
             .child(
                 div()
                     .flex_none()
@@ -249,7 +250,7 @@ impl Dock {
             )
             .children(chip)
             .child(name)
-            .child(entry::published(wait.since, 1.0, cx));
+            .child(entry::published(wait.since, scale::get(), cx));
         let mut row = div()
             .flex()
             .flex_col()
@@ -281,7 +282,7 @@ impl Dock {
                 wait.doc.as_ref(),
                 entry::tone_of(tone, &c),
                 find,
-                ui::TEXT,
+                ui::TEXT * scale::get(),
                 cx,
                 {
                     let owner = cx.entity();
@@ -312,13 +313,13 @@ impl Dock {
                             look,
                             tone,
                         },
-                        1.0,
+                        scale::get(),
                         cx,
                     );
                     if look == Look::Passed {
                         face = face.opacity(0.55);
                     }
-                    face.children(chosen.then(|| entry::chosen_mark(1.0, cx)))
+                    face.children(chosen.then(|| entry::chosen_mark(scale::get(), cx)))
                 }),
             ));
         }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use api::settings::update::{UpdateStep, UpdateView};
 use gpui::{
     App, AppContext, Div, Entity, FontWeight, InteractiveElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, div,
 };
 
 use crate::daemon;
@@ -11,6 +11,7 @@ use crate::fonts;
 use crate::link;
 use crate::link::VERSION;
 use crate::program;
+use crate::scale::px;
 use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};

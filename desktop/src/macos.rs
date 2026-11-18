@@ -1,8 +1,9 @@
 use std::process::Command;
 
-use gpui::{AnyElement, App, Div, Pixels, TitlebarOptions, Window, WindowOptions, point, px};
+use gpui::{AnyElement, App, Div, Pixels, TitlebarOptions, Window, WindowOptions, point};
 
 use crate::frame;
+use crate::scale::fixed as px;
 use crate::strings::Lang;
 use crate::theme::Colors;
 

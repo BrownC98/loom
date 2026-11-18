@@ -110,3 +110,18 @@ pub fn latin_mono(text: &str, color: Rgba, weight: FontWeight) -> StyledText {
     }
     StyledText::new(text.to_owned()).with_runs(runs)
 }
+
+pub fn ui_width(cx: &App, text: &str, size: f32, weight: FontWeight) -> f32 {
+    let system = cx.text_system();
+    let id = system.resolve_font(&Font {
+        weight,
+        ..font(UI_FAMILY)
+    });
+    text.chars()
+        .map(|ch| {
+            system
+                .layout_width(id, crate::scale::fixed(size), ch)
+                .as_f32()
+        })
+        .sum()
+}

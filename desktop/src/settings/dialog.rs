@@ -3,7 +3,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, BoxShadow, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, point, px, relative,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, point, relative,
 };
 use serde_json::Value;
 
@@ -14,6 +14,7 @@ use super::widgets::{confirm, ghost};
 use super::{Ctx, Section, search};
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::{self, px};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
@@ -461,7 +462,7 @@ impl Render for Dialog {
             .children(can_reset.then(|| {
                 let tab = self.tab;
                 ghost("settings-reset-tab", cx)
-                    .child(icon(Lucide::RotateCcw, 14.0, c.ink_2))
+                    .child(icon(Lucide::RotateCcw, px(14.0), c.ink_2))
                     .child(say(cx, Str::SettingsResetTab))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.ask(Ask::ResetTab(tab), window, cx)
@@ -508,11 +509,11 @@ impl Render for Dialog {
             .h_full();
 
         let view = window.viewport_size();
-        let width = WIDTH.min(f32::from(view.width) - MARGIN);
-        let height = HEIGHT.min(f32::from(view.height) - MARGIN);
+        let width = (WIDTH * scale::get()).min(f32::from(view.width) - MARGIN);
+        let height = (HEIGHT * scale::get()).min(f32::from(view.height) - MARGIN);
         let panel = div()
-            .w(px(width))
-            .h(px(height))
+            .w(scale::fixed(width))
+            .h(scale::fixed(height))
             .flex()
             .overflow_hidden()
             .rounded(px(12.0))

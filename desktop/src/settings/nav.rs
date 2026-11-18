@@ -1,10 +1,11 @@
 use gpui::{
     Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::dialog::{Ask, Dialog};
 use super::widgets::{ghost, tabbable};
+use crate::scale::px;
 use crate::strings::Str;
 use crate::views::dock::ui::{TEXT, colors, say};
 use crate::views::icons::{Lucide, icon};
@@ -63,7 +64,7 @@ pub fn resettable() -> Vec<&'static str> {
         .collect()
 }
 
-pub const OWNERS: [(&str, Option<Tab>); 27] = [
+pub const OWNERS: [(&str, Option<Tab>); 28] = [
     ("workspaceDir", Some(Tab::General)),
     ("wslWorkspaceDirs", Some(Tab::General)),
     ("osNotify", Some(Tab::General)),
@@ -75,6 +76,7 @@ pub const OWNERS: [(&str, Option<Tab>); 27] = [
     ("accounts", None),
     ("wslAccounts", None),
     ("theme", Some(Tab::Display)),
+    ("uiSize", Some(Tab::Display)),
     ("colors", Some(Tab::Display)),
     ("language", Some(Tab::Display)),
     ("cardView", Some(Tab::Graph)),
@@ -132,7 +134,7 @@ pub(super) fn column(
             .text_color(c.ink_3)
             .cursor_pointer()
             .hover(move |style| style.bg(c.line).text_color(c.ink))
-            .child(icon(Lucide::X, 12.0, c.ink_3))
+            .child(icon(Lucide::X, px(12.0), c.ink_3))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.search.update(cx, |field, cx| field.clear(cx));
             }))
@@ -153,7 +155,7 @@ pub(super) fn column(
         })
         .bg(c.surface)
         .text_size(px(TEXT))
-        .child(icon(Lucide::Search, 14.0, c.ink_3))
+        .child(icon(Lucide::Search, px(14.0), c.ink_3))
         .child(dialog.search.clone())
         .children(clear);
     div()
@@ -197,5 +199,5 @@ fn nav_button(id: &'static str, glyph: Lucide, cx: &gpui::App) -> gpui::Stateful
         .px(px(12.0))
         .text_size(px(TEXT))
         .font_weight(FontWeight::MEDIUM)
-        .child(icon(glyph, 14.0, c.ink_2))
+        .child(icon(glyph, px(14.0), c.ink_2))
 }

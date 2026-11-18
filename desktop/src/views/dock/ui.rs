@@ -5,9 +5,10 @@ pub use crate::views::ui::{
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, Entity, InteractiveElement, IntoElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div,
 };
 
+use crate::scale::px;
 use crate::views::field::Field;
 use crate::views::prose::prose;
 use crate::views::scrollbar::Bar;

@@ -39,6 +39,7 @@ import type { Direction } from './keys';
 import { flowId, MOVE_MS } from './camera';
 import { SLOP_PX } from './touchTerminal';
 import { keepSame } from './keepSame';
+import { floatZoom } from './floatPlace';
 import { useLive, type Hop } from './useLive';
 
 const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .react-flow__resize-control, [data-selected] .term';
@@ -52,7 +53,10 @@ const arrowHead = (color: string): EdgeMarker => ({ type: MarkerType.ArrowClosed
 const DRAGGING_Z = 2000;
 const EMPTY_GROUP: Size = { width: 320, height: 100 };
 const CARD_X = 20;
-const CARD_TOP = 60;
+const HAIRLINE = 1;
+const GROUP_HEAD = 42;
+const CARD_HEAD = 34;
+const CARD_GAP = 17;
 const BEND_DROP = 16;
 const STEP_BEND = ARROW + BEND_DROP;
 const CARD_SIZE: Record<CardView, Size> = {
@@ -63,12 +67,9 @@ const MIN_CARD: Size = { width: 360, height: 200 };
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
 const POPOVER_GAP = 6;
 const POPOVER_EDGE = 8;
-const CHIP_ROW = 43;
 const REPO_HEAD = 46;
 const REPO_SIDE = 16;
-const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 const DOWN_LINE = 40;
-const DOWN_INSET = { top: REPO_INSET.top + DOWN_LINE, side: REPO_SIDE };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.5;
 
@@ -201,7 +202,7 @@ type GroupData = {
 };
 type Chip = { path: string; label: string; className: string | undefined; creating: boolean; deleting: boolean };
 type CardBase = { view: NodeView; unreached: boolean; defaultView: DefaultCardView; agentLabel: string; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
-type CardData = CardBase & { ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
+type CardData = CardBase & { ownsPty: boolean; onExpand: () => void; sized: boolean; minHeight: number; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
 type Resized = { shift: XYPosition; size: Size };
 type RepoData = { name: string; path: string; place: PlaceView; shownPath: string; noWorktree: ReturnType<typeof worktreeBlock>; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
@@ -383,7 +384,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
           position={edge.position}
           variant={edge.variant}
           minWidth={MIN_CARD.width}
-          minHeight={MIN_CARD.height}
+          minHeight={data.minHeight}
           onResizeStart={(_, p) => {
             start.current = { x: p.x, y: p.y };
             const el = termBox.current;
@@ -495,9 +496,15 @@ export function Graph(props: {
   const { t } = useTranslation();
   const { highlight } = props;
   const reaches = useContext(Reaches);
+  const scale = floatZoom(props.settings.uiSize);
+  const cardTop = GROUP_HEAD * scale + HAIRLINE + CARD_GAP;
+  const chipRow = GROUP_HEAD * scale + HAIRLINE;
+  const headGrowth = CARD_HEAD * (scale - 1);
+  const repoInside = { top: REPO_HEAD * scale + REPO_SIDE, side: REPO_SIDE };
+  const downInside = { top: repoInside.top + DOWN_LINE * scale, side: REPO_SIDE };
   const downRepos = new Set(props.repos.filter((r) => unreachedAt(r.place, reaches) !== null).map((r) => `repo:${r.id}`));
   const sshRepos = new Set(props.repos.filter((r) => r.place.kind === 'ssh').map((r) => `repo:${r.id}`));
-  const repoInset = (key: string) => (sshRepos.has(key) ? DOWN_INSET : REPO_INSET);
+  const repoInset = (key: string) => (sshRepos.has(key) ? downInside : repoInside);
   const lit = (...keys: string[]) => (highlight === null ? undefined : keys.every((key) => highlight.keys.has(key)) ? 'hl' : 'dim');
   const litGroup = (path: string, inside: string[]) => (highlight !== null && !highlight.keys.has(path) && inside.some((key) => highlight.keys.has(key)) ? undefined : lit(path));
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
@@ -592,8 +599,19 @@ export function Graph(props: {
   useEffect(() => {
     if (zoomed !== null && !standard(zoomed)) setExpanded(null);
   });
-  const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : savedSize(id));
-  const size = (id: NodeId): Size => chosenSize(id) ?? CARD_SIZE[viewOf(id)];
+  const shownBase = (base: Size): Size => ({ width: base.width, height: base.height + headGrowth });
+  const chosenSize = (id: NodeId): Size | undefined => {
+    if (!standard(id)) return undefined;
+    if (resizing?.id === id) return resizing.size;
+    const base = savedSize(id);
+    return base && shownBase(base);
+  };
+  const size = (id: NodeId): Size => {
+    const chosen = chosenSize(id);
+    if (chosen) return chosen;
+    const { width, height } = CARD_SIZE[viewOf(id)];
+    return standard(id) ? shownBase({ width, height }) : { width: width * scale, height: height * scale };
+  };
   const levels = new Map<string, Level>();
   const spotOf = new Map<string, Spot>();
   const branchOf = new Map<string, string>();
@@ -601,12 +619,12 @@ export function Graph(props: {
     for (const b of level.boxes) levels.set(b.key, level);
   };
   type Laid = { group: Group; members: NodeView[]; local: Map<string, XYPosition>; auto: Map<string, XYPosition>; lead: XYPosition; size: Size; kids: Laid[] };
-  const emptySize = (path: string): Size => ({ width: EMPTY_GROUP.width, height: EMPTY_GROUP.height + insetOf(path).top - CARD_TOP });
+  const emptySize = (path: string): Size => ({ width: EMPTY_GROUP.width * scale, height: EMPTY_GROUP.height * scale + insetOf(path).top - cardTop });
   const framed = props.repos.length > 1;
   const vertical = direction === 'down' || direction === 'up';
   const chipsIn = new Map<string, Group[]>();
   const chipsOf = (path: string) => chipsIn.get(path) ?? [];
-  const insetOf = (path: string) => ({ top: CARD_TOP + (chipsIn.has(path) ? (chipRows.get(path) ?? CHIP_ROW) : 0), side: CARD_X });
+  const insetOf = (path: string) => ({ top: cardTop + (chipsIn.has(path) ? (chipRows.get(path) ?? chipRow) : 0), side: CARD_X });
   const nests = props.repos.map((repo) => {
     const repoViews = views.filter((v) => v.place.repo === repo.id);
     const { boxes, chips } = splitChips(groupsOf(repo, repoViews), repoViews);
@@ -625,7 +643,7 @@ export function Graph(props: {
     moving.size > 0 ? at : unpile(items.map((it) => ({ key: it.key, at: at.get(it.key)!, size: it.size })), FREE_GAP);
   const repos = nests.map(({ repo, repoGroups, memberOf, nest }) => {
     const placedIn = keepsArranged(repo.id) ? (key: string) => moving.get(key) : placedAt;
-    const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X }, (kid) => rank('card' in kid ? String(kid.card) : repoGroups[kid.group].path));
+    const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: cardTop, side: CARD_X }, (kid) => rank('card' in kid ? String(kid.card) : repoGroups[kid.group].path));
     const lay = (i: number): Laid => {
       const group = repoGroups[i];
       const members = memberOf[i];
@@ -882,7 +900,7 @@ export function Graph(props: {
         })),
         onOpenChip: (path, button) => openNew(path, origin, button),
         onDeleteChip: (path, button) => openDelete(path, origin, button),
-        onChipRow: (height) => setChipRows((prev) => (prev.get(group.path) === height ? prev : new Map([...prev, [group.path, height]]))),
+        onChipRow: (height) => setChipRows((prev) => (prev.get(group.path) === height * scale ? prev : new Map([...prev, [group.path, height * scale]]))),
       },
     }),
     ...members.map((view): FlowNode => {
@@ -917,6 +935,7 @@ export function Graph(props: {
         data: {
           ...data,
           sized: savedSize(view.id) !== undefined,
+          minHeight: MIN_CARD.height + headGrowth,
           onResizeStart: () => {
             const key = String(view.id);
             resizeFrom.current = { key, at: levels.get(key)!.boxes.find((b) => b.key === key)!.at };
@@ -926,10 +945,11 @@ export function Graph(props: {
             setMoving(resizeTo(String(view.id), step, moving));
           },
           onResized: (step) => {
-            const rounded = { shift: { x: Math.round(step.shift.x), y: Math.round(step.shift.y) }, size: { width: Math.round(step.size.width), height: Math.round(step.size.height) } };
+            const base = { width: Math.round(step.size.width), height: Math.round(step.size.height - headGrowth) };
+            const rounded = { shift: { x: Math.round(step.shift.x), y: Math.round(step.shift.y) }, size: shownBase(base) };
             setResizing(null);
             setMoving(new Map());
-            commit(putSizes([{ node: view.id, ...rounded.size }]), { size: { id: view.id, size: rounded.size } });
+            commit(putSizes([{ node: view.id, ...base }]), { size: { id: view.id, size: base } });
             save(resizeTo(String(view.id), rounded, moving));
             resizeFrom.current = null;
           },

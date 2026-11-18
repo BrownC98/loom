@@ -7,13 +7,14 @@ use api::graph::waits::WaitDoc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div,
 };
 
 use super::body::{self, Follow, Target};
 use super::find::Find;
 use super::ui;
 use crate::fonts;
+use crate::scale::fixed as px;
 use crate::theme::Colors;
 use crate::views::prose::prose;
 

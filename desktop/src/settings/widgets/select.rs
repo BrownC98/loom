@@ -5,10 +5,11 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     Anchor, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
     Keystroke, MouseButton, ParentElement, Pixels, Render, SharedString, Size,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point,
 };
 
 use crate::float::place::measure;
+use crate::scale::px;
 use crate::views::dock::ui::{TEXT, colors};
 use crate::views::icons::{Lucide, icon};
 
@@ -136,7 +137,7 @@ impl Render for Select {
             .text_color(c.ink)
             .cursor_pointer()
             .child(label)
-            .child(icon(Lucide::ChevronDown, 14.0, c.ink_3))
+            .child(icon(Lucide::ChevronDown, px(14.0), c.ink_3))
             .when(self.full, |button| {
                 button.child(measure(self.size.clone(), cx.entity_id()))
             })

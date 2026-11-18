@@ -1,7 +1,9 @@
 use gpui::{
     Anchor, Div, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Point, Styled, Window, anchored, deferred, div, point, px,
+    Pixels, Point, Styled, Window, anchored, deferred, div, point,
 };
+
+use crate::scale::px;
 
 const EDGE: f32 = 8.0;
 

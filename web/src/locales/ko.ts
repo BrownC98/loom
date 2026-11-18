@@ -767,6 +767,13 @@ const ko: typeof en = {
     huge: '아주 크게',
     preview: '미리 보기 · {{size}}',
     sampleNode: '코디',
+    sampleWorker: '워커',
+    sampleAsk: '승인할까요?',
+    sampleYes: '예',
+    sampleNo: '아니오',
+    uiSize: '글자 크기',
+    uiSizeHint: '제목 줄, 사이드바, 알림, 상태 줄, 설정, 메뉴, 그래프 카드 머리의 글자와 단추 크기입니다. 모든 창에 바로 보입니다.',
+    uiSizeHint2: '터미널 글자는 터미널 › 글꼴 크기, 입력 창은 그래프 › 입력 창 크기로 바꿉니다.',
   },
   terminal: {
     copy: '복사',

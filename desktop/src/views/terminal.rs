@@ -9,12 +9,13 @@ use gpui::{
     InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent, Size,
     StrikethroughStyle, Styled, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle,
-    Window, canvas, div, fill, outline, point, px, rgb, size,
+    Window, canvas, div, fill, outline, point, rgb, size,
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
+use crate::scale::fixed as px;
 use crate::strings::Lang;
 use crate::theme::{Terminal, Theme};
 use crate::views::compose;

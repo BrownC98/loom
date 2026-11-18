@@ -1,5 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import { waitSearch } from './waitSearch';
+import { uiZoom } from './uiZoom';
 
 const ALL = 'inbox-find';
 const NOW = 'inbox-find-now';
@@ -41,8 +42,9 @@ function reveal(range: Range) {
     if (box.scrollHeight <= box.clientHeight || !/auto|scroll/.test(getComputedStyle(box).overflowY)) continue;
     const spot = range.getBoundingClientRect();
     const view = box.getBoundingClientRect();
-    if (spot.top < view.top) box.scrollTop -= view.top - spot.top + view.height / 3;
-    else if (spot.bottom > view.bottom) box.scrollTop += spot.bottom - view.bottom + view.height / 3;
+    const zoom = uiZoom();
+    if (spot.top < view.top) box.scrollTop -= (view.top - spot.top + view.height / 3) / zoom;
+    else if (spot.bottom > view.bottom) box.scrollTop += (spot.bottom - view.bottom + view.height / 3) / zoom;
   }
 }
 

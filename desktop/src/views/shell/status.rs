@@ -1,7 +1,8 @@
 mod usage;
 
-use gpui::{App, Div, Entity, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px};
+use gpui::{App, Div, Entity, IntoElement, ParentElement, RenderOnce, Styled, Window, div};
 
+use crate::scale::px;
 use crate::store::Store;
 use crate::theme::Colors;
 

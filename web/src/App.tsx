@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getNodes, getReach, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -50,6 +50,8 @@ import { Tree } from './Tree';
 import { usePhoneTheme, syncAppChrome } from './phoneTheme';
 import { Phone, usePhoneRoute } from './Phone';
 import { usePhone } from './sheet';
+import { floatZoom } from './floatPlace';
+import { UI_ZOOM_VAR } from './uiZoom';
 import { TitleBar } from './TitleBar';
 import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
@@ -100,6 +102,7 @@ const EMPTY_SETTINGS: SettingsView = {
   paneWidths: { side: null, dock: null },
   composerPlace: null,
   composerSize: 'normal',
+  uiSize: 'normal',
   closedPanes: { side: false, dock: false, bookmarks: false },
   colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
@@ -172,9 +175,13 @@ export function App() {
   const graph = useRef<GraphHandle>(null);
   const saveWidth = (pane: Pane) => (width: number) => editSettings((s) => ({ ...s, paneWidths: { ...s.paneWidths, [pane.key]: width } }));
   const sideWidth = paneWidth(SIDE_PANE, settings.paneWidths.side);
-  const sideShown = sideOpen ? sideWidth : RAIL_WIDTH;
+  const uiScale = phone ? 1 : floatZoom(settings.uiSize);
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty(UI_ZOOM_VAR, String(uiScale));
+  }, [uiScale]);
+  const sideShown = (sideOpen ? sideWidth : RAIL_WIDTH) * uiScale;
   const viewport = useViewportWidth();
-  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
+  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, Math.floor((viewport - sideShown - DOCK_MIN_GRAPH) / uiScale)) };
   const dockWidth = paneWidth(dockPane, settings.paneWidths.dock);
   const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
   const title = shown.length === 1 ? shown[0].name : null;
@@ -537,9 +544,9 @@ export function App() {
   return providers(
       <>
         <TitleBar />
-        <div className="app" style={{ [SIDE_PANE.cssVar]: `${sideShown}px`, [DOCK_PANE.cssVar]: `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
-          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onCommit={saveWidth(SIDE_PANE)} label={t('app.resize', { pane: t('app.sideLabel') })} />}
-          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onCommit={saveWidth(dockPane)} label={t('app.resize', { pane: t('dock.label') })} />}
+        <div className="app" style={{ [SIDE_PANE.cssVar]: `${sideShown}px`, [DOCK_PANE.cssVar]: `${(dockOpen ? dockWidth : RAIL_WIDTH) * uiScale}px` } as CSSProperties}>
+          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} scale={uiScale} onCommit={saveWidth(SIDE_PANE)} label={t('app.resize', { pane: t('app.sideLabel') })} />}
+          {dockOpen && <Splitter pane={dockPane} width={dockWidth} scale={uiScale} onCommit={saveWidth(dockPane)} label={t('app.resize', { pane: t('dock.label') })} />}
           {sideOpen ? (
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
               <div className="side-top">

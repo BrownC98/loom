@@ -1,6 +1,8 @@
-use gpui::{Bounds, Pixels, Rgba, Window, fill, point, px, size};
+use gpui::{Bounds, Pixels, Rgba, Window, fill, point, size};
 
 use super::camera::Camera;
+
+use crate::scale::fixed as px;
 
 const GAP: f32 = 24.0;
 const MIN_SCREEN_GAP: f32 = 14.0;

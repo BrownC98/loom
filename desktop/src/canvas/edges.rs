@@ -5,7 +5,7 @@ use api::graph::{NodeView, Toward};
 use api::settings::EdgeStyle;
 use gpui::{
     App, Bounds, Font, FontWeight, PathBuilder, Pixels, Rgba, Styled, TextAlign, TextRun, Window,
-    canvas, fill, point, px, size,
+    canvas, fill, point, size,
 };
 
 use super::camera::Camera;
@@ -16,6 +16,7 @@ use super::layout::{
     label_heading, side_point, step_at,
 };
 use super::scene::Scene;
+use crate::scale::fixed as px;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Oklch, Scheme, to_rgba};
 

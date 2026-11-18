@@ -7,7 +7,7 @@ use api::graph::{CardView, NodeView};
 use api::settings::DefaultCardView;
 use gpui::{
     AppContext, Bounds, Context, Entity, FocusHandle, IntoElement, ParentElement, Pixels, Render,
-    Styled, Subscription, UniformListScrollHandle, Window, div, px,
+    Styled, Subscription, UniformListScrollHandle, Window, div,
 };
 
 use self::answers::Answers;
@@ -18,6 +18,7 @@ use super::icons::Lucide;
 use super::scrollbar::Bar;
 use super::terminal::TerminalView;
 use crate::canvas::repos::chosen_repo;
+use crate::scale::px;
 use crate::store::{ShowEvents, Store};
 use crate::strings::Str;
 use crate::views::compose;

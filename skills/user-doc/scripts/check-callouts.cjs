@@ -10,6 +10,7 @@ const RENDER = { width: 1440, height: 2400 };
 const quick = process.argv.includes('--quick');
 const doc = path.resolve(process.argv.slice(2).find(a => a !== '--quick'));
 const html = fs.readFileSync(doc, 'utf8');
+const SHARED = ['../style.html', '../callouts/callouts.css'].map(f => fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/^[\s\S]*<style>|<\/style>[\s\S]*$/g, ''));
 const runs = quick ? [MAIN] : RUNS.filter(r => !r.slow || /<img\b/i.test(html));
 const render = path.join(process.env.TMPDIR || os.tmpdir(), `show-${path.basename(doc, path.extname(doc))}.png`);
 
@@ -71,6 +72,50 @@ const IDS = mockup => {
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let t; (t = w.nextNode());) if (/권장|정할 것|Recommended/i.test(t.textContent) && !t.parentElement.closest('.decision, .lead, .who, script, style, ' + SCREEN)) bad.push(`decision outside a decision box: "${cut(t)}"`);
   }
+  return [...new Set(bad)];
+};
+
+const DECISION_STYLE = async ([style, callouts]) => {
+  const boxes = [...document.querySelectorAll('.decision')];
+  if (!boxes.length) return [];
+  const LOOK = ['display', 'color', 'background-color', 'background-image', 'opacity', 'box-shadow', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'text-decoration-line', 'white-space', 'gap', 'min-height', 'align-items', 'list-style-type',
+    ...['top', 'right', 'bottom', 'left'].flatMap(s => [`border-${s}-width`, `border-${s}-style`, `border-${s}-color`, `padding-${s}`]),
+    'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius', 'margin-left'];
+  const CONTEXT = ['display', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'color', 'text-transform', 'white-space'];
+  const PARTS = ':scope > h3, .did, .opts, .opt, .key, .label, .mark, .sub, .why, .why li, :scope > .for';
+  const frame = document.createElement('iframe');
+  frame.style.cssText = `position: absolute; left: -20000px; top: 0; width: ${innerWidth}px; height: 10px; border: 0`;
+  frame.srcdoc = `<!doctype html><html><head><style>${style}\n${callouts}</style></head><body></body></html>`;
+  await new Promise(r => { frame.onload = r; document.body.append(frame); });
+  const ref = frame.contentDocument, html = document.documentElement, scheme = html.style.colorScheme, bad = [];
+  const twins = boxes.map(b => {
+    const wrap = ref.createElement('div'), copy = b.cloneNode(true);
+    for (const e of [copy, ...copy.querySelectorAll('[style]')]) e.removeAttribute('style');
+    wrap.append(ref.importNode(copy, true)); ref.body.append(wrap);
+    return [b, wrap, [b, ...b.querySelectorAll(PARTS)], [wrap.firstChild, ...wrap.firstChild.querySelectorAll(PARTS)]];
+  });
+  const context = (b, wrap) => {
+    const p = getComputedStyle(b.parentElement), lh = parseFloat(p.lineHeight) / parseFloat(p.fontSize);
+    wrap.style.cssText = CONTEXT.map(k => `${k}: ${p.getPropertyValue(k)}`).join('; ') + `; line-height: ${lh || 'normal'}`;
+  };
+  const name = e => e.tagName.toLowerCase() + [...e.classList].map(c => '.' + c).join('');
+  for (const theme of ['light', 'dark']) {
+    html.style.colorScheme = theme; ref.documentElement.style.colorScheme = theme;
+    twins.forEach(([b, wrap, mine, theirs], i) => context(b, wrap) || mine.forEach((e, j) => {
+      const a = getComputedStyle(e), b = frame.contentWindow.getComputedStyle(theirs[j]);
+      const k = LOOK.find(k => a.getPropertyValue(k) !== b.getPropertyValue(k));
+      if (k) bad.push(`decision ${boxes[i].id || i + 1} <${name(e)}> ${k} in ${theme} is "${a.getPropertyValue(k).slice(0, 60)}", style.html gives "${b.getPropertyValue(k).slice(0, 60)}"`);
+    }));
+  }
+  html.style.colorScheme = scheme; frame.remove();
+  const STATE = /:(hover|focus|focus-visible|focus-within|active)(?![\w-])/g, OWN = /\.(decision|opts?|did|key|mark|sub|label|why)(?![\w-])/, parts = twins.flatMap(t => t[2]);
+  const walk = list => { for (const r of list) { if (r.cssRules) walk(r.cssRules);
+    const sel = r.selectorText ?? '';
+    if (!OWN.test(sel) || sel.replace(STATE, '') === sel) continue;
+    let hit = false; try { hit = parts.some(e => e.matches(r.selectorText.replace(STATE, ''))); } catch {}
+    if (hit) bad.push(`decision box state rule: "${r.cssText.slice(0, 90)}"`); } };
+  for (const sheet of document.styleSheets) { let list; try { list = sheet.cssRules; } catch { continue; } walk(list); }
+  if (bad.length) bad.push('decision boxes look different from style.html: copy its decision rules and tokens as they are, and do not style decision boxes with other rules (also :hover or :focus) or style attributes');
   return [...new Set(bad)];
 };
 
@@ -351,6 +396,7 @@ async function checkPage(ctx, run) {
     }
     const bad = [];
     if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
+    bad.push(...(await page.evaluate(DECISION_STYLE, SHARED)).map(x => label + x));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });

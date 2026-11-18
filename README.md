@@ -95,7 +95,7 @@ loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead o
 - macOS (one line): `/Applications/loom-desktop.app/Contents/MacOS/loom stop` (or `~/Applications/…`)
 - Hand install: `<folder>/loom stop`
 
-**Update.** Open Settings › About and click **Check for updates**, then **Update**. The daemon replaces `loom` and the `loom-desktop` next to it with the new release, and starts again. Then quit the window program and open it again: the window shows this hint. Releases before this change have no bare `loom-desktop` file; for those, run the install line again. The update button replaces `loom-desktop` only when the running daemon is the `loom` next to it.
+**Update.** Open Settings › About and click **Check for updates**, then **Update**. The daemon replaces `loom` and the `loom-desktop` next to it with the new release, and starts again. Then quit the window program and open it again: the window shows this hint. If your installed loom is from a release before this feature, the button replaces only `loom`; run the install line once more. The update button replaces `loom-desktop` only when the running daemon is the `loom` next to it.
 
 **Limits.** The release has loom desktop only for Windows x64 and macOS Apple Silicon. On Linux, use the browser version. Releases before v0.1.2825 do not have it; for those, the install lines install the browser version (Windows) or only the app (macOS).
 

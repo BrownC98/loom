@@ -234,10 +234,7 @@ impl Updater {
                 download(&asset_url(releases, version, asset), &new, |percent| {
                     self.change(|state| state.step = Some(UpdateStep::Downloading { percent }));
                 })?;
-                for (file, new) in besides {
-                    swap(&file, &new).map_err(|e| format!("{}: {e}", file.display()))?;
-                }
-                swap(exe, &new).map_err(|e| format!("{}: {e}", exe.display()))?;
+                swap_all(besides.into_iter().chain([(exe.clone(), new)]))?;
                 launch::restart_with(exe, self.listen)
             }
             Install::App { app } => launch::spawn_detached(app, &[APP_UPDATE_FLAG]).map(drop),
@@ -333,37 +330,64 @@ fn download(url: &str, to: &Path, mut progress: impl FnMut(u8)) -> Result<(), St
         .map_err(|e| format!("{}: {e}", to.display()))
 }
 
-#[cfg(windows)]
-fn swap(exe: &Path, new: &Path) -> std::io::Result<()> {
-    swap_aside(exe, new, now_secs())
+fn swap_all(files: impl IntoIterator<Item = (PathBuf, PathBuf)>) -> Result<(), String> {
+    let stamp = now_secs();
+    let mut done = Vec::new();
+    for (file, new) in files {
+        match swap(&file, &new, stamp) {
+            Ok(kept) => done.push((file, kept)),
+            Err(e) => {
+                for (file, kept) in done.into_iter().rev() {
+                    let _ = undo(&file, kept);
+                }
+                return Err(format!("{}: {e}", file.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
-#[cfg(not(windows))]
-fn swap(exe: &Path, new: &Path) -> std::io::Result<()> {
+fn swap(file: &Path, new: &Path, stamp: u64) -> std::io::Result<Option<PathBuf>> {
+    let aside = file.with_file_name(format!(
+        "{}.{stamp}.old",
+        file.file_name().unwrap_or_default().to_string_lossy()
+    ));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755))?;
     }
-    std::fs::rename(new, exe)
-}
-
-#[cfg(windows)]
-fn swap_aside(exe: &Path, new: &Path, stamp: u64) -> std::io::Result<()> {
-    let aside = exe.with_file_name(format!(
-        "{}.{stamp}.old",
-        exe.file_name().unwrap_or_default().to_string_lossy()
-    ));
-    match std::fs::rename(exe, &aside) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return std::fs::rename(new, exe),
-        moved => moved?,
+    let kept = match keep(file, &aside) {
+        Ok(()) => Some(aside),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    match std::fs::rename(new, file) {
+        Ok(()) => Ok(kept),
+        Err(e) => {
+            let _ = undo(file, kept);
+            Err(e)
+        }
     }
-    std::fs::rename(new, exe).inspect_err(|_| {
-        let _ = std::fs::rename(&aside, exe);
-    })
 }
 
 #[cfg(windows)]
+fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
+    std::fs::rename(file, aside)
+}
+
+#[cfg(not(windows))]
+fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(file, aside)
+}
+
+fn undo(file: &Path, kept: Option<PathBuf>) -> std::io::Result<()> {
+    match kept {
+        Some(aside) => std::fs::rename(aside, file),
+        None => std::fs::remove_file(file),
+    }
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

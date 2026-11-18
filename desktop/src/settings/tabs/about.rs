@@ -42,8 +42,6 @@ struct Model {
     outcome: Option<Outcome>,
     started: bool,
     waiting: bool,
-    installed: bool,
-    reopen: Option<String>,
     issued: u64,
     applied: u64,
 }
@@ -71,7 +69,6 @@ fn request(
     let ticket = model.update(cx, |model, _| {
         model.issued += 1;
         model.checking |= matches!(call, Call::Check);
-        model.installed |= matches!(call, Call::Install);
         model.issued
     });
     cx.spawn(async move |cx| {
@@ -91,6 +88,7 @@ fn request(
             })
             .await;
         let poll = model.update(cx, |model, cx| {
+            let was_busy = model.view.as_ref().is_some_and(busy);
             if matches!(call, Call::Check) {
                 model.checking = false;
                 model.outcome = Some(match &reply {
@@ -117,7 +115,7 @@ fn request(
             }
             cx.notify();
             let active = model.view.as_ref().is_some_and(busy);
-            let restarted = model.installed && !active && daemon::sibling().is_some();
+            let restarted = was_busy && !active;
             let poll = active && !model.waiting;
             model.waiting |= poll;
             (poll, restarted)
@@ -125,10 +123,7 @@ fn request(
         let (poll, restarted) = poll;
         if restarted {
             let version = cx.background_spawn(async { daemon::version() }).await;
-            model.update(cx, |model, _| {
-                model.reopen = version.clone().filter(|version| version != VERSION);
-                model.daemon = version;
-            });
+            model.update(cx, |model, _| model.daemon = version);
         }
         let _ = dialog.update(cx, |_, cx| cx.notify());
         if poll {
@@ -331,8 +326,11 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
             );
         }
         Some(UpdateStep::Available) | None => {
-            if let Some(version) = model.read(cx).reopen.clone() {
-                let text = say_with(cx, Str::AboutReopen, &[("version", &version)]);
+            if let Some(version) = daemon
+                .as_deref()
+                .filter(|version| *version != VERSION && daemon::sibling().is_some())
+            {
+                let text = say_with(cx, Str::AboutReopen, &[("version", version)]);
                 let text = section.text(&text, cx);
                 section = section.child(div().text_size(px(SMALL)).text_color(c.ink_3).child(text));
             }

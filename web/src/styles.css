@@ -1193,5 +1193,5 @@ li[data-by="agent"] > .talk-text { border: 1px solid var(--line-strong); border-
 .talk-typing .spin { animation: spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .talk-typing .spin { animation: none; } }
 
-.titlebar, .side, .rail, .dock, .statusbar, .canvas-title, .canvas-down, .refusal, .react-flow__panel.zoom-level, .dialog, .login, .switch-dialog, .menu, .status-pop, .update-pop, .card-head, .group-head, .repo-head, .wt-chips, .repo-box > .downline, .card.simple, .pop-start > .pop, .pop-end > .pop { zoom: var(--ui-zoom); }
+.titlebar, .side, .rail, .dock, .statusbar, .canvas-title, .canvas-down, .refusal, .react-flow__panel.zoom-level, .dialog, .login, .switch-dialog, .menu, .status-pop, .update-pop, .card-head, .group-head, .group-empty, .repo-head, .wt-chips, .repo-box > .downline, .card.simple, .pop-start > .pop, .pop-end > .pop { zoom: var(--ui-zoom); }
 .dock-term, .login-term { zoom: calc(1 / var(--ui-zoom)); }

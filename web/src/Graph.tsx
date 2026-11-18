@@ -619,7 +619,7 @@ export function Graph(props: {
     for (const b of level.boxes) levels.set(b.key, level);
   };
   type Laid = { group: Group; members: NodeView[]; local: Map<string, XYPosition>; auto: Map<string, XYPosition>; lead: XYPosition; size: Size; kids: Laid[] };
-  const emptySize = (path: string): Size => ({ width: EMPTY_GROUP.width, height: EMPTY_GROUP.height + insetOf(path).top - cardTop });
+  const emptySize = (path: string): Size => ({ width: EMPTY_GROUP.width * scale, height: EMPTY_GROUP.height * scale + insetOf(path).top - cardTop });
   const framed = props.repos.length > 1;
   const vertical = direction === 'down' || direction === 'up';
   const chipsIn = new Map<string, Group[]>();

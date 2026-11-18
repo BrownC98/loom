@@ -90,7 +90,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .caption svg { width: 14px; height: 14px; stroke-width: 1.5; }
 .caption:hover { background: var(--surface-hover); color: var(--ink); }
 .caption.close:hover { background: #c42b1c; color: #fff; }
-.splitter { position: absolute; top: 0; bottom: var(--status-h); width: 7px; margin-left: -3px; margin-right: -4px; z-index: 1; cursor: col-resize; touch-action: none; }
+.splitter { position: absolute; top: 0; bottom: var(--status-row); width: 7px; margin-left: -3px; margin-right: -4px; z-index: 1; cursor: col-resize; touch-action: none; }
 .splitter:hover, .splitter:focus-visible, .splitter:active { background: color-mix(in oklch, var(--accent) 55%, transparent); outline: none; }
 
 .side { position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -511,8 +511,8 @@ button.unread:hover { filter: brightness(1.1); }
 .pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 
-:root { --status-h: calc(22px * var(--ui-zoom)); }
-.app { grid-template-rows: minmax(0, 1fr) var(--status-h); }
+:root { --status-h: 22px; --status-row: calc(var(--status-h) * var(--ui-zoom)); }
+.app { grid-template-rows: minmax(0, 1fr) var(--status-row); }
 a { color: var(--accent); }
 .statusbar { grid-column: 1 / -1; position: relative; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
 .statusbar .btn { height: auto; }

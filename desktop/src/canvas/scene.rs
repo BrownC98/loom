@@ -70,6 +70,13 @@ pub fn repo_inset() -> Inset {
     }
 }
 
+fn empty_group() -> Size {
+    Size {
+        width: EMPTY_GROUP.width * step(),
+        height: EMPTY_GROUP.height * step(),
+    }
+}
+
 pub fn shown_standard(base: Size) -> Size {
     Size {
         width: base.width,
@@ -236,7 +243,11 @@ impl Level<'_> {
         let rect = if items.is_empty() {
             Rect {
                 at: Point { x: 0.0, y: 0.0 },
-                size: self.nest[i].empty,
+                size: Size {
+                    width: self.nest[i].empty.width,
+                    height: self.nest[i].empty.height + self.inset(&self.groups[i].path).top
+                        - card_top(),
+                },
             }
         } else {
             let contents: Vec<Rect> = items
@@ -560,7 +571,7 @@ pub fn build(
                 parent: cards[i].and(parents[i]),
                 card: cards[i],
                 members: members[i].iter().map(|v| v.id.0).collect(),
-                empty: EMPTY_GROUP,
+                empty: empty_group(),
             })
             .collect();
         let tree = layout::arrange_nested(

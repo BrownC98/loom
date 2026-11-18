@@ -165,14 +165,14 @@ async fn pty(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let id = NodeId(id);
-    if app.host.attach(id).is_none() {
+    let Some(attached) = app.host.attach(id) else {
         return coming_pty(ws, via, app, id);
-    }
+    };
     let input = PtyInput {
         typed: live_typed,
         composing: live_composing,
     };
-    serve_pty(ws, via, app, |app| &app.host, input, id)
+    serve_attached(ws, via, app, |app| &app.host, input, id, attached)
 }
 
 async fn wake_node(State(app): State<Arc<App>>, Path(id): Path<u32>) -> Json<()> {
@@ -383,6 +383,18 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
             })
         });
     };
+    serve_attached(ws, via, app, host, input, id, attached)
+}
+
+fn serve_attached<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
+    ws: WebSocketUpgrade,
+    via: Option<Extension<ViaRemote>>,
+    app: Arc<App>,
+    host: fn(&App) -> &NodeHost<K>,
+    input: PtyInput<K>,
+    id: K,
+    attached: node_host::Attached,
+) -> Response {
     let devices = app.devices.clone();
     let borrower = node_host::Borrower::fresh();
     ws.on_upgrade(move |socket| {

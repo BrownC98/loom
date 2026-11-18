@@ -108,8 +108,9 @@ use api::settings::roles::Roles;
 use api::settings::update::UpdateView;
 use api::start::Start;
 use verbs::{
-    Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach, agent_done,
-    agent_note, agent_remove, agent_set_role, agent_spawn, endpoint_spawn, traced,
+    Attempt, agent_add_role, agent_adopt, agent_answer, agent_answered, agent_ask, agent_detach,
+    agent_done, agent_note, agent_remove, agent_remove_role, agent_set_role, agent_set_setting,
+    agent_settings, agent_spawn, endpoint_spawn, traced,
 };
 
 #[derive(Embed)]

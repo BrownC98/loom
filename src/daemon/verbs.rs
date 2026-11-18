@@ -1,7 +1,11 @@
 use super::*;
 use crate::graph::NodeToken;
+use crate::roles::RemoveRole;
+use crate::settings::{SetSetting, key_patch};
 use api::ids::AgentId;
+use api::settings::roles::Role;
 use api::start::ModelChoice;
+use std::collections::BTreeMap;
 
 pub(super) async fn agent_spawn(
     State(app): State<Arc<App>>,
@@ -154,6 +158,7 @@ pub(super) fn role_refusal(e: RoleProblem) -> Refusal {
         RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
         RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
         RoleProblem::Launch(e) => Refusal::BadRoleSetting(e.to_string()),
+        RoleProblem::Shape(e) => Refusal::BadRoleSetting(e),
     }
 }
 
@@ -162,27 +167,123 @@ pub(super) async fn agent_set_role(
     headers: HeaderMap,
     Json(req): Json<SetRole>,
 ) -> Result<Json<Roles>, AgentError> {
+    let edit = |roles: &Roles| crate::roles::with(roles, &req, profile::check_known_choice);
+    edit_roles(&app, &headers, "/api/agent/roles/set", &req.role, edit)
+}
+
+pub(super) async fn agent_add_role(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(role): Json<Role>,
+) -> Result<Json<Roles>, AgentError> {
+    let name = role.name.clone();
+    let edit = |roles: &Roles| crate::roles::added(roles, role, profile::check_known_choice);
+    edit_roles(&app, &headers, "/api/agent/roles/add", &name, edit)
+}
+
+pub(super) async fn agent_remove_role(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<RemoveRole>,
+) -> Result<Json<Roles>, AgentError> {
+    let edit = |roles: &Roles| crate::roles::without(roles, &req.role);
+    edit_roles(&app, &headers, "/api/agent/roles/remove", &req.role, edit)
+}
+
+fn edit_roles(
+    app: &Arc<App>,
+    headers: &HeaderMap,
+    path: &str,
+    role: &str,
+    edit: impl FnOnce(&Roles) -> Result<Roles, RoleProblem>,
+) -> Result<Json<Roles>, AgentError> {
+    let caller = app.caller(headers)?;
+    let via = gate::via(headers, path);
+    let edited = match app.graph.has_parent(caller) {
+        Err(e) => Err(e.into()),
+        Ok(true) => Err(Refusal::RolesHaveParent.into()),
+        Ok(false) => app.settings.edit_roles(edit).map_err(|e| match e {
+            crate::settings::RolesProblem::Db(e) => internal(e),
+            crate::settings::RolesProblem::Role(e) => role_refusal(e).into(),
+        }),
+    };
+    if edited.is_ok() {
+        app.graph.publish_view_changed();
+    }
+    traced(app, caller, Attempt::verb(role), &via, edited)
+}
+
+const NOT_FOR_AGENTS: [(&str, &str); 2] = [
+    ("roles", "use loom roles"),
+    ("bypassOff", "only the human changes agent permissions"),
+];
+
+pub(super) async fn agent_settings(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<BTreeMap<String, serde_json::Value>>, AgentError> {
+    app.caller(&headers)?;
+    let view = app.settings.get().map_err(|e| for_agent(internal(e)))?;
+    let mut value =
+        serde_json::to_value(super::settings::shown(view)).map_err(|e| for_agent(internal(e)))?;
+    let mut lines = BTreeMap::new();
+    if let Some(fields) = value.as_object_mut() {
+        for (key, _) in NOT_FOR_AGENTS {
+            fields.remove(key);
+        }
+    }
+    flatten(String::new(), value, &mut lines);
+    Ok(Json(lines))
+}
+
+fn flatten(key: String, value: serde_json::Value, lines: &mut BTreeMap<String, serde_json::Value>) {
+    match value {
+        serde_json::Value::Object(fields) if !fields.is_empty() => {
+            for (name, inner) in fields {
+                let path = match key.is_empty() {
+                    true => name,
+                    false => format!("{key}.{name}"),
+                };
+                flatten(path, inner, lines);
+            }
+        }
+        leaf => {
+            lines.insert(key, leaf);
+        }
+    }
+}
+
+pub(super) async fn agent_set_setting(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<SetSetting>,
+) -> Result<Json<serde_json::Value>, AgentError> {
     let caller = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/roles/set");
-    let set = set_role(&app, caller, &req);
+    let via = gate::via(&headers, "/api/agent/settings/set");
+    let set = set_setting(&app, caller, &req);
     if set.is_ok() {
         app.graph.publish_view_changed();
     }
-    traced(&app, caller, Attempt::verb(&req.role), &via, set)
+    traced(&app, caller, Attempt::verb(&req.key), &via, set)
 }
 
-fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> {
+fn set_setting(app: &App, caller: NodeId, req: &SetSetting) -> Result<serde_json::Value, Problem> {
     if app.graph.has_parent(caller)? {
-        return Err(Refusal::RolesHaveParent.into());
+        return Err(Refusal::SettingsHaveParent.into());
     }
-    use crate::settings::SetRoleProblem;
+    let top = req.key.split('.').next().unwrap_or_default();
+    if let Some((_, why)) = NOT_FOR_AGENTS.iter().find(|(key, _)| *key == top) {
+        return Err(Refusal::BadSetting(format!("agents do not change '{top}': {why}")).into());
+    }
+    use crate::settings::PatchProblem;
+    let refused = |e| match e {
+        PatchProblem::Db(e) => internal(e),
+        PatchProblem::Shape(e) => Refusal::BadSetting(e).into(),
+    };
+    super::settings::absolute_dirs(&key_patch(&req.key, &req.value).map_err(refused)?)?;
     app.settings
-        .set_role(req, profile::check_known_choice)
-        .map_err(|e| match e {
-            SetRoleProblem::Db(e) => internal(e),
-            SetRoleProblem::Shape(e) => Refusal::BadRoleSetting(e).into(),
-            SetRoleProblem::Role(e) => role_refusal(e).into(),
-        })
+        .set_key(&req.key, req.value.clone())
+        .map_err(refused)
 }
 
 fn role_start(

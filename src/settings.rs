@@ -1,9 +1,10 @@
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use api::settings::{FloatPlace, Language, SettingsView};
 
 use crate::db::Database;
-use crate::roles::{self, ChoiceCheck, RoleProblem, SetRole};
+use crate::roles::{self, ChoiceCheck, RoleProblem};
 use api::settings::roles::Roles;
 
 fn place_problem(place: FloatPlace, field: &str) -> Option<String> {
@@ -71,13 +72,45 @@ impl Settings {
         })
     }
 
-    pub fn set_role(&self, set: &SetRole, known: ChoiceCheck) -> Result<Roles, SetRoleProblem> {
+    pub fn edit_roles(
+        &self,
+        edit: impl FnOnce(&Roles) -> Result<Roles, RoleProblem>,
+    ) -> Result<Roles, RolesProblem> {
         self.write(|view, value| {
-            let next = roles::with(&view.roles, set, known).map_err(SetRoleProblem::Role)?;
+            let next = edit(&view.roles).map_err(RolesProblem::Role)?;
             merge(value, &serde_json::json!({ "roles": next }));
-            checked(value, self.check).map_err(SetRoleProblem::Shape)
+            checked(value, self.check).map_err(|e| RolesProblem::Role(RoleProblem::Shape(e)))
         })
         .map(|view| view.roles)
+    }
+
+    pub fn set_key(
+        &self,
+        key: &str,
+        new: serde_json::Value,
+    ) -> Result<serde_json::Value, PatchProblem> {
+        let patch = key_patch(key, &new)?;
+        let pointer = format!("/{}", key.replace('.', "/"));
+        let unknown = || PatchProblem::Shape(format!("the settings have no key '{key}'"));
+        let mut kept = serde_json::Value::Null;
+        self.write(|_, value| {
+            if new.is_null() && value.pointer(&pointer).is_none() {
+                return Err(unknown());
+            }
+            merge(value, &patch);
+            let view = checked(value, self.check).map_err(PatchProblem::Shape)?;
+            let stored = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
+            kept = stored.pointer(&pointer).cloned().unwrap_or_default();
+            match (new.is_null(), stored.pointer(&pointer)) {
+                (true, _) => Ok(view),
+                (false, Some(got)) if *got == new => Ok(view),
+                (false, Some(got)) => Err(PatchProblem::Shape(format!(
+                    "'{key}' does not keep {new}: the settings store {got}"
+                ))),
+                (false, None) => Err(unknown()),
+            }
+        })?;
+        Ok(kept)
     }
 
     pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
@@ -123,6 +156,21 @@ impl Settings {
         tx.commit()?;
         Ok(next)
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SetSetting {
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+pub fn key_patch(key: &str, value: &serde_json::Value) -> Result<serde_json::Value, PatchProblem> {
+    if key.split('.').any(str::is_empty) {
+        return Err(PatchProblem::Shape(format!("the key '{key}' is not valid")));
+    }
+    Ok(key
+        .rsplit('.')
+        .fold(value.clone(), |inner, p| serde_json::json!({ p: inner })))
 }
 
 fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> {
@@ -177,13 +225,12 @@ pub enum PatchProblem {
     Shape(String),
 }
 
-pub enum SetRoleProblem {
+pub enum RolesProblem {
     Db(rusqlite::Error),
-    Shape(String),
     Role(RoleProblem),
 }
 
-impl From<rusqlite::Error> for SetRoleProblem {
+impl From<rusqlite::Error> for RolesProblem {
     fn from(e: rusqlite::Error) -> Self {
         Self::Db(e)
     }

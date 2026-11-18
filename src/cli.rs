@@ -18,7 +18,7 @@ use crate::protocol::{
     AckRequest, ChoiceRequest, Delivery, END_TURN_NOW, IdleReply, IdleRequest, MessageId,
     NODE_CALLS, NODE_CALLS_HEADER, Report,
 };
-use crate::roles::SetRole;
+use crate::settings::SetSetting;
 use crate::task;
 use crate::tunnel::ENDPOINT_ENV;
 use crate::user_doc::DocStep;
@@ -105,8 +105,29 @@ pub fn roles() -> Result<(), String> {
     Ok(())
 }
 
-pub fn set_role(set: SetRole) -> Result<(), String> {
-    print_roles(call("roles/set", &set)?);
+pub fn edit_roles(action: &str, edit: &impl Serialize) -> Result<(), String> {
+    print_roles(call(action, edit)?);
+    Ok(())
+}
+
+pub fn settings() -> Result<(), String> {
+    let lines: std::collections::BTreeMap<String, serde_json::Value> = call("settings", &())?;
+    for (key, value) in lines {
+        println!("{key} = {value}");
+    }
+    Ok(())
+}
+
+pub fn set_setting(key: String, value: String) -> Result<(), String> {
+    let value = serde_json::from_str(&value).unwrap_or(serde_json::Value::String(value));
+    let kept: serde_json::Value = call(
+        "settings/set",
+        &SetSetting {
+            key: key.clone(),
+            value,
+        },
+    )?;
+    println!("{key} = {kept}");
     Ok(())
 }
 

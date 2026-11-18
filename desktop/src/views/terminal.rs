@@ -6,7 +6,7 @@ use gpui::{
     App, AppContext, BorderStyle, Bounds, ClipboardItem, Context, DispatchPhase,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent, Size,
     StrikethroughStyle, Styled, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle,
     Window, canvas, div, fill, outline, point, px, rgb, size,
 };
@@ -34,6 +34,7 @@ const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_THIN: f32 = 2.0;
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
+const FIT_SLACK: f32 = 0.001;
 const ROUNDING: f32 = 1.0;
 const SCROLLBAR: f32 = 14.0;
 const FIT_MIN_COLS: u16 = 2;
@@ -101,6 +102,7 @@ pub struct TerminalView {
     focus: FocusHandle,
     settled: bool,
     scale: f32,
+    body: Option<Size<Pixels>>,
     area: Bounds<Pixels>,
     origin: gpui::Point<Pixels>,
     touched: bool,
@@ -223,6 +225,7 @@ impl TerminalView {
                 .ok()
                 .and_then(|scale| scale.parse().ok())
                 .unwrap_or(1.0),
+            body: None,
             area: Bounds::default(),
             origin: gpui::Point::default(),
             touched: false,
@@ -272,7 +275,8 @@ impl TerminalView {
         self.focus.is_focused(window)
     }
 
-    pub fn set_scale(&mut self, scale: f32) {
+    pub fn set_scale(&mut self, scale: f32, body: Option<Size<Pixels>>) {
+        self.body = body;
         if scale != self.scale {
             self.scale = scale;
             self.dirty = true;
@@ -403,13 +407,20 @@ impl TerminalView {
 
     fn fit(&self) -> Option<(u16, u16)> {
         let cell = self.cell?;
-        let width = (self.area.size.width + px(ROUNDING)) / self.scale - px(SCROLLBAR);
-        let height = (self.area.size.height + px(ROUNDING)) / self.scale;
+        let inner = match self.body {
+            Some(body) => body - size(px(PAD_X * 2.0), px(PAD_Y * 2.0)),
+            None => size(
+                self.area.size.width / self.scale,
+                self.area.size.height / self.scale,
+            ),
+        };
+        let width = inner.width - px(SCROLLBAR);
+        let height = inner.height;
         if width <= px(0.0) || height <= px(0.0) {
             return None;
         }
-        let cols = (width / cell.cell_width).floor() as u16;
-        let rows = (height / cell.cell_height).floor() as u16;
+        let cols = ((width + cell.cell_width * FIT_SLACK) / cell.cell_width).floor() as u16;
+        let rows = ((height + cell.cell_height * FIT_SLACK) / cell.cell_height).floor() as u16;
         (cols > FIT_MIN_COLS && rows > FIT_MIN_ROWS).then_some((cols, rows))
     }
 

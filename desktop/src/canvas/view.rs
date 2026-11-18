@@ -889,12 +889,18 @@ impl Render for CanvasView {
         let area = self.area.clone();
         let frame_end = self.probe.clone();
         for (id, live) in &self.live {
-            let scale = if zoomed == Some(*id) {
-                1.0
+            let (scale, body) = if zoomed == Some(*id) {
+                (1.0, None)
             } else {
-                snapped(camera.zoom)
+                let body = self.scene.cards.iter().find(|c| c.node == *id).map(|c| {
+                    size(
+                        px(c.rect.size.width as f32),
+                        px(card::body_height(c.rect.size.height as f32)),
+                    )
+                });
+                (snapped(camera.zoom), body)
             };
-            live.view.update(cx, |view, _| view.set_scale(scale));
+            live.view.update(cx, |view, _| view.set_scale(scale, body));
         }
         let viewport = Bounds::from_corners(
             point(px(0.0), px(0.0)),

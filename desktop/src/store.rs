@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
-use api::graph::events::EventLog;
+use api::graph::events::{Entry, EventLog, SwitchCause};
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, PressKeys, Prompt, TypeText};
 use api::graph::{GraphEvent, NewNode, NodeView};
 use api::ids::{NodeId, RepoId, WaitId};
@@ -169,13 +169,21 @@ impl Store {
                 cx.spawn_in(window, async move |this, cx| {
                     loop {
                         cx.background_executor().timer(REPOS_EVERY).await;
+                        let Ok(visible) = this.update_in(cx, |_, window, _| window.is_visible())
+                        else {
+                            break;
+                        };
                         let base = reach_base.clone();
                         let order = link::order();
-                        let repos: Result<Vec<RepoView>, _> = cx
-                            .background_spawn(async move { link::read(&base, "/api/repos") })
-                            .await;
+                        let repos: Option<Vec<RepoView>> = match visible {
+                            true => cx
+                                .background_spawn(async move { link::read(&base, "/api/repos") })
+                                .await
+                                .ok(),
+                            false => None,
+                        };
                         let Ok(hosts) = this.update(cx, |store, cx| {
-                            if let Ok(repos) = repos {
+                            if let Some(repos) = repos {
                                 store.keep_repos(order, repos, cx);
                             }
                             store.ssh_hosts()
@@ -584,7 +592,14 @@ impl Store {
         match event {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
             Graph::Nodes(fresh) => self.refresh(*fresh),
-            Graph::Feed(event) => cx.emit(*event),
+            Graph::Feed(event) => {
+                if let GraphEvent::Recorded { record } = event.as_ref()
+                    && matches!(&record.entry, Entry::AccountSwitched { why, .. } if *why != SwitchCause::Manual)
+                {
+                    self.reload(cx);
+                }
+                cx.emit(*event)
+            }
             Graph::Link => {}
             Graph::Failed { order, error } => {
                 if order <= self.loaded.max(self.nodes_at) {

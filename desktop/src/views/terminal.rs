@@ -34,7 +34,7 @@ const CURSOR_ALPHA: f32 = 0.6;
 const CURSOR_THIN: f32 = 2.0;
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
-const FIT_SLACK: f32 = 0.001;
+const ROUNDING: f32 = 1.0;
 const SCROLLBAR: f32 = 14.0;
 const FIT_MIN_COLS: u16 = 2;
 const FIT_MIN_ROWS: u16 = 1;
@@ -105,6 +105,7 @@ pub struct TerminalView {
     origin: gpui::Point<Pixels>,
     touched: bool,
     cell: Option<Metrics>,
+    painted: Option<Metrics>,
     sent: (u16, u16),
     ended: Option<String>,
     gone: bool,
@@ -208,6 +209,7 @@ impl TerminalView {
         let focus_events = [
             cx.on_focus_in(&focus, window, |this, _, _| {
                 this.touched = true;
+                this.retake();
                 this.report_focus(true);
             }),
             cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
@@ -225,6 +227,7 @@ impl TerminalView {
             origin: gpui::Point::default(),
             touched: false,
             cell: None,
+            painted: None,
             sent: (0, 0),
             ended,
             gone: false,
@@ -384,38 +387,53 @@ impl TerminalView {
         }
     }
 
-    fn resized(&mut self, area: Bounds<Pixels>, cell: Metrics, origin: gpui::Point<Pixels>) {
+    fn resized(
+        &mut self,
+        area: Bounds<Pixels>,
+        cell: Metrics,
+        painted: Metrics,
+        origin: gpui::Point<Pixels>,
+    ) {
         self.area = area;
         self.origin = origin;
         self.cell = Some(cell);
+        self.painted = Some(painted);
         self.claim();
     }
 
-    fn claim(&mut self) {
-        let Some(cell) = self.cell else {
-            return;
-        };
-        let width = self.area.size.width / self.scale - px(SCROLLBAR);
-        let height = self.area.size.height / self.scale;
+    fn fit(&self) -> Option<(u16, u16)> {
+        let cell = self.cell?;
+        let width = (self.area.size.width + px(ROUNDING)) / self.scale - px(SCROLLBAR);
+        let height = (self.area.size.height + px(ROUNDING)) / self.scale;
         if width <= px(0.0) || height <= px(0.0) {
-            return;
+            return None;
         }
-        let cols = ((width + cell.cell_width * FIT_SLACK) / cell.cell_width).floor() as u16;
-        let rows = ((height + cell.cell_height * FIT_SLACK) / cell.cell_height).floor() as u16;
-        if cols <= FIT_MIN_COLS || rows <= FIT_MIN_ROWS {
-            return;
+        let cols = (width / cell.cell_width).floor() as u16;
+        let rows = (height / cell.cell_height).floor() as u16;
+        (cols > FIT_MIN_COLS && rows > FIT_MIN_ROWS).then_some((cols, rows))
+    }
+
+    fn claim(&mut self) {
+        if let Some(fit) = self.fit().filter(|fit| *fit != self.sent) {
+            self.send_size(fit);
         }
-        let fit = (cols, rows);
-        if fit != self.sent {
-            self.sent = fit;
-            if let Some(pty) = &self.pty {
-                pty.resize(fit.0, fit.1);
-            }
+    }
+
+    fn retake(&mut self) {
+        if let Some(fit) = self.fit().filter(|fit| *fit != self.vt.size()) {
+            self.send_size(fit);
+        }
+    }
+
+    fn send_size(&mut self, fit: (u16, u16)) {
+        self.sent = fit;
+        if let Some(pty) = &self.pty {
+            pty.resize(fit.0, fit.1);
         }
     }
 
     fn type_in(&mut self, bytes: Vec<u8>) {
-        self.claim();
+        self.retake();
         self.vt.select_clear();
         self.vt.scroll_to_bottom();
         self.dirty = true;
@@ -595,7 +613,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let (cursor, cell) = (self.cursor?, self.cell?);
+        let (cursor, cell) = (self.cursor?, self.painted?);
         let text = self.marked.as_deref().unwrap_or_default();
         let before = utf16_slice(text, &(0..range_utf16.start));
         let cols = before
@@ -603,7 +621,7 @@ impl EntityInputHandler for TerminalView {
             .map(|c| c.width().unwrap_or(1))
             .sum::<usize>()
             + cursor.col;
-        let (width, height) = (cell.cell_width * self.scale, cell.cell_height * self.scale);
+        let (width, height) = (cell.cell_width, cell.cell_height);
         Some(Bounds::new(
             self.origin + point(width * cols as f32, height * cursor.row as f32),
             size(width, height),
@@ -661,8 +679,8 @@ impl Render for TerminalView {
                 MouseButton::Right,
                 cx.listener(|this, event, window, cx| this.press(event, window, cx)),
             )
-            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
-                this.wheel(event, window, cx);
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                this.wheel(event, cx);
             }))
             .child(
                 canvas(
@@ -672,7 +690,13 @@ impl Render for TerminalView {
                             outer.size - size(pad.x * 2.0, pad.y * 2.0),
                         );
                         let base = metrics(window, &face, 1.0);
-                        let cell = metrics(window, &face, scale);
+                        let full = metrics(window, &face, scale);
+                        let room = bounds.size + size(px(ROUNDING), px(ROUNDING));
+                        let shrink = (room.width / (full.cell_width * grid.0 as f32))
+                            .min(room.height / (full.cell_height * grid.1 as f32))
+                            .min(1.0);
+                        let drawn = scale * shrink;
+                        let cell = metrics(window, &face, drawn);
                         let spare = bounds.size
                             - size(
                                 cell.cell_width * grid.0 as f32,
@@ -683,27 +707,31 @@ impl Render for TerminalView {
                                 spare.width.max(px(0.0)) / 2.0,
                                 spare.height.max(px(0.0)) / 2.0,
                             );
-                        view.update(cx, |view, _| view.resized(bounds, base, origin));
-                        Bounds::new(origin, bounds.size)
+                        view.update(cx, |view, _| view.resized(bounds, base, cell, origin));
+                        (Bounds::new(origin, bounds.size), drawn)
                     },
-                    move |_, bounds, window, cx| {
+                    move |_, (bounds, drawn), window, cx| {
                         window.handle_input(
                             &focus,
                             ElementInputHandler::new(bounds, view_input.clone()),
                             cx,
                         );
                         let moving = view_pointer.clone();
-                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
                             if phase == DispatchPhase::Capture {
-                                moving.update(cx, |view, cx| view.drag(event, window, cx));
+                                moving.update(cx, |view, cx| view.drag(event, cx));
                             }
                         });
                         let releasing = view_pointer.clone();
-                        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                             if phase == DispatchPhase::Capture {
-                                releasing.update(cx, |view, cx| view.release(event, window, cx));
+                                releasing.update(cx, |view, cx| view.release(event, cx));
                             }
                         });
+                        let draw = Draw {
+                            scale: drawn,
+                            ..draw
+                        };
                         paint(bounds, &frame, marked.as_deref(), &draw, window, cx);
                     },
                 )

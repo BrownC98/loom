@@ -104,7 +104,7 @@ pub struct CanvasView {
 }
 
 fn snapped(zoom: f32) -> f32 {
-    TERMINAL_STEP.powf((zoom.ln() / TERMINAL_STEP.ln()).round())
+    TERMINAL_STEP.powf((zoom.ln() / TERMINAL_STEP.ln()).floor())
 }
 
 fn bounds_of(rect: Rect) -> Bounds<f32> {

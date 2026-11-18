@@ -178,6 +178,11 @@ impl Vt {
         self.term.resize(size(cols, rows));
     }
 
+    pub fn size(&self) -> (u16, u16) {
+        let (cols, rows) = (self.term.columns(), self.term.screen_lines());
+        (cols as u16, rows as u16)
+    }
+
     pub fn take_replies(&mut self) -> Vec<u8> {
         std::mem::take(
             &mut self

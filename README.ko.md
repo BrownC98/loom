@@ -75,7 +75,7 @@ loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom �
 | 릴리스 파일 | `loom_<판>_x64-setup.exe`, `loom_<판>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
 | 창 | 웹뷰(Tauri) | 네이티브(GPUI) | 내 브라우저 |
 | 운영체제 | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
-| 업데이트 | 화면의 업데이트 카드 | 다시 설치 | 화면의 업데이트 카드 |
+| 업데이트 | 화면의 업데이트 카드 | 설정 › 정보의 **업데이트** | 화면의 업데이트 카드 |
 
 **한 줄로 설치(권장).** 위 Windows·macOS 한 줄은 릴리스에 loom desktop이 있으면 그것을 설치합니다. Windows는 `%LOCALAPPDATA%\loom\bin\loom-desktop.exe`와 바탕 화면의 **loom** 아이콘, macOS는 응용 프로그램 폴더의 `loom-desktop.app`입니다.
 
@@ -95,7 +95,7 @@ loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom �
 - macOS(한 줄 설치): `/Applications/loom-desktop.app/Contents/MacOS/loom stop`(또는 `~/Applications/…`)
 - 손으로 설치: `<폴더>/loom stop`
 
-**업데이트.** loom desktop에는 업데이트 카드가 없습니다. 설치 한 줄을 다시 실행합니다. 손으로 설치했으면 새 릴리스를 새 폴더에 풀고 그 `loom-desktop`을 실행합니다. 새 `loom`이 도는 데몬을 바꿉니다. 옛 폴더 위에 풀지 않습니다: Windows에서는 도는 `loom.exe`를 바꿀 수 없습니다.
+**업데이트.** 설정 › 정보에서 **업데이트 확인**, 이어서 **업데이트**를 누릅니다. 데몬이 `loom`과 그 옆의 `loom-desktop`을 새 릴리스로 바꾸고 다시 뜹니다. 그 뒤 창 프로그램을 끝내고 다시 엽니다: 창이 이 안내를 보여 줍니다. 설치한 loom이 이 기능 전 릴리스이면 단추는 `loom`만 바꿉니다. 그때는 설치 한 줄을 한 번 더 실행합니다. 업데이트 단추는 도는 데몬이 `loom-desktop` 옆의 `loom`일 때만 `loom-desktop`을 바꿉니다.
 
 **한계.** 릴리스에는 Windows x64와 macOS Apple Silicon용 loom desktop만 있습니다. Linux는 브라우저 판을 씁니다. v0.1.2825보다 옛 릴리스에는 없습니다. 그때 설치 한 줄은 브라우저 판(Windows) 또는 앱만(macOS) 설치합니다.
 

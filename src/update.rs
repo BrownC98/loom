@@ -22,7 +22,7 @@ enum Install {
     Standalone {
         exe: PathBuf,
         asset: &'static str,
-        besides: &'static [Beside],
+        besides: Vec<&'static Beside>,
     },
     App {
         app: PathBuf,
@@ -41,16 +41,32 @@ const WINDOWS_BESIDES: &[Beside] = &[Beside {
     file: crate::distro::LINUX_LOOM,
 }];
 const MAC_ASSET: &str = "loom-web-macos-arm64";
+const WINDOWS_DESKTOP: Beside = Beside {
+    asset: "loom-desktop-windows-x64.exe",
+    file: "loom-desktop.exe",
+};
+const MAC_DESKTOP: Beside = Beside {
+    asset: "loom-desktop-macos-arm64",
+    file: "loom-desktop",
+};
 
 impl Install {
-    fn of(exe: &Path, asset: Option<&'static str>, besides: &'static [Beside]) -> Self {
+    fn of(
+        exe: &Path,
+        asset: Option<&'static str>,
+        besides: &'static [Beside],
+        desktop: Option<&'static Beside>,
+    ) -> Self {
         let app = exe.with_file_name(format!("{APP_NAME}{}", std::env::consts::EXE_SUFFIX));
         match asset {
             _ if app.is_file() => Install::App { app },
             Some(asset) => Install::Standalone {
                 exe: exe.to_owned(),
                 asset,
-                besides,
+                besides: besides
+                    .iter()
+                    .chain(desktop.filter(|desktop| exe.with_file_name(desktop.file).is_file()))
+                    .collect(),
             },
             None => Install::Unsupported,
         }
@@ -70,6 +86,14 @@ fn besides(os: &str, arch: &str) -> &'static [Beside] {
     match (os, arch) {
         ("windows", "x86_64") => WINDOWS_BESIDES,
         _ => &[],
+    }
+}
+
+fn desktop(os: &str, arch: &str) -> Option<&'static Beside> {
+    match (os, arch) {
+        ("windows", "x86_64") => Some(&WINDOWS_DESKTOP),
+        ("macos", "aarch64") => Some(&MAC_DESKTOP),
+        _ => None,
     }
 }
 
@@ -104,9 +128,20 @@ impl Updater {
     pub fn new(listen: SocketAddr, notify: impl Fn() + Send + Sync + 'static) -> Self {
         let install = match std::env::current_exe() {
             Ok(exe) => {
-                remove_aside(&exe);
                 let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
-                Install::of(&exe, asset_name(os, arch), besides(os, arch))
+                let install = Install::of(
+                    &exe,
+                    asset_name(os, arch),
+                    besides(os, arch),
+                    desktop(os, arch),
+                );
+                remove_aside(&exe);
+                if let Install::Standalone { besides, .. } = &install {
+                    for beside in besides {
+                        remove_aside(&exe.with_file_name(beside.file));
+                    }
+                }
+                install
             }
             Err(_) => Install::Unsupported,
         };
@@ -199,10 +234,7 @@ impl Updater {
                 download(&asset_url(releases, version, asset), &new, |percent| {
                     self.change(|state| state.step = Some(UpdateStep::Downloading { percent }));
                 })?;
-                for (file, new) in besides {
-                    swap_over(&file, &new).map_err(|e| format!("{}: {e}", file.display()))?;
-                }
-                swap(exe, &new).map_err(|e| format!("{}: {e}", exe.display()))?;
+                swap_all(besides, exe, &new)?;
                 launch::restart_with(exe, self.listen)
             }
             Install::App { app } => launch::spawn_detached(app, &[APP_UPDATE_FLAG]).map(drop),
@@ -257,7 +289,7 @@ fn fetch_besides(
     releases: &str,
     version: &str,
     exe: &Path,
-    besides: &[Beside],
+    besides: &[&Beside],
 ) -> Result<Vec<(PathBuf, PathBuf)>, String> {
     besides
         .iter()
@@ -298,38 +330,88 @@ fn download(url: &str, to: &Path, mut progress: impl FnMut(u8)) -> Result<(), St
         .map_err(|e| format!("{}: {e}", to.display()))
 }
 
-#[cfg(not(windows))]
-fn swap(exe: &Path, new: &Path) -> std::io::Result<()> {
-    swap_over(exe, new)
-}
-
-#[cfg(windows)]
-fn swap(exe: &Path, new: &Path) -> std::io::Result<()> {
-    swap_aside(exe, new, now_secs())
-}
-
-fn swap_over(exe: &Path, new: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755))?;
+fn swap_all(besides: Vec<(PathBuf, PathBuf)>, exe: &Path, new: &Path) -> Result<(), String> {
+    let stamp = now_secs();
+    let mut done = Vec::new();
+    let undo_all = |done: Vec<(PathBuf, Option<PathBuf>)>| {
+        for (file, kept) in done.into_iter().rev() {
+            let _ = undo(&file, kept);
+        }
+    };
+    for (file, new) in besides {
+        match swap(&file, &new, stamp) {
+            Ok(kept) => done.push((file, kept)),
+            Err(e) => {
+                undo_all(done);
+                return Err(format!("{}: {e}", file.display()));
+            }
+        }
     }
-    std::fs::rename(new, exe)
-}
-
-#[cfg(windows)]
-fn swap_aside(exe: &Path, new: &Path, stamp: u64) -> std::io::Result<()> {
-    let aside = exe.with_file_name(format!(
-        "{}.{stamp}.old",
-        exe.file_name().unwrap_or_default().to_string_lossy()
-    ));
-    std::fs::rename(exe, &aside)?;
-    std::fs::rename(new, exe).inspect_err(|_| {
-        let _ = std::fs::rename(&aside, exe);
+    put(exe, new, stamp).map_err(|e| {
+        undo_all(done);
+        format!("{}: {e}", exe.display())
     })
 }
 
+fn swap(file: &Path, new: &Path, stamp: u64) -> std::io::Result<Option<PathBuf>> {
+    let aside = file.with_file_name(format!(
+        "{}.{stamp}.old",
+        file.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    executable(new)?;
+    let kept = match keep(file, &aside) {
+        Ok(()) => Some(aside),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    match std::fs::rename(new, file) {
+        Ok(()) => Ok(kept),
+        Err(e) => {
+            let _ = undo(file, kept);
+            Err(e)
+        }
+    }
+}
+
 #[cfg(windows)]
+fn put(file: &Path, new: &Path, stamp: u64) -> std::io::Result<()> {
+    swap(file, new, stamp).map(drop)
+}
+
+#[cfg(not(windows))]
+fn put(file: &Path, new: &Path, _: u64) -> std::io::Result<()> {
+    executable(new)?;
+    std::fs::rename(new, file)
+}
+
+#[cfg(windows)]
+fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
+    std::fs::rename(file, aside)
+}
+
+#[cfg(not(windows))]
+fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(file, aside)
+}
+
+#[cfg(unix)]
+fn executable(file: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn executable(_: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+fn undo(file: &Path, kept: Option<PathBuf>) -> std::io::Result<()> {
+    match kept {
+        Some(aside) => std::fs::rename(aside, file),
+        None => std::fs::remove_file(file),
+    }
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -11,6 +11,7 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod problem;
+mod program;
 mod settings;
 mod store;
 mod strings;
@@ -30,6 +31,7 @@ use windows as platform;
 use gpui::{App, AppContext};
 
 fn main() {
+    program::remember();
     let started = daemon::start();
     gpui_platform::application()
         .with_assets(views::icons::Assets)

@@ -31,6 +31,8 @@ pub enum PtyRequest {
 pub enum PtyNotice {
     /// 이 PTY가 없다. 데몬이 다시 시작할 때 호스트가 사라졌거나, 앞 데몬에서 끝난 노드다.
     Gone,
+    /// 노드가 지워져 PTY가 없다. 화면은 마지막 화면을 그대로 두고 글을 더하지 않는다. 카드는 곧 사라진다.
+    Removed,
     /// PTY의 열·줄. 붙을 때 backlog보다 먼저, 그 뒤 바뀔 때마다 보낸다. 화면은 이 크기로 그리고 칸에 맞게 늘이거나 줄인다.
     Size(Resize),
     /// 붙을 때 PTY가 한동안 조용했다(`node_host::Attached::settled`). backlog보다 먼저 보낸다. 화면은 그 backlog 속 색 질의(OSC 10·11·4)에 답하지 않는다.

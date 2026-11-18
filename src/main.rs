@@ -48,18 +48,48 @@ use crate::profile::HookEntry;
 use api::graph::messages::Kind;
 use api::start::ModelChoice;
 
+#[derive(clap::Args)]
+struct RoleRun {
+    /// 띄울 에이전트. 빼면 이 역할은 띄우지 않는다(사람이 띄운다).
+    #[arg(long)]
+    agent: Option<String>,
+    /// 빼면 CLI 기본이다(설정 화면과 같다).
+    #[arg(long, requires = "agent")]
+    model: Option<String>,
+    /// 빼면 CLI 기본이다(설정 화면과 같다).
+    #[arg(long, requires = "agent")]
+    effort: Option<String>,
+}
+
 #[derive(clap::Subcommand)]
 enum RolesAction {
-    /// 역할 하나의 에이전트·모델·강도를 바꾼다. 이름과 책임은 그대로 둔다. --model·--effort를 빼면 그 칸은 CLI 기본이 된다(설정 화면과 같다). 부모 없는 노드만 부른다. 바꾼 표를 출력한다.
+    /// 역할 하나의 책임이나 에이전트·모델·강도를 바꾼다. `--agent`를 주면 `--model`·`--effort`를 뺀 칸은 CLI 기본이 된다. 이름은 그대로 둔다. 부모 없는 노드만 부른다. 바꾼 표를 출력한다.
+    #[command(group = clap::ArgGroup::new("change").required(true).multiple(true).args(["agent", "duty"]))]
     Set {
         role: String,
+        #[command(flatten)]
+        run: RoleRun,
+        /// 새 책임. 띄운 노드의 지시문 첫 줄이 된다.
         #[arg(long)]
-        agent: String,
-        #[arg(long)]
-        model: Option<String>,
-        #[arg(long)]
-        effort: Option<String>,
+        duty: Option<String>,
     },
+    /// 역할을 더한다. 이름이 겹치면 거절한다. 부모 없는 노드만 부른다. 바꾼 표를 출력한다.
+    Add {
+        role: String,
+        /// 역할의 책임. 띄운 노드의 지시문 첫 줄이 된다.
+        #[arg(long)]
+        duty: String,
+        #[command(flatten)]
+        run: RoleRun,
+    },
+    /// 역할을 지운다. 이미 뜬 노드는 그대로다. 부모 없는 노드만 부른다. 바꾼 표를 출력한다.
+    Remove { role: String },
+}
+
+#[derive(clap::Subcommand)]
+enum SettingsAction {
+    /// 설정 하나를 바꾸고 저장한 값을 `<키> = <JSON 값>`으로 출력한다. 키는 `loom settings`의 키(JSON pointer, 예: `/theme`, `/treeLimits/maxDepth`)다. 값은 JSON이고, JSON이 아니면 글이다. `null`은 빈 값이 뜻 있는 칸만 받는다(예: `/treeLimits/maxDepth null`은 깊이 상한 없음). 저장한 값이 준 값과 다르면 거절한다. 역할(`loom roles`)과 `bypassOff`는 거절한다. 부모 없는 노드만 부른다.
+    Set { key: String, value: String },
 }
 
 #[derive(clap::Subcommand)]
@@ -153,6 +183,11 @@ enum Cli {
     Roles {
         #[command(subcommand)]
         action: Option<RolesAction>,
+    },
+    /// 역할 밖의 설정을 `<키> = <JSON 값>` 한 줄씩 출력한다. 키는 JSON pointer다(`/treeLimits/maxDepth`). 역할은 `loom roles`가 보인다. `bypassOff`는 보이지 않는다.
+    Settings {
+        #[command(subcommand)]
+        action: Option<SettingsAction>,
     },
     /// loom 밖의 에이전트(예: Aside)가 노드의 채팅방으로 노드와 주고받는다. 노드 토큰 없이 이 PC의 데몬에 붙는다.
     Room {
@@ -335,19 +370,36 @@ fn main() -> ExitCode {
         } => cli::room::read(node, after, wait),
         Cli::Roles { action: None } => cli::roles(),
         Cli::Roles {
-            action:
-                Some(RolesAction::Set {
-                    role,
-                    agent,
-                    model,
-                    effort,
-                }),
-        } => cli::set_role(roles::SetRole {
-            role,
-            agent: api::ids::AgentId(agent),
-            model,
-            effort,
-        }),
+            action: Some(RolesAction::Set { role, run, duty }),
+        } => cli::edit_roles(
+            "roles/set",
+            &roles::SetRole {
+                role,
+                agent: run.agent.map(api::ids::AgentId),
+                model: run.model,
+                effort: run.effort,
+                duty,
+            },
+        ),
+        Cli::Roles {
+            action: Some(RolesAction::Add { role, duty, run }),
+        } => cli::edit_roles(
+            "roles/add",
+            &api::settings::roles::Role {
+                name: role,
+                duty,
+                agent: run.agent.map(api::ids::AgentId),
+                model: run.model,
+                effort: run.effort,
+            },
+        ),
+        Cli::Roles {
+            action: Some(RolesAction::Remove { role }),
+        } => cli::edit_roles("roles/remove", &roles::RemoveRole { role }),
+        Cli::Settings { action: None } => cli::settings(),
+        Cli::Settings {
+            action: Some(SettingsAction::Set { key, value }),
+        } => cli::set_setting(key, value),
         Cli::Note {
             name,
             body,

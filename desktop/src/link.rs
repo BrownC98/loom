@@ -36,6 +36,7 @@ pub enum Event {
     Backlog(Vec<u8>),
     Output(Vec<u8>),
     Gone,
+    Removed,
     Closed(String),
 }
 
@@ -263,16 +264,16 @@ pub fn distro(base: &str, name: &str) -> Result<DistroView, Failure> {
 
 pub fn save_paste(
     base: &str,
-    node: NodeId,
+    node: Option<NodeId>,
     name: &str,
     mime: &str,
     bytes: &[u8],
 ) -> Result<String, Failure> {
-    let node = node.0.to_string();
+    let node = node.map(|node| node.0.to_string());
     let url = format!(
         "{base}/api/pastes/{}{}",
         escape(name),
-        query(&[("node", Some(&node))])
+        query(&[("node", node.as_deref())])
     );
     let response = answer(
         agent_within(SLOW_LIMIT)
@@ -708,6 +709,7 @@ impl Conn {
                         Ok(PtyNotice::Size(Resize { cols, rows })) => Event::Size { cols, rows },
                         Ok(PtyNotice::Settled) => Event::Settled,
                         Ok(PtyNotice::Gone) => Event::Gone,
+                        Ok(PtyNotice::Removed) => Event::Removed,
                         Ok(PtyNotice::Beat { quiet_ms }) => {
                             self.limit = Duration::from_millis(quiet_ms.into());
                             return None;

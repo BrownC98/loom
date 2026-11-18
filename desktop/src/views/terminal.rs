@@ -2,8 +2,9 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use api::ids::NodeId;
 use gpui::{
-    App, AppContext, BorderStyle, Bounds, ClipboardItem, Context, DispatchPhase,
+    App, AppContext, BorderStyle, Bounds, ClipboardEntry, ClipboardItem, Context, DispatchPhase,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent,
@@ -14,6 +15,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
+use crate::strings::Lang;
 use crate::theme::{Terminal, Theme};
 use crate::views::compose;
 use crate::views::inputs::Inputs;
@@ -120,8 +122,14 @@ pub struct TerminalView {
     reporting: Option<MouseButton>,
     last_cell: Option<(usize, usize)>,
     wheel_rest: f32,
+    saver: Option<Saver>,
     _focus_events: [Subscription; 2],
     _look: Subscription,
+}
+
+struct Saver {
+    base: String,
+    node: NodeId,
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -153,7 +161,11 @@ pub fn open(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
-    let view = open_with(link::attach, base, node, window, cx);
+    let saver = Saver {
+        base: base.to_owned(),
+        node: NodeId(node),
+    };
+    let view = open_with(link::attach, base, node, Some(saver), window, cx);
     crate::views::inputs::offer(inputs, node, &view, cx);
     view
 }
@@ -164,7 +176,7 @@ pub fn open_login(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
-    open_with(link::attach_login, base, login, window, cx)
+    open_with(link::attach_login, base, login, None, window, cx)
 }
 
 type Attach = fn(&str, u32, async_channel::Sender<Event>) -> Result<Pty, String>;
@@ -173,6 +185,7 @@ fn open_with(
     attach: Attach,
     base: &str,
     id: u32,
+    saver: Option<Saver>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
@@ -180,12 +193,13 @@ fn open_with(
         let (events, inbox) = async_channel::unbounded();
         Ok((attach(base, id, events)?, inbox))
     })();
-    cx.new(|cx| TerminalView::new(opened, window, cx))
+    cx.new(|cx| TerminalView::new(opened, saver, window, cx))
 }
 
 impl TerminalView {
     fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
+        saver: Option<Saver>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -240,6 +254,7 @@ impl TerminalView {
             reporting: None,
             last_cell: None,
             wheel_rest: 0.0,
+            saver,
             _focus_events: focus_events,
             _look: cx.observe_global::<Theme>(|this, cx| this.restyle(cx)),
         }
@@ -449,11 +464,44 @@ impl TerminalView {
     }
 
     fn paste(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let bytes = self.vt.encode_paste(&text);
-            self.type_in(bytes);
-            self.changed(cx);
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        if let Some(text) = item.text() {
+            self.paste_text(&text, cx);
+            return;
         }
+        let image = item.into_entries().find_map(|entry| match entry {
+            ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        });
+        let (Some(image), Some(saver)) = (image, &self.saver) else {
+            return;
+        };
+        let (base, node) = (saver.base.clone(), saver.node);
+        let lang = *cx.global::<Lang>();
+        let saved = cx.background_spawn(async move {
+            let name = format!("image.{}", image.format.extension());
+            link::save_paste(&base, node, &name, image.format.mime_type(), &image.bytes)
+                .map_err(|failure| failure.text(lang))
+        });
+        cx.spawn(async move |this, cx| {
+            let saved = saved.await;
+            let _ = this.update(cx, |view, cx| match saved {
+                Ok(path) => view.paste_text(&path, cx),
+                Err(error) => {
+                    view.vt.feed(format!("\r\n{error}\r\n").as_bytes());
+                    view.changed(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let bytes = self.vt.encode_paste(text);
+        self.type_in(bytes);
+        self.changed(cx);
     }
 
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {

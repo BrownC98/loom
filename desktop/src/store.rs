@@ -890,7 +890,7 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<String, String>> {
         self.call(cx, move |base| {
-            link::save_paste(base, node, &name, mime, &bytes)
+            link::save_paste(base, Some(node), &name, mime, &bytes)
         })
     }
 }

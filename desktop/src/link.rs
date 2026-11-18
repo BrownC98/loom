@@ -263,16 +263,16 @@ pub fn distro(base: &str, name: &str) -> Result<DistroView, Failure> {
 
 pub fn save_paste(
     base: &str,
-    node: NodeId,
+    node: Option<NodeId>,
     name: &str,
     mime: &str,
     bytes: &[u8],
 ) -> Result<String, Failure> {
-    let node = node.0.to_string();
+    let node = node.map(|node| node.0.to_string());
     let url = format!(
         "{base}/api/pastes/{}{}",
         escape(name),
-        query(&[("node", Some(&node))])
+        query(&[("node", node.as_deref())])
     );
     let response = answer(
         agent_within(SLOW_LIMIT)

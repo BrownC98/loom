@@ -75,7 +75,7 @@ loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead o
 | Release files | `loom_<version>_x64-setup.exe`, `loom_<version>_aarch64.dmg` | `loom-desktop-windows-x64.zip`, `loom-desktop-macos-arm64.tar.gz` | `loom-web-*` |
 | Window | Web view (Tauri) | Native (GPUI) | Your browser |
 | Systems | Windows, macOS | Windows x64, macOS Apple Silicon | Windows, macOS, Linux |
-| Update | Update card in the screen | Install again | Update card in the screen |
+| Update | Update card in the screen | **Update** in Settings › About | Update card in the screen |
 
 **Install with one line (recommended).** The Windows and macOS lines above install loom desktop when the release has it. Windows: `%LOCALAPPDATA%\loom\bin\loom-desktop.exe` and a **loom** icon on the desktop. macOS: `loom-desktop.app` in the Applications folder.
 
@@ -95,7 +95,7 @@ loom desktop (`loom-desktop`) is a native loom window, drawn with GPUI instead o
 - macOS (one line): `/Applications/loom-desktop.app/Contents/MacOS/loom stop` (or `~/Applications/…`)
 - Hand install: `<folder>/loom stop`
 
-**Update.** loom desktop shows no update card. Run the install line again. With a hand install, unpack the new release into a new folder and run its `loom-desktop`. The newer `loom` replaces the running daemon. Do not unpack over the old folder: on Windows, the running `loom.exe` cannot be replaced.
+**Update.** Open Settings › About and click **Check for updates**, then **Update**. The daemon replaces `loom` and the `loom-desktop` next to it with the new release, and starts again. Then quit the window program and open it again: the window shows this hint. Releases before this change have no bare `loom-desktop` file; for those, run the install line again. The update button replaces `loom-desktop` only when the running daemon is the `loom` next to it.
 
 **Limits.** The release has loom desktop only for Windows x64 and macOS Apple Silicon. On Linux, use the browser version. Releases before v0.1.2825 do not have it; for those, the install lines install the browser version (Windows) or only the app (macOS).
 

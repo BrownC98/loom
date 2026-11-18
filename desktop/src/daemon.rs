@@ -11,7 +11,7 @@ const START_LIMIT: Duration = Duration::from_secs(30);
 const VERSION_LIMIT: Duration = Duration::from_secs(5);
 const REAP_POLL: Duration = Duration::from_millis(200);
 
-fn sibling() -> Option<std::path::PathBuf> {
+pub fn sibling() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe()
         .ok()?
         .with_file_name(format!("{LOOM}{}", std::env::consts::EXE_SUFFIX));

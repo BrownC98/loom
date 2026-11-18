@@ -1,24 +1,19 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use api::settings::{FloatPlace, FloatSize};
+use api::settings::FloatPlace;
 use gpui::{
     App, Bounds, Context, Entity, EntityId, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, Styled, Window, canvas, point, px,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, Styled, Window, canvas, point,
 };
+
+use crate::scale::fixed as px;
 
 pub const MARGIN: f32 = 12.0;
 pub const POP_GAP: f32 = 6.0;
 const SLOP: f32 = 4.0;
 
-pub fn zoom(size: FloatSize) -> f32 {
-    match size {
-        FloatSize::Small => 0.85,
-        FloatSize::Normal => 1.0,
-        FloatSize::Large => 1.15,
-        FloatSize::Huge => 1.3,
-    }
-}
+pub use crate::scale::zoom;
 
 fn unit(value: f32) -> f32 {
     value.clamp(0.0, 1.0)

@@ -7,10 +7,11 @@ use gpui::{
     Focusable, GlobalElementId, HighlightStyle, InspectorElementId, InteractiveElement,
     IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     ParentElement, Pixels, Point, Render, Rgba, SharedString, Styled, StyledText, TextLayout,
-    UTF16Selection, UnderlineStyle, Window, div, fill, point, px, size,
+    UTF16Selection, UnderlineStyle, Window, div, fill, point, size,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
+use crate::scale::{self, fixed as px};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 use crate::views::compose;
@@ -58,7 +59,7 @@ pub struct Field {
     multiline: bool,
     boxed: bool,
     form: Form,
-    scale: f32,
+    scale: Option<f32>,
     tone: Option<Rgba>,
     rest: Option<Rgba>,
     lead: f32,
@@ -113,7 +114,7 @@ impl Field {
             multiline,
             boxed,
             form: Form::Chat,
-            scale: 1.0,
+            scale: None,
             tone: None,
             rest: None,
             lead: 0.0,
@@ -137,8 +138,8 @@ impl Field {
     }
 
     pub fn set_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
-        if self.scale != scale {
-            self.scale = scale;
+        if self.scale != Some(scale) {
+            self.scale = Some(scale);
             cx.notify();
         }
     }
@@ -859,7 +860,7 @@ impl Render for Field {
             text: StyledText::new(shown).with_highlights(highlights),
         };
         if self.boxed {
-            let z = self.scale;
+            let z = self.scale.unwrap_or_else(scale::get);
             let skinned = skin(base, z, focused, colors);
             let skinned = match (focused, self.tone, self.rest) {
                 (true, Some(tone), _) | (false, _, Some(tone)) => skinned.border_color(tone),

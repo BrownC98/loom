@@ -15,20 +15,21 @@ use api::repos::RepoView;
 use api::settings::DefaultCardView;
 
 use crate::link::Snapshot;
+use crate::scale;
 use crate::views::card;
 
 const CARD_X: f64 = 20.0;
-const CARD_TOP: f64 = 60.0;
-const CHIP_ROW: f64 = 43.0;
+const GROUP_HEAD: f64 = 43.0;
+const REPO_HEAD: f64 = 46.0;
+const CARD_GAP: f64 = 17.0;
+const CHIP_ROW: f64 = GROUP_HEAD;
 const EMPTY_GROUP: Size = Size {
     width: 320.0,
     height: 100.0,
 };
 pub const FREE_GAP: f64 = 32.0;
-pub const REPO_INSET: Inset = Inset {
-    top: 62.0,
-    side: 16.0,
-};
+const REPO_SIDE: f64 = 16.0;
+const REPO_GAP: f64 = 16.0;
 const GROUP_POSITION: Point = Point { x: 16.0, y: 64.0 };
 const STANDARD: Size = Size {
     width: 600.0,
@@ -41,6 +42,61 @@ pub const MIN_CARD: Size = Size {
     width: 360.0,
     height: 200.0,
 };
+
+fn step() -> f64 {
+    f64::from(scale::get())
+}
+
+fn banded(height: f64) -> f64 {
+    (height - 1.0) * step() + 1.0
+}
+
+pub fn group_head() -> f64 {
+    banded(GROUP_HEAD)
+}
+
+pub fn repo_head() -> f64 {
+    banded(REPO_HEAD)
+}
+
+fn card_top() -> f64 {
+    group_head() + CARD_GAP
+}
+
+pub fn repo_inset() -> Inset {
+    Inset {
+        top: repo_head() + REPO_GAP,
+        side: REPO_SIDE,
+    }
+}
+
+fn empty_group() -> Size {
+    Size {
+        width: EMPTY_GROUP.width,
+        height: EMPTY_GROUP.height + (GROUP_HEAD - 1.0) * (step() - 1.0),
+    }
+}
+
+pub fn shown_standard(base: Size) -> Size {
+    Size {
+        width: base.width,
+        height: base.height + f64::from(card::head_growth()),
+    }
+}
+
+pub fn base_standard(shown: Size) -> Size {
+    Size {
+        width: shown.width,
+        height: shown.height - f64::from(card::head_growth()),
+    }
+}
+
+fn shown_simple() -> Size {
+    Size {
+        width: card::SIMPLE_WIDTH * step(),
+        height: card::SIMPLE_HEIGHT * step(),
+    }
+}
 
 pub struct Frame {
     pub key: String,
@@ -141,9 +197,9 @@ fn unpiled(
 impl Level<'_> {
     fn inset(&self, path: &str) -> Inset {
         Inset {
-            top: CARD_TOP
+            top: card_top()
                 + if self.chips.contains(path) {
-                    CHIP_ROW
+                    banded(CHIP_ROW)
                 } else {
                     0.0
                 },
@@ -418,17 +474,18 @@ pub fn build(
         .iter()
         .map(|n| {
             let size = if card::view_of(n, card_view) == CardView::Simple {
-                Size {
-                    width: card::SIMPLE_WIDTH,
-                    height: card::SIMPLE_HEIGHT,
-                }
+                shown_simple()
             } else {
-                sizes.get(&n.id.0).copied().unwrap_or_else(standard_size)
+                shown_standard(sizes.get(&n.id.0).copied().unwrap_or_else(standard_size))
             };
             (n.id.0, size)
         })
         .collect();
-    let size_of = |id: NodeId| laid.get(&id).copied().unwrap_or(STANDARD);
+    let size_of = |id: NodeId| {
+        laid.get(&id)
+            .copied()
+            .unwrap_or_else(|| shown_standard(STANDARD))
+    };
     let direction = overlay.direction;
     let vertical = matches!(direction, Direction::Down | Direction::Up);
     let reversed = matches!(direction, Direction::Up | Direction::Left);
@@ -510,7 +567,7 @@ pub fn build(
                 parent: cards[i].and(parents[i]),
                 card: cards[i],
                 members: members[i].iter().map(|v| v.id.0).collect(),
-                empty: EMPTY_GROUP,
+                empty: empty_group(),
             })
             .collect();
         let tree = layout::arrange_nested(
@@ -519,7 +576,7 @@ pub fn build(
             &size_of,
             direction,
             Inset {
-                top: CARD_TOP,
+                top: card_top(),
                 side: CARD_X,
             },
             &|kid| match kid {
@@ -570,7 +627,7 @@ pub fn build(
                 size: g.size,
             })
             .collect();
-        let rect = cover(&contents, REPO_INSET);
+        let rect = cover(&contents, repo_inset());
         let top_tier = Rc::new(Tier {
             boxes: tops
                 .iter()
@@ -587,7 +644,7 @@ pub fn build(
                 .map(|(g, _)| (level.groups[g.group].path.clone(), g.lead))
                 .collect(),
             parent: framed.then(|| repo_key.clone()),
-            shell: REPO_INSET,
+            shell: repo_inset(),
         });
         let mut auto = BTreeMap::new();
         for (g, top_auto) in &tops {
@@ -680,7 +737,7 @@ pub fn build(
                 .collect(),
             lead: built.iter().map(|b| (b.key.clone(), b.lead)).collect(),
             parent: None,
-            shell: REPO_INSET,
+            shell: repo_inset(),
         });
         for b in &built {
             scene.tiers.insert(b.key.clone(), tier.clone());

@@ -6,7 +6,7 @@ use api::ids::RepoId;
 use api::settings::{ArrangeDirection, SettingsView};
 
 use super::layout::{self, Direction, Inset, Point, Rect, Sibling, Swap};
-use super::scene::{FREE_GAP, REPO_INSET, Scene, cover};
+use super::scene::{FREE_GAP, Scene, cover, repo_inset};
 use crate::link::{self, Snapshot};
 use crate::problem::Failure;
 
@@ -504,8 +504,8 @@ impl Moves {
                 scene,
                 &key,
                 Point {
-                    x: -REPO_INSET.side,
-                    y: -REPO_INSET.top,
+                    x: -repo_inset().side,
+                    y: -repo_inset().top,
                 },
             );
             writes.push(write_of(scene, snap, &kept, always));

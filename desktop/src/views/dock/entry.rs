@@ -1,11 +1,12 @@
 use api::graph::waits::{WaitKind, WaitTone};
 use gpui::{
     Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, Styled, Svg,
-    div, px, svg,
+    div, svg,
 };
 
 use super::ui::{self, SMALL};
 use crate::fonts;
+use crate::scale::fixed as px;
 use crate::strings::Str;
 use crate::theme::{Colors, mix};
 use crate::views::icons::{Lucide, icon};
@@ -32,7 +33,7 @@ pub(crate) fn mark(kind: WaitKind, tone: WaitTone, z: f32, c: &Colors) -> Svg {
         (_, WaitTone::Ask) => Lucide::CircleQuestionMark,
         (_, WaitTone::Done) => Lucide::CircleCheck,
     };
-    icon(glyph, 15.0 * z, tone_of(tone, c))
+    icon(glyph, px(15.0 * z), tone_of(tone, c))
 }
 
 pub(crate) fn qid(text: String, tone: WaitTone, height: f32, z: f32, c: &Colors) -> Div {
@@ -213,7 +214,7 @@ pub(crate) fn chosen_mark(z: f32, cx: &gpui::App) -> Div {
         .font_weight(FontWeight::BOLD)
         .text_color(c.ink)
         .whitespace_nowrap()
-        .child(icon(Lucide::Check, 12.0 * z, c.ink))
+        .child(icon(Lucide::Check, px(12.0 * z), c.ink))
         .child(ui::say(cx, Str::InboxChosen))
 }
 
@@ -254,7 +255,7 @@ pub(crate) fn notice_badges(asks: usize, dones: usize, z: f32, c: &Colors) -> Ve
                 .text_color(tone_ink(tone, c))
                 .text_size(px(11.0 * z))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(icon(glyph, 12.0 * z, tone_ink(tone, c)))
+                .child(icon(glyph, px(12.0 * z), tone_ink(tone, c)))
                 .child(n.to_string())
         })
         .collect()

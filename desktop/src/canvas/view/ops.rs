@@ -4,10 +4,10 @@ use api::graph::{CardView, Place, RelaunchOffer};
 use api::ids::RepoId;
 use gpui::{
     App, Bounds, Context, Div, Entity, MouseDownEvent, Pixels, Point, Subscription, Window, point,
-    px,
 };
 
 use super::{CanvasView, popover};
+use crate::scale::px;
 use crate::strings::Str;
 use crate::views::card::{self, Actions, FrameActions, Keyed, Press};
 use crate::views::cardlink;

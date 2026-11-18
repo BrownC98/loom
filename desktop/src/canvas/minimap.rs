@@ -1,6 +1,6 @@
 use gpui::{
     Bounds, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ParentElement, Pixels, Point, Styled, canvas, div, point, px, rgb, size,
+    MouseMoveEvent, ParentElement, Pixels, Point, Styled, canvas, div, point, rgb, size,
 };
 
 use api::graph::NodeView;
@@ -8,6 +8,7 @@ use api::graph::waits::WaitTone;
 
 use super::layout::Rect;
 use super::view::CanvasView;
+use crate::scale::fixed as px;
 use crate::theme::{Colors, Theme};
 use crate::views::card;
 

@@ -4,10 +4,11 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Div, Entity, FontWeight, HighlightStyle, Hsla, IntoElement,
-    ParentElement, Rgba, SharedString, Styled, StyledText, Subscription, Window, div, point, px,
+    ParentElement, Rgba, SharedString, Styled, StyledText, Subscription, Window, div, point,
 };
 
 use crate::fonts::TERMINAL_FAMILY;
+use crate::scale::px;
 use crate::settings::widgets::{
     Number, NumberEvent, PITCH, Text, TextEvent, field_reset, list_box_on, switch,
 };

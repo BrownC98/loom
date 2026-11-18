@@ -1,7 +1,8 @@
 use api::settings::AlwaysOn;
-use gpui::{App, FontWeight, IntoElement, ParentElement, Styled, div, px};
+use gpui::{App, FontWeight, IntoElement, ParentElement, Styled, div};
 
 use super::parts::{hint, row, rows};
+use crate::scale::px;
 use crate::settings::widgets::{field_reset, switch};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;

@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AnyView, AppContext, Bounds, Context, Div, Entity, EventEmitter, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
-    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, point, px,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, point,
 };
 
 use api::graph::{NewNode, Place};
@@ -16,6 +16,7 @@ use api::start::{ModelChoice, Start};
 
 use super::view::CanvasView;
 use crate::fonts;
+use crate::scale::{self, px};
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;
@@ -464,7 +465,7 @@ impl Render for NewNodeView {
                     cx.stop_propagation();
                 }),
             )
-            .child(icon(Lucide::X, 14.0, colors.ink_2));
+            .child(icon(Lucide::X, px(14.0), colors.ink_2));
         div()
             .w(px(WIDTH))
             .flex()
@@ -771,7 +772,7 @@ pub fn element(canvas: &CanvasView) -> Option<Div> {
             .child(
                 gpui::canvas(
                     move |bounds, window, _| {
-                        let now = f32::from(bounds.size.height);
+                        let now = f32::from(bounds.size.height) / scale::get();
                         if (measured.get() - now).abs() > 0.5 {
                             measured.set(now);
                             window.refresh();

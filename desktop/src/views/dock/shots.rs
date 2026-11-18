@@ -4,10 +4,11 @@ use std::sync::Arc;
 use api::ids::WaitId;
 use gpui::{
     AppContext, Context, Div, Entity, Image, InteractiveElement, MouseButton, ObjectFit,
-    ParentElement, StatefulInteractiveElement, Styled, StyledImage, div, img, px,
+    ParentElement, StatefulInteractiveElement, Styled, StyledImage, div, img,
 };
 
 use super::ui;
+use crate::scale::px;
 use crate::store::{SentPart, Store};
 use crate::strings::Str;
 use crate::views::tooltip::tip;

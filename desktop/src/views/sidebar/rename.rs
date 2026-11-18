@@ -1,7 +1,8 @@
-use gpui::{Context, Entity, FontWeight, ParentElement, Styled, Subscription, Window, div, px};
+use gpui::{Context, Entity, FontWeight, ParentElement, Styled, Subscription, Window, div};
 
 use super::tree::{Body, Key};
 use super::{Sidebar, acts, calls};
+use crate::scale::px;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::cardlink;

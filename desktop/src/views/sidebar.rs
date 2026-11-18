@@ -11,7 +11,7 @@ use gpui::{
     AnyElement, AnyView, App, AppContext, Bounds, ClickEvent, Context, Entity, FocusHandle,
     FontWeight, HighlightStyle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
     ParentElement, Pixels, Point, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    StyledText, Subscription, Window, div, linear_color_stop, linear_gradient, point, px, relative,
+    StyledText, Subscription, Window, div, linear_color_stop, linear_gradient, point, relative,
 };
 
 use acts::{Act, Button};
@@ -21,6 +21,7 @@ use super::field::{self, Field, FieldEvent};
 use super::rail;
 use super::scrollbar::Bar;
 use super::shell::OpenSettings;
+use crate::scale::px;
 use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
 pub use tree::Dot;
 use tree::{Body, Built, Found, Key, Row, Tag};
@@ -584,7 +585,7 @@ fn chevron(open: bool, c: &Colors) -> impl IntoElement {
         } else {
             Lucide::ChevronRight
         },
-        ICON,
+        px(ICON),
         c.ink_3,
     )
 }
@@ -646,7 +647,7 @@ fn swap(name: Lucide, filled: bool, from: Rgba, to: Rgba, group: &SharedString) 
                 .top_0()
                 .left_0()
                 .group_hover(group.clone(), |s| s.invisible())
-                .child(icon_styled(name, ICON, from, 2.0, filled)),
+                .child(icon_styled(name, px(ICON), from, 2.0, filled)),
         )
         .child(
             div()
@@ -655,7 +656,7 @@ fn swap(name: Lucide, filled: bool, from: Rgba, to: Rgba, group: &SharedString) 
                 .left_0()
                 .invisible()
                 .group_hover(group.clone(), |s| s.visible())
-                .child(icon_styled(name, ICON, to, 2.0, filled)),
+                .child(icon_styled(name, px(ICON), to, 2.0, filled)),
         )
 }
 
@@ -865,7 +866,7 @@ impl Sidebar {
                 .font_weight(FontWeight::SEMIBOLD)
                 .flex()
                 .items_center()
-                .child(icon(Lucide::Mail, 13.0, c.accent_ink))
+                .child(icon(Lucide::Mail, px(13.0), c.accent_ink))
                 .child(n.to_string())
         };
         let shell = match &row.body {
@@ -951,7 +952,7 @@ impl Sidebar {
                     }
                 };
                 shell
-                    .child(icon(Lucide::GitBranch, ICON, c.ink_3))
+                    .child(icon(Lucide::GitBranch, px(ICON), c.ink_3))
                     .child(name)
                     .children(tag.map(|text| {
                         div()
@@ -1019,7 +1020,7 @@ impl Sidebar {
                             .id(SharedString::from(format!("{id}-from")))
                             .flex_none()
                             .tooltip(tip(text.clone()))
-                            .child(icon(Lucide::CornerLeftUp, 12.0, c.ink_3))
+                            .child(icon(Lucide::CornerLeftUp, px(12.0), c.ink_3))
                     }))
                     .children((*unread > 0).then(|| div().flex_1()))
                     .children((*unread > 0).then(|| {
@@ -1046,7 +1047,7 @@ impl Sidebar {
                             .id(SharedString::from(format!("{id}-agent")))
                             .flex_none()
                             .tooltip(tip(agent_label.clone()))
-                            .child(agent_mark(agent.as_deref(), agent_label, ICON, c.ink_2)),
+                            .child(agent_mark(agent.as_deref(), agent_label, px(ICON), c.ink_2)),
                     )
                     .child(
                         ellipsed(div().min_w_0())
@@ -1321,7 +1322,7 @@ impl Sidebar {
                 .cursor_pointer()
                 .hover(move |s| s.bg(hover))
                 .tooltip(tip(label))
-                .child(icon(glyph, ICON, c.ink_2))
+                .child(icon(glyph, px(ICON), c.ink_2))
         };
         let add = tool(
             "add-repo",
@@ -1388,7 +1389,7 @@ impl Sidebar {
                             .border_color(find_edge)
                             .rounded(px(6.0))
                             .tooltip(tip(rail::titled(Str::FindOpen.text(lang), "F")))
-                            .child(icon(Lucide::Search, ICON, c.ink_3))
+                            .child(icon(Lucide::Search, px(ICON), c.ink_3))
                             .child(self.field.clone())
                             .children(count.map(|(text, color, mono)| {
                                 let el = div().flex_none().text_size(px(12.0)).text_color(color);
@@ -1417,7 +1418,7 @@ impl Sidebar {
                                     .on_click(move |_, _, cx| {
                                         clear.update(cx, |field, cx| field.clear(cx));
                                     })
-                                    .child(icon(Lucide::X, ICON, c.ink_2))
+                                    .child(icon(Lucide::X, px(ICON), c.ink_2))
                             })),
                     )
                     .child(
@@ -1498,7 +1499,7 @@ impl Sidebar {
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx)
                             })
-                            .child(icon(Lucide::Settings, ICON, c.ink_2))
+                            .child(icon(Lucide::Settings, px(ICON), c.ink_2))
                             .child(Str::SettingsTitle.text(lang)),
                     ),
             )

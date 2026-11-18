@@ -1,10 +1,11 @@
 use gpui::{
     Div, ElementId, InteractiveElement, ParentElement, Stateful, StatefulInteractiveElement,
-    Styled, div, px,
+    Styled, div,
 };
 
 use super::icons::{Lucide, icon};
 use super::tooltip::tip;
+use crate::scale::px;
 use crate::theme::Colors;
 
 pub const BUTTON: f32 = 30.0;
@@ -54,7 +55,7 @@ pub fn button(
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .tooltip(tip(label))
-        .child(icon(glyph, ICON, c.ink_2))
+        .child(icon(glyph, px(ICON), c.ink_2))
 }
 
 pub fn divider(c: &Colors) -> Div {

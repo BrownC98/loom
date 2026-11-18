@@ -4,12 +4,13 @@ use api::canvas::{CardSize, Placed, Spot};
 use api::ids::NodeId;
 use gpui::{
     App, CursorStyle, Div, InteractiveElement, MouseButton, MouseDownEvent, Pixels, Point, Styled,
-    Window, div, px,
+    Window, div,
 };
 
 use super::layout::{Point as Graph, Rect, Size};
-use super::scene::{Card, MIN_CARD, Scene, standard_size};
+use super::scene::{Card, MIN_CARD, Scene, base_standard, shown_standard, standard_size};
 use crate::link::Snapshot;
+use crate::scale::fixed as px;
 
 const LINE: f32 = 6.0;
 const CORNER: f32 = 12.0;
@@ -106,8 +107,9 @@ fn axis(at: f64, length: f64, delta: f64, side: i8, min: f64) -> (f64, f64) {
 
 fn dragged(edge: Edge, start: Rect, dx: f64, dy: f64) -> Rect {
     let (horizontal, vertical) = edge.sides();
-    let (x, width) = axis(start.at.x, start.size.width, dx, horizontal, MIN_CARD.width);
-    let (y, height) = axis(start.at.y, start.size.height, dy, vertical, MIN_CARD.height);
+    let min = shown_standard(MIN_CARD);
+    let (x, width) = axis(start.at.x, start.size.width, dx, horizontal, min.width);
+    let (y, height) = axis(start.at.y, start.size.height, dy, vertical, min.height);
     Rect {
         at: Graph { x, y },
         size: Size { width, height },
@@ -191,7 +193,7 @@ impl Resizer {
         self.drafts.insert(
             active.node,
             Draft {
-                size: rect.size,
+                size: base_standard(rect.size),
                 shift,
                 spot: None,
             },
@@ -211,7 +213,8 @@ impl Resizer {
             y: draft.shift.y.round(),
         };
         let moved = shift.x != 0.0 || shift.y != 0.0;
-        if size == active.start.size && !moved {
+        let before = base_standard(active.start.size);
+        if near(size.width, before.width) && near(size.height, before.height) && !moved {
             self.drafts.remove(&active.node);
             return None;
         }

@@ -6,7 +6,7 @@ use api::repos::Worktree;
 use gpui::{
     AppContext, Bounds, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
     ParentElement, PathBuilder, Rgba, Stateful, StatefulInteractiveElement, Styled, canvas, div,
-    fill, point, px, size, uniform_list,
+    fill, point, size, uniform_list,
 };
 
 use super::lanes::{LaneState, Row, circle_of, lane_count, lanes};
@@ -17,6 +17,7 @@ use crate::canvas::repos::chosen_repo;
 use crate::fonts;
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::px;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::icons::{Lucide, icon};
@@ -277,7 +278,7 @@ fn ref_pill(
             .id(("folder", key))
             .flex()
             .tooltip(tip(label))
-            .child(icon(Lucide::Folder, FOLDER, c.ink))
+            .child(icon(Lucide::Folder, px(FOLDER), c.ink))
     }))
     .child(name)
 }

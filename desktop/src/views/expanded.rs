@@ -2,9 +2,10 @@ use std::rc::Rc;
 
 use gpui::{
     App, Div, Entity, FocusHandle, InteractiveElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    ParentElement, ScrollEvent, Styled, Window, div, px,
+    ParentElement, ScrollEvent, Styled, Window, div,
 };
 
+use crate::scale::{self, px};
 use crate::theme::Theme;
 use crate::views::card;
 use crate::views::terminal::TerminalView;
@@ -25,7 +26,7 @@ pub fn overlay(
     let toggle = collapse.clone();
     let key_close = collapse;
     let focus_head = focus.clone();
-    let head = card::head(face, 1.0, &colors).on_mouse_down(
+    let head = card::head(face, scale::get(), &colors).on_mouse_down(
         MouseButton::Left,
         move |e: &MouseDownEvent, window, cx| {
             window.focus(&focus_head, cx);
@@ -40,7 +41,7 @@ pub fn overlay(
         .left_0()
         .size_full()
         .p(px(PAD))
-        .pb(px(PAD + room))
+        .pb(px(PAD) + scale::fixed(room))
         .bg(colors.bg)
         .track_focus(focus)
         .on_key_down(move |e: &KeyDownEvent, _: &mut Window, cx| {

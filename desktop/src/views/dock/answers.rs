@@ -11,7 +11,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, Entity, ExternalPaths, FontWeight, Image,
     InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Window, div, img, px,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Window, div, img,
 };
 
 use super::blocks;
@@ -21,6 +21,7 @@ use super::find::{self, Find};
 use super::questions::{key_label, kind_label};
 use super::ui::{self, GAP, SMALL};
 use crate::link;
+use crate::scale::fixed as px;
 use crate::settings::settings_patch;
 use crate::store::{BusyChanged, DraftChanged, SentPart, Slot, Store};
 use crate::strings::Str;
@@ -1160,7 +1161,7 @@ fn kind_acts(
                 z,
                 cx,
             )
-            .child(icon(Lucide::RotateCw, 14.0 * z, c.ink))
+            .child(icon(Lucide::RotateCw, px(14.0 * z), c.ink))
             .on_click(move |_, _, cx| {
                 owner.update(cx, |answers, cx| answers.relaunch(id, node, cx))
             });
@@ -1284,7 +1285,7 @@ fn wait_body(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(icon(
                     Lucide::ImagePlus,
-                    20.0 * z,
+                    px(20.0 * z),
                     entry::tone_of(wait.tone, &c),
                 ))
                 .child(ui::say_with(cx, Str::InboxDropImage, &[("id", &qid)]))
@@ -1347,7 +1348,11 @@ fn send_row(
         .items_center()
         .justify_center()
         .bg(color)
-        .child(icon(Lucide::ArrowUp, 14.0 * z, entry::tone_ink(tone, &c)));
+        .child(icon(
+            Lucide::ArrowUp,
+            px(14.0 * z),
+            entry::tone_ink(tone, &c),
+        ));
     if slot != Slot::Answer {
         send = send.tooltip(tip(ui::say(cx, Str::InboxTypeSend).to_owned()));
     }

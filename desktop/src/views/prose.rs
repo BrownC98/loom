@@ -7,8 +7,10 @@ use gpui::{
     App, AvailableSpace, Bounds, CursorStyle, DispatchPhase, Element, ElementId, FontId,
     GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
     LayoutId, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size,
-    TextOverflow, TextRun, TextStyle, TruncateFrom, WhiteSpace, Window, WrappedLine, px,
+    TextOverflow, TextRun, TextStyle, TruncateFrom, WhiteSpace, Window, WrappedLine,
 };
+
+use crate::scale::fixed as px;
 
 type Marks = Vec<(Range<usize>, HighlightStyle)>;
 

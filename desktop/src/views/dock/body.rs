@@ -7,12 +7,13 @@ use api::graph::waits::WaitDoc;
 use gpui::{
     AnyElement, App, Context, Div, ElementId, Entity, FontStyle, FontWeight, HighlightStyle,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Rgba, Stateful,
-    StatefulInteractiveElement, Styled, Task, UnderlineStyle, div, px,
+    StatefulInteractiveElement, Styled, Task, UnderlineStyle, div,
 };
 
 use super::Dock;
 use super::find::Find;
 use super::ui;
+use crate::scale::fixed as px;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::views::icons::{Lucide, icon};
@@ -132,7 +133,7 @@ pub fn tail(id: ElementId, doc: &WaitDoc, color: Rgba, cx: &App, follow: &Follow
             &[("id", &doc.id), ("title", &doc.title)],
         )))
         .child(format!("{} {}", doc.id, doc.title))
-        .child(icon(Lucide::ExternalLink, 12.0, color))
+        .child(icon(Lucide::ExternalLink, px(12.0), color))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| follow(target.clone(), cx))
 }

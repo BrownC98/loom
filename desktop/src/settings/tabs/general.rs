@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use api::repos::Locations;
 use gpui::{
     App, AppContext, Div, ElementId, Entity, ParentElement, Stateful, Styled, Subscription,
-    WeakEntity, Window, div, px,
+    WeakEntity, Window, div,
 };
 
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::px;
 use crate::settings::notify;
 use crate::settings::widgets::{Text, TextEvent, field_reset, switch};
 use crate::settings::{Ctx, Dialog, Section};

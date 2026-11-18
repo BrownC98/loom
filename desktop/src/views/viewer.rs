@@ -5,11 +5,12 @@ use gpui::{
     App, BoxShadow, Context, Div, FocusHandle, Image, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
     ParentElement, Point, Render, ScrollEvent, Size, StatefulInteractiveElement, Styled,
-    StyledImage, Window, anchored, deferred, div, img, point, px,
+    StyledImage, Window, anchored, deferred, div, img, point,
 };
 
 use super::dock::ui;
 use super::tooltip::tip;
+use crate::scale::{self, px};
 use crate::strings::Str;
 use crate::theme::Colors;
 
@@ -147,7 +148,7 @@ impl Viewer {
     }
 
     fn wheel(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
-        let delta = f32::from(event.delta.pixel_delta(px(LINE_PIXELS)).y);
+        let delta = f32::from(event.delta.pixel_delta(scale::fixed(LINE_PIXELS)).y);
         let at = (f32::from(event.position.x), f32::from(event.position.y));
         self.zoom_at(self.view.zoom * (delta * WHEEL_RATE).exp(), at, cx);
         cx.stop_propagation();
@@ -274,8 +275,8 @@ impl Render for Viewer {
             .absolute()
             .top_0()
             .left_0()
-            .w(px(self.room.width))
-            .h(px(self.room.height))
+            .w(scale::fixed(self.room.width))
+            .h(scale::fixed(self.room.height))
             .occlude()
             .overflow_hidden()
             .bg(c.scrim)
@@ -299,10 +300,10 @@ impl Render for Viewer {
         let zoomed = view.zoom > 1.0;
         let picture = div()
             .absolute()
-            .left(px(view.x))
-            .top(px(view.y))
-            .w(px(fit.width * view.zoom))
-            .h(px(fit.height * view.zoom))
+            .left(scale::fixed(view.x))
+            .top(scale::fixed(view.y))
+            .w(scale::fixed(fit.width * view.zoom))
+            .h(scale::fixed(fit.height * view.zoom))
             .rounded(px(if zoomed { 0.0 } else { 8.0 }))
             .overflow_hidden()
             .bg(c.panel)

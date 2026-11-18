@@ -1,11 +1,11 @@
 use api::settings::DefaultCardView;
 use gpui::{
     Context, Div, FontWeight, ParentElement, SharedString, StatefulInteractiveElement, Styled, div,
-    px,
 };
 
 use super::ui;
 use super::{Dock, ui::SMALL};
+use crate::scale::px;
 use crate::strings::Str;
 use crate::views::icons::Lucide;
 use crate::views::rail;

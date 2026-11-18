@@ -1,15 +1,20 @@
-use api::settings::{HexColor, Language, Theme as ThemeSetting, ThemedColor, UiColors};
+use std::cell::Cell;
+use std::rc::Rc;
+
+use api::settings::{FloatSize, HexColor, Language, Theme as ThemeSetting, ThemedColor, UiColors};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Anchor, App, AppContext, Div, ElementId, Entity, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Rgba, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, anchored, deferred, div,
-    point, px,
+    point,
 };
 use serde_json::Value;
 
 use super::agents::parts::badge;
+use super::graph;
 use crate::fonts::latin_mono;
+use crate::scale::px;
 use crate::settings::widgets::button;
 use crate::settings::widgets::{
     Label, Select, SelectEvent, Text, TextEvent, field_reset, inert, segmented, tabbable,
@@ -132,6 +137,7 @@ struct Pop {
 
 #[derive(Default)]
 pub struct State {
+    ui_size_hover: Rc<Cell<Option<FloatSize>>>,
     pop: Option<Entity<Pop>>,
     hex: Option<Entity<Text>>,
     language: Option<Entity<Select>>,
@@ -269,6 +275,18 @@ pub fn sections(state: &mut State, ctx: &Ctx, window: &mut Window, cx: &mut App)
     let (pop, hex, language) = setup(state, ctx, window, cx);
     vec![
         theme_section(ctx, cx),
+        graph::size_choice(
+            "display-ui-size",
+            |view| view.ui_size,
+            |view, value| view.ui_size = value,
+            Str::FloatSizeUiSize,
+            &[Str::FloatSizeUiSizeHint, Str::FloatSizeUiSizeHint2],
+            ("reset-ui-size", &["uiSize"]),
+            graph::ui_face,
+            &state.ui_size_hover,
+            ctx,
+            cx,
+        ),
         colors_section(&pop, &hex, ctx, window, cx),
         language_section(&language, ctx, cx),
     ]
@@ -386,7 +404,7 @@ fn colors_section(
         let writer = ctx.writer.clone();
         let reset = {
             let item = small_button(("color-reset", index), cx)
-                .child(icon(Lucide::RotateCcw, 14.0, c.ink))
+                .child(icon(Lucide::RotateCcw, px(14.0), c.ink))
                 .child(reset_label);
             if changed(color) {
                 item.on_click(move |_, _, cx| {
@@ -627,7 +645,7 @@ fn popover(
                 .justify_center()
                 .border_color(gpui::transparent_black())
                 .bg(c.surface)
-                .child(icon(Lucide::X, 14.0, c.ink_2))
+                .child(icon(Lucide::X, px(14.0), c.ink_2))
                 .on_click(move |_, _, cx| close_here(cx)),
         );
 
@@ -756,7 +774,7 @@ fn popover(
     };
     let reset = {
         let item = small_button("color-pop-reset", cx)
-            .child(icon(Lucide::RotateCcw, 14.0, c.ink))
+            .child(icon(Lucide::RotateCcw, px(14.0), c.ink))
             .child(say(cx, Str::ColorsReset));
         if can_reset {
             let close = close.clone();

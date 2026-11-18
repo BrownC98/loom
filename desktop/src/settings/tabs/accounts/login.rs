@@ -5,13 +5,14 @@ use api::profile::Provider;
 use api::settings::accounts::{LoginId, LoginState, LoginTarget};
 use gpui::{
     AnyElement, App, AppContext as _, FontWeight, ParentElement, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    Styled, Window, div,
 };
 
 use super::parts::{modal, small};
 use super::{Actor, Login, State};
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::px;
 use crate::strings::{Lang, Str};
 use crate::views::dock::ui::{SMALL, TEXT, colors, say};
 use crate::views::terminal;

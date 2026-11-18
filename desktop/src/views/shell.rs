@@ -7,11 +7,12 @@ use api::settings::PaneWidths;
 use gpui::{
     AnyView, App, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div,
 };
 
 use super::sidebar::Sidebar;
 use crate::fonts;
+use crate::scale::{self, px};
 use crate::settings::{Dialog, DialogEvent};
 use crate::store::Store;
 use crate::strings::Lang;
@@ -186,7 +187,7 @@ impl Shell {
     }
 
     fn commit(&mut self, pane: Pane, width: f32, cx: &mut Context<Self>) {
-        let width = width.round() as u16;
+        let width = (width / scale::get()).round() as u16;
         match pane {
             Pane::Side => self.kept.side = Some(width),
             Pane::Dock => self.kept.dock = Some(width),
@@ -234,14 +235,14 @@ impl Shell {
             );
         let edge = if active { edge.bg(accent) } else { edge };
         match pane {
-            Pane::Side => edge.left(px(widths.shown(pane) - GRIP_BEFORE)),
-            Pane::Dock => edge.right(px(widths.shown(pane) - (GRIP - GRIP_BEFORE))),
+            Pane::Side => edge.left(scale::fixed(widths.shown(pane)) - px(GRIP_BEFORE)),
+            Pane::Dock => edge.right(scale::fixed(widths.shown(pane)) - px(GRIP - GRIP_BEFORE)),
         }
     }
 
     fn slot(widths: &Widths, pane: Pane, theme: &Theme, view: Option<AnyView>) -> gpui::Div {
         let slot = div()
-            .w(px(widths.shown(pane)))
+            .w(scale::fixed(widths.shown(pane)))
             .h_full()
             .flex_none()
             .overflow_hidden()

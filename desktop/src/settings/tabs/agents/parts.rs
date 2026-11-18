@@ -5,11 +5,12 @@ use std::time::Duration;
 use gpui::{
     Anchor, AnyElement, App, AppContext, Div, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, ParentElement, Stateful, Styled, WeakEntity, Window,
-    anchored, deferred, div, point, px,
+    anchored, deferred, div, point,
 };
 use serde::de::DeserializeOwned;
 
 use crate::link;
+use crate::scale::px;
 use crate::settings::widgets::confirm;
 use crate::settings::widgets::{button, ghost};
 use crate::settings::{Ctx, Dialog};

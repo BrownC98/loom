@@ -8,11 +8,12 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, ElementId, Entity, FontWeight, Image, ImageFormat,
     InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, StatefulInteractiveElement,
-    Styled, Subscription, WeakEntity, Window, div, img, px,
+    Styled, Subscription, WeakEntity, Window, div, img,
 };
 
 use crate::link;
 use crate::problem::Failure;
+use crate::scale::px;
 use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::store::Store;

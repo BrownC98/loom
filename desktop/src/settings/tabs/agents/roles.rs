@@ -5,11 +5,12 @@ use api::profile::{AgentView, ModelRule};
 use api::settings::roles::{Role, Roles};
 use gpui::{
     AnyElement, App, AppContext, Entity, FocusHandle, FontWeight, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div,
 };
 
 use super::parts::{Bound, Shared, ask, hint, keep_focus, labelled, row, rows, small};
 use crate::fonts;
+use crate::scale::px;
 use crate::settings::widgets::{Select, SelectEvent, field_reset, inert};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
@@ -285,7 +286,7 @@ pub fn section(
     }
     let add_label = section.text(say(cx, Str::SettingsRolesAdd), cx);
     let mut add = small("role-add", cx)
-        .child(icon(Lucide::Plus, 14.0, colors(cx).ink))
+        .child(icon(Lucide::Plus, px(14.0), colors(cx).ink))
         .child(add_label);
     if busy {
         add = inert(add).opacity(DIM);

@@ -9,13 +9,14 @@ use gpui::{
     AnyElement, App, AppContext, Bounds, BoxShadow, Context, Div, Entity, ExternalPaths,
     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollEvent, Size, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, deferred, div, point, px,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, deferred, div, point,
 };
 
 use super::aim::{self, Aim, Chosen, Kind, Stop, Streamed};
 use super::picker::{Picker, PickerEvent, picker};
 use super::place::{self, Grab, MARGIN};
 use crate::canvas::minimap;
+use crate::scale::fixed as px;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::mix;
@@ -1051,7 +1052,7 @@ impl Composer {
                 composer.bulk_open.set((!open).then_some(wait));
                 cx.notify();
             }))
-            .child(icon(Lucide::ChevronDown, 14.0 * z, c.ink));
+            .child(icon(Lucide::ChevronDown, px(14.0 * z), c.ink));
         let menu = open.then(|| {
             let text = ui::say_with(cx, Str::ComposerConfirmAll, &[("count", &done.to_string())]);
             let hover = c.surface_hover;
@@ -1070,7 +1071,7 @@ impl Composer {
                 .hover(move |style| style.bg(hover))
                 .on_mouse_down(MouseButton::Left, place::stop)
                 .on_click(cx.listener(|composer, _, _, cx| composer.confirm_all(cx)))
-                .child(icon(Lucide::CircleCheck, 14.0 * z, c.ok))
+                .child(icon(Lucide::CircleCheck, px(14.0 * z), c.ok))
                 .child(text);
             let panel = div()
                 .absolute()
@@ -1166,7 +1167,7 @@ impl Composer {
                 cx.stop_propagation();
                 composer.fold(window, cx);
             }))
-            .child(icon(Lucide::ChevronsDownUp, 14.0 * z, c.ink_3))
+            .child(icon(Lucide::ChevronsDownUp, px(14.0 * z), c.ink_3))
             .into_any_element()
     }
 
@@ -1425,7 +1426,7 @@ pub fn face<W: ComposerWire>(
             .text_color(tone_ink)
             .text_size(px(12.5 * z))
             .font_weight(FontWeight::SEMIBOLD)
-            .child(icon(view.kind.glyph(), 14.0 * z, tone_ink))
+            .child(icon(view.kind.glyph(), px(14.0 * z), tone_ink))
             .child(div().min_w_0().truncate().child(ui::say_with(
                 cx,
                 match view.kind {
@@ -1440,7 +1441,7 @@ pub fn face<W: ComposerWire>(
                 } else {
                     Lucide::ChevronUp
                 },
-                14.0 * z,
+                px(14.0 * z),
                 tone_ink,
             )),
     );
@@ -1468,7 +1469,7 @@ pub fn face<W: ComposerWire>(
             .absolute()
             .left(px(4.0 * z))
             .top(px(4.0 * z))
-            .child(icon(Lucide::Paperclip, 16.0 * z, c.ink_2)),
+            .child(icon(Lucide::Paperclip, px(16.0 * z), c.ink_2)),
     );
     let keys = view.keys.clone().map(|text| {
         div()
@@ -1511,7 +1512,7 @@ pub fn face<W: ComposerWire>(
                     .bg(shade(tone, view.sendable, c.panel))
                     .child(icon(
                         Lucide::ArrowUp,
-                        16.0 * z,
+                        px(16.0 * z),
                         shade(tone_ink, view.sendable, c.panel),
                     )),
             ),
@@ -1519,7 +1520,7 @@ pub fn face<W: ComposerWire>(
         .children((!view.home).then(|| {
             wire.reset(tool("composer-reset", 22.0).h(px(BUTTON * z)).child(icon(
                 Lucide::RotateCcw,
-                14.0 * z,
+                px(14.0 * z),
                 c.ink_3,
             )))
         }));

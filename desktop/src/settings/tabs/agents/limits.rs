@@ -1,6 +1,7 @@
-use gpui::{App, AppContext, Entity, ParentElement, Styled, Subscription, Window, div, px};
+use gpui::{App, AppContext, Entity, ParentElement, Styled, Subscription, Window, div};
 
 use super::parts::{hint, labelled};
+use crate::scale::px;
 use crate::settings::widgets::{Number, NumberEvent, field_reset};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;

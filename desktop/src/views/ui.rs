@@ -1,8 +1,9 @@
 use chrono::{Local, TimeZone, Timelike};
 use gpui::{
-    App, Div, ElementId, FontWeight, InteractiveElement, ParentElement, Stateful, Styled, div, px,
+    App, Div, ElementId, FontWeight, InteractiveElement, ParentElement, Stateful, Styled, div,
 };
 
+use crate::scale::{self, px};
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
 
@@ -77,7 +78,7 @@ pub fn open_url(url: &str) -> Result<(), String> {
 }
 
 pub fn button(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
-    button_at(id, 1.0, cx)
+    button_at(id, scale::get(), cx)
 }
 
 pub fn button_at(id: impl Into<ElementId>, zoom: f32, cx: &App) -> Stateful<Div> {
@@ -86,15 +87,15 @@ pub fn button_at(id: impl Into<ElementId>, zoom: f32, cx: &App) -> Stateful<Div>
         .id(id)
         .flex()
         .items_center()
-        .gap(px(GAP * zoom))
-        .min_h(px(26.0 * zoom))
-        .px(px(10.0 * zoom))
-        .py(px(3.0 * zoom))
-        .rounded(px(6.0 * zoom))
+        .gap(scale::fixed(GAP * zoom))
+        .min_h(scale::fixed(26.0 * zoom))
+        .px(scale::fixed(10.0 * zoom))
+        .py(scale::fixed(3.0 * zoom))
+        .rounded(scale::fixed(6.0 * zoom))
         .border_1()
         .border_color(c.line_strong)
         .bg(c.surface)
-        .text_size(px(SMALL * zoom))
+        .text_size(scale::fixed(SMALL * zoom))
         .text_color(c.ink)
         .cursor_pointer()
         .hover(move |style| style.bg(c.surface_hover))

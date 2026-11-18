@@ -1,9 +1,10 @@
 use gpui::{
     App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::btn::tabbable;
+use crate::scale::px;
 use crate::views::dock::ui::colors;
 
 const TRACK_W: f32 = 30.0;

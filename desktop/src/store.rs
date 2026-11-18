@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use api::canvas::{CardSize, Placed};
 use api::graph::docs::DocRow;
-use api::graph::events::EventLog;
+use api::graph::events::{Entry, EventLog, SwitchCause};
 use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, PressKeys, Prompt, TypeText};
 use api::graph::{GraphEvent, NewNode, NodeView};
 use api::ids::{NodeId, RepoId, WaitId};
 use api::profile::AgentView;
-use api::repos::PlaceView;
+use api::repos::{PlaceView, RepoView};
 use api::settings::places::ReachView;
 use api::settings::{ArrangeDirection, GraphScope, SettingsView};
 use gpui::{
@@ -19,13 +19,13 @@ use gpui::{
 
 use crate::canvas::drag::Arrange;
 use crate::canvas::repos::{chosen_repo, groups_of};
-use crate::link::{self, Graph, Loaded, Snapshot};
+use crate::link::{self, Fresh, Graph, Loaded, Snapshot};
 use crate::problem::Failure;
 use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
 const PROMPT_CHANGED: &str = "promptChanged";
-const REACH_EVERY: Duration = Duration::from_secs(5);
+const REPOS_EVERY: Duration = Duration::from_secs(5);
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,6 +40,8 @@ pub struct Store {
     snapshot: Option<Snapshot>,
     revision: u64,
     loaded: u64,
+    nodes_at: u64,
+    repos_at: u64,
     settings: SettingsView,
     settings_key: String,
     unsaved: VecDeque<serde_json::Value>,
@@ -110,6 +112,14 @@ impl EventEmitter<Show> for Store {}
 impl EventEmitter<DraftChanged> for Store {}
 impl EventEmitter<BusyChanged> for Store {}
 
+fn newer(at: &mut u64, order: u64) -> bool {
+    let newer = order > *at;
+    if newer {
+        *at = order;
+    }
+    newer
+}
+
 fn unreached_of(base: &str, hosts: Vec<String>) -> HashSet<String> {
     hosts
         .into_iter()
@@ -172,8 +182,26 @@ impl Store {
                 let reach_base = base.clone();
                 cx.spawn_in(window, async move |this, cx| {
                     loop {
-                        cx.background_executor().timer(REACH_EVERY).await;
-                        let Ok(hosts) = this.read_with(cx, |store, _| store.ssh_hosts()) else {
+                        cx.background_executor().timer(REPOS_EVERY).await;
+                        let Ok(visible) = this.update_in(cx, |_, window, _| window.is_visible())
+                        else {
+                            break;
+                        };
+                        let base = reach_base.clone();
+                        let order = link::order();
+                        let repos: Option<Vec<RepoView>> = match visible {
+                            true => cx
+                                .background_spawn(async move { link::read(&base, "/api/repos") })
+                                .await
+                                .ok(),
+                            false => None,
+                        };
+                        let Ok(hosts) = this.update(cx, |store, cx| {
+                            if let Some(repos) = repos {
+                                store.keep_repos(order, repos, cx);
+                            }
+                            store.ssh_hosts()
+                        }) else {
                             break;
                         };
                         if hosts.is_empty() {
@@ -206,6 +234,8 @@ impl Store {
             snapshot: None,
             revision: 0,
             loaded: 0,
+            nodes_at: 0,
+            repos_at: 0,
             settings,
             settings_key: String::new(),
             unsaved: VecDeque::new(),
@@ -625,10 +655,18 @@ impl Store {
     fn apply(&mut self, event: Graph, cx: &mut Context<Self>) {
         match event {
             Graph::Loaded(loaded) => self.load(*loaded, cx),
-            Graph::Feed(event) => cx.emit(*event),
+            Graph::Nodes(fresh) => self.refresh(*fresh),
+            Graph::Feed(event) => {
+                if let GraphEvent::Recorded { record } = event.as_ref()
+                    && matches!(&record.entry, Entry::AccountSwitched { why, .. } if *why != SwitchCause::Manual)
+                {
+                    self.reload(cx);
+                }
+                cx.emit(*event)
+            }
             Graph::Link => {}
             Graph::Failed { order, error } => {
-                if !self.newer(order) {
+                if order <= self.loaded.max(self.nodes_at) {
                     return;
                 }
                 let text = error.text(*cx.global::<strings::Lang>());
@@ -643,25 +681,86 @@ impl Store {
         cx.notify();
     }
 
-    fn newer(&mut self, order: u64) -> bool {
-        let newer = order > self.loaded;
-        if newer {
-            self.loaded = order;
+    fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
+        let Loaded {
+            order,
+            snapshot: read,
+            settings,
+        } = loaded;
+        let Some(snapshot) = &mut self.snapshot else {
+            self.snapshot = Some(read);
+            (self.loaded, self.nodes_at, self.repos_at) = (order, order, order);
+            self.keep_settings(order, settings, cx);
+            self.revision += 1;
+            self.reselect();
+            return;
+        };
+        let mut used = false;
+        if newer(&mut self.nodes_at, order) {
+            snapshot.nodes = read.nodes;
+            used = true;
         }
-        newer
+        if newer(&mut self.repos_at, order) {
+            snapshot.repos = read.repos;
+            used = true;
+        }
+        if newer(&mut self.loaded, order) {
+            snapshot.layout = read.layout;
+            snapshot.sizes = read.sizes;
+            self.keep_settings(order, settings, cx);
+            used = true;
+        }
+        if used {
+            self.revision += 1;
+            self.reselect();
+        }
     }
 
-    fn load(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
-        if !self.newer(loaded.order) {
+    fn keep_settings(&mut self, order: u64, settings: SettingsView, cx: &mut Context<Self>) {
+        self.status = self.base.clone().unwrap_or_default();
+        if self.unsaved.is_empty() && order > self.settings_from {
+            self.confirmed = settings.clone();
+            self.take_settings(settings, cx);
+        }
+    }
+
+    fn refresh(&mut self, fresh: Fresh) {
+        let Some(snapshot) = &mut self.snapshot else {
+            return;
+        };
+        let mut used = false;
+        if newer(&mut self.nodes_at, fresh.order) {
+            snapshot.nodes = fresh.nodes;
+            used = true;
+        }
+        if let Some(repos) = fresh.repos
+            && newer(&mut self.repos_at, fresh.order)
+        {
+            snapshot.repos = repos;
+            used = true;
+        }
+        if used {
+            self.status = self.base.clone().unwrap_or_default();
+            self.revision += 1;
+            self.reselect();
+        }
+    }
+
+    fn keep_repos(&mut self, order: u64, repos: Vec<RepoView>, cx: &mut Context<Self>) {
+        let Some(snapshot) = &mut self.snapshot else {
+            return;
+        };
+        if !newer(&mut self.repos_at, order)
+            || serde_json::to_string(&snapshot.repos).ok() == serde_json::to_string(&repos).ok()
+        {
             return;
         }
-        self.status = self.base.clone().unwrap_or_default();
-        if self.unsaved.is_empty() && loaded.order > self.settings_from {
-            self.confirmed = loaded.settings.clone();
-            self.take_settings(loaded.settings, cx);
-        }
-        self.snapshot = Some(loaded.snapshot);
+        snapshot.repos = repos;
         self.revision += 1;
+        cx.notify();
+    }
+
+    fn reselect(&mut self) {
         let Some(snapshot) = &self.snapshot else {
             return;
         };

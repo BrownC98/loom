@@ -1,9 +1,13 @@
-use rusqlite::{Connection, OptionalExtension};
+use std::collections::BTreeMap;
 
+use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+
+use api::graph::errors::Problem;
 use api::settings::{FloatPlace, Language, SettingsView};
 
 use crate::db::Database;
-use crate::roles::{self, ChoiceCheck, RoleProblem, SetRole};
+use crate::roles::{self, ChoiceCheck, RoleProblem};
 use api::settings::roles::Roles;
 
 fn place_problem(place: FloatPlace, field: &str) -> Option<String> {
@@ -65,23 +69,62 @@ impl Settings {
     }
 
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
-        self.write(|_, value| {
+        self.write(|_, _, value| {
             merge(value, patch);
             checked(value, self.check).map_err(PatchProblem::Shape)
         })
     }
 
-    pub fn set_role(&self, set: &SetRole, known: ChoiceCheck) -> Result<Roles, SetRoleProblem> {
-        self.write(|view, value| {
-            let next = roles::with(&view.roles, set, known).map_err(SetRoleProblem::Role)?;
+    pub fn edit_roles(
+        &self,
+        allowed: impl FnOnce(&Connection) -> Result<(), Problem>,
+        edit: impl FnOnce(&Roles) -> Result<Roles, RoleProblem>,
+    ) -> Result<Roles, AgentEditProblem> {
+        self.write(|db, view, value| {
+            allowed(db).map_err(AgentEditProblem::Refused)?;
+            let next = edit(&view.roles).map_err(AgentEditProblem::Role)?;
             merge(value, &serde_json::json!({ "roles": next }));
-            checked(value, self.check).map_err(SetRoleProblem::Shape)
+            checked(value, self.check).map_err(|e| AgentEditProblem::Role(RoleProblem::Shape(e)))
         })
         .map(|view| view.roles)
     }
 
+    pub fn set_key(
+        &self,
+        key: &str,
+        new: serde_json::Value,
+        allowed: impl FnOnce(&Connection, &serde_json::Value) -> Result<(), Problem>,
+    ) -> Result<serde_json::Value, AgentEditProblem> {
+        let patch = key_patch(key, &new).map_err(AgentEditProblem::Shape)?;
+        let mut kept_value = serde_json::Value::Null;
+        self.write(|db, _, value| {
+            allowed(db, &patch).map_err(AgentEditProblem::Refused)?;
+            let unknown = || AgentEditProblem::Shape(format!("the settings have no key '{key}'"));
+            if !nulls_exist(Some(value), &patch) {
+                return Err(AgentEditProblem::Shape(format!(
+                    "the settings have no key '{key}' or no field that {new} clears"
+                )));
+            }
+            merge(value, &patch);
+            let view = checked(value, self.check).map_err(AgentEditProblem::Shape)?;
+            let stored = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
+            let got = stored.pointer(key);
+            if !kept(&new, got) {
+                return Err(match got {
+                    Some(got) => AgentEditProblem::Shape(format!(
+                        "'{key}' does not keep {new}: the settings store {got}"
+                    )),
+                    None => unknown(),
+                });
+            }
+            kept_value = got.cloned().unwrap_or_default();
+            Ok(view)
+        })?;
+        Ok(kept_value)
+    }
+
     pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
-        let result = self.write::<PatchProblem>(|mut view, value| {
+        let result = self.write::<PatchProblem>(|_, mut view, value| {
             edit(&mut view);
             *value = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
             Ok(view)
@@ -110,12 +153,16 @@ impl Settings {
 
     fn write<E: From<rusqlite::Error>>(
         &self,
-        change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, E>,
+        change: impl FnOnce(
+            &Connection,
+            SettingsView,
+            &mut serde_json::Value,
+        ) -> Result<SettingsView, E>,
     ) -> Result<SettingsView, E> {
         let mut db = self.db.lock();
         let tx = db.transaction()?;
         let (view, mut value) = read(&tx)?;
-        let next = change(view, &mut value)?;
+        let next = change(&tx, view, &mut value)?;
         tx.execute(
             "INSERT OR REPLACE INTO settings (id, value) VALUES (1, ?1)",
             [serde_json::to_string(&next).expect("설정은 늘 직렬화된다")],
@@ -123,6 +170,77 @@ impl Settings {
         tx.commit()?;
         Ok(next)
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SetSetting {
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+fn nulls_exist(old: Option<&serde_json::Value>, new: &serde_json::Value) -> bool {
+    match new {
+        serde_json::Value::Null => old.is_some(),
+        serde_json::Value::Object(fields) => fields
+            .iter()
+            .all(|(name, inner)| nulls_exist(old.and_then(|o| o.get(name)), inner)),
+        _ => true,
+    }
+}
+
+fn kept(new: &serde_json::Value, got: Option<&serde_json::Value>) -> bool {
+    use serde_json::Value;
+    match (new, got) {
+        (Value::Null, None | Some(Value::Null)) => true,
+        (Value::Object(fields), Some(Value::Object(stored))) => fields
+            .iter()
+            .all(|(name, inner)| kept(inner, stored.get(name))),
+        (Value::Number(a), Some(Value::Number(b))) => {
+            a.as_f64() == b.as_f64() || a.as_f64().map(|a| a as f32) == b.as_f64().map(|b| b as f32)
+        }
+        (new, Some(got)) => new == got,
+        (_, None) => false,
+    }
+}
+
+fn key_segments(key: &str) -> Result<Vec<String>, String> {
+    let segments: Option<Vec<String>> = key.strip_prefix('/').map(|rest| {
+        rest.split('/')
+            .map(|p| p.replace("~1", "/").replace("~0", "~"))
+            .collect()
+    });
+    match segments {
+        Some(segments) if segments.iter().all(|s| !s.is_empty()) => Ok(segments),
+        _ => Err(format!(
+            "the key '{key}' is not a key from loom settings (a JSON pointer such as /theme)"
+        )),
+    }
+}
+
+fn key_patch(key: &str, value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(key_segments(key)?
+        .iter()
+        .rev()
+        .fold(value.clone(), |inner, p| serde_json::json!({ p: inner })))
+}
+
+pub fn keys(value: serde_json::Value) -> BTreeMap<String, serde_json::Value> {
+    let mut lines = BTreeMap::new();
+    let mut open = vec![(String::new(), value)];
+    while let Some((key, value)) = open.pop() {
+        match value {
+            serde_json::Value::Object(fields) if !fields.is_empty() => {
+                for (name, inner) in fields {
+                    let name = name.replace('~', "~0").replace('/', "~1");
+                    open.push((format!("{key}/{name}"), inner));
+                }
+            }
+            leaf => {
+                lines.insert(key, leaf);
+            }
+        }
+    }
+    lines
 }
 
 fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> {
@@ -177,13 +295,14 @@ pub enum PatchProblem {
     Shape(String),
 }
 
-pub enum SetRoleProblem {
+pub enum AgentEditProblem {
     Db(rusqlite::Error),
     Shape(String),
     Role(RoleProblem),
+    Refused(Problem),
 }
 
-impl From<rusqlite::Error> for SetRoleProblem {
+impl From<rusqlite::Error> for AgentEditProblem {
     fn from(e: rusqlite::Error) -> Self {
         Self::Db(e)
     }

@@ -121,7 +121,7 @@ async fn default_settings() -> Json<SettingsView> {
     Json(shown(SettingsView::default()))
 }
 
-fn shown(mut view: SettingsView) -> SettingsView {
+pub(super) fn shown(mut view: SettingsView) -> SettingsView {
     if view.workspace_dir.is_none() {
         view.workspace_dir = worktree::default_workspace()
             .ok()
@@ -134,6 +134,17 @@ async fn put_settings(
     State(app): State<Arc<App>>,
     Json(patch): Json<serde_json::Value>,
 ) -> Result<Json<()>, Problem> {
+    absolute_dirs(&patch)?;
+    match app.settings.patch(&patch) {
+        Ok(_) => {}
+        Err(PatchProblem::Db(e)) => return Err(internal(e)),
+        Err(PatchProblem::Shape(e)) => return Err(internal(e)),
+    }
+    app.graph.publish_view_changed();
+    Ok(Json(()))
+}
+
+pub(super) fn absolute_dirs(patch: &serde_json::Value) -> Result<(), Problem> {
     let wsl_dirs = patch
         .get("wslWorkspaceDirs")
         .and_then(|dirs| dirs.as_object())
@@ -146,13 +157,7 @@ async fn put_settings(
     {
         return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.to_owned())));
     }
-    match app.settings.patch(&patch) {
-        Ok(_) => {}
-        Err(PatchProblem::Db(e)) => return Err(internal(e)),
-        Err(PatchProblem::Shape(e)) => return Err(internal(e)),
-    }
-    app.graph.publish_view_changed();
-    Ok(Json(()))
+    Ok(())
 }
 
 async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>, Problem> {

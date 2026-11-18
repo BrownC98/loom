@@ -19,14 +19,21 @@ pub enum RoleProblem {
     Unknown { role: String, names: Vec<String> },
     NoAgent { role: String },
     Launch(LaunchError),
+    Shape(String),
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SetRole {
     pub role: String,
-    pub agent: AgentId,
+    pub agent: Option<AgentId>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub duty: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RemoveRole {
+    pub role: String,
 }
 
 impl std::fmt::Display for RoleProblem {
@@ -44,30 +51,84 @@ impl std::fmt::Display for RoleProblem {
                 )
             }
             RoleProblem::Launch(e) => write!(f, "{e}"),
+            RoleProblem::Shape(reason) => write!(f, "{reason}"),
         }
     }
 }
 
+const NEEDS_AGENT: &str = "--model and --effort need --agent";
+
 pub fn with(roles: &Roles, set: &SetRole, check: ChoiceCheck) -> Result<Roles, RoleProblem> {
-    let choice = ModelChoice {
-        model: set.model.clone().filter(|v| !v.trim().is_empty()),
-        effort: set.effort.clone().filter(|v| !v.trim().is_empty()),
-    };
-    check(&set.agent, &choice).map_err(RoleProblem::Launch)?;
-    let name = set.role.trim();
+    if set.agent.is_none() && set.duty.is_none() {
+        return Err(RoleProblem::Shape("give --agent or --duty".into()));
+    }
+    if set.agent.is_none() && (set.model.is_some() || set.effort.is_some()) {
+        return Err(RoleProblem::Shape(NEEDS_AGENT.into()));
+    }
     let mut next = roles.clone();
     let role = next
         .0
         .iter_mut()
-        .find(|r| r.name == name)
-        .ok_or_else(|| RoleProblem::Unknown {
-            role: set.role.clone(),
-            names: roles.0.iter().map(|r| r.name.clone()).collect(),
-        })?;
-    role.agent = Some(set.agent.clone());
-    role.model = set.model.clone();
-    role.effort = set.effort.clone();
+        .find(|r| r.name == set.role.trim())
+        .ok_or_else(|| unknown(roles, &set.role))?;
+    if let Some(duty) = &set.duty {
+        role.duty = duty_of(duty)?;
+    }
+    if let Some(agent) = &set.agent {
+        role.agent = Some(agent.clone());
+        role.model = set.model.clone();
+        role.effort = set.effort.clone();
+        checked_run(role, check)?;
+    }
     Ok(next)
+}
+
+pub fn added(roles: &Roles, mut role: Role, check: ChoiceCheck) -> Result<Roles, RoleProblem> {
+    role.duty = duty_of(&role.duty)?;
+    checked_run(&role, check)?;
+    let mut next = roles.clone();
+    next.0.push(role);
+    Ok(next)
+}
+
+pub fn without(roles: &Roles, name: &str) -> Result<Roles, RoleProblem> {
+    let mut next = roles.clone();
+    let at = next
+        .0
+        .iter()
+        .position(|r| r.name == name.trim())
+        .ok_or_else(|| unknown(roles, name))?;
+    next.0.remove(at);
+    Ok(next)
+}
+
+fn unknown(roles: &Roles, name: &str) -> RoleProblem {
+    RoleProblem::Unknown {
+        role: name.into(),
+        names: roles.0.iter().map(|r| r.name.clone()).collect(),
+    }
+}
+
+fn duty_of(duty: &str) -> Result<String, RoleProblem> {
+    match duty.trim() {
+        "" => Err(RoleProblem::Shape("the duty is empty".into())),
+        duty => Ok(duty.to_owned()),
+    }
+}
+
+fn checked_run(role: &Role, check: ChoiceCheck) -> Result<(), RoleProblem> {
+    let Some(agent) = &role.agent else {
+        return match role.model.is_some() || role.effort.is_some() {
+            true => Err(NEEDS_AGENT),
+            false => Ok(()),
+        }
+        .map_err(|e| RoleProblem::Shape(e.into()));
+    };
+    let choice = ModelChoice {
+        model: role.model.clone().filter(|v| !v.trim().is_empty()),
+        effort: role.effort.clone().filter(|v| !v.trim().is_empty()),
+    };
+    check(agent, &choice).map_err(RoleProblem::Launch)
 }
 
 pub fn launch_problem(roles: &Roles, check: ChoiceCheck) -> Option<String> {
@@ -91,10 +152,7 @@ pub fn assign(roles: &Roles, name: &str, brief: &str) -> Result<Assignment, Role
         .0
         .iter()
         .find(|r| r.name == name.trim())
-        .ok_or_else(|| RoleProblem::Unknown {
-            role: name.into(),
-            names: roles.0.iter().map(|r| r.name.clone()).collect(),
-        })?;
+        .ok_or_else(|| unknown(roles, name))?;
     let agent = role.agent.clone().ok_or_else(|| RoleProblem::NoAgent {
         role: role.name.clone(),
     })?;

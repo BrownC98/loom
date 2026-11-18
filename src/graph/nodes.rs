@@ -623,7 +623,7 @@ impl Graph {
     }
 
     pub fn has_parent(&self, node: NodeId) -> Result<bool, Refusal> {
-        Ok(parent_of(&self.lock(), node)?.is_some())
+        Ok(super::has_parent_in(&self.lock(), node)?)
     }
 
     pub fn relations(&self, node: NodeId) -> Result<Relations, Refusal> {

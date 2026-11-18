@@ -78,7 +78,9 @@ const IDS = mockup => {
 const DECISION_STYLE = ([style, callouts]) => {
   if (!document.querySelector('.decision')) return [];
   const OWN = /\.(decision|opts?|did|key|mark|sub|label|why)(?![\w-])/;
-  const rules = text => { const s = new CSSStyleSheet(); s.replaceSync(text); return [...s.cssRules].filter(r => OWN.test(r.selectorText ?? '')); };
+  const sheet = text => { const s = new CSSStyleSheet(); s.replaceSync(text); return [...s.cssRules]; };
+  const rules = text => sheet(text).filter(r => OWN.test(r.selectorText ?? ''));
+  const root = sheet(style).find(r => r.selectorText === ':root').style, same = v => v.trim().replace(/\s+/g, ' ');
   const need = rules(style), allowed = new Set([...need, ...rules(callouts)].map(r => r.cssText));
   const found = new Set(), bad = [], boxes = [...document.querySelectorAll('.decision, .decision *')];
   const walk = list => { for (const r of list) { if (r.cssRules) walk(r.cssRules); if (!OWN.test(r.selectorText ?? '')) continue;
@@ -89,7 +91,7 @@ const DECISION_STYLE = ([style, callouts]) => {
   for (const s of document.styleSheets) { let list; try { list = s.cssRules; } catch { continue; } walk(list); }
   for (const r of need) if (!found.has(r.cssText)) bad.push(`style.html decision box rule missing: "${r.cssText.slice(0, 90)}"`);
   const box = getComputedStyle(document.querySelector('.decision'));
-  for (const v of new Set(need.flatMap(r => r.cssText.match(/--[\w-]+/g) ?? []))) if (!box.getPropertyValue(v).trim()) bad.push(`decision box token ${v} is not defined`);
+  for (const v of new Set(need.flatMap(r => r.cssText.match(/--[\w-]+/g) ?? []))) if (same(box.getPropertyValue(v)) !== same(root.getPropertyValue(v))) bad.push(`decision box token ${v} is "${same(box.getPropertyValue(v))}", not the style.html value "${same(root.getPropertyValue(v))}"`);
   if (bad.length) bad.push('decision boxes: copy the decision rules and their tokens from style.html as they are; do not add or change rules for .decision, .opts, .opt, .did, .key, .mark, .sub, .label or .why');
   return bad;
 };

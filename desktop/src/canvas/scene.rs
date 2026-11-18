@@ -56,7 +56,7 @@ pub fn group_head() -> f64 {
 }
 
 pub fn repo_head() -> f64 {
-    banded(REPO_HEAD)
+    REPO_HEAD * step()
 }
 
 fn card_top() -> f64 {
@@ -67,13 +67,6 @@ pub fn repo_inset() -> Inset {
     Inset {
         top: repo_head() + REPO_GAP,
         side: REPO_SIDE,
-    }
-}
-
-fn empty_group() -> Size {
-    Size {
-        width: EMPTY_GROUP.width,
-        height: EMPTY_GROUP.height + (GROUP_HEAD - 1.0) * (step() - 1.0),
     }
 }
 
@@ -567,7 +560,7 @@ pub fn build(
                 parent: cards[i].and(parents[i]),
                 card: cards[i],
                 members: members[i].iter().map(|v| v.id.0).collect(),
-                empty: empty_group(),
+                empty: EMPTY_GROUP,
             })
             .collect();
         let tree = layout::arrange_nested(

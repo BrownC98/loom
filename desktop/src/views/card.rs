@@ -296,6 +296,8 @@ pub fn repo_frame(
         colors,
     );
     let head = band(46.0, zoom, colors)
+        .h(px(46.0 * zoom))
+        .border_b(px(zoom.max(0.5)))
         .px(px(16.0 * zoom))
         .child(
             div()

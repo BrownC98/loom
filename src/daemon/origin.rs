@@ -15,6 +15,7 @@ const FORWARDED_FOR: &str = "x-forwarded-for";
 const TAILNET_SUFFIX: &str = ".ts.net";
 pub const DEVICE_COOKIE: &str = "loom_device";
 const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png", phone::JSQR_PATH];
+const NOT_FROM_PAGE: &str = "Only the loom page acts as the human here. To write to a node, use POST /api/rooms/<node>/outside with {\"from\":\"<name>\",\"text\":\"…\"}.";
 
 #[derive(Clone, Copy)]
 pub struct ViaRemote {
@@ -33,7 +34,7 @@ pub async fn from_page(request: Request, next: Next) -> Response {
     if request.headers().contains_key(header::ORIGIN) {
         next.run(request).await
     } else {
-        StatusCode::FORBIDDEN.into_response()
+        (StatusCode::FORBIDDEN, NOT_FROM_PAGE).into_response()
     }
 }
 

@@ -1,10 +1,15 @@
+use axum::handler::Handler;
+
 use super::*;
 use api::graph::ProcessState;
 use api::graph::docs::{PostOutside, PostTalk, RoomTalk, TalkTo};
 
 pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
-        .route("/api/rooms/{node}/talk", get(room_talk).post(post_room))
+        .route(
+            "/api/rooms/{node}/talk",
+            get(room_talk).post(post_room.layer(axum::middleware::from_fn(origin::from_page))),
+        )
         .route("/api/rooms/{node}/outside", post(post_outside))
         .route("/rooms/{node}", get(super::settings::index))
 }

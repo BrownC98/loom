@@ -26,7 +26,10 @@ pub(super) fn routes() -> Router<Arc<App>> {
             "/api/nodes/{id}/card-view",
             put(set_card_view).delete(clear_card_view),
         )
-        .route("/api/nodes/{id}/pty", get(pty))
+        .route(
+            "/api/nodes/{id}/pty",
+            get(pty).layer(axum::middleware::from_fn(origin::from_page)),
+        )
         .route("/api/nodes/{id}/process-log", get(process_log))
         .route(
             "/api/pastes/{name}",

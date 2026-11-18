@@ -573,7 +573,9 @@ const PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 const INTEROP_OFF: &str = "interop-off";
 pub const REWAKE_EXIT: i32 = 2;
 const WINDOWS_DAEMON_ENV: &str = "LOOM_WINDOWS_DAEMON";
-pub const WINDOWS_VERBS: &[&str] = &["serve", "start", "open", "stop", "carry", "pty-host"];
+pub const WINDOWS_VERBS: &[&str] = &[
+    "serve", "start", "open", "stop", "carry", "pty-host", "room",
+];
 pub const SPAWN_AT_DAEMON_EXIT: i32 = 4;
 
 pub async fn inside(

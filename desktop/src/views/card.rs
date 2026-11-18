@@ -27,6 +27,25 @@ use crate::views::status::{self, Tone, chip, pill, rework, wash};
 use crate::views::tooltip;
 
 const HEAD: f32 = 35.0;
+pub const CHIP_HEIGHT: f32 = 28.0;
+pub const CHIP_ROW_PAD_X: f32 = 14.0;
+pub const CHIP_ROW_PAD_Y: f32 = 7.0;
+pub const CHIP_ROW_GAP_X: f32 = 12.0;
+pub const CHIP_ROW_GAP_Y: f32 = 6.0;
+pub const CHIP_HEADING_GAP: f32 = 2.0;
+pub const CHIP_LABEL_MAX: f32 = 240.0;
+const CHIP_PAD_LEFT: f32 = 8.0;
+const CHIP_PAD_RIGHT: f32 = 3.0;
+const CHIP_GAP: f32 = 2.0;
+const CHIP_LABEL_GAP: f32 = 4.0;
+const CHIP_BUTTON: f32 = 24.0;
+const CHIP_BORDER: f32 = 1.0;
+pub const CHIP_EXTRA: f32 = CHIP_PAD_LEFT
+    + CHIP_LABEL_GAP
+    + 2.0 * CHIP_BUTTON
+    + 2.0 * CHIP_GAP
+    + CHIP_PAD_RIGHT
+    + 2.0 * CHIP_BORDER;
 
 pub fn banded(height: f32, zoom: f32) -> f32 {
     (height - 1.0) * zoom + zoom / scale::get()
@@ -420,16 +439,16 @@ pub fn group_frame(
             .flex_none()
             .flex_wrap()
             .items_center()
-            .gap_x(px(12.0 * zoom))
-            .gap_y(px(6.0 * zoom))
-            .px(px(14.0 * zoom))
-            .py(px(7.0 * zoom))
+            .gap_x(px(CHIP_ROW_GAP_X * zoom))
+            .gap_y(px(CHIP_ROW_GAP_Y * zoom))
+            .px(px(CHIP_ROW_PAD_X * zoom))
+            .py(px(CHIP_ROW_PAD_Y * zoom))
             .w_full()
             .border_b(px((zoom / scale::get()).max(0.5)))
             .border_color(colors.line)
             .child(
                 div()
-                    .mr(px(2.0 * zoom))
+                    .mr(px(CHIP_HEADING_GAP * zoom))
                     .text_size(text_px(SMALL, zoom))
                     .text_color(colors.ink_3)
                     .child(Str::GraphChips.text(lang)),
@@ -439,12 +458,12 @@ pub fn group_frame(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(2.0 * zoom))
-                    .h(px(28.0 * zoom))
-                    .pl(px(8.0 * zoom))
-                    .pr(px(3.0 * zoom))
+                    .gap(px(CHIP_GAP * zoom))
+                    .h(px(CHIP_HEIGHT * zoom))
+                    .pl(px(CHIP_PAD_LEFT * zoom))
+                    .pr(px(CHIP_PAD_RIGHT * zoom))
                     .rounded(px(8.0 * zoom))
-                    .border(px(zoom.max(0.5)))
+                    .border(px((CHIP_BORDER * zoom).max(0.5)))
                     .border_color(if lit {
                         colors.accent
                     } else {
@@ -456,8 +475,8 @@ pub fn group_frame(
                     .child(
                         div()
                             .id(ElementId::Name(format!("chip-branch:{}", chip.path).into()))
-                            .mr(px(4.0 * zoom))
-                            .max_w(px(240.0 * zoom))
+                            .mr(px(CHIP_LABEL_GAP * zoom))
+                            .max_w(px(CHIP_LABEL_MAX * zoom))
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis()
@@ -472,7 +491,7 @@ pub fn group_frame(
                         Lucide::Plus,
                         Str::GraphNewNode.text(lang),
                         &keyed(&acts.new_node, &chip.path),
-                        24.0,
+                        CHIP_BUTTON,
                         zoom,
                         colors,
                     ))
@@ -482,7 +501,7 @@ pub fn group_frame(
                         Lucide::Trash2,
                         Str::DeleteWorktreeAction.text(lang),
                         &keyed(&acts.delete, &chip.path),
-                        24.0,
+                        CHIP_BUTTON,
                         zoom,
                         colors,
                     ))

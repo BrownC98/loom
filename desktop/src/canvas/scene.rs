@@ -22,14 +22,6 @@ const CARD_X: f64 = 20.0;
 const GROUP_HEAD: f64 = 43.0;
 const REPO_HEAD: f64 = 46.0;
 const CARD_GAP: f64 = 17.0;
-const CHIP_HEIGHT: f64 = 28.0;
-const CHIP_PAD: f64 = 7.0;
-const CHIP_SIDE: f64 = 14.0;
-const CHIP_GAP_X: f64 = 12.0;
-const CHIP_GAP_Y: f64 = 6.0;
-const CHIP_EXTRA: f64 = 8.0 + 4.0 + 24.0 + 24.0 + 4.0 + 3.0 + 2.0;
-const CHIP_LABEL_MAX: f64 = 240.0;
-const CHIP_HEADING_GAP: f64 = 2.0;
 const EMPTY_GROUP: Size = Size {
     width: 320.0,
     height: 100.0,
@@ -111,8 +103,8 @@ pub struct ChipText<'a> {
 }
 
 fn chip_row(widths: &[f64], frame: f64) -> f64 {
-    let room = frame - 2.0 * CHIP_SIDE * step();
-    let gap = CHIP_GAP_X * step();
+    let room = frame - 2.0 * f64::from(card::CHIP_ROW_PAD_X) * step();
+    let gap = f64::from(card::CHIP_ROW_GAP_X) * step();
     let (mut lines, mut used) = (1.0, 0.0);
     for w in widths {
         if used > 0.0 && used + gap + w > room {
@@ -122,7 +114,11 @@ fn chip_row(widths: &[f64], frame: f64) -> f64 {
             used += if used > 0.0 { gap + w } else { *w };
         }
     }
-    (CHIP_HEIGHT * lines + CHIP_GAP_Y * (lines - 1.0) + 2.0 * CHIP_PAD) * step() + 1.0
+    (f64::from(card::CHIP_HEIGHT) * lines
+        + f64::from(card::CHIP_ROW_GAP_Y) * (lines - 1.0)
+        + 2.0 * f64::from(card::CHIP_ROW_PAD_Y))
+        * step()
+        + 1.0
 }
 
 pub struct Frame {
@@ -568,10 +564,13 @@ pub fn build(
         if let Some(host) = groups.iter().find(|g| g.kind != GroupKind::Linked)
             && !chips.is_empty()
         {
-            let lead = ((text.width)(text.heading, false) + CHIP_HEADING_GAP) * step();
+            let lead =
+                ((text.width)(text.heading, false) + f64::from(card::CHIP_HEADING_GAP)) * step();
             let widths = std::iter::once(lead)
                 .chain(chips.iter().map(|c| {
-                    ((text.width)(&c.label, true).min(CHIP_LABEL_MAX) + CHIP_EXTRA) * step()
+                    ((text.width)(&c.label, true).min(f64::from(card::CHIP_LABEL_MAX))
+                        + f64::from(card::CHIP_EXTRA))
+                        * step()
                 }))
                 .collect();
             chip_hosts.insert(host.path.clone(), widths);

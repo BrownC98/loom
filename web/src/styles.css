@@ -55,8 +55,6 @@
   --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
   --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
   --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
-  --ui-zoom: 1;
-  --hair: calc(1px / var(--ui-zoom));
   --radius: 8px;
   --font: 'Pretendard Variable', system-ui, sans-serif;
   --mono: 'Jetendard Latin', 'Pretendard Variable', system-ui, monospace;
@@ -1193,5 +1191,6 @@ li[data-by="agent"] > .talk-text { border: 1px solid var(--line-strong); border-
 .talk-typing .spin { animation: spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .talk-typing .spin { animation: none; } }
 
-.titlebar, .side, .rail, .dock, .statusbar, .canvas-title, .canvas-down, .refusal, .react-flow__panel.zoom-level, .dialog, .login, .switch-dialog, .menu, .status-pop, .update-pop, .card-head, .group-head, .group-empty, .repo-head, .wt-chips, .repo-box > .downline, .card.simple, .pop-start > .pop, .pop-end > .pop { zoom: var(--ui-zoom); }
+:root { --ui-zoom: 1; --ui-zoom-here: var(--ui-zoom); --hair: calc(1px / var(--ui-zoom)); }
+:is(.titlebar, .side, .rail, .dock, .statusbar, .canvas-title, .canvas-down, .react-flow ~ .refusal, .react-flow__panel.zoom-level, .dialog, .login, .switch-dialog, .menu, .status-pop, .update-pop, .card-head, .group-head, .group-empty, .repo-head, .wt-chips, .repo-box > .downline, .card.simple, .pop-start > .pop, .pop-end > .pop) { zoom: var(--ui-zoom-here); & > * { --ui-zoom-here: 1; } }
 .dock-term, .login-term { zoom: calc(1 / var(--ui-zoom)); }

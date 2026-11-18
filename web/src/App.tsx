@@ -181,7 +181,7 @@ export function App() {
   }, [uiScale]);
   const sideShown = (sideOpen ? sideWidth : RAIL_WIDTH) * uiScale;
   const viewport = useViewportWidth();
-  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, (viewport - sideShown - DOCK_MIN_GRAPH) / uiScale) };
+  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, Math.floor((viewport - sideShown - DOCK_MIN_GRAPH) / uiScale)) };
   const dockWidth = paneWidth(dockPane, settings.paneWidths.dock);
   const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
   const title = shown.length === 1 ? shown[0].name : null;

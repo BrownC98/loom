@@ -23,6 +23,7 @@ import { AgentLine, stateClass, stateText, Unread } from './NodeCard';
 import { StatusPills } from './status';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './sheet';
 import { useDismiss } from './popover';
+import { uiZoom } from './uiZoom';
 import { groupParents, groupsOf, inGroup, worktreeBlock, type Group } from './repos';
 
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
@@ -67,14 +68,14 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   const [top, setTop] = useState(props.top);
   useLayoutEffect(() => {
     const el = box.current!;
-    const fit = () => setTop(Math.max(POP_GAP, Math.min(props.top, innerHeight - el.offsetHeight - POP_GAP)));
+    const fit = () => setTop(Math.max(POP_GAP, Math.min(props.top, innerHeight - el.offsetHeight * uiZoom() - POP_GAP)));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     return () => observer.disconnect();
   }, [props.top]);
   return (
-    <div ref={box} className="row-pop" style={{ top, left: props.left }}>
+    <div ref={box} className="row-pop" style={{ top: top / uiZoom(), left: props.left / uiZoom() }}>
       {props.children}
     </div>
   );

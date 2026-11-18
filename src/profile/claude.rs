@@ -243,6 +243,10 @@ impl Adapter for Claude {
         })
     }
 
+    fn ticking_row(&self, row: &str) -> bool {
+        is_countdown(row)
+    }
+
     fn install(&self, dir: &Path) -> std::io::Result<()> {
         let manifest = dir.join(".claude-plugin");
         std::fs::create_dir_all(&manifest)?;
@@ -1002,4 +1006,39 @@ fn spinner(line: &str) -> bool {
             .split(' ')
             .next()
             .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
+}
+
+const COUNTDOWN_HEAD: &str = "\u{26a0} Claude Code will automatically block this request in ";
+const COUNTDOWN_TAIL: &str = ", to avoid holding up an unattended session";
+const COUNTDOWN_UNITS: [&str; 4] = ["minute", "minutes", "second", "seconds"];
+
+fn is_countdown(row: &str) -> bool {
+    let Some((left, rest)) = row
+        .strip_prefix(COUNTDOWN_HEAD)
+        .and_then(|after| after.find(',').map(|at| after.split_at(at)))
+    else {
+        return false;
+    };
+    COUNTDOWN_TAIL.starts_with(rest) && (is_clock(left) || is_about(left))
+}
+
+fn is_clock(left: &str) -> bool {
+    let Some((minutes, seconds)) = left.split_once(':') else {
+        return false;
+    };
+    is_number(minutes) && seconds.len() == 2 && is_number(seconds)
+}
+
+fn is_about(left: &str) -> bool {
+    let mut words = left.split(' ');
+    words.next() == Some("about")
+        && words.next().is_some_and(is_number)
+        && words
+            .next()
+            .is_some_and(|unit| COUNTDOWN_UNITS.contains(&unit))
+        && words.next().is_none()
+}
+
+fn is_number(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
 }

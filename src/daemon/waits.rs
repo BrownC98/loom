@@ -168,9 +168,10 @@ async fn press_keys(
         Press::Char(c) => vec![c.to_string().into_bytes()],
         Press::Text(text) => entered(&text),
     };
+    let profile = app.profile(node);
     tokio::task::spawn_blocking(move || {
         app.host.strokes_if(node, KEY_GAP, |keys| {
-            match !shown.is_empty() && screen::rows(&keys.screen()) == shown {
+            match profile::same_rows(profile, &shown, &screen::rows(&keys.screen())) {
                 true => Ok(strokes),
                 false => Err(Refusal::PromptChanged(wait)),
             }

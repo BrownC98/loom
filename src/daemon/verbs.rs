@@ -1,7 +1,7 @@
 use super::*;
 use crate::graph::NodeToken;
 use crate::roles::RemoveRole;
-use crate::settings::{SetSetting, key_patch};
+use crate::settings::{SetSetting, key_patch, key_segments, keys};
 use api::ids::AgentId;
 use api::settings::roles::Role;
 use api::start::ModelChoice;
@@ -226,31 +226,12 @@ pub(super) async fn agent_settings(
     let view = app.settings.get().map_err(|e| for_agent(internal(e)))?;
     let mut value =
         serde_json::to_value(super::settings::shown(view)).map_err(|e| for_agent(internal(e)))?;
-    let mut lines = BTreeMap::new();
     if let Some(fields) = value.as_object_mut() {
         for (key, _) in NOT_FOR_AGENTS {
             fields.remove(key);
         }
     }
-    flatten(String::new(), value, &mut lines);
-    Ok(Json(lines))
-}
-
-fn flatten(key: String, value: serde_json::Value, lines: &mut BTreeMap<String, serde_json::Value>) {
-    match value {
-        serde_json::Value::Object(fields) if !fields.is_empty() => {
-            for (name, inner) in fields {
-                let path = match key.is_empty() {
-                    true => name,
-                    false => format!("{key}.{name}"),
-                };
-                flatten(path, inner, lines);
-            }
-        }
-        leaf => {
-            lines.insert(key, leaf);
-        }
-    }
+    Ok(Json(keys(value)))
 }
 
 pub(super) async fn agent_set_setting(
@@ -271,15 +252,16 @@ fn set_setting(app: &App, caller: NodeId, req: &SetSetting) -> Result<serde_json
     if app.graph.has_parent(caller)? {
         return Err(Refusal::SettingsHaveParent.into());
     }
-    let top = req.key.split('.').next().unwrap_or_default();
-    if let Some((_, why)) = NOT_FOR_AGENTS.iter().find(|(key, _)| *key == top) {
-        return Err(Refusal::BadSetting(format!("agents do not change '{top}': {why}")).into());
-    }
     use crate::settings::PatchProblem;
     let refused = |e| match e {
         PatchProblem::Db(e) => internal(e),
         PatchProblem::Shape(e) => Refusal::BadSetting(e).into(),
     };
+    let segments = key_segments(&req.key).map_err(refused)?;
+    let top = segments[0].as_str();
+    if let Some((_, why)) = NOT_FOR_AGENTS.iter().find(|(key, _)| *key == top) {
+        return Err(Refusal::BadSetting(format!("agents do not change '{top}': {why}")).into());
+    }
     super::settings::absolute_dirs(&key_patch(&req.key, &req.value).map_err(refused)?)?;
     app.settings
         .set_key(&req.key, req.value.clone())

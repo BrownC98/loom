@@ -88,7 +88,7 @@ enum RolesAction {
 
 #[derive(clap::Subcommand)]
 enum SettingsAction {
-    /// 설정 하나를 바꾼다. 키는 `loom settings`의 키다(예: `theme`, `treeLimits.depth`). 값은 JSON이고, JSON이 아니면 글이다. `null`은 기본값으로 되돌린다. 역할(`loom roles`)과 `bypassOff`는 거절한다. 부모 없는 노드만 부른다. 저장한 값을 `<키> = <JSON 값>`으로 출력한다.
+    /// 설정 하나를 바꾸고 저장한 값을 `<키> = <JSON 값>`으로 출력한다. 키는 `loom settings`의 키(JSON pointer, 예: `/theme`, `/treeLimits/maxDepth`)다. 값은 JSON이고, JSON이 아니면 글이다. `null`은 빈 값이 뜻 있는 칸만 받는다(예: `/treeLimits/maxDepth null`은 깊이 상한 없음). 저장한 값이 준 값과 다르면 거절한다. 역할(`loom roles`)과 `bypassOff`는 거절한다. 부모 없는 노드만 부른다.
     Set { key: String, value: String },
 }
 
@@ -184,7 +184,7 @@ enum Cli {
         #[command(subcommand)]
         action: Option<RolesAction>,
     },
-    /// 역할 밖의 설정을 `<키> = <JSON 값>` 한 줄씩 출력한다. 역할은 `loom roles`가 보인다. `bypassOff`는 보이지 않는다.
+    /// 역할 밖의 설정을 `<키> = <JSON 값>` 한 줄씩 출력한다. 키는 JSON pointer다(`/treeLimits/maxDepth`). 역할은 `loom roles`가 보인다. `bypassOff`는 보이지 않는다.
     Settings {
         #[command(subcommand)]
         action: Option<SettingsAction>,

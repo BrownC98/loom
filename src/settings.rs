@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -90,27 +92,22 @@ impl Settings {
         new: serde_json::Value,
     ) -> Result<serde_json::Value, PatchProblem> {
         let patch = key_patch(key, &new)?;
-        let pointer = format!("/{}", key.replace('.', "/"));
-        let unknown = || PatchProblem::Shape(format!("the settings have no key '{key}'"));
-        let mut kept = serde_json::Value::Null;
         self.write(|_, value| {
-            if new.is_null() && value.pointer(&pointer).is_none() {
-                return Err(unknown());
-            }
             merge(value, &patch);
             let view = checked(value, self.check).map_err(PatchProblem::Shape)?;
             let stored = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
-            kept = stored.pointer(&pointer).cloned().unwrap_or_default();
-            match (new.is_null(), stored.pointer(&pointer)) {
-                (true, _) => Ok(view),
-                (false, Some(got)) if *got == new => Ok(view),
-                (false, Some(got)) => Err(PatchProblem::Shape(format!(
+            match stored.pointer(key) {
+                Some(got) if *got == new => Ok(view),
+                None if new.is_null() => Ok(view),
+                Some(got) => Err(PatchProblem::Shape(format!(
                     "'{key}' does not keep {new}: the settings store {got}"
                 ))),
-                (false, None) => Err(unknown()),
+                None => Err(PatchProblem::Shape(format!(
+                    "the settings have no key '{key}'"
+                ))),
             }
         })?;
-        Ok(kept)
+        Ok(new)
     }
 
     pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
@@ -164,13 +161,44 @@ pub struct SetSetting {
     pub value: serde_json::Value,
 }
 
-pub fn key_patch(key: &str, value: &serde_json::Value) -> Result<serde_json::Value, PatchProblem> {
-    if key.split('.').any(str::is_empty) {
-        return Err(PatchProblem::Shape(format!("the key '{key}' is not valid")));
+pub fn key_segments(key: &str) -> Result<Vec<String>, PatchProblem> {
+    let segments: Option<Vec<String>> = key.strip_prefix('/').map(|rest| {
+        rest.split('/')
+            .map(|p| p.replace("~1", "/").replace("~0", "~"))
+            .collect()
+    });
+    match segments {
+        Some(segments) if segments.iter().all(|s| !s.is_empty()) => Ok(segments),
+        _ => Err(PatchProblem::Shape(format!(
+            "the key '{key}' is not a key from loom settings (a JSON pointer such as /theme)"
+        ))),
     }
-    Ok(key
-        .rsplit('.')
+}
+
+pub fn key_patch(key: &str, value: &serde_json::Value) -> Result<serde_json::Value, PatchProblem> {
+    Ok(key_segments(key)?
+        .iter()
+        .rev()
         .fold(value.clone(), |inner, p| serde_json::json!({ p: inner })))
+}
+
+pub fn keys(value: serde_json::Value) -> BTreeMap<String, serde_json::Value> {
+    let mut lines = BTreeMap::new();
+    let mut open = vec![(String::new(), value)];
+    while let Some((key, value)) = open.pop() {
+        match value {
+            serde_json::Value::Object(fields) if !fields.is_empty() => {
+                for (name, inner) in fields {
+                    let name = name.replace('~', "~0").replace('/', "~1");
+                    open.push((format!("{key}/{name}"), inner));
+                }
+            }
+            leaf => {
+                lines.insert(key, leaf);
+            }
+        }
+    }
+    lines
 }
 
 fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> {

@@ -479,6 +479,16 @@ pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt>
     }
 }
 
+pub fn same_rows(profile: Option<Profile>, shown: &[String], now: &[String]) -> bool {
+    let ticking = |row: &str| profile.is_some_and(|p| adapter(p).ticking_row(row));
+    !shown.is_empty()
+        && shown.len() == now.len()
+        && shown
+            .iter()
+            .zip(now)
+            .all(|(a, b)| a == b || (ticking(a) && ticking(b)))
+}
+
 pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen> {
     adapter(profile?).input_seen(screen)
 }

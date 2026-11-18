@@ -66,42 +66,6 @@ pub fn rows(screen: &Screen) -> Vec<String> {
     rows
 }
 
-const COUNTDOWN: &str = "automatically block this request in ";
-
-pub fn same_rows(shown: &[String], now: &[String]) -> bool {
-    !shown.is_empty()
-        && shown.len() == now.len()
-        && shown
-            .iter()
-            .zip(now)
-            .all(|(a, b)| without_countdown(a) == without_countdown(b))
-}
-
-fn without_countdown(row: &str) -> std::borrow::Cow<'_, str> {
-    let Some((head, tail)) = row.split_once(COUNTDOWN) else {
-        return row.into();
-    };
-    let end = tail
-        .find(|c: char| !c.is_ascii_digit() && c != ':')
-        .unwrap_or(tail.len());
-    match is_clock(&tail[..end]) {
-        true => format!("{head}{COUNTDOWN}0:00{}", &tail[end..]).into(),
-        false => row.into(),
-    }
-}
-
-fn is_clock(token: &str) -> bool {
-    let mut parts = token.split(':');
-    let first = parts.next().unwrap_or_default();
-    let rest: Vec<&str> = parts.collect();
-    !first.is_empty()
-        && first.bytes().all(|b| b.is_ascii_digit())
-        && !rest.is_empty()
-        && rest
-            .iter()
-            .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit()))
-}
-
 pub fn find(dialogs: &[Dialog], screen: &str, session: SessionStart) -> Option<(WaitKind, String)> {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
     let panel_start = lines

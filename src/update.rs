@@ -234,7 +234,7 @@ impl Updater {
                 download(&asset_url(releases, version, asset), &new, |percent| {
                     self.change(|state| state.step = Some(UpdateStep::Downloading { percent }));
                 })?;
-                swap_all(besides.into_iter().chain([(exe.clone(), new)]))?;
+                swap_all(besides, exe, &new)?;
                 launch::restart_with(exe, self.listen)
             }
             Install::App { app } => launch::spawn_detached(app, &[APP_UPDATE_FLAG]).map(drop),
@@ -330,21 +330,27 @@ fn download(url: &str, to: &Path, mut progress: impl FnMut(u8)) -> Result<(), St
         .map_err(|e| format!("{}: {e}", to.display()))
 }
 
-fn swap_all(files: impl IntoIterator<Item = (PathBuf, PathBuf)>) -> Result<(), String> {
+fn swap_all(besides: Vec<(PathBuf, PathBuf)>, exe: &Path, new: &Path) -> Result<(), String> {
     let stamp = now_secs();
     let mut done = Vec::new();
-    for (file, new) in files {
+    let undo_all = |done: Vec<(PathBuf, Option<PathBuf>)>| {
+        for (file, kept) in done.into_iter().rev() {
+            let _ = undo(&file, kept);
+        }
+    };
+    for (file, new) in besides {
         match swap(&file, &new, stamp) {
             Ok(kept) => done.push((file, kept)),
             Err(e) => {
-                for (file, kept) in done.into_iter().rev() {
-                    let _ = undo(&file, kept);
-                }
+                undo_all(done);
                 return Err(format!("{}: {e}", file.display()));
             }
         }
     }
-    Ok(())
+    put(exe, new, stamp).map_err(|e| {
+        undo_all(done);
+        format!("{}: {e}", exe.display())
+    })
 }
 
 fn swap(file: &Path, new: &Path, stamp: u64) -> std::io::Result<Option<PathBuf>> {
@@ -352,11 +358,7 @@ fn swap(file: &Path, new: &Path, stamp: u64) -> std::io::Result<Option<PathBuf>>
         "{}.{stamp}.old",
         file.file_name().unwrap_or_default().to_string_lossy()
     ));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755))?;
-    }
+    executable(new)?;
     let kept = match keep(file, &aside) {
         Ok(()) => Some(aside),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -372,6 +374,17 @@ fn swap(file: &Path, new: &Path, stamp: u64) -> std::io::Result<Option<PathBuf>>
 }
 
 #[cfg(windows)]
+fn put(file: &Path, new: &Path, stamp: u64) -> std::io::Result<()> {
+    swap(file, new, stamp).map(drop)
+}
+
+#[cfg(not(windows))]
+fn put(file: &Path, new: &Path, _: u64) -> std::io::Result<()> {
+    executable(new)?;
+    std::fs::rename(new, file)
+}
+
+#[cfg(windows)]
 fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
     std::fs::rename(file, aside)
 }
@@ -379,6 +392,17 @@ fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
 #[cfg(not(windows))]
 fn keep(file: &Path, aside: &Path) -> std::io::Result<()> {
     std::fs::hard_link(file, aside)
+}
+
+#[cfg(unix)]
+fn executable(file: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn executable(_: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn undo(file: &Path, kept: Option<PathBuf>) -> std::io::Result<()> {

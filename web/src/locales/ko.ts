@@ -924,7 +924,7 @@ const ko: typeof en = {
     check: '업데이트 확인',
     upToDate: '최신 판입니다',
     newVersion: '업데이트 v{{version}}',
-    reopen: '창 프로그램도 v{{version}}으로 바꿨습니다. 창 프로그램을 끝내고 다시 열면 새 판을 씁니다.',
+    reopen: '창 프로그램의 새 판을 설치했습니다. 창 프로그램을 끝내고 다시 열면 새 판을 씁니다.',
   },
 };
 

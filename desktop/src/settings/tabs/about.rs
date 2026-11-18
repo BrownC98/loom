@@ -10,6 +10,7 @@ use crate::daemon;
 use crate::fonts;
 use crate::link;
 use crate::link::VERSION;
+use crate::program;
 use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
@@ -88,7 +89,6 @@ fn request(
             })
             .await;
         let poll = model.update(cx, |model, cx| {
-            let was_busy = model.view.as_ref().is_some_and(busy);
             if matches!(call, Call::Check) {
                 model.checking = false;
                 model.outcome = Some(match &reply {
@@ -115,16 +115,10 @@ fn request(
             }
             cx.notify();
             let active = model.view.as_ref().is_some_and(busy);
-            let restarted = was_busy && !active;
             let poll = active && !model.waiting;
             model.waiting |= poll;
-            (poll, restarted)
+            poll
         });
-        let (poll, restarted) = poll;
-        if restarted {
-            let version = cx.background_spawn(async { daemon::version() }).await;
-            model.update(cx, |model, _| model.daemon = version);
-        }
         let _ = dialog.update(cx, |_, cx| cx.notify());
         if poll {
             cx.background_executor().timer(POLL).await;
@@ -326,12 +320,8 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
             );
         }
         Some(UpdateStep::Available) | None => {
-            if let Some(version) = daemon
-                .as_deref()
-                .filter(|version| *version != VERSION && daemon::sibling().is_some())
-            {
-                let text = say_with(cx, Str::AboutReopen, &[("version", version)]);
-                let text = section.text(&text, cx);
+            if program::replaced() {
+                let text = section.text(say(cx, Str::AboutReopen), cx);
                 section = section.child(div().text_size(px(SMALL)).text_color(c.ink_3).child(text));
             }
         }

@@ -922,6 +922,7 @@ const en = {
     check: 'Check for updates',
     upToDate: 'You have the latest version',
     newVersion: 'New version v{{version}}',
+    reopen: 'A new version of the window program is installed. Quit the window program and open it again to use it.',
   },
 };
 

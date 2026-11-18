@@ -75,25 +75,41 @@ const IDS = mockup => {
   return [...new Set(bad)];
 };
 
-const DECISION_STYLE = ([style, callouts]) => {
-  if (!document.querySelector('.decision')) return [];
-  const OWN = /\.(decision|opts?|did|key|mark|sub|label|why)(?![\w-])/;
-  const sheet = text => { const s = new CSSStyleSheet(); s.replaceSync(text); return [...s.cssRules]; };
-  const rules = text => sheet(text).filter(r => OWN.test(r.selectorText ?? ''));
-  const root = sheet(style).find(r => r.selectorText === ':root').style, same = v => v.trim().replace(/\s+/g, ' ');
-  const need = rules(style), allowed = new Set([...need, ...rules(callouts)].map(r => r.cssText));
-  const found = new Set(), bad = [], boxes = [...document.querySelectorAll('.decision, .decision *')];
-  const walk = list => { for (const r of list) { if (r.cssRules) walk(r.cssRules); if (!OWN.test(r.selectorText ?? '')) continue;
-    if (allowed.has(r.cssText)) { found.add(r.cssText); continue; }
-    const sel = r.selectorText.replace(/:{1,2}(hover|focus|focus-visible|focus-within|active|before|after|marker|placeholder|selection|first-line|first-letter)(?![\w-])/g, '');
-    let hit = true; try { hit = boxes.some(e => e.matches(sel)); } catch {}
-    if (hit) bad.push(`decision box rule not in style.html: "${r.cssText.slice(0, 90)}"`); } };
-  for (const s of document.styleSheets) { let list; try { list = s.cssRules; } catch { continue; } walk(list); }
-  for (const r of need) if (!found.has(r.cssText)) bad.push(`style.html decision box rule missing: "${r.cssText.slice(0, 90)}"`);
-  const box = getComputedStyle(document.querySelector('.decision'));
-  for (const v of new Set(need.flatMap(r => r.cssText.match(/--[\w-]+/g) ?? []))) if (same(box.getPropertyValue(v)) !== same(root.getPropertyValue(v))) bad.push(`decision box token ${v} is "${same(box.getPropertyValue(v))}", not the style.html value "${same(root.getPropertyValue(v))}"`);
-  if (bad.length) bad.push('decision boxes: copy the decision rules and their tokens from style.html as they are; do not add or change rules for .decision, .opts, .opt, .did, .key, .mark, .sub, .label or .why');
-  return bad;
+const DECISION_STYLE = async ([style, callouts]) => {
+  const boxes = [...document.querySelectorAll('.decision')];
+  if (!boxes.length) return [];
+  const LOOK = ['display', 'color', 'background-color', 'background-image', 'opacity', 'box-shadow', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'text-decoration-line', 'white-space', 'gap', 'min-height', 'align-items', 'list-style-type',
+    ...['top', 'right', 'bottom', 'left'].flatMap(s => [`border-${s}-width`, `border-${s}-style`, `border-${s}-color`, `padding-${s}`]),
+    'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius', 'margin-left'];
+  const CONTEXT = ['display', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'color', 'text-transform', 'white-space'];
+  const PARTS = ':scope > h3, .did, .opts, .opt, .key, .label, .mark, .sub, .why, .why li, :scope > .for';
+  const frame = document.createElement('iframe');
+  frame.style.cssText = `position: absolute; left: -20000px; top: 0; width: ${innerWidth}px; height: 10px; border: 0`;
+  frame.srcdoc = `<!doctype html><html><head><style>${style}\n${callouts}</style></head><body></body></html>`;
+  await new Promise(r => { frame.onload = r; document.body.append(frame); });
+  const ref = frame.contentDocument, html = document.documentElement, scheme = html.style.colorScheme, bad = [];
+  const twins = boxes.map(b => {
+    const wrap = ref.createElement('div'), copy = b.cloneNode(true);
+    for (const e of [copy, ...copy.querySelectorAll('[style]')]) e.removeAttribute('style');
+    wrap.append(ref.importNode(copy, true)); ref.body.append(wrap);
+    return [b, wrap, [b, ...b.querySelectorAll(PARTS)], [wrap.firstChild, ...wrap.firstChild.querySelectorAll(PARTS)]];
+  });
+  const context = (b, wrap) => {
+    const p = getComputedStyle(b.parentElement), lh = parseFloat(p.lineHeight) / parseFloat(p.fontSize);
+    wrap.style.cssText = CONTEXT.map(k => `${k}: ${p.getPropertyValue(k)}`).join('; ') + `; line-height: ${lh || 'normal'}`;
+  };
+  const name = e => e.tagName.toLowerCase() + [...e.classList].map(c => '.' + c).join('');
+  for (const theme of ['light', 'dark']) {
+    html.style.colorScheme = theme; ref.documentElement.style.colorScheme = theme;
+    twins.forEach(([b, wrap, mine, theirs], i) => context(b, wrap) || mine.forEach((e, j) => {
+      const a = getComputedStyle(e), b = frame.contentWindow.getComputedStyle(theirs[j]);
+      const k = LOOK.find(k => a.getPropertyValue(k) !== b.getPropertyValue(k));
+      if (k) bad.push(`decision ${boxes[i].id || i + 1} <${name(e)}> ${k} in ${theme} is "${a.getPropertyValue(k).slice(0, 60)}", style.html gives "${b.getPropertyValue(k).slice(0, 60)}"`);
+    }));
+  }
+  html.style.colorScheme = scheme; frame.remove();
+  if (bad.length) bad.push('decision boxes look different from style.html: copy its decision rules and tokens as they are, and do not style decision boxes with other rules or style attributes');
+  return [...new Set(bad)];
 };
 
 const CONTRAST = theme => {

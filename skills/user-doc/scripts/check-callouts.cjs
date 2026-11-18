@@ -108,7 +108,14 @@ const DECISION_STYLE = async ([style, callouts]) => {
     }));
   }
   html.style.colorScheme = scheme; frame.remove();
-  if (bad.length) bad.push('decision boxes look different from style.html: copy its decision rules and tokens as they are, and do not style decision boxes with other rules or style attributes');
+  const STATE = /:(hover|focus|focus-visible|focus-within|active)(?![\w-])/g, OWN = /\.(decision|opts?|did|key|mark|sub|label|why)(?![\w-])/, parts = twins.flatMap(t => t[2]);
+  const walk = list => { for (const r of list) { if (r.cssRules) walk(r.cssRules);
+    const sel = r.selectorText ?? '';
+    if (!OWN.test(sel) || sel.replace(STATE, '') === sel) continue;
+    let hit = false; try { hit = parts.some(e => e.matches(r.selectorText.replace(STATE, ''))); } catch {}
+    if (hit) bad.push(`decision box state rule: "${r.cssText.slice(0, 90)}"`); } };
+  for (const sheet of document.styleSheets) { let list; try { list = sheet.cssRules; } catch { continue; } walk(list); }
+  if (bad.length) bad.push('decision boxes look different from style.html: copy its decision rules and tokens as they are, and do not style decision boxes with other rules (also :hover or :focus) or style attributes');
   return [...new Set(bad)];
 };
 
@@ -388,7 +395,8 @@ async function checkPage(ctx, run) {
       return { bad: [label + `page did not load in ${LOAD_MS / 1000} s (callouts.js layout or a web font): ${e.message.split('\n')[0]}`] };
     }
     const bad = [];
-    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)), ...await page.evaluate(DECISION_STYLE, SHARED));
+    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
+    bad.push(...(await page.evaluate(DECISION_STYLE, SHARED)).map(x => label + x));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });

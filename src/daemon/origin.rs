@@ -31,10 +31,18 @@ pub async fn same_site(request: Request, next: Next) -> Response {
 }
 
 pub async fn from_page(request: Request, next: Next) -> Response {
+    page_only(request, next, StatusCode::FORBIDDEN).await
+}
+
+pub async fn speech_from_page(request: Request, next: Next) -> Response {
+    page_only(request, next, (StatusCode::FORBIDDEN, NOT_FROM_PAGE)).await
+}
+
+async fn page_only(request: Request, next: Next, refused: impl IntoResponse) -> Response {
     if request.headers().contains_key(header::ORIGIN) {
         next.run(request).await
     } else {
-        (StatusCode::FORBIDDEN, NOT_FROM_PAGE).into_response()
+        refused.into_response()
     }
 }
 

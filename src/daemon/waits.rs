@@ -19,19 +19,19 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route(
             "/api/waits/{wait}/answer",
-            post(answer_wait).layer(axum::middleware::from_fn(origin::from_page)),
+            post(answer_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
         )
         .route(
             "/api/waits/{wait}/choose",
-            post(choose_wait).layer(axum::middleware::from_fn(origin::from_page)),
+            post(choose_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
         )
         .route(
             "/api/waits/{wait}/type",
-            post(type_wait).layer(axum::middleware::from_fn(origin::from_page)),
+            post(type_wait).layer(axum::middleware::from_fn(origin::speech_from_page)),
         )
         .route(
             "/api/waits/{wait}/keys",
-            post(press_keys).layer(axum::middleware::from_fn(origin::from_page)),
+            post(press_keys).layer(axum::middleware::from_fn(origin::speech_from_page)),
         )
         .route("/api/docs", get(list_docs))
         .route(
@@ -43,7 +43,8 @@ pub(super) fn routes() -> Router<Arc<App>> {
         .route("/api/docs/{id}/question", get(doc_question))
         .route(
             "/api/docs/{id}/talk",
-            get(doc_talk).post(post_talk.layer(axum::middleware::from_fn(origin::from_page))),
+            get(doc_talk)
+                .post(post_talk.layer(axum::middleware::from_fn(origin::speech_from_page))),
         )
         .route("/docs/{id}", get(super::settings::index))
         .route("/api/waits/{wait}/images/{index}", get(report_image))

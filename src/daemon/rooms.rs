@@ -8,7 +8,8 @@ pub(super) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(
             "/api/rooms/{node}/talk",
-            get(room_talk).post(post_room.layer(axum::middleware::from_fn(origin::from_page))),
+            get(room_talk)
+                .post(post_room.layer(axum::middleware::from_fn(origin::speech_from_page))),
         )
         .route("/api/rooms/{node}/outside", post(post_outside))
         .route("/rooms/{node}", get(super::settings::index))

@@ -109,4 +109,10 @@ composerPlace: FloatPlace | null,
 /**
  * 입력 창과 그 글자의 크기. 옛 설정에는 없다. 없으면 `Normal`이다. 근거: 목업 M50 ②.
  */
-composerSize: FloatSize, closedPanes: ClosedPanes, };
+composerSize: FloatSize, 
+/**
+ * 화면 글자와 그 글자가 든 줄·단추의 크기. 옛 설정에는 없다. 없으면 `Normal`(지금 모양)이다.
+ * 그래프 카드 머리와 묶음·저장소 이름도 따른다. 터미널 글자와 입력 창은 따르지 않는다.
+ * 근거: 목업 docs/mockups/ui-text-size.html M157, 2026-11-18 사람 지시 "ui 글씨 크기 변경 옵션 추가해", 승인 Q3812 D1 B.
+ */
+uiSize: FloatSize, closedPanes: ClosedPanes, };

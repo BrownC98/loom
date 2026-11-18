@@ -808,6 +808,8 @@ const en = {
       docHasParent: 'This node has a parent, and the parent reads paths. Send the file path to the parent. Only nodes that the human started attach a document.',
       badRoleSetting: 'The role setting is not valid: {{value}}',
       rolesHaveParent: 'This node has a parent. Only a node that the human started changes the role table. Ask the parent.',
+      settingsHaveParent: 'This node has a parent. Only a node that the human started changes settings. Ask the parent.',
+      badSetting: 'The setting is not valid: {{value}}',
       bareLink: 'Write each web address and file path as a Markdown link with a label: [label](https://...) or [label](file:///...). The target has no spaces or parentheses (use %20, %28, %29).',
       badChoices: 'The question offers choices without the standard tail, so no buttons show. Ask again with (A: ... / B: ..., recommended: A).',
       uncheckedDoc: '{{value}}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it.',
@@ -922,6 +924,7 @@ const en = {
     check: 'Check for updates',
     upToDate: 'You have the latest version',
     newVersion: 'New version v{{version}}',
+    reopen: 'A new version of the window program is installed. Quit the window program and open it again to use it.',
   },
 };
 

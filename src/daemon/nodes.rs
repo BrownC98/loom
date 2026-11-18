@@ -165,14 +165,14 @@ async fn pty(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let id = NodeId(id);
-    if app.host.attach(id).is_none() {
+    let Some(attached) = app.host.attach(id) else {
         return coming_pty(ws, via, app, id);
-    }
+    };
     let input = PtyInput {
         typed: live_typed,
         composing: live_composing,
     };
-    serve_pty(ws, via, app, |app| &app.host, input, id)
+    serve_attached(ws, via, app, |app| &app.host, input, id, attached)
 }
 
 async fn wake_node(State(app): State<Arc<App>>, Path(id): Path<u32>) -> Json<()> {
@@ -288,15 +288,19 @@ fn coming_pty(
                 let changed = app.ptys_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                let reachable = app.graph.reachable(id).unwrap_or(false);
-                if app.host.attach(id).is_some() || (gone && reachable) {
+                let reachable = app.graph.reachable(id);
+                if app.host.attach(id).is_some() || (gone && matches!(reachable, Ok(true))) {
                     let _ = socket.send(Message::Close(None)).await;
                     return;
                 }
-                if !gone && !reachable {
+                if !gone && !matches!(reachable, Ok(true)) {
                     gone = true;
+                    let notice = match reachable {
+                        Err(rusqlite::Error::QueryReturnedNoRows) => PtyNotice::Removed,
+                        _ => PtyNotice::Gone,
+                    };
                     let notice =
-                        serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                        serde_json::to_string(&notice).expect("PtyNotice는 늘 직렬화된다");
                     if socket.send(Message::Text(notice.into())).await.is_err() {
                         return;
                     }
@@ -379,6 +383,18 @@ pub(super) fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 
             })
         });
     };
+    serve_attached(ws, via, app, host, input, id, attached)
+}
+
+fn serve_attached<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
+    ws: WebSocketUpgrade,
+    via: Option<Extension<ViaRemote>>,
+    app: Arc<App>,
+    host: fn(&App) -> &NodeHost<K>,
+    input: PtyInput<K>,
+    id: K,
+    attached: node_host::Attached,
+) -> Response {
     let devices = app.devices.clone();
     let borrower = node_host::Borrower::fresh();
     ws.on_upgrade(move |socket| {

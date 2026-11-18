@@ -3,7 +3,7 @@ use gpui::{
     ScrollEvent, Window,
 };
 
-use super::{TerminalView, metrics};
+use super::TerminalView;
 use crate::vt::view::Grain;
 use crate::vt::{self, Mouse, MouseAction};
 
@@ -24,9 +24,9 @@ fn reported(button: MouseButton) -> Option<vt::MouseButton> {
 }
 
 impl TerminalView {
-    fn spot(&self, position: Point<Pixels>, window: &Window) -> Option<Spot> {
+    fn spot(&self, position: Point<Pixels>) -> Option<Spot> {
         let screen = &self.frame.as_ref()?.screen;
-        let cell = metrics(window, &self.style.face, self.scale);
+        let cell = self.painted?;
         let rel = position - self.origin;
         let x = rel.x / cell.cell_width;
         let y = rel.y / cell.cell_height;
@@ -71,7 +71,7 @@ impl TerminalView {
     ) {
         self.focus(window, cx);
         cx.stop_propagation();
-        let Some(spot) = self.spot(event.position, window) else {
+        let Some(spot) = self.spot(event.position) else {
             return;
         };
         if self.vt.mouse_reporting() && !event.modifiers.shift {
@@ -95,13 +95,8 @@ impl TerminalView {
         self.changed(cx);
     }
 
-    pub(super) fn drag(
-        &mut self,
-        event: &MouseMoveEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(spot) = self.spot(event.position, window) else {
+    pub(super) fn drag(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some(spot) = self.spot(event.position) else {
             return;
         };
         let cell = Some((spot.col, spot.row));
@@ -135,16 +130,10 @@ impl TerminalView {
         }
     }
 
-    pub(super) fn release(
-        &mut self,
-        event: &MouseUpEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn release(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
         if self.reporting == Some(event.button) {
             self.reporting = None;
-            if let (Some(button), Some(spot)) =
-                (reported(event.button), self.spot(event.position, window))
+            if let (Some(button), Some(spot)) = (reported(event.button), self.spot(event.position))
             {
                 self.report(MouseAction::Release(button), &spot, &event.modifiers);
             }
@@ -161,17 +150,14 @@ impl TerminalView {
         }
     }
 
-    pub(super) fn wheel(
-        &mut self,
-        event: &ScrollEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn wheel(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
         if event.modifiers.control || event.modifiers.platform {
             return;
         }
         cx.stop_propagation();
-        let height = metrics(window, &self.style.face, self.scale).cell_height;
+        let Some(height) = self.painted.map(|cell| cell.cell_height) else {
+            return;
+        };
         self.wheel_rest += event.delta.pixel_delta(height).y / height;
         let whole = self.wheel_rest.trunc();
         self.wheel_rest -= whole;
@@ -180,7 +166,7 @@ impl TerminalView {
             return;
         }
         if !event.modifiers.shift
-            && let Some(spot) = self.spot(event.position, window)
+            && let Some(spot) = self.spot(event.position)
         {
             let action = MouseAction::Wheel {
                 up: lines > 0,

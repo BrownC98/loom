@@ -2,11 +2,12 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use api::ids::NodeId;
 use gpui::{
-    App, AppContext, BorderStyle, Bounds, ClipboardItem, Context, DispatchPhase,
+    App, AppContext, BorderStyle, Bounds, ClipboardEntry, ClipboardItem, Context, DispatchPhase,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Rgba, ScrollEvent, Size,
     StrikethroughStyle, Styled, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle,
     Window, canvas, div, fill, outline, point, px, rgb, size,
 };
@@ -14,6 +15,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::fonts::Face;
 use crate::link::{self, Event, Pty};
+use crate::strings::Lang;
 use crate::theme::{Terminal, Theme};
 use crate::views::compose;
 use crate::views::inputs::Inputs;
@@ -35,6 +37,7 @@ const CURSOR_THIN: f32 = 2.0;
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 8.0;
 const FIT_SLACK: f32 = 0.001;
+const ROUNDING: f32 = 1.0;
 const SCROLLBAR: f32 = 14.0;
 const FIT_MIN_COLS: u16 = 2;
 const FIT_MIN_ROWS: u16 = 1;
@@ -101,10 +104,12 @@ pub struct TerminalView {
     focus: FocusHandle,
     settled: bool,
     scale: f32,
+    body: Option<Size<Pixels>>,
     area: Bounds<Pixels>,
     origin: gpui::Point<Pixels>,
     touched: bool,
     cell: Option<Metrics>,
+    painted: Option<Metrics>,
     sent: (u16, u16),
     ended: Option<String>,
     gone: bool,
@@ -120,8 +125,14 @@ pub struct TerminalView {
     reporting: Option<MouseButton>,
     last_cell: Option<(usize, usize)>,
     wheel_rest: f32,
+    saver: Saver,
     _focus_events: [Subscription; 2],
     _look: Subscription,
+}
+
+struct Saver {
+    base: String,
+    node: Option<NodeId>,
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -153,7 +164,11 @@ pub fn open(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
-    let view = open_with(link::attach, base, node, window, cx);
+    let saver = Saver {
+        base: base.to_owned(),
+        node: Some(NodeId(node)),
+    };
+    let view = open_with(link::attach, base, node, saver, window, cx);
     crate::views::inputs::offer(inputs, node, &view, cx);
     view
 }
@@ -164,7 +179,11 @@ pub fn open_login(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
-    open_with(link::attach_login, base, login, window, cx)
+    let saver = Saver {
+        base: base.to_owned(),
+        node: None,
+    };
+    open_with(link::attach_login, base, login, saver, window, cx)
 }
 
 type Attach = fn(&str, u32, async_channel::Sender<Event>) -> Result<Pty, String>;
@@ -173,6 +192,7 @@ fn open_with(
     attach: Attach,
     base: &str,
     id: u32,
+    saver: Saver,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
@@ -180,12 +200,13 @@ fn open_with(
         let (events, inbox) = async_channel::unbounded();
         Ok((attach(base, id, events)?, inbox))
     })();
-    cx.new(|cx| TerminalView::new(opened, window, cx))
+    cx.new(|cx| TerminalView::new(opened, saver, window, cx))
 }
 
 impl TerminalView {
     fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
+        saver: Saver,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -208,6 +229,7 @@ impl TerminalView {
         let focus_events = [
             cx.on_focus_in(&focus, window, |this, _, _| {
                 this.touched = true;
+                this.retake();
                 this.report_focus(true);
             }),
             cx.on_focus_out(&focus, window, |this, _, _, _| this.report_focus(false)),
@@ -221,10 +243,12 @@ impl TerminalView {
                 .ok()
                 .and_then(|scale| scale.parse().ok())
                 .unwrap_or(1.0),
+            body: None,
             area: Bounds::default(),
             origin: gpui::Point::default(),
             touched: false,
             cell: None,
+            painted: None,
             sent: (0, 0),
             ended,
             gone: false,
@@ -240,6 +264,7 @@ impl TerminalView {
             reporting: None,
             last_cell: None,
             wheel_rest: 0.0,
+            saver,
             _focus_events: focus_events,
             _look: cx.observe_global::<Theme>(|this, cx| this.restyle(cx)),
         }
@@ -269,7 +294,8 @@ impl TerminalView {
         self.focus.is_focused(window)
     }
 
-    pub fn set_scale(&mut self, scale: f32) {
+    pub fn set_scale(&mut self, scale: f32, body: Option<Size<Pixels>>) {
+        self.body = body;
         if scale != self.scale {
             self.scale = scale;
             self.dirty = true;
@@ -339,13 +365,13 @@ impl TerminalView {
             }
             Event::Settled => self.settled = true,
             Event::Reset => {
-                self.vt.feed(RESET);
                 self.settled = false;
                 self.sent = (0, 0);
                 self.ended = None;
                 self.gone = false;
             }
             Event::Backlog(bytes) => {
+                self.vt.feed(RESET);
                 self.vt.feed(&bytes);
                 let replies = self.vt.take_replies();
                 if !self.settled {
@@ -361,6 +387,7 @@ impl TerminalView {
                 self.gone = true;
                 self.ended = Some("the terminal is gone".to_owned());
             }
+            Event::Removed => self.gone = true,
             Event::Closed(reason) => {
                 self.ended = Some(if reason.is_empty() {
                     "connection closed".to_owned()
@@ -384,38 +411,60 @@ impl TerminalView {
         }
     }
 
-    fn resized(&mut self, area: Bounds<Pixels>, cell: Metrics, origin: gpui::Point<Pixels>) {
+    fn resized(
+        &mut self,
+        area: Bounds<Pixels>,
+        cell: Metrics,
+        painted: Metrics,
+        origin: gpui::Point<Pixels>,
+    ) {
         self.area = area;
         self.origin = origin;
         self.cell = Some(cell);
+        self.painted = Some(painted);
         self.claim();
     }
 
-    fn claim(&mut self) {
-        let Some(cell) = self.cell else {
-            return;
+    fn fit(&self) -> Option<(u16, u16)> {
+        let cell = self.cell?;
+        let inner = match self.body {
+            Some(body) => body - size(px(PAD_X * 2.0), px(PAD_Y * 2.0)),
+            None => size(
+                self.area.size.width / self.scale,
+                self.area.size.height / self.scale,
+            ),
         };
-        let width = self.area.size.width / self.scale - px(SCROLLBAR);
-        let height = self.area.size.height / self.scale;
+        let width = inner.width - px(SCROLLBAR);
+        let height = inner.height;
         if width <= px(0.0) || height <= px(0.0) {
-            return;
+            return None;
         }
         let cols = ((width + cell.cell_width * FIT_SLACK) / cell.cell_width).floor() as u16;
         let rows = ((height + cell.cell_height * FIT_SLACK) / cell.cell_height).floor() as u16;
-        if cols <= FIT_MIN_COLS || rows <= FIT_MIN_ROWS {
-            return;
+        (cols > FIT_MIN_COLS && rows > FIT_MIN_ROWS).then_some((cols, rows))
+    }
+
+    fn claim(&mut self) {
+        if let Some(fit) = self.fit().filter(|fit| *fit != self.sent) {
+            self.send_size(fit);
         }
-        let fit = (cols, rows);
-        if fit != self.sent {
-            self.sent = fit;
-            if let Some(pty) = &self.pty {
-                pty.resize(fit.0, fit.1);
-            }
+    }
+
+    fn retake(&mut self) {
+        if let Some(fit) = self.fit().filter(|fit| *fit != self.vt.size()) {
+            self.send_size(fit);
+        }
+    }
+
+    fn send_size(&mut self, fit: (u16, u16)) {
+        self.sent = fit;
+        if let Some(pty) = &self.pty {
+            pty.resize(fit.0, fit.1);
         }
     }
 
     fn type_in(&mut self, bytes: Vec<u8>) {
-        self.claim();
+        self.retake();
         self.vt.select_clear();
         self.vt.scroll_to_bottom();
         self.dirty = true;
@@ -449,11 +498,43 @@ impl TerminalView {
     }
 
     fn paste(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let bytes = self.vt.encode_paste(&text);
-            self.type_in(bytes);
-            self.changed(cx);
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        if let Some(text) = item.text() {
+            self.paste_text(&text, cx);
+            return;
         }
+        let Some(image) = item.into_entries().find_map(|entry| match entry {
+            ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        }) else {
+            return;
+        };
+        let (base, node) = (self.saver.base.clone(), self.saver.node);
+        let lang = *cx.global::<Lang>();
+        let saved = cx.background_spawn(async move {
+            let name = format!("image.{}", image.format.extension());
+            link::save_paste(&base, node, &name, image.format.mime_type(), &image.bytes)
+                .map_err(|failure| failure.text(lang))
+        });
+        cx.spawn(async move |this, cx| {
+            let saved = saved.await;
+            let _ = this.update(cx, |view, cx| match saved {
+                Ok(path) => view.paste_text(&path, cx),
+                Err(error) => {
+                    view.vt.feed(format!("\r\n{error}\r\n").as_bytes());
+                    view.changed(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let bytes = self.vt.encode_paste(text);
+        self.type_in(bytes);
+        self.changed(cx);
     }
 
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -595,7 +676,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let (cursor, cell) = (self.cursor?, self.cell?);
+        let (cursor, cell) = (self.cursor?, self.painted?);
         let text = self.marked.as_deref().unwrap_or_default();
         let before = utf16_slice(text, &(0..range_utf16.start));
         let cols = before
@@ -603,7 +684,7 @@ impl EntityInputHandler for TerminalView {
             .map(|c| c.width().unwrap_or(1))
             .sum::<usize>()
             + cursor.col;
-        let (width, height) = (cell.cell_width * self.scale, cell.cell_height * self.scale);
+        let (width, height) = (cell.cell_width, cell.cell_height);
         Some(Bounds::new(
             self.origin + point(width * cols as f32, height * cursor.row as f32),
             size(width, height),
@@ -661,8 +742,8 @@ impl Render for TerminalView {
                 MouseButton::Right,
                 cx.listener(|this, event, window, cx| this.press(event, window, cx)),
             )
-            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
-                this.wheel(event, window, cx);
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                this.wheel(event, cx);
             }))
             .child(
                 canvas(
@@ -672,7 +753,13 @@ impl Render for TerminalView {
                             outer.size - size(pad.x * 2.0, pad.y * 2.0),
                         );
                         let base = metrics(window, &face, 1.0);
-                        let cell = metrics(window, &face, scale);
+                        let full = metrics(window, &face, scale);
+                        let room = bounds.size + size(px(ROUNDING), px(ROUNDING));
+                        let shrink = (room.width / (full.cell_width * grid.0 as f32))
+                            .min(room.height / (full.cell_height * grid.1 as f32))
+                            .min(1.0);
+                        let drawn = scale * shrink;
+                        let cell = metrics(window, &face, drawn);
                         let spare = bounds.size
                             - size(
                                 cell.cell_width * grid.0 as f32,
@@ -683,27 +770,31 @@ impl Render for TerminalView {
                                 spare.width.max(px(0.0)) / 2.0,
                                 spare.height.max(px(0.0)) / 2.0,
                             );
-                        view.update(cx, |view, _| view.resized(bounds, base, origin));
-                        Bounds::new(origin, bounds.size)
+                        view.update(cx, |view, _| view.resized(bounds, base, cell, origin));
+                        (Bounds::new(origin, bounds.size), drawn)
                     },
-                    move |_, bounds, window, cx| {
+                    move |_, (bounds, drawn), window, cx| {
                         window.handle_input(
                             &focus,
                             ElementInputHandler::new(bounds, view_input.clone()),
                             cx,
                         );
                         let moving = view_pointer.clone();
-                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
                             if phase == DispatchPhase::Capture {
-                                moving.update(cx, |view, cx| view.drag(event, window, cx));
+                                moving.update(cx, |view, cx| view.drag(event, cx));
                             }
                         });
                         let releasing = view_pointer.clone();
-                        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                             if phase == DispatchPhase::Capture {
-                                releasing.update(cx, |view, cx| view.release(event, window, cx));
+                                releasing.update(cx, |view, cx| view.release(event, cx));
                             }
                         });
+                        let draw = Draw {
+                            scale: drawn,
+                            ..draw
+                        };
                         paint(bounds, &frame, marked.as_deref(), &draw, window, cx);
                     },
                 )

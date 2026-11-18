@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,6 +44,9 @@ pub struct Store {
     repos_at: u64,
     settings: SettingsView,
     settings_key: String,
+    unsaved: VecDeque<serde_json::Value>,
+    confirmed: SettingsView,
+    settings_from: u64,
     selected: Option<u32>,
     chosen: Option<String>,
     wanted: Option<u32>,
@@ -127,6 +130,17 @@ fn unreached_of(base: &str, hosts: Vec<String>) -> HashSet<String> {
             )
         })
         .collect()
+}
+
+fn patched<'a>(
+    settings: &SettingsView,
+    patches: impl IntoIterator<Item = &'a serde_json::Value>,
+) -> Option<SettingsView> {
+    let mut value = serde_json::to_value(settings).ok()?;
+    for patch in patches {
+        api::settings::merge(&mut value, patch);
+    }
+    serde_json::from_value(value).ok()
 }
 
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
@@ -224,6 +238,9 @@ impl Store {
             repos_at: 0,
             settings,
             settings_key: String::new(),
+            unsaved: VecDeque::new(),
+            confirmed: SettingsView::default(),
+            settings_from: 0,
             selected: None,
             chosen: None,
             wanted: None,
@@ -477,10 +494,7 @@ impl Store {
         if self.current_repo() == Some(repo) {
             return;
         }
-        self.settings.repo = Some(repo);
-        self.settings_key.clear();
         self.save_settings(serde_json::json!({ "repo": repo }), cx);
-        cx.notify();
     }
 
     fn repo_of(&self, node: u32) -> Option<RepoId> {
@@ -522,27 +536,77 @@ impl Store {
         }
     }
 
-    pub fn save_settings(&self, patch: serde_json::Value, cx: &mut Context<Self>) {
-        let Some(base) = self.base.clone() else {
+    pub fn save_settings(&mut self, patch: serde_json::Value, cx: &mut Context<Self>) {
+        if let Some(next) = patched(&self.settings, [&patch]) {
+            self.show_settings(next, cx);
+        }
+        if self.base.is_none() {
+            return;
+        }
+        self.unsaved.push_back(patch);
+        if self.unsaved.len() == 1 {
+            self.send_settings(cx);
+        }
+    }
+
+    fn send_settings(&mut self, cx: &mut Context<Self>) {
+        let (Some(base), Some(patch)) = (self.base.clone(), self.unsaved.front().cloned()) else {
             return;
         };
         cx.spawn(async move |this, cx| {
             let saved = cx
                 .background_spawn(async move { link::put_settings(&base, &patch) })
                 .await;
-            let _ = this.update(cx, |store, cx| match saved {
-                Ok(()) => store.reload(cx),
-                Err(error) => {
-                    let text = error.text(*cx.global::<strings::Lang>());
-                    store.tell(text, cx);
+            let _ = this.update(cx, |store, cx| {
+                let Some(patch) = store.unsaved.pop_front() else {
+                    return;
+                };
+                store.settings_from = link::issued();
+                match saved {
+                    Ok(()) => {
+                        if let Some(confirmed) = patched(&store.confirmed, [&patch]) {
+                            store.confirmed = confirmed;
+                        }
+                    }
+                    Err(error) => {
+                        let text = error.text(*cx.global::<strings::Lang>());
+                        store.tell(text, cx);
+                        if let Some(next) = patched(&store.confirmed, &store.unsaved) {
+                            store.show_settings(next, cx);
+                        }
+                    }
+                }
+                if store.unsaved.is_empty() {
                     store.reload(cx)
+                } else {
+                    store.send_settings(cx)
                 }
             });
         })
         .detach();
     }
 
-    pub fn set_pane_open(&self, pane: &str, open: bool, cx: &mut Context<Self>) {
+    fn show_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
+        self.take_settings(settings, cx);
+        if self.snapshot.is_some() {
+            self.revision += 1;
+        }
+        cx.notify();
+    }
+
+    fn take_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
+        let key = serde_json::to_string(&settings).unwrap_or_default();
+        if key != self.settings_key {
+            apply_settings(&settings, cx);
+            if settings.closed_panes.dock {
+                self.picked = None;
+            }
+            self.settings = settings;
+            self.settings_key = key;
+        }
+    }
+
+    pub fn set_pane_open(&mut self, pane: &str, open: bool, cx: &mut Context<Self>) {
         self.save_settings(serde_json::json!({ "closedPanes": { pane: !open } }), cx);
     }
 
@@ -626,7 +690,7 @@ impl Store {
         let Some(snapshot) = &mut self.snapshot else {
             self.snapshot = Some(read);
             (self.loaded, self.nodes_at, self.repos_at) = (order, order, order);
-            self.take_settings(settings, cx);
+            self.keep_settings(order, settings, cx);
             self.revision += 1;
             self.reselect();
             return;
@@ -643,7 +707,7 @@ impl Store {
         if newer(&mut self.loaded, order) {
             snapshot.layout = read.layout;
             snapshot.sizes = read.sizes;
-            self.take_settings(settings, cx);
+            self.keep_settings(order, settings, cx);
             used = true;
         }
         if used {
@@ -652,16 +716,11 @@ impl Store {
         }
     }
 
-    fn take_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
+    fn keep_settings(&mut self, order: u64, settings: SettingsView, cx: &mut Context<Self>) {
         self.status = self.base.clone().unwrap_or_default();
-        let key = serde_json::to_string(&settings).unwrap_or_default();
-        if key != self.settings_key {
-            apply_settings(&settings, cx);
-            if settings.closed_panes.dock {
-                self.picked = None;
-            }
-            self.settings = settings;
-            self.settings_key = key;
+        if self.unsaved.is_empty() && order > self.settings_from {
+            self.confirmed = settings.clone();
+            self.take_settings(settings, cx);
         }
     }
 
@@ -989,7 +1048,7 @@ impl Store {
         cx: &mut Context<Self>,
     ) -> Task<Result<String, String>> {
         self.call(cx, move |base| {
-            link::save_paste(base, node, &name, mime, &bytes)
+            link::save_paste(base, Some(node), &name, mime, &bytes)
         })
     }
 }

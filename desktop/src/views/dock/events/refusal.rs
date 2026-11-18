@@ -48,6 +48,8 @@ fn template(code: &str) -> Option<Str> {
         "docHasParent" => Str::ProblemRefusedDocHasParent,
         "rolesHaveParent" => Str::ProblemRefusedRolesHaveParent,
         "badRoleSetting" => Str::ProblemRefusedBadRoleSetting,
+        "settingsHaveParent" => Str::ProblemRefusedSettingsHaveParent,
+        "badSetting" => Str::ProblemRefusedBadSetting,
         "bareLink" => Str::ProblemRefusedBareLink,
         "badChoices" => Str::ProblemRefusedBadChoices,
         "uncheckedDoc" => Str::ProblemRefusedUncheckedDoc,

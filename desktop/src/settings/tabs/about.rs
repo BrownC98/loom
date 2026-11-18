@@ -10,6 +10,7 @@ use crate::daemon;
 use crate::fonts;
 use crate::link;
 use crate::link::VERSION;
+use crate::program;
 use crate::settings::widgets::{button, inert};
 use crate::settings::{Ctx, Dialog, Section};
 use crate::strings::{Lang, Str};
@@ -318,7 +319,12 @@ pub fn sections(state: &mut State, ctx: &Ctx, _: &mut Window, cx: &mut App) -> V
                     .child(retry),
             );
         }
-        Some(UpdateStep::Available) | None => {}
+        Some(UpdateStep::Available) | None => {
+            if program::replaced() {
+                let text = section.text(say(cx, Str::AboutReopen), cx);
+                section = section.child(div().text_size(px(SMALL)).text_color(c.ink_3).child(text));
+            }
+        }
     }
     vec![section]
 }

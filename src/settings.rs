@@ -100,8 +100,10 @@ impl Settings {
         self.write(|db, _, value| {
             allowed(db, &patch).map_err(AgentEditProblem::Refused)?;
             let unknown = || AgentEditProblem::Shape(format!("the settings have no key '{key}'"));
-            if new.is_null() && value.pointer(key).is_none() {
-                return Err(unknown());
+            if !nulls_exist(Some(value), &patch) {
+                return Err(AgentEditProblem::Shape(format!(
+                    "the settings have no key '{key}' or no field that {new} clears"
+                )));
             }
             merge(value, &patch);
             let view = checked(value, self.check).map_err(AgentEditProblem::Shape)?;
@@ -174,6 +176,16 @@ impl Settings {
 pub struct SetSetting {
     pub key: String,
     pub value: serde_json::Value,
+}
+
+fn nulls_exist(old: Option<&serde_json::Value>, new: &serde_json::Value) -> bool {
+    match new {
+        serde_json::Value::Null => old.is_some(),
+        serde_json::Value::Object(fields) => fields
+            .iter()
+            .all(|(name, inner)| nulls_exist(old.and_then(|o| o.get(name)), inner)),
+        _ => true,
+    }
 }
 
 fn kept(new: &serde_json::Value, got: Option<&serde_json::Value>) -> bool {

@@ -36,6 +36,7 @@ pub enum Event {
     Backlog(Vec<u8>),
     Output(Vec<u8>),
     Gone,
+    Removed,
     Closed(String),
 }
 
@@ -708,6 +709,7 @@ impl Conn {
                         Ok(PtyNotice::Size(Resize { cols, rows })) => Event::Size { cols, rows },
                         Ok(PtyNotice::Settled) => Event::Settled,
                         Ok(PtyNotice::Gone) => Event::Gone,
+                        Ok(PtyNotice::Removed) => Event::Removed,
                         Ok(PtyNotice::Beat { quiet_ms }) => {
                             self.limit = Duration::from_millis(quiet_ms.into());
                             return None;

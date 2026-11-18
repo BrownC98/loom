@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, BoxShadow, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Point, Render,
-    StatefulInteractiveElement, Styled, Window, div, point, px, relative,
+    StatefulInteractiveElement, Styled, Window, div, point, relative,
 };
 
 use api::ids::RepoId;
@@ -15,6 +15,7 @@ use api::settings::places::{ReachView, SystemView};
 use super::calls;
 use super::pop;
 use crate::fonts;
+use crate::scale::px;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::{Colors, Theme};
@@ -550,7 +551,7 @@ impl AddRepo {
         if on {
             mark = mark
                 .bg(c.accent)
-                .child(icon(Lucide::Check, 11.0, c.accent_ink));
+                .child(icon(Lucide::Check, px(11.0), c.accent_ink));
         }
         tabbable(div().id("init-git"), cx)
             .rounded(px(4.0))
@@ -669,7 +670,7 @@ impl AddRepo {
         } else {
             label
         };
-        chip.children(glyph.map(|g| icon(g, 14.0, c.ink_2)))
+        chip.children(glyph.map(|g| icon(g, px(14.0), c.ink_2)))
             .child(label)
     }
 
@@ -920,7 +921,7 @@ impl AddRepo {
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.go(up.clone(), near.clone(), cx);
                         }))
-                        .child(icon(Lucide::ChevronLeft, 14.0, c.ink_3))
+                        .child(icon(Lucide::ChevronLeft, px(14.0), c.ink_3))
                         .child("..")
                         .into_any_element(),
                 );
@@ -954,7 +955,7 @@ impl AddRepo {
                                 this.picked = pick.clone();
                                 cx.notify();
                             }))
-                            .child(icon(Lucide::Folder, 14.0, c.ink_3))
+                            .child(icon(Lucide::Folder, px(14.0), c.ink_3))
                             .child(
                                 div()
                                     .overflow_hidden()
@@ -991,7 +992,7 @@ impl AddRepo {
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.go(open_path.clone(), near.clone(), cx);
                             }))
-                            .child(icon(Lucide::ChevronRight, 14.0, c.ink_2)),
+                            .child(icon(Lucide::ChevronRight, px(14.0), c.ink_2)),
                     )
                     .into_any_element(),
                 );

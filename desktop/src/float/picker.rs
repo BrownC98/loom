@@ -10,11 +10,12 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Bounds, Context, Entity, EventEmitter, FontWeight, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Render,
-    ScrollEvent, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    ScrollEvent, StatefulInteractiveElement, Styled, Subscription, Window, div,
 };
 
 use super::aim::{self, Aim};
 use super::place;
+use crate::scale::fixed as px;
 use crate::store::Store;
 use crate::strings::Str;
 use crate::theme::Colors;
@@ -472,7 +473,7 @@ impl Picker {
             Item::Prompt => base
                 .pl(px((8.0 + row.depth.min(MAX_DEPTH) as f32 * DEPTH_STEP) * z))
                 .text_color(if row.context { c.ink_3 } else { c.ink_2 })
-                .child(icon(Lucide::SquareTerminal, 14.0 * z, c.ink_3))
+                .child(icon(Lucide::SquareTerminal, px(14.0 * z), c.ink_3))
                 .child(div().min_w_0().truncate().child(row.name.clone())),
         }
     }
@@ -549,7 +550,7 @@ impl Render for Picker {
                     .border_color(c.accent)
                     .bg(c.surface)
                     .text_size(px(13.0 * z))
-                    .child(icon(Lucide::Search, 14.0 * z, c.ink_3))
+                    .child(icon(Lucide::Search, px(14.0 * z), c.ink_3))
                     .child(self.query.clone())
                     .children((self.width >= HINT_ROOM * z).then(|| {
                         div()

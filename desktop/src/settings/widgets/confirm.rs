@@ -1,8 +1,9 @@
 use gpui::{
     App, ClickEvent, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
+use crate::scale::px;
 use crate::strings::Str;
 use crate::views::dock::ui::{TEXT, button, colors, say};
 

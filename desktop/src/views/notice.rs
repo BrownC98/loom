@@ -1,5 +1,6 @@
-use gpui::{Div, ParentElement, Styled, div, px};
+use gpui::{Div, ParentElement, Styled, div};
 
+use crate::scale::px;
 use crate::store::Notice;
 use crate::theme::Theme;
 

@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Div, ElementId, Entity, FontWeight, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Pixels, Rgba, Stateful,
-    StatefulInteractiveElement, Styled, Window, deferred, div, point, px,
+    StatefulInteractiveElement, Styled, Window, deferred, div, point,
 };
 
 use api::graph::waits::WaitTone;
@@ -15,6 +15,7 @@ use api::settings::DefaultCardView;
 
 use crate::canvas::repos::GroupKind;
 use crate::fonts;
+use crate::scale::{self, fixed as px};
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::anchor::Anchors;
@@ -25,7 +26,19 @@ use crate::views::icons::{Lucide, agent_mark, icon, icon_styled};
 use crate::views::status::{self, Tone, chip, pill, rework, wash};
 use crate::views::tooltip;
 
-pub const HEAD: f32 = 35.0;
+const HEAD: f32 = 35.0;
+
+pub fn banded(height: f32, zoom: f32) -> f32 {
+    (height - 1.0) * zoom + zoom / scale::get()
+}
+
+pub fn head_height() -> f32 {
+    banded(HEAD, scale::get())
+}
+
+pub fn head_growth() -> f32 {
+    (HEAD - 1.0) * (scale::get() - 1.0)
+}
 const BUTTON: f32 = 26.0;
 const BUTTON_ROUND: f32 = 6.0;
 const ICON: f32 = 14.0;
@@ -231,7 +244,7 @@ fn text_button(
         })
         .when_some(tip, |d, tip| d.tooltip(tooltip::tip(tip)))
         .children(anchor.map(|(anchors, key)| anchors.mark(key)))
-        .children(glyph.map(|g| icon(g, (ICON * zoom).max(1.0), ink_2)))
+        .children(glyph.map(|g| icon(g, px((ICON * zoom).max(1.0)), ink_2)))
         .child(text)
 }
 
@@ -242,8 +255,8 @@ fn band(height: f32, zoom: f32, colors: &Colors) -> Div {
         .items_center()
         .gap(px(8.0 * zoom))
         .w_full()
-        .h(px(height * zoom))
-        .border_b(px(zoom.max(0.5)))
+        .h(px(banded(height, zoom)))
+        .border_b(px((zoom / scale::get()).max(0.5)))
         .border_color(colors.line)
 }
 
@@ -256,6 +269,8 @@ pub fn repo_frame(
     mark: Mark,
     colors: &Colors,
 ) -> Div {
+    let frame_zoom = zoom;
+    let zoom = zoom * scale::get();
     let key = info.key;
     let arrange = ghost(
         ElementId::Name(format!("arrange:{key}").into()),
@@ -281,6 +296,8 @@ pub fn repo_frame(
         colors,
     );
     let head = band(46.0, zoom, colors)
+        .h(px(46.0 * zoom))
+        .border_b(px(zoom.max(0.5)))
         .px(px(16.0 * zoom))
         .child(
             div()
@@ -319,7 +336,7 @@ pub fn repo_frame(
         .child(div().flex_1())
         .child(arrange)
         .child(new_worktree);
-    frame_box(bounds, zoom, true, mark, colors).child(head)
+    frame_box(bounds, frame_zoom, true, mark, colors).child(head)
 }
 
 pub fn group_frame(
@@ -331,6 +348,8 @@ pub fn group_frame(
     mark: Mark,
     colors: &Colors,
 ) -> Div {
+    let frame_zoom = zoom;
+    let zoom = zoom * scale::get();
     let path = info.path;
     let kind = match info.kind {
         GroupKind::Original => Some(Str::WorktreeOriginal),
@@ -406,7 +425,7 @@ pub fn group_frame(
             .px(px(14.0 * zoom))
             .py(px(7.0 * zoom))
             .w_full()
-            .border_b(px(zoom.max(0.5)))
+            .border_b(px((zoom / scale::get()).max(0.5)))
             .border_color(colors.line)
             .child(
                 div()
@@ -469,7 +488,7 @@ pub fn group_frame(
                     ))
             }))
     });
-    frame_box(bounds, zoom, false, mark, colors)
+    frame_box(bounds, frame_zoom, false, mark, colors)
         .child(head)
         .children(chips)
         .children(info.empty.then(|| {
@@ -575,7 +594,7 @@ pub fn active(node: &NodeView) -> bool {
 }
 
 pub fn body_height(card_height: f32) -> f32 {
-    card_height - HEAD - 2.0
+    card_height - head_height() - 2.0
 }
 
 fn button(id: impl Into<ElementId>, size: f32, zoom: f32) -> Stateful<Div> {
@@ -614,7 +633,7 @@ fn ghost_sized(
         .children(anchor.map(|(anchors, key)| anchors.mark(key)))
         .child(icon_styled(
             glyph,
-            (ICON * zoom).max(1.0),
+            px((ICON * zoom).max(1.0)),
             ink_2,
             stroke(zoom),
             false,
@@ -652,7 +671,7 @@ fn bookmark_button(face: &Face, zoom: f32, colors: &Colors) -> Stateful<Div> {
         .tooltip(tooltip::tip(tip.text(face.lang).to_owned()))
         .child(icon_styled(
             Lucide::Bookmark,
-            (ICON * zoom).max(1.0),
+            px((ICON * zoom).max(1.0)),
             color,
             stroke(zoom),
             on,
@@ -689,7 +708,7 @@ fn badges(face: &Face, zoom: f32, colors: &Colors) -> Vec<AnyElement> {
                 .tooltip(tooltip::tip(Str::NodeSteerQueued.text(lang).to_owned()))
                 .child(icon(
                     Lucide::Mail,
-                    (13.0 * zoom).max(1.0),
+                    px((13.0 * zoom).max(1.0)),
                     colors.accent_ink,
                 ))
                 .child(Str::NodeUnreadShort.with(lang, &[("n", &node.unread.to_string())]))
@@ -851,7 +870,7 @@ fn mark_of(face: &Face, zoom: f32, colors: &Colors) -> AnyElement {
     agent_mark(
         face.node.agent.as_ref().map(|a| a.0.as_str()),
         &label,
-        (ICON * zoom).max(1.0),
+        px((ICON * zoom).max(1.0)),
         colors.ink_2,
     )
 }
@@ -967,13 +986,13 @@ fn head_row(face: &Face, zoom: f32, colors: &Colors, layout: &HeadLayout) -> Div
         .items_center()
         .gap(px(8.0 * zoom))
         .w_full()
-        .when_some(layout.height, |d, height| d.h(px(height * zoom)))
+        .when_some(layout.height, |d, height| d.h(px(banded(height, zoom))))
         .pt(px(layout.top * zoom))
         .pr(px(layout.right * zoom))
         .pb(px(layout.bottom * zoom))
         .pl(px(layout.left * zoom))
         .bg(colors.surface)
-        .border_b(px(zoom.max(0.5)))
+        .border_b(px((zoom / scale::get()).max(0.5)))
         .border_color(colors.line)
         .text_size(text_px(NAME, zoom))
         .text_color(colors.ink)
@@ -1002,7 +1021,7 @@ pub fn head(face: &Face, zoom: f32, colors: &Colors) -> Div {
 }
 
 pub fn dock_head(face: &Face, colors: &Colors) -> Div {
-    head_row(face, 1.0, colors, &DOCK_HEAD)
+    head_row(face, scale::get(), colors, &DOCK_HEAD)
 }
 
 fn summary(face: &Face, zoom: f32, colors: &Colors) -> Div {
@@ -1087,7 +1106,8 @@ pub fn card(
         mark,
     } = look;
     let node = face.node;
-    let head_h = px(HEAD * zoom);
+    let head_zoom = zoom * scale::get();
+    let head_h = px(banded(HEAD, head_zoom));
     let waiting = node.waits.iter().any(status::asking);
     let lit = mark == Mark::Lit;
     let (border, rings) = if waiting {
@@ -1125,14 +1145,14 @@ pub fn card(
         .text_color(colors.ink);
     if simple {
         return shell
-            .pt(px(8.0 * zoom))
-            .pb(px(8.0 * zoom))
-            .pl(px(12.0 * zoom))
-            .pr(px(8.0 * zoom))
-            .child(summary(face, zoom, colors));
+            .pt(px(8.0 * head_zoom))
+            .pb(px(8.0 * head_zoom))
+            .pl(px(12.0 * head_zoom))
+            .pr(px(8.0 * head_zoom))
+            .child(summary(face, head_zoom, colors));
     }
     shell
-        .child(head(face, zoom, colors).absolute().top_0().left_0())
+        .child(head(face, head_zoom, colors).absolute().top_0().left_0())
         .children(body.map(|body| {
             div()
                 .absolute()

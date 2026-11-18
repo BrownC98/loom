@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
 use gpui::{
-    AnyElement, AssetSource, FontWeight, IntoElement, ParentElement, Result, Rgba, SharedString,
-    Styled, Svg, div, img, px, relative, svg,
+    AnyElement, AssetSource, FontWeight, IntoElement, ParentElement, Pixels, Result, Rgba,
+    SharedString, Styled, Svg, div, img, relative, svg,
 };
+
+use crate::scale::px;
 
 include!(concat!(env!("OUT_DIR"), "/icons.rs"));
 
@@ -40,36 +42,36 @@ impl AssetSource for Assets {
     }
 }
 
-pub fn icon(name: Lucide, size: f32, color: Rgba) -> Svg {
+pub fn icon(name: Lucide, size: Pixels, color: Rgba) -> Svg {
     svg()
         .path(name.path())
-        .size(px(size))
+        .size(size)
         .flex_none()
         .text_color(color)
 }
 
-pub fn icon_styled(name: Lucide, size: f32, color: Rgba, stroke: f32, filled: bool) -> Svg {
+pub fn icon_styled(name: Lucide, size: Pixels, color: Rgba, stroke: f32, filled: bool) -> Svg {
     let fill = if filled { "&fill" } else { "" };
     svg()
         .path(format!("{}?stroke={stroke}{fill}", name.path()))
-        .size(px(size))
+        .size(size)
         .flex_none()
         .text_color(color)
 }
 
-pub fn agent_mark(agent: Option<&str>, label: &str, size: f32, color: Rgba) -> AnyElement {
+pub fn agent_mark(agent: Option<&str>, label: &str, size: Pixels, color: Rgba) -> AnyElement {
     match agent {
         None => icon(Lucide::Terminal, size, color).into_any_element(),
         Some(id) => match logo(id) {
-            Some(Logo::Color(path)) => img(path).size(px(size)).flex_none().into_any_element(),
+            Some(Logo::Color(path)) => img(path).size(size).flex_none().into_any_element(),
             Some(Logo::Mono(path)) => svg()
                 .path(path)
-                .size(px(size))
+                .size(size)
                 .flex_none()
                 .text_color(color)
                 .into_any_element(),
             None => div()
-                .size(px(size))
+                .size(size)
                 .flex_none()
                 .flex()
                 .items_center()

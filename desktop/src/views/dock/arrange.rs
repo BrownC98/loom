@@ -8,11 +8,12 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     Bounds, Context, Div, FontWeight, InteractiveElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Stateful, StatefulInteractiveElement, Styled, Window,
-    canvas, deferred, div, px, relative,
+    canvas, deferred, div, relative,
 };
 
 use super::Dock;
 use super::ui::{self, TEXT};
+use crate::scale::px;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::icons::{Lucide, icon};
@@ -163,7 +164,7 @@ impl Dock {
         let run = part("arrange-run", &c)
             .flex_1()
             .rounded_l(px(6.0))
-            .child(icon(Lucide::Workflow, 14.0, c.ink))
+            .child(icon(Lucide::Workflow, px(14.0), c.ink))
             .child(ui::say(cx, Str::GraphArrange))
             .on_click({
                 let store = store.clone();
@@ -191,8 +192,8 @@ impl Dock {
             .gap_0()
             .px(px(6.0))
             .tooltip(tip(ui::say(cx, Str::GraphDirection).to_owned()))
-            .child(icon(glyph(direction), 14.0, c.ink))
-            .child(icon(Lucide::ChevronDown, 12.0, c.ink))
+            .child(icon(glyph(direction), px(14.0), c.ink))
+            .child(icon(Lucide::ChevronDown, px(12.0), c.ink))
             .child(
                 canvas(move |bounds, _, _| anchor.set(bounds), |_, _, _, _| ())
                     .absolute()
@@ -249,13 +250,13 @@ impl Dock {
                 })
                 .child(icon(
                     glyph_name,
-                    14.0,
+                    px(14.0),
                     if enabled { c.ink } else { c.ink_3 },
                 ))
                 .child(label.to_owned())
                 .when(on, |item| {
                     item.child(div().flex_1())
-                        .child(icon(Lucide::Check, 14.0, c.ink_2))
+                        .child(icon(Lucide::Check, px(14.0), c.ink_2))
                 })
         };
         let rows = DIRECTIONS.iter().enumerate().map(|(at, &option)| {

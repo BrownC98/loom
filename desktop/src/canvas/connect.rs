@@ -2,13 +2,14 @@ use std::rc::Rc;
 
 use gpui::{
     App, CursorStyle, DispatchPhase, Div, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, Styled, canvas, div, px,
+    Pixels, Point, Styled, canvas, div,
 };
 
 use super::camera::Camera;
 use super::edges;
 use super::layout::{self, EdgeEnd, Side, tree_sides};
 use super::scene::Scene;
+use crate::scale::fixed as px;
 use crate::theme::Colors;
 
 const PORT: f32 = 10.0;

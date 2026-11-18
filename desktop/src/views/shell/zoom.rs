@@ -1,10 +1,11 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, relative,
 };
 
 use crate::fonts;
+use crate::scale::px;
 use crate::store::Store;
 use crate::strings::{Lang, Str};
 use crate::theme::Theme;

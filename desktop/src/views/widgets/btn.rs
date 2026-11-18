@@ -1,8 +1,9 @@
 use gpui::{
     App, BoxShadow, Div, ElementId, InteractiveElement, Stateful, StatefulInteractiveElement,
-    Styled, point, px, transparent_black,
+    Styled, point, transparent_black,
 };
 
+use crate::scale::px;
 use crate::views::ui::{self, colors};
 
 const RING: f32 = 2.0;

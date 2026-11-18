@@ -7,10 +7,11 @@ use api::settings::usage::{Limits, UsageProblem, Window as Span};
 use chrono::{Datelike, Local, TimeZone};
 use gpui::{
     App, Div, FontWeight, Global, ParentElement, Stateful, StatefulInteractiveElement, Styled,
-    Window, div, px, relative,
+    Window, div, relative,
 };
 
 use crate::link;
+use crate::scale::px;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::dock::ui::{SMALL, TEXT, button, colors, say, say_with};

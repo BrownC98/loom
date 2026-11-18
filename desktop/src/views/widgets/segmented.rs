@@ -3,10 +3,11 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, FontWeight, InteractiveElement, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::btn::tabbable;
+use crate::scale::px;
 use crate::views::icons::{Lucide, icon};
 use crate::views::ui::{TEXT, colors, count as count_pill};
 
@@ -187,7 +188,7 @@ fn build<T: Copy + PartialEq + 'static, L: Into<Label>>(
                     .whitespace_nowrap()
                     .line_height(px(19.5))
             })
-            .children(glyph.map(|glyph| icon(glyph, TEXT, ink)))
+            .children(glyph.map(|glyph| icon(glyph, px(TEXT), ink)))
             .child(text)
             .children((count > 0).then(|| count_pill(count, &c)))
             .when_some(hover, |item, hover| {

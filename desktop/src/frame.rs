@@ -1,6 +1,7 @@
-use gpui::{App, Bounds, SharedString, WindowBounds, WindowOptions, px, size};
+use gpui::{App, Bounds, SharedString, WindowBounds, WindowOptions, size};
 
 use crate::link::VERSION;
+use crate::scale::fixed as px;
 
 const SIZE: (f32, f32) = (1280.0, 800.0);
 const MIN: (f32, f32) = (900.0, 600.0);

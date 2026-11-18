@@ -5,7 +5,7 @@ use api::graph::waits::{PromptKey, ScreenWait, WaitKind, WaitTone};
 use api::ids::NodeId;
 use gpui::{
     App, Context, Div, Entity, FontWeight, InteractiveElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::answers::{self, Answers};
@@ -15,6 +15,7 @@ use super::find::{self, Find};
 use super::ui::{self, GAP};
 use super::{Dock, Inbox, Tab};
 use crate::link::Snapshot;
+use crate::scale::{self, px};
 use crate::strings::Str;
 use crate::views::card;
 use crate::views::widgets::{Label, segmented_wide};
@@ -304,7 +305,7 @@ pub(crate) fn wait_list(
             if row > 0 {
                 item = item.border_t_1().border_dashed().border_color(c.line);
             }
-            item.child(answers::entry(answers, node, w, z, find, cx))
+            item.child(answers::entry(answers, node, w, z * scale::get(), find, cx))
         });
         let mut item = div()
             .flex()

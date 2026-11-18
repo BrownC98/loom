@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
-use gpui::{Bounds, Pixels, Point, Size, point, px, size};
+use gpui::{Bounds, Pixels, Point, Size, point, size};
+
+use crate::scale::fixed as px;
 
 pub const MIN_ZOOM: f32 = 0.1;
 pub const MAX_ZOOM: f32 = 3.5;

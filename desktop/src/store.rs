@@ -21,7 +21,7 @@ use crate::canvas::drag::Arrange;
 use crate::canvas::repos::{chosen_repo, groups_of};
 use crate::link::{self, Fresh, Graph, Loaded, Snapshot};
 use crate::problem::Failure;
-use crate::{strings, theme};
+use crate::{scale, strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
 const PROMPT_CHANGED: &str = "promptChanged";
@@ -148,6 +148,7 @@ fn apply_settings(settings: &SettingsView, cx: &mut App) {
         cx.window_appearance(),
         WindowAppearance::Dark | WindowAppearance::VibrantDark
     );
+    scale::set(settings.ui_size);
     cx.set_global(theme::Theme::resolve(settings, dark));
     cx.set_global(strings::Lang::resolve(
         settings.language,

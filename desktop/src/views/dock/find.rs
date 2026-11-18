@@ -6,11 +6,12 @@ use api::graph::search::WaitSearch;
 use gpui::{
     AnyElement, Bounds, Context, Div, ElementId, HighlightStyle, InteractiveElement, IntoElement,
     ParentElement, Pixels, Rgba, ScrollHandle, StatefulInteractiveElement, Styled, Window, canvas,
-    div, px, rgb,
+    div, rgb,
 };
 
 use super::Dock;
 use super::ui;
+use crate::scale::px;
 use crate::strings::Str;
 use crate::theme::Colors;
 use crate::views::icons::{Lucide, icon};
@@ -328,7 +329,7 @@ impl Dock {
             .size(px(STEP))
             .rounded(px(4.0))
             .tooltip(tip(ui::say(cx, label).to_owned()))
-            .child(icon(glyph, 14.0, c.ink_2));
+            .child(icon(glyph, px(14.0), c.ink_2));
         if total == 0 {
             return button.opacity(0.4);
         }

@@ -1,6 +1,8 @@
 use api::settings::{ClosedPanes, PaneWidths};
 
-pub const RAIL: f32 = 40.0;
+use crate::scale;
+
+const RAIL: f32 = 40.0;
 const MIN_CANVAS: f32 = 120.0;
 const SIDE_MAX: f32 = 480.0;
 const DOCK_MAX: f32 = 800.0;
@@ -13,17 +15,19 @@ pub enum Pane {
 
 impl Pane {
     pub fn initial(self) -> f32 {
-        match self {
-            Pane::Side => 260.0,
-            Pane::Dock => 320.0,
-        }
+        scale::get()
+            * match self {
+                Pane::Side => 260.0,
+                Pane::Dock => 320.0,
+            }
     }
 
     fn min(self) -> f32 {
-        match self {
-            Pane::Side => 180.0,
-            Pane::Dock => 320.0,
-        }
+        scale::get()
+            * match self {
+                Pane::Side => 180.0,
+                Pane::Dock => 320.0,
+            }
     }
 
     pub fn grow(self) -> f32 {
@@ -69,10 +73,9 @@ impl Widths {
 
     pub fn clamp(&self, pane: Pane, width: f32) -> f32 {
         let max = match pane {
-            Pane::Side => SIDE_MAX,
-            Pane::Dock => {
-                (self.window - self.shown(Pane::Side) - MIN_CANVAS).clamp(pane.min(), DOCK_MAX)
-            }
+            Pane::Side => SIDE_MAX * scale::get(),
+            Pane::Dock => (self.window - self.shown(Pane::Side) - MIN_CANVAS)
+                .clamp(pane.min(), DOCK_MAX * scale::get()),
         };
         width.round().clamp(pane.min(), max)
     }
@@ -83,7 +86,9 @@ impl Widths {
         {
             return width;
         }
-        let wanted = pane.saved(&self.saved).map_or(pane.initial(), f32::from);
+        let wanted = pane
+            .saved(&self.saved)
+            .map_or(pane.initial(), |base| f32::from(base) * scale::get());
         self.clamp(pane, wanted)
     }
 
@@ -91,7 +96,7 @@ impl Widths {
         if self.open(pane) {
             self.width(pane)
         } else {
-            RAIL
+            RAIL * scale::get()
         }
     }
 }

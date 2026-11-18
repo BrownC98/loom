@@ -4,12 +4,13 @@ use api::settings::usage::Limits;
 use gpui::{
     Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, StatefulInteractiveElement, Styled, Window, anchored,
-    deferred, div, point, px, relative,
+    deferred, div, point, relative,
 };
 
 use super::{Usage, name_cell, text};
 use super::{chevron, cursor_mark, provider_mark};
 use crate::fonts;
+use crate::scale::{self, px};
 use crate::settings::want_accounts;
 use crate::strings::Str;
 use crate::theme::Colors;
@@ -58,7 +59,7 @@ impl Usage {
                 }
             }))
             .w(px(POPOVER_W))
-            .max_h(px(max_h))
+            .max_h(scale::fixed(max_h))
             .overflow_y_scroll()
             .occlude()
             .flex()
@@ -119,7 +120,7 @@ impl Usage {
                     })
                     .tooltip(tip(say(cx, Str::StatusBarCollapse).to_owned()))
                     .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
-                    .child(icon(Lucide::ChevronDown, 18.0, c.ink_2)),
+                    .child(icon(Lucide::ChevronDown, px(18.0), c.ink_2)),
             )
     }
 

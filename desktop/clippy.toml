@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "gpui::px", reason = "use crate::scale::px (scaled by 글자 크기) or crate::scale::fixed (terminal, graph camera, input bar, window)" },
+]

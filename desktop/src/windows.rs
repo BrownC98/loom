@@ -4,10 +4,11 @@ use std::process::Command;
 use gpui::{
     AnyElement, App, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, WindowOptions,
-    div, px, rgb,
+    div, rgb,
 };
 
 use crate::frame;
+use crate::scale::fixed as px;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::icons::{Lucide, icon_styled};
@@ -73,7 +74,7 @@ fn caption(
         .hover(move |style| style.bg(hover))
         .tooltip(tip(label.to_owned()))
         .child(
-            icon_styled(glyph, CAPTION_ICON, colors.ink_3, CAPTION_STROKE, false)
+            icon_styled(glyph, px(CAPTION_ICON), colors.ink_3, CAPTION_STROKE, false)
                 .group_hover(glyph.path(), move |style| style.text_color(hover_ink)),
         )
 }

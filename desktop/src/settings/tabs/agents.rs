@@ -1,10 +1,11 @@
 use api::profile::{AgentAt, AgentView, Profile};
 use gpui::{
     App, FontWeight, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    Styled, Window, div,
 };
 
 use crate::fonts;
+use crate::scale::px;
 use crate::settings::widgets::{field_reset, tabbable};
 use crate::settings::{Ctx, Section};
 use crate::strings::Str;
@@ -131,7 +132,7 @@ fn installed(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Se
     let reload = state.agents.reloader(AGENTS, ctx, cx);
     let rescan_label = section.text(say(cx, Str::SettingsRescan), cx);
     let rescan = ghost_small("agents-rescan", cx)
-        .child(icon(Lucide::RotateCw, 14.0, colors(cx).ink_2))
+        .child(icon(Lucide::RotateCw, px(14.0), colors(cx).ink_2))
         .child(rescan_label)
         .on_click(move |_, _, cx| reload.run(cx));
     let found: Vec<&AgentView> = agents.iter().filter(|agent| is_installed(agent)).collect();
@@ -176,7 +177,12 @@ fn agent_row(
         .flex()
         .items_center()
         .gap(px(6.0))
-        .child(agent_mark(Some(&agent.id.0), &agent.label, MARK, c.ink_2))
+        .child(agent_mark(
+            Some(&agent.id.0),
+            &agent.label,
+            px(MARK),
+            c.ink_2,
+        ))
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
@@ -333,7 +339,12 @@ fn missing(state: &State, agents: &[AgentView], ctx: &Ctx, cx: &mut App) -> Sect
                             .gap(px(6.0))
                             .text_color(c.accent)
                             .cursor_pointer()
-                            .child(agent_mark(Some(&agent.id.0), &agent.label, MARK, c.ink_2))
+                            .child(agent_mark(
+                                Some(&agent.id.0),
+                                &agent.label,
+                                px(MARK),
+                                c.ink_2,
+                            ))
                             .child(name)
                             .on_click(move |_, _, _| {
                                 let _ = open_url(&homepage);

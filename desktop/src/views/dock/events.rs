@@ -4,7 +4,7 @@ use api::profile::AgentView;
 use gpui::{
     AnyElement, App, Context, Div, Entity, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState, ParentElement,
-    StatefulInteractiveElement, Styled, div, list, px,
+    StatefulInteractiveElement, Styled, div, list,
 };
 
 use super::Dock;
@@ -12,6 +12,7 @@ use super::body;
 use super::field::{self, Field};
 use super::ui::{self, GAP, PAD, SMALL};
 use crate::fonts;
+use crate::scale::px;
 use crate::strings::{Lang, Str};
 use crate::theme::Colors;
 use crate::views::scrollbar::Bar;

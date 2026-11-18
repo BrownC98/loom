@@ -405,6 +405,10 @@ fn process_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<ProcessOut
     .map(Option::flatten)
 }
 
+pub fn has_parent_in(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
+    Ok(parent_of(db, id)?.is_some())
+}
+
 fn parent_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<NodeId>> {
     db.query_row("SELECT parent FROM nodes WHERE id = ?1", [id.0], |row| {
         Ok(row.get::<_, Option<u32>>(0)?.map(NodeId))

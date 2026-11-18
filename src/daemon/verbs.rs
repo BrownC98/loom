@@ -1,7 +1,7 @@
 use super::*;
 use crate::graph::NodeToken;
 use crate::roles::RemoveRole;
-use crate::settings::{SetSetting, key_patch, key_segments, keys};
+use crate::settings::{AgentEditProblem, SetSetting, keys};
 use api::ids::AgentId;
 use api::settings::roles::Role;
 use api::start::ModelChoice;
@@ -199,18 +199,28 @@ fn edit_roles(
 ) -> Result<Json<Roles>, AgentError> {
     let caller = app.caller(headers)?;
     let via = gate::via(headers, path);
-    let edited = match app.graph.has_parent(caller) {
-        Err(e) => Err(e.into()),
+    let allowed = |db: &rusqlite::Connection| match crate::graph::has_parent_in(db, caller) {
+        Err(e) => Err(internal(e)),
         Ok(true) => Err(Refusal::RolesHaveParent.into()),
-        Ok(false) => app.settings.edit_roles(edit).map_err(|e| match e {
-            crate::settings::RolesProblem::Db(e) => internal(e),
-            crate::settings::RolesProblem::Role(e) => role_refusal(e).into(),
-        }),
+        Ok(false) => Ok(()),
     };
+    let edited = app
+        .settings
+        .edit_roles(allowed, edit)
+        .map_err(|e| agent_edit_problem(e, Refusal::BadRoleSetting));
     if edited.is_ok() {
         app.graph.publish_view_changed();
     }
     traced(app, caller, Attempt::verb(role), &via, edited)
+}
+
+fn agent_edit_problem(e: AgentEditProblem, shape: fn(String) -> Refusal) -> Problem {
+    match e {
+        AgentEditProblem::Db(e) => internal(e),
+        AgentEditProblem::Shape(e) => shape(e).into(),
+        AgentEditProblem::Role(e) => role_refusal(e).into(),
+        AgentEditProblem::Refused(p) => p,
+    }
 }
 
 const NOT_FOR_AGENTS: [(&str, &str); 2] = [
@@ -249,23 +259,22 @@ pub(super) async fn agent_set_setting(
 }
 
 fn set_setting(app: &App, caller: NodeId, req: &SetSetting) -> Result<serde_json::Value, Problem> {
-    if app.graph.has_parent(caller)? {
-        return Err(Refusal::SettingsHaveParent.into());
-    }
-    use crate::settings::PatchProblem;
-    let refused = |e| match e {
-        PatchProblem::Db(e) => internal(e),
-        PatchProblem::Shape(e) => Refusal::BadSetting(e).into(),
+    let allowed = |db: &rusqlite::Connection, patch: &serde_json::Value| {
+        if crate::graph::has_parent_in(db, caller).map_err(internal)? {
+            return Err(Refusal::SettingsHaveParent.into());
+        }
+        let top = patch.as_object().and_then(|fields| fields.keys().next());
+        if let Some((key, why)) = NOT_FOR_AGENTS
+            .iter()
+            .find(|(key, _)| Some(*key) == top.map(String::as_str))
+        {
+            return Err(Refusal::BadSetting(format!("agents do not change '{key}': {why}")).into());
+        }
+        super::settings::absolute_dirs(patch)
     };
-    let segments = key_segments(&req.key).map_err(refused)?;
-    let top = segments[0].as_str();
-    if let Some((_, why)) = NOT_FOR_AGENTS.iter().find(|(key, _)| *key == top) {
-        return Err(Refusal::BadSetting(format!("agents do not change '{top}': {why}")).into());
-    }
-    super::settings::absolute_dirs(&key_patch(&req.key, &req.value).map_err(refused)?)?;
     app.settings
-        .set_key(&req.key, req.value.clone())
-        .map_err(refused)
+        .set_key(&req.key, req.value.clone(), allowed)
+        .map_err(|e| agent_edit_problem(e, Refusal::BadSetting))
 }
 
 fn role_start(

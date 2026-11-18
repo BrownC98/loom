@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -42,7 +42,8 @@ pub struct Store {
     loaded: u64,
     settings: SettingsView,
     settings_key: String,
-    saving: usize,
+    unsaved: VecDeque<serde_json::Value>,
+    confirmed: SettingsView,
     settings_from: u64,
     selected: Option<u32>,
     chosen: Option<String>,
@@ -121,6 +122,17 @@ fn unreached_of(base: &str, hosts: Vec<String>) -> HashSet<String> {
         .collect()
 }
 
+fn patched<'a>(
+    settings: &SettingsView,
+    patches: impl IntoIterator<Item = &'a serde_json::Value>,
+) -> Option<SettingsView> {
+    let mut value = serde_json::to_value(settings).ok()?;
+    for patch in patches {
+        api::settings::merge(&mut value, patch);
+    }
+    serde_json::from_value(value).ok()
+}
+
 fn apply_settings(settings: &SettingsView, cx: &mut App) {
     let dark = matches!(
         cx.window_appearance(),
@@ -196,7 +208,8 @@ impl Store {
             loaded: 0,
             settings,
             settings_key: String::new(),
-            saving: 0,
+            unsaved: VecDeque::new(),
+            confirmed: SettingsView::default(),
             settings_from: 0,
             selected: None,
             chosen: None,
@@ -494,34 +507,61 @@ impl Store {
     }
 
     pub fn save_settings(&mut self, patch: serde_json::Value, cx: &mut Context<Self>) {
-        let mut value = serde_json::to_value(&self.settings).unwrap_or_default();
-        api::settings::merge(&mut value, &patch);
-        if let Ok(next) = serde_json::from_value(value) {
-            self.take_settings(next, cx);
-            if self.snapshot.is_some() {
-                self.revision += 1;
-            }
-            cx.notify();
+        if let Some(next) = patched(&self.settings, [&patch]) {
+            self.show_settings(next, cx);
         }
-        let Some(base) = self.base.clone() else {
+        if self.base.is_none() {
+            return;
+        }
+        self.unsaved.push_back(patch);
+        if self.unsaved.len() == 1 {
+            self.send_settings(cx);
+        }
+    }
+
+    fn send_settings(&mut self, cx: &mut Context<Self>) {
+        let (Some(base), Some(patch)) = (self.base.clone(), self.unsaved.front().cloned()) else {
             return;
         };
-        self.saving += 1;
         cx.spawn(async move |this, cx| {
             let saved = cx
                 .background_spawn(async move { link::put_settings(&base, &patch) })
                 .await;
             let _ = this.update(cx, |store, cx| {
-                store.saving -= 1;
+                let Some(patch) = store.unsaved.pop_front() else {
+                    return;
+                };
                 store.settings_from = link::issued();
-                if let Err(error) = saved {
-                    let text = error.text(*cx.global::<strings::Lang>());
-                    store.tell(text, cx);
+                match saved {
+                    Ok(()) => {
+                        if let Some(confirmed) = patched(&store.confirmed, [&patch]) {
+                            store.confirmed = confirmed;
+                        }
+                    }
+                    Err(error) => {
+                        let text = error.text(*cx.global::<strings::Lang>());
+                        store.tell(text, cx);
+                        if let Some(next) = patched(&store.confirmed, &store.unsaved) {
+                            store.show_settings(next, cx);
+                        }
+                    }
                 }
-                store.reload(cx)
+                if store.unsaved.is_empty() {
+                    store.reload(cx)
+                } else {
+                    store.send_settings(cx)
+                }
             });
         })
         .detach();
+    }
+
+    fn show_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
+        self.take_settings(settings, cx);
+        if self.snapshot.is_some() {
+            self.revision += 1;
+        }
+        cx.notify();
     }
 
     fn take_settings(&mut self, settings: SettingsView, cx: &mut Context<Self>) {
@@ -616,7 +656,8 @@ impl Store {
             return;
         }
         self.status = self.base.clone().unwrap_or_default();
-        if self.saving == 0 && loaded.order > self.settings_from {
+        if self.unsaved.is_empty() && loaded.order > self.settings_from {
+            self.confirmed = loaded.settings.clone();
             self.take_settings(loaded.settings, cx);
         }
         self.snapshot = Some(loaded.snapshot);

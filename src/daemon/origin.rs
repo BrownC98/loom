@@ -15,7 +15,7 @@ const FORWARDED_FOR: &str = "x-forwarded-for";
 const TAILNET_SUFFIX: &str = ".ts.net";
 pub const DEVICE_COOKIE: &str = "loom_device";
 const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png", phone::JSQR_PATH];
-const NOT_FROM_PAGE: &str = "Only the loom page acts as the human here. To write to a node, use POST /api/rooms/<node>/outside with {\"from\":\"<name>\",\"text\":\"…\"}.";
+const NOT_FROM_PAGE: &str = "Only the loom page and apps change loom here. To write to a node from another program, use POST /api/rooms/<node>/outside with {\"from\":\"<name>\",\"text\":\"…\"}.";
 
 #[derive(Clone, Copy)]
 pub struct ViaRemote {
@@ -30,19 +30,18 @@ pub async fn same_site(request: Request, next: Next) -> Response {
     }
 }
 
+pub async fn writes_from_page(request: Request, next: Next) -> Response {
+    match *request.method() {
+        Method::GET | Method::HEAD | Method::OPTIONS => next.run(request).await,
+        _ => from_page(request, next).await,
+    }
+}
+
 pub async fn from_page(request: Request, next: Next) -> Response {
-    page_only(request, next, StatusCode::FORBIDDEN).await
-}
-
-pub async fn speech_from_page(request: Request, next: Next) -> Response {
-    page_only(request, next, (StatusCode::FORBIDDEN, NOT_FROM_PAGE)).await
-}
-
-async fn page_only(request: Request, next: Next, refused: impl IntoResponse) -> Response {
     if request.headers().contains_key(header::ORIGIN) {
         next.run(request).await
     } else {
-        refused.into_response()
+        (StatusCode::FORBIDDEN, NOT_FROM_PAGE).into_response()
     }
 }
 

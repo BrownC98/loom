@@ -122,6 +122,7 @@ pub fn carry(from: &Path) -> Result<(), String> {
         .into();
     let mut response = agent
         .post(format!("{url}/api/carry"))
+        .header("Origin", &url)
         .send_json(serde_json::json!({ "from": from.to_string_lossy() }))
         .map_err(|e| e.to_string())?;
     let text = response
@@ -253,6 +254,7 @@ fn lock_free() -> bool {
 fn shutdown(url: &str) -> bool {
     agent()
         .post(format!("{url}/api/shutdown"))
+        .header("Origin", url)
         .send_empty()
         .is_ok()
 }

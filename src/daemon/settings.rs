@@ -13,7 +13,7 @@ use serde::Deserialize;
 use api::settings::accounts::{AccountView, LoginId, LoginState, LoginTarget, PlaceUsage};
 
 use super::nodes::{PtyInput, Typed, serve_pty};
-use super::origin::ViaRemote;
+use super::origin::{self, ViaRemote};
 use super::ssh_hosts::{self, Reach};
 use super::{App, internal};
 use crate::accounts::Site;
@@ -58,7 +58,10 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/accounts/{provider}/logout", post(logout))
         .route("/api/accounts/{provider}/{id}", delete(remove_account))
         .route("/api/logins/{id}", get(login_state).delete(close_login))
-        .route("/api/logins/{id}/pty", get(login_pty))
+        .route(
+            "/api/logins/{id}/pty",
+            get(login_pty).layer(axum::middleware::from_fn(origin::from_page)),
+        )
 }
 
 async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {

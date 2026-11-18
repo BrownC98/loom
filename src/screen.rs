@@ -66,29 +66,28 @@ pub fn rows(screen: &Screen) -> Vec<String> {
     rows
 }
 
+const COUNTDOWN: &str = "automatically block this request in ";
+
 pub fn same_rows(shown: &[String], now: &[String]) -> bool {
     !shown.is_empty()
         && shown.len() == now.len()
         && shown
             .iter()
             .zip(now)
-            .all(|(a, b)| without_clocks(a) == without_clocks(b))
+            .all(|(a, b)| without_countdown(a) == without_countdown(b))
 }
 
-fn without_clocks(row: &str) -> String {
-    let mut out = String::with_capacity(row.len());
-    let mut token = String::new();
-    for c in row.chars().chain(std::iter::once('\n')) {
-        if c.is_ascii_digit() || c == ':' {
-            token.push(c);
-            continue;
-        }
-        out.push_str(if is_clock(&token) { "0:00" } else { &token });
-        token.clear();
-        out.push(c);
+fn without_countdown(row: &str) -> std::borrow::Cow<'_, str> {
+    let Some((head, tail)) = row.split_once(COUNTDOWN) else {
+        return row.into();
+    };
+    let end = tail
+        .find(|c: char| !c.is_ascii_digit() && c != ':')
+        .unwrap_or(tail.len());
+    match is_clock(&tail[..end]) {
+        true => format!("{head}{COUNTDOWN}0:00{}", &tail[end..]).into(),
+        false => row.into(),
     }
-    out.pop();
-    out
 }
 
 fn is_clock(token: &str) -> bool {

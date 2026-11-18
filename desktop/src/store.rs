@@ -9,7 +9,7 @@ use api::graph::waits::{AnswerWait, ChooseOption, ClosedPage, PressKeys, Prompt,
 use api::graph::{GraphEvent, NewNode, NodeView};
 use api::ids::{NodeId, RepoId, WaitId};
 use api::profile::AgentView;
-use api::repos::PlaceView;
+use api::repos::{PlaceView, RepoView};
 use api::settings::places::ReachView;
 use api::settings::{ArrangeDirection, GraphScope, SettingsView};
 use gpui::{
@@ -25,7 +25,7 @@ use crate::{strings, theme};
 
 const ROOM_GAP: f32 = 14.0;
 const PROMPT_CHANGED: &str = "promptChanged";
-const REACH_EVERY: Duration = Duration::from_secs(5);
+const REPOS_EVERY: Duration = Duration::from_secs(5);
 pub const NODE_ENV: &str = "LOOM_DESKTOP_NODE";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -158,8 +158,17 @@ impl Store {
                 let reach_base = base.clone();
                 cx.spawn_in(window, async move |this, cx| {
                     loop {
-                        cx.background_executor().timer(REACH_EVERY).await;
-                        let Ok(hosts) = this.read_with(cx, |store, _| store.ssh_hosts()) else {
+                        cx.background_executor().timer(REPOS_EVERY).await;
+                        let base = reach_base.clone();
+                        let repos: Result<Vec<RepoView>, _> = cx
+                            .background_spawn(async move { link::read(&base, "/api/repos") })
+                            .await;
+                        let Ok(hosts) = this.update(cx, |store, cx| {
+                            if let Ok(repos) = repos {
+                                store.keep_repos(repos, cx);
+                            }
+                            store.ssh_hosts()
+                        }) else {
                             break;
                         };
                         if hosts.is_empty() {
@@ -621,6 +630,18 @@ impl Store {
         }
         self.revision += 1;
         self.reselect();
+    }
+
+    fn keep_repos(&mut self, repos: Vec<RepoView>, cx: &mut Context<Self>) {
+        let Some(snapshot) = &mut self.snapshot else {
+            return;
+        };
+        if serde_json::to_string(&snapshot.repos).ok() == serde_json::to_string(&repos).ok() {
+            return;
+        }
+        snapshot.repos = repos;
+        self.revision += 1;
+        cx.notify();
     }
 
     fn reselect(&mut self) {

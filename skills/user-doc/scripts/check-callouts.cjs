@@ -10,6 +10,7 @@ const RENDER = { width: 1440, height: 2400 };
 const quick = process.argv.includes('--quick');
 const doc = path.resolve(process.argv.slice(2).find(a => a !== '--quick'));
 const html = fs.readFileSync(doc, 'utf8');
+const SHARED = ['../style.html', '../callouts/callouts.css'].map(f => fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/^[\s\S]*<style>|<\/style>[\s\S]*$/g, ''));
 const runs = quick ? [MAIN] : RUNS.filter(r => !r.slow || /<img\b/i.test(html));
 const render = path.join(process.env.TMPDIR || os.tmpdir(), `show-${path.basename(doc, path.extname(doc))}.png`);
 
@@ -72,6 +73,25 @@ const IDS = mockup => {
     for (let t; (t = w.nextNode());) if (/권장|정할 것|Recommended/i.test(t.textContent) && !t.parentElement.closest('.decision, .lead, .who, script, style, ' + SCREEN)) bad.push(`decision outside a decision box: "${cut(t)}"`);
   }
   return [...new Set(bad)];
+};
+
+const DECISION_STYLE = ([style, callouts]) => {
+  if (!document.querySelector('.decision')) return [];
+  const OWN = /\.(decision|opts?|did|key|mark|sub|label|why)(?![\w-])/;
+  const rules = text => { const s = new CSSStyleSheet(); s.replaceSync(text); return [...s.cssRules].filter(r => OWN.test(r.selectorText ?? '')); };
+  const need = rules(style), allowed = new Set([...need, ...rules(callouts)].map(r => r.cssText));
+  const found = new Set(), bad = [], boxes = [...document.querySelectorAll('.decision, .decision *')];
+  const walk = list => { for (const r of list) { if (r.cssRules) walk(r.cssRules); if (!OWN.test(r.selectorText ?? '')) continue;
+    if (allowed.has(r.cssText)) { found.add(r.cssText); continue; }
+    const sel = r.selectorText.replace(/:{1,2}(hover|focus|focus-visible|focus-within|active|before|after|marker|placeholder|selection|first-line|first-letter)(?![\w-])/g, '');
+    let hit = true; try { hit = boxes.some(e => e.matches(sel)); } catch {}
+    if (hit) bad.push(`decision box rule not in style.html: "${r.cssText.slice(0, 90)}"`); } };
+  for (const s of document.styleSheets) { let list; try { list = s.cssRules; } catch { continue; } walk(list); }
+  for (const r of need) if (!found.has(r.cssText)) bad.push(`style.html decision box rule missing: "${r.cssText.slice(0, 90)}"`);
+  const box = getComputedStyle(document.querySelector('.decision'));
+  for (const v of new Set(need.flatMap(r => r.cssText.match(/--[\w-]+/g) ?? []))) if (!box.getPropertyValue(v).trim()) bad.push(`decision box token ${v} is not defined`);
+  if (bad.length) bad.push('decision boxes: copy the decision rules and their tokens from style.html as they are; do not add or change rules for .decision, .opts, .opt, .did, .key, .mark, .sub, .label or .why');
+  return bad;
 };
 
 const CONTRAST = theme => {
@@ -350,7 +370,7 @@ async function checkPage(ctx, run) {
       return { bad: [label + `page did not load in ${LOAD_MS / 1000} s (callouts.js layout or a web font): ${e.message.split('\n')[0]}`] };
     }
     const bad = [];
-    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
+    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)), ...await page.evaluate(DECISION_STYLE, SHARED));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });

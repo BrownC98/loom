@@ -38,12 +38,14 @@ Read the file of your type before you write. This file gives the rules for all t
 - The rules below apply to mockups, and to reports that use decision boxes (optional in a report). A workflow map has no decision boxes: ask each decision for the human as a separate `loom ask` question.
 - For each decision, give the recommendation, what changes for the human (a "now → after" example), the cost, the risk and how to undo it.
 - Put each open decision in its own decision box. The box is amber, the color of the loom question notice. Explanation callouts stay red. Do not put a decision, an option or a recommendation in a callout or a note.
-- Copy the markup and the `.decision` styles from [style.html](style.html):
+- Copy the markup, the decision rules (`.decision`, `.did`, `.opts`, `.opt` and their children) and the tokens that they use from [style.html](style.html). Do not change them and do not add rules for these classes, also in a report: all documents show one kind of option buttons.
+  Markup:
   `<section class="decision" id="D1" data-for="2 3"><h3><span class="did">D1</span>question</h3><div class="opts"><div class="opt" data-recommended><span class="key">A</span><span class="label">option<span class="mark">권장</span><span class="sub">now → after · cost · risk · undo</span></span></div>…</div><ul class="why"><li>reason</li></ul></section>`.
   The option buttons and the recommended mark have the look of the inbox question options.
 - Target: in a mockup, `data-for` gives the numbers of the boxes that the decision is about. [callouts.js](callouts/callouts.js) writes the line `대상: <section title> · 2, 3번` below the question and puts the decision ID next to the number of each of those callouts. Do not write that line yourself.
 - Give two to four `.opt`. Exactly one has `data-recommended` and `<span class="mark">권장</span>`. Give at most three reasons in `.why`.
 - IDs: decisions are `D1`, `D2`, …; `id` and `.did` have the same text. Callouts are numbers (see [mockup.md "Mockup callouts"](mockup.md#mockup-callouts)). No ID is used twice in a document. Name items by ID in the document, in chat and in questions (`D2`, `7번`).
+- Check: `show.sh` fails a document with decision boxes if a style.html decision rule is missing, a token that it uses is not defined, or a different rule styles a decision box (a selector with `.decision`, `.opts`, `.opt`, `.did`, `.key`, `.mark`, `.sub`, `.label` or `.why` that matches an element in a box).
 - Check: `show.sh` fails a mockup with an option or recommendation outside a decision box (`.opt`, `.did`, `data-recommended`, or the text `권장`, `정할 것` or `Recommended` outside a box, the lead, the head line and the screen drawings). In all documents it fails a decision without exactly one recommended option, a missing ID or an ID used twice. In a document with callouts, it also fails a decision without `data-for` or with a number that is not a box with a callout in a screen section (`.fig`).
 
 ## Display

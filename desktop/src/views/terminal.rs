@@ -122,14 +122,14 @@ pub struct TerminalView {
     reporting: Option<MouseButton>,
     last_cell: Option<(usize, usize)>,
     wheel_rest: f32,
-    saver: Option<Saver>,
+    saver: Saver,
     _focus_events: [Subscription; 2],
     _look: Subscription,
 }
 
 struct Saver {
     base: String,
-    node: NodeId,
+    node: Option<NodeId>,
 }
 
 fn color([r, g, b]: vt::Rgb8) -> Rgba {
@@ -163,9 +163,9 @@ pub fn open(
 ) -> Entity<TerminalView> {
     let saver = Saver {
         base: base.to_owned(),
-        node: NodeId(node),
+        node: Some(NodeId(node)),
     };
-    let view = open_with(link::attach, base, node, Some(saver), window, cx);
+    let view = open_with(link::attach, base, node, saver, window, cx);
     crate::views::inputs::offer(inputs, node, &view, cx);
     view
 }
@@ -176,7 +176,11 @@ pub fn open_login(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
-    open_with(link::attach_login, base, login, None, window, cx)
+    let saver = Saver {
+        base: base.to_owned(),
+        node: None,
+    };
+    open_with(link::attach_login, base, login, saver, window, cx)
 }
 
 type Attach = fn(&str, u32, async_channel::Sender<Event>) -> Result<Pty, String>;
@@ -185,7 +189,7 @@ fn open_with(
     attach: Attach,
     base: &str,
     id: u32,
-    saver: Option<Saver>,
+    saver: Saver,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<TerminalView> {
@@ -199,7 +203,7 @@ fn open_with(
 impl TerminalView {
     fn new(
         opened: Result<(Pty, async_channel::Receiver<Event>), String>,
-        saver: Option<Saver>,
+        saver: Saver,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -471,14 +475,13 @@ impl TerminalView {
             self.paste_text(&text, cx);
             return;
         }
-        let image = item.into_entries().find_map(|entry| match entry {
+        let Some(image) = item.into_entries().find_map(|entry| match entry {
             ClipboardEntry::Image(image) => Some(image),
             _ => None,
-        });
-        let (Some(image), Some(saver)) = (image, &self.saver) else {
+        }) else {
             return;
         };
-        let (base, node) = (saver.base.clone(), saver.node);
+        let (base, node) = (self.saver.base.clone(), self.saver.node);
         let lang = *cx.global::<Lang>();
         let saved = cx.background_spawn(async move {
             let name = format!("image.{}", image.format.extension());

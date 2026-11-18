@@ -190,6 +190,10 @@ enum Cli {
         action: Option<SettingsAction>,
     },
     /// loom 밖의 에이전트(예: Aside)가 노드의 채팅방으로 노드와 주고받는다. 노드 토큰 없이 이 PC의 데몬에 붙는다.
+    ///
+    /// `loom`을 띄우지 못하는 에이전트(Aside의 셸)는 HTTP로 같은 일을 한다. 데몬 주소는 기본 `http://127.0.0.1:7420`이다.
+    /// `nodes`는 `GET /api/nodes`다. `send`는 `POST /api/rooms/<노드>/outside`에 `{"from":"<이름>","text":"<말>"}`를 보내고 줄 번호를 받는다.
+    /// `read`는 `GET /api/rooms/<노드>/talk`의 `lines`에서 `said.reply_to`가 그 줄 번호인 줄을 찾는다.
     Room {
         #[command(subcommand)]
         action: RoomAction,

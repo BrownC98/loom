@@ -1012,24 +1012,51 @@ fn spinner(line: &str) -> bool {
 
 const STATUS_GLYPHS: [char; 7] = ['·', '✢', '✳', '✶', '✻', '✽', '*'];
 
-fn status_row(row: &str) -> Option<String> {
+fn status_row(row: &str) -> Option<(&str, Vec<&str>)> {
     let rest = row.strip_prefix(STATUS_GLYPHS)?.strip_prefix(' ')?;
     let (verb, tail) = rest.split_once('…')?;
-    let shaped = !verb.is_empty()
-        && verb.chars().all(char::is_alphabetic)
-        && (tail.is_empty() || (tail.starts_with(" (") && tail.ends_with(')')));
-    shaped.then(|| {
-        let mut masked = String::new();
-        for c in rest.chars() {
-            match c {
-                '0'..='9' if masked.ends_with('#') => {}
-                '0'..='9' => masked.push('#'),
-                '↑' => masked.push('↓'),
-                c => masked.push(c),
-            }
-        }
-        masked
-    })
+    if verb.is_empty() || !verb.chars().all(char::is_alphabetic) {
+        return None;
+    }
+    let parts = match tail {
+        "" => Vec::new(),
+        _ => tail
+            .strip_prefix(" (")?
+            .strip_suffix(')')?
+            .split(" · ")
+            .map(|part| match (is_elapsed(part), is_tokens(part)) {
+                (true, _) => "elapsed",
+                (_, true) => "tokens",
+                _ => part,
+            })
+            .collect(),
+    };
+    Some((verb, parts))
+}
+
+fn is_elapsed(part: &str) -> bool {
+    let units: Vec<&str> = part.split(' ').collect();
+    units.last().is_some_and(|last| last.ends_with('s'))
+        && units
+            .iter()
+            .zip(["h", "m", "s"].iter().skip(3 - units.len().min(3)))
+            .all(|(unit, suffix)| unit.strip_suffix(suffix).is_some_and(is_number))
+        && units.len() <= 3
+}
+
+fn is_tokens(part: &str) -> bool {
+    let Some(count) = part
+        .strip_prefix(['↑', '↓'])
+        .and_then(|p| p.strip_prefix(' '))
+        .and_then(|p| p.strip_suffix(" tokens"))
+    else {
+        return false;
+    };
+    let count = count.strip_suffix('k').unwrap_or(count);
+    match count.split_once('.') {
+        Some((whole, tenth)) => is_number(whole) && is_number(tenth),
+        None => is_number(count),
+    }
 }
 
 const COUNTDOWN_HEAD: &str = "\u{26a0} Claude Code will automatically block this request in ";

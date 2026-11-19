@@ -244,7 +244,7 @@ impl Adapter for Claude {
     }
 
     fn ticking_row(&self, row: &str) -> bool {
-        is_countdown(row)
+        is_countdown(row) || spinner(row)
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {

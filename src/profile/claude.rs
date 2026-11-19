@@ -1012,7 +1012,14 @@ fn spinner(line: &str) -> bool {
 
 const STATUS_GLYPHS: [char; 7] = ['·', '✢', '✳', '✶', '✻', '✽', '*'];
 
-fn status_row(row: &str) -> Option<(&str, Vec<&str>)> {
+#[derive(PartialEq)]
+enum StatusField<'a> {
+    Elapsed,
+    Tokens,
+    Text(&'a str),
+}
+
+fn status_row(row: &str) -> Option<(&str, Vec<StatusField<'_>>)> {
     let rest = row.strip_prefix(STATUS_GLYPHS)?.strip_prefix(' ')?;
     let (verb, tail) = rest.split_once('…')?;
     if verb.is_empty() || !verb.chars().all(char::is_alphabetic) {
@@ -1025,9 +1032,9 @@ fn status_row(row: &str) -> Option<(&str, Vec<&str>)> {
             .strip_suffix(')')?
             .split(" · ")
             .map(|part| match (is_elapsed(part), is_tokens(part)) {
-                (true, _) => "elapsed",
-                (_, true) => "tokens",
-                _ => part,
+                (true, _) => StatusField::Elapsed,
+                (_, true) => StatusField::Tokens,
+                _ => StatusField::Text(part),
             })
             .collect(),
     };

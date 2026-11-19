@@ -243,8 +243,10 @@ impl Adapter for Claude {
         })
     }
 
-    fn ticking_row(&self, row: &str) -> bool {
-        is_countdown(row) || spinner(row)
+    fn same_row(&self, shown: &str, now: &str) -> bool {
+        shown == now
+            || (is_countdown(shown) && is_countdown(now))
+            || status_row(shown).is_some_and(|row| status_row(now) == Some(row))
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -1006,6 +1008,28 @@ fn spinner(line: &str) -> bool {
             .split(' ')
             .next()
             .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
+}
+
+const STATUS_GLYPHS: [char; 7] = ['·', '✢', '✳', '✶', '✻', '✽', '*'];
+
+fn status_row(row: &str) -> Option<String> {
+    let rest = row.strip_prefix(STATUS_GLYPHS)?.strip_prefix(' ')?;
+    let (verb, tail) = rest.split_once('…')?;
+    let shaped = !verb.is_empty()
+        && verb.chars().all(char::is_alphabetic)
+        && (tail.is_empty() || (tail.starts_with(" (") && tail.ends_with(')')));
+    shaped.then(|| {
+        let mut masked = String::new();
+        for c in rest.chars() {
+            match c {
+                '0'..='9' if masked.ends_with('#') => {}
+                '0'..='9' => masked.push('#'),
+                '↑' => masked.push('↓'),
+                c => masked.push(c),
+            }
+        }
+        masked
+    })
 }
 
 const COUNTDOWN_HEAD: &str = "\u{26a0} Claude Code will automatically block this request in ";

@@ -243,8 +243,10 @@ impl Adapter for Claude {
         })
     }
 
-    fn ticking_row(&self, row: &str) -> bool {
-        is_countdown(row)
+    fn same_row(&self, shown: &str, now: &str) -> bool {
+        shown == now
+            || (is_countdown(shown) && is_countdown(now))
+            || status_row(shown).is_some_and(|row| status_row(now) == Some(row))
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -1006,6 +1008,62 @@ fn spinner(line: &str) -> bool {
             .split(' ')
             .next()
             .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
+}
+
+const STATUS_GLYPHS: [char; 7] = ['·', '✢', '✳', '✶', '✻', '✽', '*'];
+
+#[derive(PartialEq)]
+enum StatusField<'a> {
+    Elapsed,
+    Tokens,
+    Text(&'a str),
+}
+
+fn status_row(row: &str) -> Option<(&str, Vec<StatusField<'_>>)> {
+    let rest = row.strip_prefix(STATUS_GLYPHS)?.strip_prefix(' ')?;
+    let (verb, tail) = rest.split_once('…')?;
+    if verb.is_empty() || !verb.chars().all(char::is_alphabetic) {
+        return None;
+    }
+    let parts = match tail {
+        "" => Vec::new(),
+        _ => tail
+            .strip_prefix(" (")?
+            .strip_suffix(')')?
+            .split(" · ")
+            .map(|part| match (is_elapsed(part), is_tokens(part)) {
+                (true, _) => StatusField::Elapsed,
+                (_, true) => StatusField::Tokens,
+                _ => StatusField::Text(part),
+            })
+            .collect(),
+    };
+    Some((verb, parts))
+}
+
+fn is_elapsed(part: &str) -> bool {
+    let units: Vec<&str> = part.split(' ').collect();
+    units.last().is_some_and(|last| last.ends_with('s'))
+        && units
+            .iter()
+            .zip(["h", "m", "s"].iter().skip(3 - units.len().min(3)))
+            .all(|(unit, suffix)| unit.strip_suffix(suffix).is_some_and(is_number))
+        && units.len() <= 3
+}
+
+fn is_tokens(part: &str) -> bool {
+    let Some(count) = part
+        .strip_prefix(['↑', '↓'])
+        .and_then(|p| p.strip_prefix(' '))
+        .and_then(|p| p.strip_suffix(" tokens"))
+    else {
+        return false;
+    };
+    let count = count.strip_suffix('k').unwrap_or(count);
+    match count.split_once('.') {
+        Some((whole, tenth)) => is_number(whole) && is_number(tenth),
+        None => is_number(count),
+    }
 }
 
 const COUNTDOWN_HEAD: &str = "\u{26a0} Claude Code will automatically block this request in ";

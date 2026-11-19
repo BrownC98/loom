@@ -184,8 +184,8 @@ pub trait Adapter: Sync {
     fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
-    fn ticking_row(&self, _: &str) -> bool {
-        false
+    fn same_row(&self, shown: &str, now: &str) -> bool {
+        shown == now
     }
     fn install(&self, _: &Path) -> std::io::Result<()> {
         Ok(())

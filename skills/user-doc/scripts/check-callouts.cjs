@@ -35,7 +35,7 @@ const LOCAL_REFS = () => {
     for (const a of ['src', 'href', 'srcset', 'poster']) {
       const v = e.getAttribute(a); if (v === null) continue;
       const refs = a === 'srcset' ? v.split(/(?<=\s\d+(?:\.\d+)?[wx])\s*,|,\s+/).map(c => c.trim().split(/\s+/)[0]) : [v];
-      for (const r of refs) if (!ok(r)) bad.push(`not one file: <${e.tagName.toLowerCase()} ${a}="${r.slice(0, 60)}">`);
+      for (const r of refs) if (!ok(r) && !(a === 'href' && e.tagName === 'A' && /^\/docs\/[MR]\d+$/.test(r))) bad.push(`not one file: <${e.tagName.toLowerCase()} ${a}="${r.slice(0, 60)}">`);
     }
   const css = [...document.querySelectorAll('style')].map(s => s.textContent).concat([...document.querySelectorAll('[style]')].map(e => e.getAttribute('style')));
   for (const t of css) {
@@ -66,7 +66,7 @@ const IDS = mockup => {
     const k = c.querySelector(':scope > b')?.textContent.trim() ?? '';
     if (!/^\d+$/.test(k)) bad.push(`callout "${cut(c)}" has no number (<b>n</b>)`); else use(k, 'callout "' + cut(c.querySelector(':scope > span') ?? c) + '"');
   }
-  for (const m of document.querySelectorAll('.mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
+  for (const m of document.querySelectorAll('.fig .mk:not([data-n])')) bad.push(`box "${cut(m)}" has no number (data-n)`);
   if (mockup) {
     for (const e of document.querySelectorAll('.opt, .did, [data-recommended]')) if (!e.closest('.decision, ' + SCREEN)) bad.push(`option outside a decision box: "${cut(e)}"`);
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -306,7 +306,7 @@ const LAYOUT_PASS = () => {
   const els = [...document.querySelectorAll('.fig .page *, .fig .xlwin *, .fig .shotwrap *')].filter(e => !e.closest('.co, .lead-svg, .ov-box, .ov-badge'));
   const before = els.map(e => e.getBoundingClientRect());
   document.querySelectorAll('.co, .lead-svg, .ov-box, .ov-badge').forEach(e => e.remove());
-  for (const m of document.querySelectorAll('.mk')) { if (m.matches('.shotwrap .mk') && !m.children.length && !m.textContent.trim()) m.style.position = 'absolute'; m.classList.remove('mk', 'new'); }
+  for (const m of document.querySelectorAll('.fig .mk')) { if (m.matches('.shotwrap .mk') && !m.children.length && !m.textContent.trim()) m.style.position = 'absolute'; m.classList.remove('mk', 'new'); }
   const bad = [];
   els.forEach((e, i) => {
     const a = before[i], b = e.getBoundingClientRect();

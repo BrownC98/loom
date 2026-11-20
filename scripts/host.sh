@@ -22,35 +22,44 @@ git -C "$build" checkout --detach --quiet --force "$head"
 version=$(cd "$build" && sh scripts/version.sh)
 data=$HOME/.loom
 exe=$bin
-probe=curl
 if [ -n "$target" ]; then
   appdata=$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')
   [ -n "$appdata" ] || { echo "host.sh: cmd.exe did not give %APPDATA%" >&2; exit 1; }
   data=$(wslpath "$appdata")/loom
   dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
   exe=$dir/loom.exe
-  probe=curl.exe
+  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then carry=$HOME/.loom; fi
 fi
-answers() { "$probe" -s --noproxy '*' --max-time 2 "$1/" >/dev/null; }
-guard() {
+answers() {
+  local code=0
+  "$1" -s --noproxy '*' --max-time 2 "$2/" >/dev/null || code=$?
+  case $code in
+    0) return 0 ;;
+    7) return 1 ;;
+  esac
+  echo "host.sh: $1 $2/ ended with code $code. host.sh cannot tell if a daemon runs there, so it does not stop or replace anything." >&2
+  exit 1
+}
+linuxpath() { readlink -m "$1"; }
+windowspath() {
+  local p=$1
+  case $p in [A-Za-z]:*) p=$(wslpath -u "$p") ;; esac
+  p=$(readlink -m "$p")
+  printf '%s\n' "${p,,}"
+}
+check() {
+  local probe=$1 data=$2 exe=$3 path=$4 live url running at
   live=$(cat "$data/daemon.json" 2>/dev/null || true)
   field() { printf '%s' "$live" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
   url=$(field url)
-  if [ "$url" != "http://127.0.0.1:$port" ] && answers "http://127.0.0.1:$port"; then
+  if [ "$url" != "http://127.0.0.1:$port" ] && answers "$probe" "http://127.0.0.1:$port"; then
     echo "host.sh: a daemon answers at 127.0.0.1:$port, but $data/daemon.json does not describe it. host.sh does not stop an unknown daemon. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
-  if [ -z "$url" ] || ! answers "$url"; then return 0; fi
+  if [ -z "$url" ] || ! answers "$probe" "$url"; then return 0; fi
   running=$(field version)
   at=$(field exe | sed 's/\\\\/\\/g')
-  seen=$at
-  mine=$(readlink -m "$exe")
-  if [ -n "$target" ]; then
-    seen=$(wslpath -u "$at")
-    seen=${seen,,}
-    mine=${mine,,}
-  fi
-  if [ "$(readlink -m "$seen")" != "$mine" ]; then
+  if [ "$("$path" "$at")" != "$("$path" "$exe")" ]; then
     echo "host.sh: the daemon at $url runs $at, not $exe. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
@@ -58,6 +67,14 @@ guard() {
     echo "host.sh: the daemon at $url is loom $running, newer than this build ($version). host.sh does not replace it with an older loom." >&2
     exit 1
   fi
+}
+guard() {
+  if [ -z "$target" ]; then
+    check curl "$data" "$exe" linuxpath
+    return
+  fi
+  check curl.exe "$data" "$exe" windowspath
+  if [ -n "$carry" ]; then check curl "$carry" "$bin" linuxpath; fi
 }
 guard
 linux=
@@ -72,10 +89,7 @@ if [ -z "$target" ]; then
   cp "$build/target/release/loom" "$bin.new"
   mv "$bin.new" "$bin"
 else
-  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
-    "$bin" stop --listen "127.0.0.1:$port"
-    carry=$HOME/.loom
-  fi
+  if [ -n "$carry" ]; then "$bin" stop --listen "127.0.0.1:$port"; fi
   mkdir -p "$dir"
   cp "$build/target/${linux:+$linux/}release/loom" "$dir/loom-linux.new"
   mv "$dir/loom-linux.new" "$dir/loom-linux"

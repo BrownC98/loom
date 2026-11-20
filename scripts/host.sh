@@ -48,7 +48,8 @@ windowspath() {
   printf '%s\n' "${p,,}"
 }
 check() {
-  local probe=$1 data=$2 exe=$3 path=$4 live url running at
+  local probe=$1 data=$2 path=$3 live url running at e ok=
+  shift 3
   live=$(cat "$data/daemon.json" 2>/dev/null || true)
   field() { printf '%s' "$live" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
   url=$(field url)
@@ -59,8 +60,11 @@ check() {
   if [ -z "$url" ] || ! answers "$probe" "$url"; then return 0; fi
   running=$(field version)
   at=$(field exe | sed 's/\\\\/\\/g')
-  if [ "$("$path" "$at")" != "$("$path" "$exe")" ]; then
-    echo "host.sh: the daemon at $url runs $at, not $exe. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
+  for e in "$@"; do
+    if [ -n "$at" ] && [ "$("$path" "$at")" = "$("$path" "$e")" ]; then ok=1; fi
+  done
+  if [ -z "$ok" ]; then
+    echo "host.sh: the daemon at $url runs $at, not $*. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
   if [ "$running" != "$version" ] && [ "$(printf '%s\n' "$running" "$version" | sort -V | tail -n 1)" = "$running" ]; then
@@ -70,13 +74,19 @@ check() {
 }
 guard() {
   if [ -z "$target" ]; then
-    check curl "$data" "$exe" linuxpath
+    check curl "$data" linuxpath "$exe"
     return
   fi
-  check curl.exe "$data" "$exe" windowspath
-  if [ -n "$carry" ]; then check curl "$carry" "$bin" linuxpath; fi
+  check curl.exe "$data" windowspath "$exe" "$dir/bin/loom.exe"
+  if [ -n "$carry" ]; then check curl "$carry" linuxpath "$bin"; fi
 }
 guard
+swap() {
+  cp "$1" "$2.new"
+  if [ -e "$2" ]; then mv "$2" "$2.$(date +%s).old"; fi
+  mv "$2.new" "$2"
+  rm -f "$2".*.old 2>/dev/null || true
+}
 linux=
 if [ -n "$target" ] && command -v x86_64-linux-musl-gcc >/dev/null; then linux=x86_64-unknown-linux-musl; fi
 (cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$version LOOM_COMMIT=$(git rev-parse --short HEAD) LOOM_RELEASES=https://github.com/BrownC98/loom/releases &&
@@ -93,10 +103,12 @@ else
   mkdir -p "$dir"
   cp "$build/target/${linux:+$linux/}release/loom" "$dir/loom-linux.new"
   mv "$dir/loom-linux.new" "$dir/loom-linux"
-  cp "$build/target/$target/release/loom.exe" "$exe.new"
-  [ -e "$exe" ] && mv "$exe" "$exe.$(date +%s).old"
-  mv "$exe.new" "$exe"
-  rm -f "$dir"/loom.exe.*.old 2>/dev/null || true
+  swap "$build/target/$target/release/loom.exe" "$exe"
+  if [ -e "$dir/bin/loom.exe" ] || [ -e "$dir/bin/loom.exe.new" ]; then swap "$exe" "$dir/bin/loom.exe"; fi
+  if [ -e "$dir/bin/loom-linux" ]; then
+    cp "$dir/loom-linux" "$dir/bin/loom-linux.new"
+    mv "$dir/bin/loom-linux.new" "$dir/bin/loom-linux"
+  fi
   printf '#!/bin/sh\ncase $1 in serve|start|stop|open) [ "$HOME" = '"'%s'"' ] || { echo "loom: this command would act on the human'"'"'s Windows daemon; build a Linux test binary instead (see AGENTS.md \\"데몬 띄우기(시험)\\")" >&2; exit 2; } ;; esac\nexec "%s" "$@"\n' "$(printf %s "$HOME" | sed "s/'/'\\\\''/g")" "$exe" >"$bin.new"
   chmod +x "$bin.new"
   mv "$bin.new" "$bin"

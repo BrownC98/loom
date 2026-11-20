@@ -19,24 +19,61 @@ git -C "$build" fetch --quiet "$PWD" HEAD
 head=$(git -C "$build" rev-parse FETCH_HEAD)
 [ "$head" != "$(cat "$deployed" 2>/dev/null)" ] || exit 0
 git -C "$build" checkout --detach --quiet --force "$head"
+version=$(cd "$build" && sh scripts/version.sh)
+data=$HOME/.loom
+exe=$bin
+probe=curl
+if [ -n "$target" ]; then
+  appdata=$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')
+  [ -n "$appdata" ] || { echo "host.sh: cmd.exe did not give %APPDATA%" >&2; exit 1; }
+  data=$(wslpath "$appdata")/loom
+  dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
+  exe=$dir/loom.exe
+  probe=curl.exe
+fi
+guard() {
+  "$probe" -s --noproxy '*' --max-time 2 "http://127.0.0.1:$port/" >/dev/null || return 0
+  live=$(cat "$data/daemon.json" 2>/dev/null || true)
+  field() { printf '%s' "$live" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
+  if [ "$(field url)" != "http://127.0.0.1:$port" ]; then
+    echo "host.sh: a daemon answers at 127.0.0.1:$port, but $data/daemon.json does not describe it. host.sh does not stop an unknown daemon. Stop it yourself, then run host.sh again." >&2
+    exit 1
+  fi
+  running=$(field version)
+  at=$(field exe | sed 's/\\\\/\\/g')
+  seen=$at
+  mine=$(readlink -m "$exe")
+  if [ -n "$target" ]; then
+    seen=$(wslpath -u "$at")
+    seen=${seen,,}
+    mine=${mine,,}
+  fi
+  if [ "$(readlink -m "$seen")" != "$mine" ]; then
+    echo "host.sh: the daemon at 127.0.0.1:$port runs $at, not $exe. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
+    exit 1
+  fi
+  if [ "$running" != "$version" ] && [ "$(printf '%s\n' "$running" "$version" | sort -V | tail -n 1)" = "$running" ]; then
+    echo "host.sh: the daemon at 127.0.0.1:$port is loom $running, newer than this build ($version). host.sh does not replace it with an older loom." >&2
+    exit 1
+  fi
+}
+guard
 linux=
 if [ -n "$target" ] && command -v x86_64-linux-musl-gcc >/dev/null; then linux=x86_64-unknown-linux-musl; fi
-(cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) LOOM_RELEASES=https://github.com/BrownC98/loom/releases &&
+(cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$version LOOM_COMMIT=$(git rev-parse --short HEAD) LOOM_RELEASES=https://github.com/BrownC98/loom/releases &&
   memcap -m 3584M cargo build --release ${target:+--target "$target"} &&
   if [ -n "$linux" ]; then rustup target add "$linux" && memcap -m 3584M cargo build --release --target "$linux"; fi &&
   if [ -n "$target" ] && [ -z "$linux" ]; then memcap -m 3584M cargo build --release; fi)
 
+guard
 if [ -z "$target" ]; then
   cp "$build/target/release/loom" "$bin.new"
   mv "$bin.new" "$bin"
-  exe=$bin
 else
   if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
     "$bin" stop --listen "127.0.0.1:$port"
     carry=$HOME/.loom
   fi
-  dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
-  exe=$dir/loom.exe
   mkdir -p "$dir"
   cp "$build/target/${linux:+$linux/}release/loom" "$dir/loom-linux.new"
   mv "$dir/loom-linux.new" "$dir/loom-linux"
@@ -52,17 +89,12 @@ fi
 "$exe" stop --listen "127.0.0.1:$port"
 rm -f "$HOME/.loom/serve.pid"
 if [ -n "$carry" ]; then
-  data=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')")/loom
   for f in "$data"/loom.db "$data"/loom.db-wal "$data"/loom.db-shm; do
     if [ -e "$f" ]; then mv "$f" "$f.$(date +%s).bak"; fi
   done
 fi
 owner=$HOME/.loom
-if [ -n "$target" ]; then
-  appdata=$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')
-  [ -n "$appdata" ] || { echo "host.sh: cmd.exe did not give %APPDATA%" >&2; exit 1; }
-  owner="$appdata\\loom"
-fi
+if [ -n "$target" ]; then owner="$appdata\\loom"; fi
 mkdir -p "$HOME/.cache/loom"
 printf '%s\n' "$owner" >"$HOME/.cache/loom/.loom-owner"
 "$exe" start --listen "127.0.0.1:$port" 9>&- && "$exe" --version && echo "$head" >"$deployed"

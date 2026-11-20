@@ -31,14 +31,16 @@ if [ -n "$target" ]; then
   exe=$dir/loom.exe
   probe=curl.exe
 fi
+answers() { "$probe" -s --noproxy '*' --max-time 2 "$1/" >/dev/null; }
 guard() {
-  "$probe" -s --noproxy '*' --max-time 2 "http://127.0.0.1:$port/" >/dev/null || return 0
   live=$(cat "$data/daemon.json" 2>/dev/null || true)
   field() { printf '%s' "$live" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
-  if [ "$(field url)" != "http://127.0.0.1:$port" ]; then
+  url=$(field url)
+  if [ "$url" != "http://127.0.0.1:$port" ] && answers "http://127.0.0.1:$port"; then
     echo "host.sh: a daemon answers at 127.0.0.1:$port, but $data/daemon.json does not describe it. host.sh does not stop an unknown daemon. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
+  if [ -z "$url" ] || ! answers "$url"; then return 0; fi
   running=$(field version)
   at=$(field exe | sed 's/\\\\/\\/g')
   seen=$at
@@ -49,11 +51,11 @@ guard() {
     mine=${mine,,}
   fi
   if [ "$(readlink -m "$seen")" != "$mine" ]; then
-    echo "host.sh: the daemon at 127.0.0.1:$port runs $at, not $exe. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
+    echo "host.sh: the daemon at $url runs $at, not $exe. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
   if [ "$running" != "$version" ] && [ "$(printf '%s\n' "$running" "$version" | sort -V | tail -n 1)" = "$running" ]; then
-    echo "host.sh: the daemon at 127.0.0.1:$port is loom $running, newer than this build ($version). host.sh does not replace it with an older loom." >&2
+    echo "host.sh: the daemon at $url is loom $running, newer than this build ($version). host.sh does not replace it with an older loom." >&2
     exit 1
   fi
 }

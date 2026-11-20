@@ -28,14 +28,14 @@ async function openSlow(page, delay) {
   await page.goto('https://mockup.invalid/doc.html', { waitUntil: 'load' });
 }
 
-const LOCAL_REFS = () => {
+const LOCAL_REFS = pages => {
   const ok = v => /^(data:|https:|#|$)/i.test(v.trim());
   const bad = [];
   for (const e of document.querySelectorAll('[src], [href], [srcset], [poster]'))
     for (const a of ['src', 'href', 'srcset', 'poster']) {
       const v = e.getAttribute(a); if (v === null) continue;
       const refs = a === 'srcset' ? v.split(/(?<=\s\d+(?:\.\d+)?[wx])\s*,|,\s+/).map(c => c.trim().split(/\s+/)[0]) : [v];
-      for (const r of refs) if (!ok(r) && !(a === 'href' && e.tagName === 'A' && /^\/docs\/[MR]\d+$/.test(r))) bad.push(`not one file: <${e.tagName.toLowerCase()} ${a}="${r.slice(0, 60)}">`);
+      for (const r of refs) if (!ok(r) && !(a === 'href' && e.tagName === 'A' && pages.includes(r))) bad.push(`not one file: <${e.tagName.toLowerCase()} ${a}="${r.slice(0, 60)}">`);
     }
   const css = [...document.querySelectorAll('style')].map(s => s.textContent).concat([...document.querySelectorAll('[style]')].map(e => e.getAttribute('style')));
   for (const t of css) {
@@ -395,7 +395,7 @@ async function checkPage(ctx, run) {
       return { bad: [label + `page did not load in ${LOAD_MS / 1000} s (callouts.js layout or a web font): ${e.message.split('\n')[0]}`] };
     }
     const bad = [];
-    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
+    if (run === MAIN) bad.push(...await page.evaluate(LOCAL_REFS, [...html.matchAll(/href="(\/docs\/[MR]\d+)"/g)].map(m => m[1])), ...await page.evaluate(IDS, /[\\/]docs[\\/]mockups[\\/]/.test(doc)));
     bad.push(...(await page.evaluate(DECISION_STYLE, SHARED)).map(x => label + x));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);

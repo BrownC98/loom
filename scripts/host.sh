@@ -48,7 +48,7 @@ windowspath() {
   printf '%s\n' "${p,,}"
 }
 check() {
-  local probe=$1 data=$2 path=$3 live url running at e
+  local probe=$1 data=$2 path=$3 live url running at e ok=
   shift 3
   live=$(cat "$data/daemon.json" 2>/dev/null || true)
   field() { printf '%s' "$live" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
@@ -61,9 +61,9 @@ check() {
   running=$(field version)
   at=$(field exe | sed 's/\\\\/\\/g')
   for e in "$@"; do
-    if [ "$("$path" "$at")" = "$("$path" "$e")" ]; then at=; fi
+    if [ -n "$at" ] && [ "$("$path" "$at")" = "$("$path" "$e")" ]; then ok=1; fi
   done
-  if [ -n "$at" ]; then
+  if [ -z "$ok" ]; then
     echo "host.sh: the daemon at $url runs $at, not $*. host.sh does not stop or replace a daemon that it did not deploy. Stop it yourself, then run host.sh again." >&2
     exit 1
   fi
@@ -104,7 +104,7 @@ else
   cp "$build/target/${linux:+$linux/}release/loom" "$dir/loom-linux.new"
   mv "$dir/loom-linux.new" "$dir/loom-linux"
   swap "$build/target/$target/release/loom.exe" "$exe"
-  if [ -e "$dir/bin/loom.exe" ]; then swap "$exe" "$dir/bin/loom.exe"; fi
+  if [ -e "$dir/bin/loom.exe" ] || [ -e "$dir/bin/loom.exe.new" ]; then swap "$exe" "$dir/bin/loom.exe"; fi
   if [ -e "$dir/bin/loom-linux" ]; then
     cp "$dir/loom-linux" "$dir/bin/loom-linux.new"
     mv "$dir/bin/loom-linux.new" "$dir/bin/loom-linux"

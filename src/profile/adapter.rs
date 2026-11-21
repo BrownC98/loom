@@ -184,7 +184,7 @@ pub trait Adapter: Sync {
     fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
-    fn same_row(&self, shown: &str, now: &str) -> bool {
+    fn same_rows(&self, shown: &[String], now: &[String]) -> bool {
         shown == now
     }
     fn install(&self, _: &Path) -> std::io::Result<()> {

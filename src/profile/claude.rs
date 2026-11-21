@@ -243,10 +243,14 @@ impl Adapter for Claude {
         })
     }
 
-    fn same_row(&self, shown: &str, now: &str) -> bool {
-        shown == now
-            || (is_countdown(shown) && is_countdown(now))
-            || status_row(shown).is_some_and(|row| status_row(now) == Some(row))
+    fn same_rows(&self, shown: &[String], now: &[String]) -> bool {
+        let (shown, now) = (unwrap_countdown(shown), unwrap_countdown(now));
+        shown.len() == now.len()
+            && shown.iter().zip(&now).all(|(shown, now)| {
+                shown == now
+                    || (is_countdown(shown) && is_countdown(now))
+                    || status_row(shown).is_some_and(|row| status_row(now) == Some(row))
+            })
     }
 
     fn install(&self, dir: &Path) -> std::io::Result<()> {
@@ -1020,8 +1024,11 @@ enum StatusField<'a> {
 }
 
 fn status_row(row: &str) -> Option<(&str, Vec<StatusField<'_>>)> {
-    let rest = row.strip_prefix(STATUS_GLYPHS)?.strip_prefix(' ')?;
-    let (verb, tail) = rest.split_once('…')?;
+    let rest = row
+        .trim_start()
+        .strip_prefix(STATUS_GLYPHS)?
+        .strip_prefix(' ')?;
+    let (verb, tail) = rest.split_once('…').or_else(|| rest.split_once("..."))?;
     if verb.is_empty() || !verb.chars().all(char::is_alphabetic) {
         return None;
     }
@@ -1066,13 +1073,38 @@ fn is_tokens(part: &str) -> bool {
     }
 }
 
-const COUNTDOWN_HEAD: &str = "\u{26a0} Claude Code will automatically block this request in ";
+const COUNTDOWN_GLYPH: char = '\u{26a0}';
+const VARIATION_SELECTOR: char = '\u{fe0f}';
+const COUNTDOWN_HEAD: &str = " Claude Code will automatically block this request in ";
 const COUNTDOWN_TAIL: &str = ", to avoid holding up an unattended session";
 const COUNTDOWN_UNITS: [&str; 4] = ["minute", "minutes", "second", "seconds"];
 
+fn unwrap_countdown(rows: &[String]) -> Vec<String> {
+    let mut joined = Vec::with_capacity(rows.len());
+    let mut at = 0;
+    while at < rows.len() {
+        let starts = rows[at].trim_start().starts_with(COUNTDOWN_GLYPH);
+        let whole = (at + 1..=rows.len()).filter(|_| starts).find_map(|end| {
+            let whole = rows[at + 1..end]
+                .iter()
+                .fold(rows[at].clone(), |whole, next| {
+                    format!("{whole} {}", next.trim_start())
+                });
+            (whole.ends_with(COUNTDOWN_TAIL) && is_countdown(&whole)).then_some((whole, end))
+        });
+        let (row, end) = whole.unwrap_or_else(|| (rows[at].clone(), at + 1));
+        joined.push(row);
+        at = end;
+    }
+    joined
+}
+
 fn is_countdown(row: &str) -> bool {
     let Some((left, rest)) = row
-        .strip_prefix(COUNTDOWN_HEAD)
+        .trim_start()
+        .strip_prefix(COUNTDOWN_GLYPH)
+        .map(|after| after.strip_prefix(VARIATION_SELECTOR).unwrap_or(after))
+        .and_then(|after| after.strip_prefix(COUNTDOWN_HEAD))
         .and_then(|after| after.find(',').map(|at| after.split_at(at)))
     else {
         return false;

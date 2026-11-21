@@ -481,11 +481,10 @@ pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt>
 
 pub fn same_rows(profile: Option<Profile>, shown: &[String], now: &[String]) -> bool {
     !shown.is_empty()
-        && shown.len() == now.len()
-        && shown.iter().zip(now).all(|(a, b)| match profile {
-            Some(p) => adapter(p).same_row(a, b),
-            None => a == b,
-        })
+        && match profile {
+            Some(p) => adapter(p).same_rows(shown, now),
+            None => shown == now,
+        }
 }
 
 pub fn input_seen(profile: Option<Profile>, screen: &Screen) -> Option<InputSeen> {

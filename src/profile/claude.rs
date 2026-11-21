@@ -1081,23 +1081,19 @@ const COUNTDOWN_UNITS: [&str; 4] = ["minute", "minutes", "second", "seconds"];
 
 fn unwrap_countdown(rows: &[String]) -> Vec<String> {
     let mut joined = Vec::with_capacity(rows.len());
-    let mut rest = rows.iter();
-    while let Some(row) = rest.next() {
-        let wrapped = rest.as_slice().first().and_then(|next| {
-            let whole = format!("{row} {}", next.trim_start());
-            (is_countdown(row)
-                && !row.ends_with(COUNTDOWN_TAIL)
-                && whole.ends_with(COUNTDOWN_TAIL)
-                && is_countdown(&whole))
-            .then_some(whole)
+    let mut at = 0;
+    while at < rows.len() {
+        let whole = (at + 1..=rows.len()).find_map(|end| {
+            let whole = rows[at + 1..end]
+                .iter()
+                .fold(rows[at].clone(), |whole, next| {
+                    format!("{whole} {}", next.trim_start())
+                });
+            (whole.ends_with(COUNTDOWN_TAIL) && is_countdown(&whole)).then_some((whole, end))
         });
-        match wrapped {
-            Some(whole) => {
-                rest.next();
-                joined.push(whole);
-            }
-            None => joined.push(row.clone()),
-        }
+        let (row, end) = whole.unwrap_or_else(|| (rows[at].clone(), at + 1));
+        joined.push(row);
+        at = end;
     }
     joined
 }

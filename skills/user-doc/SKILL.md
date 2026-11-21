@@ -9,6 +9,10 @@ Mockups and workflow maps have a fixed design; a report has a free design with a
 
 A document exists so that the human decides fast and correctly. The author does the study and recommends one option; the human only picks. Do not give the human more work to choose (more inputs, more choices, details to fill in) unless the human asks for it.
 
+Keep the human's context load small. The first screen gives only what the human must decide now (or that nothing is open), the recommendation and what changes for the human, in user words. Each decision stands alone with a "now → after" example. Agent-only detail (version history, review rounds, internal IDs) does not go before the decisions. Do not explain again a decision that the human made.
+
+Use text only where it is necessary. Show the content in visuals first (flow diagrams, small screen sketches, state chips, "before → after" strips, cards) with short labels, so that the human understands it at a glance without blocks of prose.
+
 ## Types
 
 Read the file of your type before you write. This file gives the rules for all types.

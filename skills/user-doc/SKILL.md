@@ -9,6 +9,10 @@ Mockups and workflow maps have a fixed design; a report has a free design with a
 
 A document exists so that the human decides fast and correctly. The author does the study and recommends one option; the human only picks. Do not give the human more work to choose (more inputs, more choices, details to fill in) unless the human asks for it.
 
+Keep the human's context load small. Write what the human must decide, the recommendation and what changes for the human in user words, as early as the type's fixed order permits ([report.md](report.md) gives the report order). Agent-only detail (version history, review rounds, internal IDs such as shape, step and piece numbers or § references, not decision or callout IDs) goes last. Do not explain again a decision that the human made.
+
+Use text only where it is necessary. Show the content in visuals first (flow diagrams, small screen sketches, state chips, "before → after" strips, cards) with short labels, so that the human understands it at a glance without blocks of prose.
+
 ## Types
 
 Read the file of your type before you write. This file gives the rules for all types.
@@ -36,8 +40,8 @@ Read the file of your type before you write. This file gives the rules for all t
 
 ## Decisions and IDs
 
-- The rules below apply to mockups, and to reports that use decision boxes (optional in a report). A workflow map has no decision boxes: ask each decision for the human as a separate `loom ask` question.
-- For each decision, give the recommendation, what changes for the human (a "now → after" example), the cost, the risk and how to undo it.
+- Each decision, with or without a box, stands alone: the human understands it without other sections. Give the recommendation, what changes for the human (a "now → after" example), the cost, the risk and how to undo it.
+- The other rules below apply to mockups, and to reports that use decision boxes (optional in a report). A workflow map has no decision boxes: ask each decision for the human as a separate `loom ask` question.
 - Put each open decision in its own decision box. The box is amber, the color of the loom question notice. Explanation callouts stay red. Do not put a decision, an option or a recommendation in a callout or a note.
 - Copy the markup, the decision rules (`.decision`, `.did`, `.opts`, `.opt` and their children) and the tokens that they use from [style.html](style.html). Do not change them and do not add rules for these classes, also in a report: all documents show one kind of option buttons.
   Markup:

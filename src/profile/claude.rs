@@ -1083,7 +1083,8 @@ fn unwrap_countdown(rows: &[String]) -> Vec<String> {
     let mut joined = Vec::with_capacity(rows.len());
     let mut at = 0;
     while at < rows.len() {
-        let whole = (at + 1..=rows.len()).find_map(|end| {
+        let starts = rows[at].trim_start().starts_with(COUNTDOWN_GLYPH);
+        let whole = (at + 1..=rows.len()).filter(|_| starts).find_map(|end| {
             let whole = rows[at + 1..end]
                 .iter()
                 .fold(rows[at].clone(), |whole, next| {

@@ -160,6 +160,9 @@ async fn press_keys(
         screen: shown,
         press,
     } = req;
+    if shown.len() > screen::SHOWN_ROWS {
+        return Err(Refusal::PromptChanged(wait).into());
+    }
     let strokes = match press {
         Press::Key(key) => vec![key_bytes(key).to_vec()],
         Press::Char(c) => vec![c.to_string().into_bytes()],

@@ -50,7 +50,7 @@ pub enum Place {
 }
 
 const TRANSCRIPT_INDENT: usize = 2;
-const SHOWN_ROWS: usize = 12;
+pub const SHOWN_ROWS: usize = 12;
 
 pub fn rows(screen: &Screen) -> Vec<String> {
     let mut rows: Vec<String> = screen

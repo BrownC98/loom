@@ -197,6 +197,10 @@ impl Adapter for Cursor {
         }
     }
 
+    fn idle_holds_input(&self) -> bool {
+        true
+    }
+
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {
         resume
             .into_iter()

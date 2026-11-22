@@ -11,7 +11,7 @@ use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, St
 use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::place::Files;
 use crate::protocol::{Delivery, Model, Session};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Screen, Top};
+use crate::screen::{self, Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{Launch, Position};
 use crate::wsl::Inside;
 use api::graph::errors::LaunchError;
@@ -199,10 +199,11 @@ impl Adapter for Cursor {
     }
 
     fn input_queued(&self, screen: &Screen) -> bool {
-        screen
-            .text
-            .lines()
-            .any(|line| line.trim_start().starts_with(QUEUE_BOX))
+        screen.text.lines().any(|line| {
+            screen::is_panel_edge(line)
+                && line.trim_start().starts_with(QUEUE_BOX)
+                && line.trim_end().ends_with('┐')
+        })
     }
 
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {

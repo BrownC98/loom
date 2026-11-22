@@ -524,6 +524,7 @@ impl App {
                     }
                 }
                 changed = false;
+                app.end_if_queued(id, profile);
                 let now = app.host.screen(id);
                 let rows = screen::rows(&now);
                 let session = *started.borrow_and_update();

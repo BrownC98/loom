@@ -358,10 +358,17 @@ impl App {
         if self.profile(node).is_some_and(profile::idle_holds_input) {
             self.idle.release_submitted(node);
         }
-        if profile::input_queued(self.profile(node), &self.host.screen(node)) {
-            self.idle.end(node, IdleEnd::Typed);
-        }
+        self.end_if_queued(node, self.profile(node));
         Ok(Opened::Wait(wait))
+    }
+
+    pub(super) fn end_if_queued(&self, node: NodeId, profile: Option<Profile>) {
+        let Ok(Some(id)) = self.graph.idle_id(node) else {
+            return;
+        };
+        if profile::input_queued(profile, &self.host.screen(node)) {
+            self.idle.end_open(node, id, IdleEnd::Typed);
+        }
     }
 
     async fn listen(

@@ -358,6 +358,9 @@ impl App {
         if self.profile(node).is_some_and(profile::idle_holds_input) {
             self.idle.release_submitted(node);
         }
+        if profile::input_queued(self.profile(node), &self.host.screen(node)) {
+            self.idle.end(node, IdleEnd::Typed);
+        }
         Ok(Opened::Wait(wait))
     }
 

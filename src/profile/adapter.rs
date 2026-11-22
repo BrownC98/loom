@@ -184,6 +184,9 @@ pub trait Adapter: Sync {
     fn input_seen(&self, _: &Screen) -> Option<InputSeen> {
         None
     }
+    fn input_queued(&self, _: &Screen) -> bool {
+        false
+    }
     fn same_rows(&self, shown: &[String], now: &[String]) -> bool {
         shown == now
     }

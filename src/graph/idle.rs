@@ -83,6 +83,10 @@ impl Graph {
         })
     }
 
+    pub fn idle_id(&self, node: NodeId) -> rusqlite::Result<Option<IdleId>> {
+        open_id(&self.lock(), node)
+    }
+
     pub fn reopen_idle(&self, node: NodeId, id: IdleId) -> rusqlite::Result<bool> {
         self.idle_change(node, |tx| {
             let free = open_id(tx, node)?.is_none()

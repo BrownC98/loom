@@ -94,7 +94,7 @@ pub fn find(dialogs: &[Dialog], screen: &str, session: SessionStart) -> Option<(
         .map(|(_, kind, text)| (kind, text.to_owned()))
 }
 
-fn is_panel_edge(line: &str) -> bool {
+pub fn is_panel_edge(line: &str) -> bool {
     let body = line.trim_start_matches(' ');
     line.len() - body.len() < TRANSCRIPT_INDENT && body.starts_with(['─', '┌'])
 }

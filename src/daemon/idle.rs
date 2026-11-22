@@ -97,6 +97,15 @@ impl IdleWaits {
         self.wake(&mut ends, node, ended, by);
     }
 
+    pub fn end_open(&self, node: NodeId, id: IdleId, by: IdleEnd) {
+        let mut ends = self.ends.lock().unwrap();
+        let ended = self
+            .graph
+            .close_idle(node, id, by.clone())
+            .map(|()| Some(id));
+        self.wake(&mut ends, node, ended, by);
+    }
+
     pub fn submit_input(&self, node: NodeId) {
         let mut ends = self.ends.lock().unwrap();
         let ended = self.graph.submit_input(node);

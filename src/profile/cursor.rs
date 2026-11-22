@@ -11,7 +11,7 @@ use super::adapter::{Adapter, Command, Facts, LaunchAt, Logins, Port, Record, St
 use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::place::Files;
 use crate::protocol::{Delivery, Model, Session};
-use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
+use crate::screen::{self, Answer, Dialog, Grammar, Options, Place, Screen, Top};
 use crate::skills::{Launch, Position};
 use crate::wsl::Inside;
 use api::graph::errors::LaunchError;
@@ -87,6 +87,7 @@ const TTY_FILE: &str = "cursor-tty.cjs";
 const TTY_GUARD: &str = include_str!("cursor-tty.cjs");
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 const GUARD: &str = "loom guard";
+const QUEUE_BOX: &str = "┌─ follow-ups ─";
 const TRUST: &str = "--trust";
 const AUTH_ENV: [&str; 2] = ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"];
 const HOOK: &str = "loom hook cursor";
@@ -195,6 +196,14 @@ impl Adapter for Cursor {
             waiting: WAITING,
             helper_shells: &HELPER_SHELLS,
         }
+    }
+
+    fn input_queued(&self, screen: &Screen) -> bool {
+        screen.text.lines().any(|line| {
+            screen::is_panel_edge(line)
+                && line.trim_start().starts_with(QUEUE_BOX)
+                && line.trim_end().ends_with('┐')
+        })
     }
 
     fn leading_args(&self, resume: Option<&Session>, bypass: &[String]) -> Vec<String> {

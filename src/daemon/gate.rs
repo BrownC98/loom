@@ -17,7 +17,7 @@ use api::graph::errors::{Problem, Refusal};
 use api::graph::events::Via;
 use api::graph::messages::{GateState, GateVerb, Judgment};
 use api::ids::{NodeId, RepoId};
-use api::settings::roles::REVIEWER_ROLES;
+use api::settings::roles::PRIMARY_REVIEWER;
 
 pub const TOOL_HEADER: &str = "loom-tool";
 pub const VERSION_HEADER: &str = "loom-version";
@@ -172,11 +172,12 @@ impl App {
         };
         for (repo, branch) in rounds {
             if gate_worktree.is_none() {
-                let problems = match self.unseated_roles(owner, &branch) {
-                    Ok(roles) => self.seat_reviewers(owner, &branch, roles).await,
-                    Err(e) => vec![e.to_string()],
+                let problem = match self.needs_primary_reviewer(owner, &branch) {
+                    Ok(true) => self.seat_primary_reviewer(owner, &branch).await,
+                    Ok(false) => None,
+                    Err(e) => Some(e.to_string()),
                 };
-                for problem in problems {
+                if let Some(problem) = problem {
                     crate::log::logln!("loom: reviewer of {branch}: {problem}");
                 }
             }
@@ -204,43 +205,30 @@ impl App {
         Ok(self.graph.tell_gate(repo, branch, &target)?)
     }
 
-    fn unseated_roles(&self, gate: NodeId, branch: &str) -> Result<Vec<&'static str>, Refusal> {
+    fn needs_primary_reviewer(&self, gate: NodeId, branch: &str) -> Result<bool, Refusal> {
         let roles = self.settings.get()?.roles;
-        let mut unseated = Vec::new();
-        for role in REVIEWER_ROLES {
-            if self.graph.reviewer_seated(gate, branch, role)? {
-                continue;
-            }
-            crate::roles::assign(&roles, role, "").map_err(role_refusal)?;
-            unseated.push(role);
+        if self.graph.reviewer_seated(gate, branch, PRIMARY_REVIEWER)? {
+            return Ok(false);
         }
-        Ok(unseated)
+        crate::roles::assign(&roles, PRIMARY_REVIEWER, "").map_err(role_refusal)?;
+        Ok(true)
     }
 
-    async fn seat_reviewers(
-        self: &Arc<Self>,
-        gate: NodeId,
-        branch: &str,
-        roles: Vec<&str>,
-    ) -> Vec<String> {
-        let mut problems = Vec::new();
-        for role in roles {
-            let request = SpawnRequest {
-                run: SpawnRun::Review {
-                    role: role.to_owned(),
-                    branch: branch.to_owned(),
-                },
-                brief: String::new(),
-                worktree: None,
-                agent: None,
-                choice: Default::default(),
-            };
-            match spawn(self, gate, request).await {
-                Ok(_) | Err(Problem::Refused(Refusal::ReviewerSeated { .. })) => {}
-                Err(e) => problems.push(format!("{role}: {}", for_agent(e).1)),
-            }
+    async fn seat_primary_reviewer(self: &Arc<Self>, gate: NodeId, branch: &str) -> Option<String> {
+        let request = SpawnRequest {
+            run: SpawnRun::Review {
+                role: PRIMARY_REVIEWER.to_owned(),
+                branch: branch.to_owned(),
+            },
+            brief: String::new(),
+            worktree: None,
+            agent: None,
+            choice: Default::default(),
+        };
+        match spawn(self, gate, request).await {
+            Ok(_) | Err(Problem::Refused(Refusal::ReviewerSeated { .. })) => None,
+            Err(e) => Some(format!("{PRIMARY_REVIEWER}: {}", for_agent(e).1)),
         }
-        problems
     }
 
     async fn written_result(&self, node: NodeId, branch: &str) -> Result<(), Refusal> {
@@ -300,15 +288,19 @@ impl App {
             head: &mine.head,
             deploy,
         };
-        let roles = match gate == node {
-            true => self.unseated_roles(gate, branch)?,
-            false => Vec::new(),
-        };
+        let needs_reviewer = gate == node && self.needs_primary_reviewer(gate, branch)?;
         let gate_name = match self.graph.ready(node, &round, Some(via)) {
-            Err(Refusal::SameHead(_)) if !roles.is_empty() => self.graph.name(gate)?,
+            Err(Refusal::SameHead(_)) if needs_reviewer => self.graph.name(gate)?,
             opened => opened?,
         };
-        let unseated = self.seat_reviewers(gate, branch, roles).await;
+        let unseated = if needs_reviewer {
+            self.seat_primary_reviewer(gate, branch)
+                .await
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
         Ok(Readied {
             gate: gate_name,
             target,

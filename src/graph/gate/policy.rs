@@ -157,10 +157,9 @@ pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
             ),
         });
     }
-    if !held.seats.is_empty() {
+    if let Some(seat) = held.seat {
         lines.push(format!(
-            "Next: loom holds the branch until a reviewer in each empty seat ({}) passes this head. Call `loom ready {branch}` again to spawn them.",
-            held.seats.join(", ")
+            "Next: loom holds the branch until a reviewer in each empty seat ({seat}) passes this head. Call `loom ready {branch}` again to spawn them."
         ));
     }
     lines.join("\n")
@@ -170,16 +169,16 @@ pub(super) fn held_step(to: Receiver, branch: &str, held: &Held) -> String {
 pub(super) struct Held {
     pub(super) reviewers: Vec<String>,
     pub(super) stopped: bool,
-    pub(super) seats: Vec<&'static str>,
+    pub(super) seat: Option<&'static str>,
 }
 
 impl Held {
     pub(super) fn needs_gate(&self) -> bool {
-        self.stopped || !self.seats.is_empty()
+        self.stopped || self.seat.is_some()
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.reviewers.is_empty() && self.seats.is_empty()
+        self.reviewers.is_empty() && self.seat.is_none()
     }
 }
 

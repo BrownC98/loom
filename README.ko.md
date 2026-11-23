@@ -134,7 +134,7 @@ loom desktop(`loom-desktop`)은 웹뷰 대신 GPUI로 그린 네이티브 loom �
 
 Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes, Crush, Mistral Vibe, Antigravity는 메시지 연동이 있습니다. 자식을 띄우고, 메시지를 보내고, 결과를 보고합니다. 설정과 새 노드 창에는 이 에이전트만 보입니다. 일반 셸은 터미널만 있는 노드로 돕니다. 다른 CLI는 그 셸에서 띄웁니다. 카드 머리에 에이전트와 모델이 보입니다.
 
-**설정 › 에이전트 › o-mode 역할**에서 역할마다 에이전트, 모델, 강도를 정합니다. 기본 역할은 총괄, 코디, 워커, 고위험 워커, 검토자, 보조 검토자이고, 이름을 바꾸거나 더할 수 있습니다. 에이전트가 `--role <역할>`로 자식을 띄우면 loom은 그 역할의 설정으로 띄웁니다.
+**설정 › 에이전트 › o-mode 역할**에서 역할마다 에이전트, 모델, 강도를 정합니다. 기본 역할은 총괄, 코디, 워커, 고위험 워커, 검토자입니다. 병합 관문에 필요한 검토자 역할의 이름은 유지합니다. 다른 역할의 이름을 바꾸거나 역할을 더할 수 있습니다. 에이전트가 `--role <역할>`로 자식을 띄우면 loom은 그 역할의 설정으로 띄웁니다.
 
 ### 작은 CLI로 주고받는 에이전트
 
@@ -167,7 +167,7 @@ loom은 메시지를 에이전트의 단계 사이에 넣고, 쉬는 에이전�
 
 노드는 git 워크트리마다 묶입니다. `loom spawn --worktree <브랜치>`는 새 워크트리와 새 묶음을 만듭니다. 왼쪽 사이드바에서도 워크트리를 만들고 지웁니다.
 
-`scripts/gate/check.sh`와 `scripts/gate/ship.sh`가 있는 저장소에서는 브랜치 담당이 `loom ready <브랜치>`를 부릅니다. loom이 검토자를 띄우고, 검토자의 `loom verdict`가 브랜치를 병합 큐에 세우거나 반려합니다. 큐는 통과한 브랜치를 병합하고, 검사를 한 번 돌리고, 결과를 push합니다.
+`scripts/gate/check.sh`와 `scripts/gate/ship.sh`가 있는 저장소에서는 브랜치 담당이 `loom ready <브랜치>`를 부릅니다. 원래 체크아웃에 병합할 때 loom은 검토자 역할로 한 명을 띄웁니다. `loom spawn --role <역할> --review <브랜치>`로 더한 산 검토자도 판정해야 합니다. 검토자가 block을 보내면 브랜치를 반려합니다. 큐는 통과한 브랜치를 병합하고, 검사를 한 번 돌리고, 결과를 push합니다.
 
 ### 내장 스킬
 

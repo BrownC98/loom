@@ -11,7 +11,7 @@ use api::graph::errors::Refusal;
 use api::graph::events::{Entry, GateTrace, Via};
 use api::graph::messages::{Finding, GateState, GateVerb, Judgment, Kind, MessageKind};
 use api::ids::{AgentId, NodeId, RepoId};
-use api::settings::roles::REVIEWER_ROLES;
+use api::settings::roles::PRIMARY_REVIEWER;
 use policy::{GateCall, Held, MergeEnd, Peer, Receiver, Sender, Target};
 
 const MIN_HEAD: usize = 7;
@@ -539,7 +539,7 @@ impl Graph {
         let held = Held {
             reviewers: Vec::new(),
             stopped: false,
-            seats: empty_seats(&tx, &row, branch)?,
+            seat: empty_seat(&tx, &row, branch)?,
         };
         if !held.is_empty() {
             body.push(policy::held_step(Receiver::Gate, branch, &held));
@@ -1238,10 +1238,9 @@ fn pending(
     let reviewers = tx
         .prepare(&format!(
             "SELECT n.name, {REACHABLE} FROM nodes n WHERE {} AND NOT {} AND n.id != ?4
-             AND ({REACHABLE} OR (?6 AND n.role IN ({}))) ORDER BY n.id",
+             AND ({REACHABLE} OR (?6 AND n.role = '{PRIMARY_REVIEWER}')) ORDER BY n.id",
             of_round("?1", "?2", "?3"),
-            voted("?5", "?3"),
-            required_roles()
+            voted("?5", "?3")
         ))?
         .query_map(
             params![
@@ -1258,37 +1257,14 @@ fn pending(
     Ok(Held {
         stopped: reviewers.iter().any(|(_, reachable)| !reachable),
         reviewers: reviewers.into_iter().map(|(name, _)| name).collect(),
-        seats: empty_seats(tx, row, branch)?,
+        seat: empty_seat(tx, row, branch)?,
     })
 }
 
-fn empty_seats(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Vec<&'static str>> {
-    let mut seats = Vec::new();
-    if row.target_kind() != Target::Base {
-        return Ok(seats);
-    }
-    for role in REVIEWER_ROLES {
-        if seated(db, row.gate, branch, role)?.is_none() {
-            seats.push(role);
-        }
-    }
-    Ok(seats)
-}
-
-fn required_roles() -> String {
-    REVIEWER_ROLES.map(|role| format!("'{role}'")).join(", ")
-}
-
-fn seats_voted(gate: &str, owner: &str, repo: &str, branch: &str) -> String {
-    REVIEWER_ROLES
-        .map(|role| {
-            format!(
-                "EXISTS (SELECT 1 FROM nodes n WHERE {} AND n.role = '{role}' AND {})",
-                of_round(gate, owner, branch),
-                voted(repo, branch)
-            )
-        })
-        .join(" AND ")
+fn empty_seat(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Option<&'static str>> {
+    Ok((row.target_kind() == Target::Base
+        && seated(db, row.gate, branch, PRIMARY_REVIEWER)?.is_none())
+    .then_some(PRIMARY_REVIEWER))
 }
 
 fn in_round(gate: &str, owner: &str, branch: &str) -> String {
@@ -1558,12 +1534,13 @@ const STALE: &str = "b.moved = 0 OR EXISTS (SELECT 1 FROM gates WHERE batch = b.
 
 fn settled() -> String {
     let gate = gate_of("gates.owner");
+    let reviewers = of_round(&gate, "gates.owner", "gates.branch");
+    let voted = voted("gates.repo", "gates.branch");
     format!(
-        "state = '\"passed\"' AND batch IS NULL AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})
-         AND ({gate} != gates.owner OR ({}))",
-        in_round(&gate, "gates.owner", "gates.branch"),
-        voted("gates.repo", "gates.branch"),
-        seats_voted(&gate, "gates.owner", "gates.repo", "gates.branch")
+        "state = '\"passed\"' AND batch IS NULL
+         AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {reviewers} AND {REACHABLE} AND NOT {voted})
+         AND ({gate} != gates.owner OR EXISTS (SELECT 1 FROM nodes n
+             WHERE {reviewers} AND n.role = '{PRIMARY_REVIEWER}' AND {voted}))"
     )
 }
 

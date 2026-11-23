@@ -134,7 +134,7 @@ Each agent is a node card with its real terminal. Click a card to type into it. 
 
 Claude Code, OpenClaude, Codex, OpenCode 2, MiMo Code, Kilocode, Cursor, Pi, OMP, Qwen Code, GitHub Copilot, DeepSeek Harness, Trae, Hermes, Crush, Mistral Vibe and Antigravity have a message link: they can start children, send messages and report results. Settings and the new-node dialog show only these agents. A plain shell runs as a terminal-only node; start other CLIs from it. Each card head shows the agent and the model.
 
-In **Settings › Agents › o-mode roles**, you give each role an agent, a model and an effort. The default roles are 총괄 (lead), 코디 (coordinator), 워커 (worker), 고위험 워커 (high-risk worker), 검토자 (reviewer) and 보조 검토자 (second reviewer), and you can rename them or add more. An agent starts a child with `--role <role>`, and loom starts it with the settings of that role.
+In **Settings › Agents › o-mode roles**, you give each role an agent, a model and an effort. The default roles are 총괄 (lead), 코디 (coordinator), 워커 (worker), 고위험 워커 (high-risk worker) and 검토자 (reviewer). Keep the name 검토자 for the required merge reviewer. You can rename other roles and add roles. An agent starts a child with `--role <role>`, and loom starts it with the settings of that role.
 
 ### Agents talk with a small CLI
 
@@ -167,7 +167,7 @@ When an agent asks you a question or reports a result, a notice shows in the inp
 
 Nodes are grouped by git worktree. `loom spawn --worktree <branch>` makes a new worktree and a new group. You can also make and delete worktrees in the left sidebar.
 
-The owner of a branch runs `loom ready <branch>`. loom starts reviewers, and their `loom verdict` sends the branch to the merge queue or back for rework. The queue merges the passed branches, runs `scripts/gate/check.sh` once if the repository has it, and pushes the result. If the repository has `scripts/gate/ship.sh`, loom runs it after the push to confirm the deploy. `loom ready <branch> --no-deploy` puts `[skip ci]` in the branch's merge commit into the original checkout, so the remote CI and its deploy do not run; the queue does not batch it with branches that deploy. Into a coordinator branch the flag does nothing: the coordinator gives it on its own `loom ready`.
+The owner of a branch runs `loom ready <branch>`. For a merge into the original checkout, loom starts one reviewer in the 검토자 role. The queue waits for a pass from the required reviewer and each live reviewer you add with `loom spawn --role <role> --review <branch>`. A block returns the branch for rework. The queue merges the passed branches, runs `scripts/gate/check.sh` once if the repository has it, and pushes the result. If the repository has `scripts/gate/ship.sh`, loom runs it after the push to confirm the deploy. `loom ready <branch> --no-deploy` puts `[skip ci]` in the branch's merge commit into the original checkout, so the remote CI and its deploy do not run; the queue does not batch it with branches that deploy. Into a coordinator branch the flag does nothing: the coordinator gives it on its own `loom ready`.
 
 ### Built-in skills
 

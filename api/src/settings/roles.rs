@@ -73,14 +73,9 @@ impl Default for Roles {
                 Some(("claude", "claude-opus-5-5", "high")),
             ),
             role(
-                REVIEWER,
+                PRIMARY_REVIEWER,
                 "병합 전 브랜치 diff에서 결함을 찾고 랩터-3이 잘 적용되었는지 점검한다. 결과·원문·관찰 증거(캡처, 평가 출력, 측정, 시험 데몬 결과)를 브리프의 완료 조건과 대조한다. 지시문의 결함 목록을 차례로 본다. 전체 검사는 돌리지 않고 담당의 검사 기록을 읽는다. 읽기 전용, 보고만 한다",
                 Some(("codex", "gpt-6.1-sol", "high")),
-            ),
-            role(
-                SECOND_REVIEWER,
-                "main 대상 브랜치를 검토자와 따로 검토한다. 병합 전 브랜치 diff에서 결함을 찾고 결과·원문·관찰 증거를 브리프의 완료 조건과 대조한다. 지시문의 결함 목록을 차례로 본다. 전체 검사는 돌리지 않고 담당의 검사 기록을 읽는다. 읽기 전용, 보고만 한다",
-                Some(("claude", "claude-opus-5-5", "medium")),
             ),
         ])
     }
@@ -88,6 +83,4 @@ impl Default for Roles {
 
 const HIGH_RISK_WORKER: &str = "고위험 워커";
 const HIGH_RISK_DUTY: &str = "저장 형식, 인증, 동시성, 데이터 손실 경로, 여러 모듈의 계약을 바꾸는 편집 범위의 구현과 검증. 다시 위임하지 않는다";
-const REVIEWER: &str = "검토자";
-const SECOND_REVIEWER: &str = "보조 검토자";
-pub const REVIEWER_ROLES: [&str; 2] = [REVIEWER, SECOND_REVIEWER];
+pub const PRIMARY_REVIEWER: &str = "검토자";

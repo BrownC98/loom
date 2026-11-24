@@ -103,6 +103,8 @@ pub struct SpawnRequest {
     pub agent: Option<api::ids::AgentId>,
     #[serde(default)]
     pub choice: api::start::ModelChoice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_codex: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -60,6 +60,7 @@ pub fn spawn(
     file: Option<PathBuf>,
     agent: Option<AgentId>,
     choice: ModelChoice,
+    resume_codex: Option<String>,
 ) -> Result<(), String> {
     let brief = read_brief(&run, file.as_deref())?;
     let request = SpawnRequest {
@@ -68,6 +69,7 @@ pub fn spawn(
         worktree,
         agent,
         choice,
+        resume_codex,
     };
     let _: NodeId = match (
         crate::wsl::to_windows_daemon(),

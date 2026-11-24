@@ -184,11 +184,12 @@ impl super::adapter::Adapter for Codex {
             cmd.args(trust);
             let record = server.process().record(server.address().clone());
             let server = Arc::new(server);
-            let before_start = resume.map(|thread| resume_thread(server.clone(), thread, bypass));
+            let before_start =
+                resume.map(|thread| resume_thread(server.clone(), thread, bypass, at));
             tokio::spawn(drive(server, port));
             Ok(Started {
                 record: Some(record),
-                session: None,
+                session: resume.cloned(),
                 before_start,
             })
         })
@@ -331,10 +332,7 @@ fn make_home(env: &[(&'static str, std::ffi::OsString)]) -> Result<(), String> {
 }
 
 fn trust_args(at: &LaunchAt<'_>) -> Vec<String> {
-    let cwd = match at.inside {
-        Some(inside) => inside.cwd().to_owned(),
-        None => at.cwd.to_string_lossy().into_owned(),
-    };
+    let cwd = at.site.cli_cwd(at.cwd);
     let key = serde_json::to_string(&cwd).expect("문자열은 늘 직렬화된다");
     vec![
         "-c".into(),
@@ -347,13 +345,21 @@ fn server_args(launch: Launch) -> Vec<String> {
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
-fn resume_params(thread: &Session, bypass: &[String]) -> Value {
+fn resume_params(thread: &Session, bypass: &[String], at: &LaunchAt<'_>) -> Value {
     let (sandbox, approval) = match bypass.is_empty() {
         false => ("danger-full-access", "never"),
         true => ("workspace-write", "on-request"),
     };
+    let config = at
+        .choice
+        .effort
+        .as_ref()
+        .map(|effort| serde_json::json!({ "model_reasoning_effort": effort }));
     serde_json::json!({
         "threadId": thread.0,
+        "cwd": at.site.cli_cwd(at.cwd),
+        "model": at.choice.model,
+        "config": config,
         "sandbox": sandbox,
         "approvalPolicy": approval,
         "excludeTurns": true,
@@ -528,10 +534,14 @@ fn resume_thread(
     server: Arc<CodexServer>,
     thread: &Session,
     bypass: &[String],
+    at: &LaunchAt<'_>,
 ) -> BoxFuture<'static, Result<(), String>> {
-    let (id, params) = (thread.0.clone(), resume_params(thread, bypass));
+    let (id, params) = (thread.0.clone(), resume_params(thread, bypass, at));
     Box::pin(async move {
-        server.call("thread/resume", params).await?;
+        let resumed = server.call("thread/resume", params).await?;
+        if resumed["thread"]["id"].as_str() != Some(&id) {
+            return Err(format!("Codex did not resume thread {id}."));
+        }
         server.follow_thread(id).await;
         Ok(())
     })

@@ -197,6 +197,7 @@ async fn create_worktree(
     Path(id): Path<u32>,
     Json(req): Json<NewWorktree>,
 ) -> Result<Json<RepoView>, Problem> {
+    let _launch = app.node_launches.read().await;
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
     let workspace = app.workspace(&repo).await?;
@@ -213,7 +214,7 @@ async fn create_worktree(
     .await?;
     app.setup(&Place {
         repo: id,
-        worktree: made,
+        worktree: made.path,
     })
     .await?;
     Ok(Json(app.repo_view(id, &repo).await))

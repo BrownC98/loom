@@ -149,6 +149,8 @@ loom done "Added 3 tests for the store"                             # report to 
 
 loom hands each message to the agent between its steps, and wakes an agent that is idle. So agents do not poll. `--steer` puts a message into the current work, and `--interrupt` stops the current work.
 
+Use `loom spawn <name> --role <role> --file <brief> --worktree <branch> --resume-codex <UUID>` to continue a saved Codex conversation in a new child. Use a role that resolves to Codex and a current brief. loom refuses a review request or a thread that an existing Codex node still owns. The selected Codex account must have the saved history.
+
 ### One inbox for questions and results
 
 When an agent asks you a question or reports a result, a notice shows in the input bar below the graph and in the **Notifications** tab of the right panel.

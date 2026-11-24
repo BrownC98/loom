@@ -22,6 +22,7 @@ impl App {
         place: &Place,
         start: &Start,
     ) -> Result<NodeId, Problem> {
+        let _launch = self.node_launches.read().await;
         let cwd = std::path::Path::new(&place.worktree);
         let words = self.settings.name_words().map_err(internal)?;
         let word = match start.agent() {

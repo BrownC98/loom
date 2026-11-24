@@ -499,6 +499,20 @@ pub fn profile_of(id: &AgentId) -> Option<Profile> {
     find(id).and_then(|a| a.profile)
 }
 
+pub fn saved_codex_session(agent: &AgentId, thread: &str) -> Result<Session, Refusal> {
+    if profile_of(agent) != Some(Profile::Codex) {
+        return Err(Refusal::Launch(
+            "--resume-codex requires a Codex role or agent override.".into(),
+        ));
+    }
+    uuid::Uuid::parse_str(thread)
+        .ok()
+        .map(|uuid| uuid.hyphenated().to_string())
+        .filter(|canonical| thread.eq_ignore_ascii_case(canonical))
+        .map(Session)
+        .ok_or_else(|| Refusal::Launch("--resume-codex requires a hyphenated UUID.".into()))
+}
+
 pub fn linked(id: &AgentId) -> bool {
     profile_of(id).is_some()
 }

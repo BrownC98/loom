@@ -606,6 +606,20 @@ impl Graph {
         Ok(())
     }
 
+    pub fn session_owner(
+        &self,
+        agent: &AgentId,
+        session: &Session,
+    ) -> rusqlite::Result<Option<NodeId>> {
+        self.lock()
+            .query_row(
+                "SELECT id FROM nodes WHERE agent = ?1 AND session = ?2 COLLATE NOCASE LIMIT 1",
+                params![to_json(agent), session.0],
+                |row| row.get(0).map(NodeId),
+            )
+            .optional()
+    }
+
     pub fn set_session(&self, token: &str, session: &Session) -> rusqlite::Result<()> {
         self.lock().execute(
             "UPDATE nodes SET session = ?2 WHERE token = ?1 AND session IS NOT ?2",

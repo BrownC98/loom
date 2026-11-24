@@ -1,5 +1,6 @@
 use super::*;
 use crate::graph::NodeToken;
+use crate::profile::adapter::StartSession;
 use crate::roles::RemoveRole;
 use crate::settings::{AgentEditProblem, SetSetting, keys};
 use api::ids::AgentId;
@@ -167,7 +168,9 @@ pub(super) async fn spawn(
         let mut prepared = app
             .prepare(
                 &start,
-                resume.as_ref(),
+                resume
+                    .as_ref()
+                    .map_or(StartSession::New, StartSession::Restore),
                 cwd,
                 Position::Child,
                 Some(&dir),

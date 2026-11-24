@@ -4,8 +4,8 @@ use crate::distro::{Distro, Host};
 use crate::graph::{Active, NodeLaunch, NodeToken};
 use crate::place::{self, Files, Machine, SshPath};
 use crate::process_tree::Identity;
-use crate::profile::adapter::{LaunchAt, Record, Started};
-use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER, Session};
+use crate::profile::adapter::{LaunchAt, Record, StartSession, Started};
+use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
 use api::graph::events::Entry;
 
@@ -40,7 +40,7 @@ impl App {
         let dir = made.as_ref().map(|(dir, _)| dir);
         let token = NodeToken::fresh().map_err(internal)?;
         let prepared = self
-            .prepare(start, None, cwd, Position::Root, dir, token)
+            .prepare(start, StartSession::New, cwd, Position::Root, dir, token)
             .await?;
         let discard = prepared.discarder();
         let id = self
@@ -149,7 +149,7 @@ impl App {
         let start = Start::Command { line };
         let token = NodeToken::fresh().map_err(internal)?;
         let prepared = self
-            .prepare(&start, None, cwd, Position::Root, None, token)
+            .prepare(&start, StartSession::New, cwd, Position::Root, None, token)
             .await?;
         let discard = prepared.discarder();
         let word = self.settings.name_words().map_err(internal)?.shell;
@@ -603,7 +603,7 @@ impl App {
     pub(super) async fn prepare(
         self: &Arc<Self>,
         start: &Start,
-        resume: Option<&Session>,
+        session: StartSession<'_>,
         cwd: &std::path::Path,
         position: Position,
         task: Option<&task::TaskDir>,
@@ -672,6 +672,7 @@ impl App {
         };
         let default_choice = api::start::ModelChoice::default();
         let at = LaunchAt {
+            session,
             choice: match start {
                 Start::Agent { choice, .. } => choice,
                 Start::Command { .. } => &default_choice,
@@ -700,8 +701,7 @@ impl App {
             }
         }
         let port = AgentPort::new(self.clone(), token.as_str().to_owned());
-        let launched =
-            profile::command(start, resume, &at, &settings.bypass_off, port.clone()).await;
+        let launched = profile::command(start, &at, &settings.bypass_off, port.clone()).await;
         let (mut cmd, started) = launched.inspect_err(|_| port.end())?;
         for (key, value) in &env {
             cmd.env(key, value);

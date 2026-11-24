@@ -15,7 +15,7 @@ use crate::accounts::Site;
 use crate::graph::{Active, AgentState, NewAgent, Next, Phase, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
 use crate::profile;
-use crate::profile::adapter::{Carry, ResumeError};
+use crate::profile::adapter::{Carry, ResumeError, StartSession};
 use crate::profile::process::Served;
 use crate::protocol::{Delivery, MessageId, Model, Session};
 use crate::screen::Screen;
@@ -823,7 +823,7 @@ impl App {
         let token = node.token.next_launch()?;
         self.prepare(
             start,
-            resume,
+            resume.map_or(StartSession::New, StartSession::Relaunch),
             Path::new(&place.worktree),
             position,
             Some(&task),

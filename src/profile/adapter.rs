@@ -60,7 +60,24 @@ pub struct Command<'a> {
     pub choice: &'a ModelChoice,
 }
 
+#[derive(Clone, Copy)]
+pub enum StartSession<'a> {
+    New,
+    Relaunch(&'a Session),
+    Restore(&'a Session),
+}
+
+impl<'a> StartSession<'a> {
+    pub(super) fn previous(self) -> Option<&'a Session> {
+        match self {
+            Self::New => None,
+            Self::Relaunch(session) | Self::Restore(session) => Some(session),
+        }
+    }
+}
+
 pub struct LaunchAt<'a> {
+    pub session: StartSession<'a>,
     pub choice: &'a ModelChoice,
     pub cwd: &'a Path,
     pub site: &'a Site,

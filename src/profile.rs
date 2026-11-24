@@ -551,7 +551,6 @@ pub fn start_profile(start: &Start) -> Option<Profile> {
 
 pub async fn command(
     start: &Start,
-    resume: Option<&Session>,
     at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
     port: Arc<dyn Port>,
@@ -561,7 +560,7 @@ pub async fn command(
             agent,
             brief,
             choice,
-        } => agent_command(agent, brief, choice, resume, at, bypass_off, port).await?,
+        } => agent_command(agent, brief, choice, at, bypass_off, port).await?,
         Start::Command { line } => (
             match at.inside {
                 Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
@@ -598,7 +597,6 @@ async fn agent_command(
     id: &AgentId,
     brief: &str,
     choice: &ModelChoice,
-    resume: Option<&Session>,
     at: &LaunchAt<'_>,
     bypass_off: &[AgentId],
     port: Arc<dyn Port>,
@@ -641,6 +639,7 @@ async fn agent_command(
     };
     let started = match agent.profile.map(adapter) {
         Some(adapter) => {
+            let resume = at.session.previous();
             cmd.args(adapter.leading_args(resume, bypass));
             adapter.command(
                 &mut cmd,

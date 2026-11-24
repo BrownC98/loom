@@ -7,13 +7,14 @@ use std::sync::Arc;
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use portable_pty::CommandBuilder;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
 use super::adapter::{
-    Carry, Chosen, Facts, LaunchAt, Logins, Port, Record, ResumeError, Started, TurnTake,
+    Carry, Chosen, Facts, LaunchAt, Logins, Port, Record, ResumeError, StartSession, Started,
+    TurnTake,
 };
 use super::process::Served;
 use crate::accounts::Cli;
@@ -41,7 +42,7 @@ pub mod protocol {
 
 use protocol::{
     AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, ThreadItem, ThreadReadParams,
-    ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams, TurnItemsView,
+    ThreadTurnsListParams, ThreadTurnsListResponse, Turn, TurnInterruptParams, TurnItemsView,
     TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
@@ -90,6 +91,19 @@ const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
 pub enum Codex {
     OpenAi,
     Trae,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct FirstTurn {
+    previous: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ServerRecord {
+    #[serde(flatten)]
+    address: Address,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    first_turn: Option<FirstTurn>,
 }
 
 impl Codex {
@@ -182,11 +196,30 @@ impl super::adapter::Adapter for Codex {
             server.address().tui(cmd);
             cmd.env(LEAN_ENV.0, LEAN_ENV.1);
             cmd.args(trust);
-            let record = server.process().record(server.address().clone());
             let server = Arc::new(server);
-            let before_start =
-                resume.map(|thread| resume_thread(server.clone(), thread, bypass, at));
-            tokio::spawn(drive(server, port));
+            let (before_start, first_turn) = match at.session {
+                StartSession::Restore(thread) => {
+                    let opened = async {
+                        resume_thread(server.clone(), thread, bypass, at).await?;
+                        let previous = last_turn_id(&server, &thread.0).await?;
+                        Ok(FirstTurn { previous })
+                    };
+                    let first_turn = opened.await.map_err(|e| {
+                        server.stop();
+                        helper(e)
+                    })?;
+                    (None, Some(first_turn))
+                }
+                _ => (
+                    resume.map(|thread| resume_thread(server.clone(), thread, bypass, at)),
+                    None,
+                ),
+            };
+            let record = server.process().record(ServerRecord {
+                address: server.address().clone(),
+                first_turn: first_turn.clone(),
+            });
+            tokio::spawn(drive(server, port, first_turn));
             Ok(Started {
                 record: Some(record),
                 session: resume.cloned(),
@@ -201,12 +234,13 @@ impl super::adapter::Adapter for Codex {
         port: Arc<dyn Port>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            let Some((served, address)) = Served::stored::<Address>(rec) else {
+            let Some((served, stored)) = Served::stored::<ServerRecord>(rec) else {
                 return Ok(());
             };
-            match CodexServer::reconnect(address, served.clone(), rec.session.as_ref()).await {
+            match CodexServer::reconnect(stored.address, served.clone(), rec.session.as_ref()).await
+            {
                 Ok(server) => {
-                    tokio::spawn(drive(Arc::new(server), port));
+                    tokio::spawn(drive(Arc::new(server), port, stored.first_turn));
                     Ok(())
                 }
                 Err(e) => {
@@ -554,7 +588,7 @@ async fn pending<T>(future: &mut Option<BoxFuture<'_, T>>) -> T {
     }
 }
 
-async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
+async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>, mut first_turn: Option<FirstTurn>) {
     let mut thread = server.thread();
     let mut approvals = server.approvals();
     let mut subscribed = None;
@@ -563,17 +597,32 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>) {
     let mut limited = server.limited();
     let (read, mut models) = mpsc::unbounded_channel::<(u64, Model)>();
     let (mut asked, mut answered) = (0, 0);
-    let mut status = None;
+    let mut status = first_turn.as_ref().map(|_| Status::Idle);
     let mut ours = false;
     let mut idle: Option<BoxFuture<'_, Result<IdleReply, String>>> = None;
     let mut busy: Option<BoxFuture<'_, Result<Vec<Delivery>, Refusal>>> = None;
     let mut ended = port.ended();
     let mut moved = true;
     loop {
-        let seen = match std::mem::take(&mut moved) {
+        let mut seen = match std::mem::take(&mut moved) {
             true => thread.borrow_and_update().clone(),
             false => None,
         };
+        if let (Some(now), Some(first)) = (&seen, &first_turn) {
+            match last_turn_id(&server, &now.id).await {
+                Ok(current) if current.is_some() && current != first.previous => {
+                    if port.ready().await.is_err() {
+                        break;
+                    }
+                    first_turn = None;
+                }
+                Ok(_) => seen = None,
+                Err(e) => {
+                    crate::log::logln!("loom: app-server의 첫 턴을 확인하지 못했다: {e}");
+                    seen = None;
+                }
+            }
+        }
         if let Some(now) = seen {
             waits = true;
             if now.status == Status::Busy && subscribed.as_ref() != Some(&now.id) {
@@ -830,15 +879,23 @@ where
     Fut: Future<Output = Result<Value, String>>,
 {
     let rpc = Rpc { call, thread };
-    let list: ThreadTurnsListResponse = rpc
-        .send("thread/turns/list", &rpc.last_turn(TurnItemsView::Full))
-        .await?;
-    Ok(list.data.into_iter().next().and_then(|turn| {
+    Ok(rpc.last_turn(TurnItemsView::Full).await?.and_then(|turn| {
         turn.items.into_iter().rev().find_map(|item| match item {
             ThreadItem::AgentMessage { text, .. } => Some(text),
             _ => None,
         })
     }))
+}
+
+async fn last_turn_id(server: &CodexServer, thread: &str) -> Result<Option<String>, String> {
+    let rpc = Rpc {
+        call: |method, params| server.call(method, params),
+        thread,
+    };
+    Ok(rpc
+        .last_turn(TurnItemsView::NotLoaded)
+        .await?
+        .map(|turn| turn.id))
 }
 
 async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
@@ -968,23 +1025,22 @@ where
         self.send::<Value>("turn/steer", &params).await.map(drop)
     }
 
-    fn last_turn(&self, items: TurnItemsView) -> ThreadTurnsListParams {
-        ThreadTurnsListParams {
+    async fn last_turn(&self, items: TurnItemsView) -> Result<Option<Turn>, String> {
+        let params = ThreadTurnsListParams {
             thread_id: self.thread.to_owned(),
             limit: Some(1),
             cursor: None,
             items_view: Some(items),
             sort_direction: None,
-        }
+        };
+        let list: ThreadTurnsListResponse = self.send("thread/turns/list", &params).await?;
+        Ok(list.data.into_iter().next())
     }
 
     async fn current_turn(&self) -> Result<Option<String>, String> {
-        let params = self.last_turn(TurnItemsView::NotLoaded);
-        let list: ThreadTurnsListResponse = self.send("thread/turns/list", &params).await?;
-        Ok(list
-            .data
-            .into_iter()
-            .next()
+        Ok(self
+            .last_turn(TurnItemsView::NotLoaded)
+            .await?
             .filter(|t| t.status == TurnStatus::InProgress)
             .map(|t| t.id))
     }

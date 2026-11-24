@@ -146,6 +146,7 @@ pub enum Chosen {
 
 pub trait Port: Send + Sync {
     fn ready(&self) -> BoxFuture<'_, Result<(), String>>;
+    fn save_adapter(&self, record: &AdapterRecord) -> Result<(), String>;
     fn take(&self, req: TakeRequest) -> Result<Taken, Refusal>;
     fn idle(&self, req: IdleRequest) -> BoxFuture<'_, Result<IdleReply, String>>;
     fn next_mail(&self, kinds: &'static [Kind]) -> BoxFuture<'_, Result<Vec<Delivery>, Refusal>>;
@@ -211,6 +212,9 @@ pub trait Adapter: Sync {
         Ok(())
     }
     fn version_warning(&self, _: &str) -> Option<VersionMismatch> {
+        None
+    }
+    fn relaunch_refusal(&self, _: &Record) -> Option<&'static str> {
         None
     }
     fn carry(&self, _: &Session, _: &Carry<'_>) -> Result<(), ResumeError> {

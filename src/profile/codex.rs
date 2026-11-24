@@ -83,6 +83,7 @@ static CLI: Cli = Cli {
     logout: &["logout"],
     ready: |_, _| {},
 };
+const FIRST_TURN_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 const CARRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const DATE_DIRS: usize = 3;
 const ROLLOUT_DEPTH: usize = DATE_DIRS + 2;
@@ -123,6 +124,12 @@ impl Codex {
 }
 
 impl super::adapter::Adapter for Codex {
+    fn relaunch_refusal(&self, record: &Record) -> Option<&'static str> {
+        Served::stored::<ServerRecord>(record)
+            .is_some_and(|(_, stored)| stored.first_turn.is_some())
+            .then_some("The restored Codex node has not started its brief. Wait if it is still starting. If it stopped, remove the node and retry loom spawn --resume-codex.")
+    }
+
     fn spawns_at_daemon(&self) -> bool {
         true
     }
@@ -603,22 +610,34 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>, mut first_turn: Op
     let mut busy: Option<BoxFuture<'_, Result<Vec<Delivery>, Refusal>>> = None;
     let mut ended = port.ended();
     let mut moved = true;
+    let mut retry_first: Option<BoxFuture<'_, ()>> = None;
     loop {
         let mut seen = match std::mem::take(&mut moved) {
             true => thread.borrow_and_update().clone(),
             false => None,
         };
         if let (Some(now), Some(first)) = (&seen, &first_turn) {
-            match last_turn_id(&server, &now.id).await {
+            let checked = match last_turn_id(&server, &now.id).await {
                 Ok(current) if current.is_some() && current != first.previous => {
                     if port.ready().await.is_err() {
                         break;
                     }
-                    first_turn = None;
+                    let record = server.process().record(ServerRecord {
+                        address: server.address().clone(),
+                        first_turn: None,
+                    });
+                    port.save_adapter(&record).map(|()| true)
                 }
-                Ok(_) => seen = None,
+                Ok(_) => Ok(false),
+                Err(e) => Err(e),
+            };
+            retry_first = None;
+            match checked {
+                Ok(true) => first_turn = None,
+                Ok(false) => seen = None,
                 Err(e) => {
                     crate::log::logln!("loom: app-server의 첫 턴을 확인하지 못했다: {e}");
+                    retry_first = Some(Box::pin(tokio::time::sleep(FIRST_TURN_RETRY)));
                     seen = None;
                 }
             }
@@ -679,6 +698,7 @@ async fn drive(server: Arc<CodexServer>, port: Arc<dyn Port>, mut first_turn: Op
         tokio::select! {
             biased;
             () = &mut ended => break,
+            () = pending(&mut retry_first) => moved = true,
             changed = thread.changed() => match changed {
                 Ok(()) => moved = true,
                 Err(_) => {

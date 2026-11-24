@@ -1,5 +1,6 @@
 use super::*;
 use crate::graph::NodeToken;
+use crate::profile::adapter::StartSession;
 use crate::roles::RemoveRole;
 use crate::settings::{AgentEditProblem, SetSetting, keys};
 use api::ids::AgentId;
@@ -48,7 +49,14 @@ async fn spawn_traced(
 ) -> Result<Json<NodeId>, AgentError> {
     let via = gate::via(headers, "/api/agent/spawn");
     let name = req.run.name();
-    let spawned = spawn(app, parent, req).await;
+    let spawned = if req.resume_codex.is_some() {
+        let app = app.clone();
+        tokio::spawn(async move { spawn(&app, parent, req).await })
+            .await
+            .map_err(|e| for_agent(internal(e)))?
+    } else {
+        spawn(app, parent, req).await
+    };
     traced(app, parent, Attempt::verb(&name), &via, spawned)
 }
 
@@ -58,16 +66,6 @@ pub(super) async fn spawn(
     req: SpawnRequest,
 ) -> Result<NodeId, Problem> {
     let place = app.graph.place_of(parent).map_err(Refusal::from)?;
-    let tasks = app.tasks_for(&place.worktree).await?;
-    let (dir, fresh) = match &req.worktree {
-        Some(branch) => {
-            let base = task::base(&app.repos.path(place.repo)?, branch.trim());
-            let (dir, fresh) = tasks.new_dir(&base).map_err(internal)?;
-            (dir, Some(fresh))
-        }
-        None => (app.task_dir(parent).await?, None),
-    };
-    let given = req.brief.clone();
     let name = req.run.name();
     let (role, review, brief) = match &req.run {
         SpawnRun::Role { role, .. } => (role.trim(), None, req.brief.clone()),
@@ -86,11 +84,53 @@ pub(super) async fn spawn(
         req.agent.clone(),
         req.choice.clone(),
     )?;
+    let agent = start.agent();
+    let (resume, _restore, _worktree) = match &req.resume_codex {
+        Some(thread) => {
+            let Some(agent) = agent.as_ref().filter(|_| review.is_none()) else {
+                return Err(Refusal::Launch(
+                    "--resume-codex requires a role spawn without --review.".into(),
+                )
+                .into());
+            };
+            if req.brief.trim().is_empty() {
+                return Err(
+                    Refusal::Launch("--resume-codex requires a nonempty brief.".into()).into(),
+                );
+            }
+            let session = profile::saved_codex_session(agent, thread)?;
+            let guard = app.node_launches.write().await;
+            if let Some(owner) = app.graph.session_owner(agent, &session).map_err(internal)? {
+                return Err(Refusal::Launch(format!(
+                    "Thread {} belongs to node #{}.",
+                    session.0, owner.0
+                ))
+                .into());
+            }
+            (Some(session), Some(guard), None)
+        }
+        None => {
+            let guard = match req.worktree {
+                Some(_) => Some(app.node_launches.read().await),
+                None => None,
+            };
+            (None, None, guard)
+        }
+    };
+    let tasks = app.tasks_for(&place.worktree).await?;
+    let (dir, fresh) = match &req.worktree {
+        Some(branch) => {
+            let base = task::base(&app.repos.path(place.repo)?, branch.trim());
+            let (dir, fresh) = tasks.new_dir(&base).map_err(internal)?;
+            (dir, Some(fresh))
+        }
+        None => (app.task_dir(parent).await?, None),
+    };
+    let from = std::path::Path::new(&place.worktree);
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
             let workspace = app.workspace(&repo).await?;
-            let from = std::path::Path::new(&place.worktree);
             let unowned = |path: &str| app.graph.nodes_in(path).is_ok_and(|nodes| nodes.is_empty());
             let made = worktree::create(
                 app.files(),
@@ -112,18 +152,66 @@ pub(super) async fn spawn(
             .await
             .map_err(Refusal::Git)?,
     };
-    let made = worktree.as_ref().map(|(_, made)| made.as_str());
+    let made = worktree.as_ref().map(|(_, made)| made.path.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let child = NewChild {
         name: &name,
         worktree: made,
-        agent: start.agent(),
+        agent,
         role,
         task: &dir.folder,
         review,
         git,
     };
-    let spawned = spawn_child(app, parent, child, &start, cwd, &dir, &given).await;
+    let spawned = async {
+        let token = NodeToken::fresh().map_err(internal)?;
+        let mut prepared = app
+            .prepare(
+                &start,
+                resume
+                    .as_ref()
+                    .map_or(StartSession::New, StartSession::Restore),
+                cwd,
+                Position::Child,
+                Some(&dir),
+                token,
+            )
+            .await?;
+        let discard = prepared.discarder();
+        prepared
+            .before_start()
+            .await
+            .map_err(Refusal::Launch)
+            .inspect_err(|_| discard())?;
+        if made.is_some() {
+            prepared.setup =
+                worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
+        }
+        let limits = app.tree_limits().inspect_err(|_| discard())?;
+        app.graph
+            .add_child(parent, child, limits, &prepared.launched(), |id| {
+                task::create(app.files(), &dir.local, &req.brief)
+                    .map_err(|e| format!("{}: {e}", dir.local.display()))?;
+                app.launch(id, prepared)
+            })
+            .map_err(Problem::from)
+            .inspect_err(|_| discard())
+    }
+    .await;
+    if spawned.is_err()
+        && resume.is_some()
+        && let Some((repo, made)) = &worktree
+        && app
+            .graph
+            .nodes_in(&made.path)
+            .is_ok_and(|nodes| nodes.is_empty())
+        && let Err(e) = made.rollback(app.files(), repo, from).await
+    {
+        crate::log::logln!(
+            "loom: 복원에 실패한 워크트리 {}를 지우지 못했다: {e}",
+            made.path
+        );
+    }
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
         fresh.keep();
     }
@@ -305,34 +393,6 @@ fn role_start(
         brief: assigned.brief,
         choice: chosen.choice,
     })
-}
-
-async fn spawn_child(
-    app: &Arc<App>,
-    parent: NodeId,
-    child: NewChild<'_>,
-    start: &Start,
-    cwd: &std::path::Path,
-    dir: &task::TaskDir,
-    brief: &str,
-) -> Result<NodeId, Problem> {
-    let token = NodeToken::fresh().map_err(internal)?;
-    let mut prepared = app
-        .prepare(start, None, cwd, Position::Child, Some(dir), token)
-        .await?;
-    if child.worktree.is_some() {
-        prepared.setup = worktree::setup_script(app.files(), cwd).map(|line| prepared.shell(&line));
-    }
-    let discard = prepared.discarder();
-    let limits = app.tree_limits().inspect_err(|_| discard())?;
-    app.graph
-        .add_child(parent, child, limits, &prepared.launched(), |id| {
-            task::create(app.files(), &dir.local, brief)
-                .map_err(|e| format!("{}: {e}", dir.local.display()))?;
-            app.launch(id, prepared)
-        })
-        .map_err(Problem::from)
-        .inspect_err(|_| discard())
 }
 
 pub(super) async fn agent_note(

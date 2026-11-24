@@ -175,6 +175,9 @@ enum Cli {
         /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
         #[arg(long, conflicts_with = "worktree")]
         review: Option<String>,
+        /// 저장된 대화를 새 노드에서 잇는다. 그 UUID를 가진 노드가 남아 있으면 거절한다.
+        #[arg(long, value_name = "UUID", conflicts_with = "review")]
+        resume_codex: Option<String>,
         /// 지시문 파일. `--review` 없이 만드는 노드는 꼭 준다.
         #[arg(long)]
         file: Option<PathBuf>,
@@ -351,6 +354,7 @@ fn main() -> ExitCode {
             model,
             effort,
             review,
+            resume_codex,
             file,
         } => cli::spawn(
             match (name, review) {
@@ -362,6 +366,7 @@ fn main() -> ExitCode {
             file.map(wsl::from_caller),
             agent.map(api::ids::AgentId),
             ModelChoice { model, effort },
+            resume_codex,
         ),
         Cli::Room {
             action: RoomAction::Nodes,

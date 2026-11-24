@@ -385,6 +385,42 @@ pub async fn top_of(files: Files<'_>, cwd: &Path) -> Result<String, String> {
     Ok(git::from_git_path(cwd, top.trim()))
 }
 
+pub struct CreatedWorktree {
+    pub path: String,
+    origin: WorktreeOrigin,
+}
+
+enum WorktreeOrigin {
+    NewBranch(String),
+    ExistingBranch(String),
+    ExistingCheckout,
+}
+
+impl CreatedWorktree {
+    pub async fn rollback(
+        &self,
+        files: Files<'_>,
+        repo: &Path,
+        from: &Path,
+    ) -> Result<(), RepoProblem> {
+        let branch = match &self.origin {
+            WorktreeOrigin::NewBranch(branch) | WorktreeOrigin::ExistingBranch(branch) => branch,
+            WorktreeOrigin::ExistingCheckout => return Ok(()),
+        };
+        let made = find(files, repo, &self.path).await?;
+        if made.branch.as_ref() != Some(branch) {
+            return Ok(());
+        }
+        remove_clean(files, repo, &made).await?;
+        if matches!(self.origin, WorktreeOrigin::NewBranch(_)) {
+            git::run(files, from, &["branch", "-d", "--", branch])
+                .await
+                .map_err(RepoProblem::Git)?;
+        }
+        Ok(())
+    }
+}
+
 pub async fn create(
     files: Files<'_>,
     repo: &Path,
@@ -393,7 +429,7 @@ pub async fn create(
     branch: &str,
     base: &str,
     unowned: impl Fn(&str) -> bool,
-) -> Result<String, RepoProblem> {
+) -> Result<CreatedWorktree, RepoProblem> {
     let branch = branch.trim();
     let leaf = branch.rsplit('/').next().unwrap_or_default();
     if leaf.is_empty() {
@@ -439,7 +475,10 @@ pub async fn create(
             .await
             .ok_or(RepoProblem::Git(e));
     }
-    Ok(listed_path(files, repo, &path, &target).await)
+    Ok(CreatedWorktree {
+        path: listed_path(files, repo, &path, &target).await,
+        origin: WorktreeOrigin::NewBranch(branch.to_owned()),
+    })
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -452,7 +491,7 @@ async fn left_over(
     branch: &str,
     base: &str,
     unowned: impl Fn(&str) -> bool,
-) -> Option<String> {
+) -> Option<CreatedWorktree> {
     let base = git::run(files, from, &["rev-parse", "--verify", "--quiet", base])
         .await
         .ok()?;
@@ -469,13 +508,19 @@ async fn left_over(
         Some(made) => {
             let same = real(files, &made.path).await == real(files, path).await;
             let clean = !dirty(files, Path::new(&made.path)).await.ok()?;
-            (same && clean && made.head == base && unowned(&made.path)).then(|| made.path.clone())
+            (same && clean && made.head == base && unowned(&made.path)).then(|| CreatedWorktree {
+                path: made.path.clone(),
+                origin: WorktreeOrigin::ExistingCheckout,
+            })
         }
         None => {
             git::run(files, from, &["worktree", "add", target, branch])
                 .await
                 .ok()?;
-            Some(listed_path(files, repo, path, target).await)
+            Some(CreatedWorktree {
+                path: listed_path(files, repo, path, target).await,
+                origin: WorktreeOrigin::ExistingBranch(branch.to_owned()),
+            })
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::accounts::Site;
 use crate::graph::{Active, AgentState, NewAgent, Next, Phase, Plan, ProcessOutcome};
 use crate::process_tree::Snapshot;
 use crate::profile;
-use crate::profile::adapter::{Carry, ResumeError};
+use crate::profile::adapter::{Carry, ResumeError, StartSession};
 use crate::profile::process::Served;
 use crate::protocol::{Delivery, MessageId, Model, Session};
 use crate::screen::Screen;
@@ -203,12 +203,23 @@ impl App {
         chosen_agent(&roles, node.role.as_deref(), to).map(Plan::Switch)
     }
 
+    fn check_relaunch(&self, node: &Active) -> Result<(), &'static str> {
+        match profile_of(node)
+            .and_then(|profile| profile::adapter(profile).relaunch_refusal(&self.record_of(node)))
+        {
+            Some(message) => Err(message),
+            None => Ok(()),
+        }
+    }
+
     async fn revive_ended(self: &Arc<Self>, id: NodeId, plan: Plan) -> Result<Relaunched, Problem> {
         let node = self
             .graph
             .ended(id)
             .map_err(internal)?
             .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
+        self.check_relaunch(&node)
+            .map_err(|e| Refusal::Launch(e.into()))?;
         let ended = self.graph.process(id).map_err(internal)?;
         let asleep = ended == Some(ProcessOutcome::Asleep);
         let waiting = asleep || ended == Some(ProcessOutcome::HostGone);
@@ -293,6 +304,8 @@ impl App {
     }
 
     async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, Problem> {
+        self.check_relaunch(&node)
+            .map_err(|e| Refusal::Launch(e.into()))?;
         match self
             .graph
             .request_relaunch(node.id, &plan)
@@ -339,6 +352,8 @@ impl App {
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
+        self.check_relaunch(&node)
+            .map_err(|e| Refusal::Launch(e.into()))?;
         match self.graph.claim_unserved(id).map_err(internal)? {
             Next::ReviveEnded => self.revive_ended(id, Plan::Resume).await,
             Next::Start(plan) => self.relaunch_now(node, plan).await,
@@ -475,9 +490,12 @@ impl App {
         };
         let id = node.id;
         let switched = switch_of(&node, &plan);
-        let result = match plan {
-            Plan::Resume => self.restart(node, guard).await,
-            Plan::Switch(to) => self.switch_agent(node, &to, guard).await,
+        let result = match self.check_relaunch(&node) {
+            Ok(()) => match plan {
+                Plan::Resume => self.restart(node, guard).await,
+                Plan::Switch(to) => self.switch_agent(node, &to, guard).await,
+            },
+            Err(e) => Err(e.to_owned()),
         };
         if result == Ok(Stop::Kept) {
             return result;
@@ -730,6 +748,7 @@ impl App {
         node: Active,
         notice: &str,
     ) -> Result<(), ResumeError> {
+        self.check_relaunch(&node).map_err(str::to_owned)?;
         let (prepared, ..) = self.prepare_revive(&node, notice.to_owned()).await?;
         Ok(self.run_resumed(node.id, prepared, &[]).await?)
     }
@@ -823,7 +842,7 @@ impl App {
         let token = node.token.next_launch()?;
         self.prepare(
             start,
-            resume,
+            resume.map_or(StartSession::New, StartSession::Relaunch),
             Path::new(&place.worktree),
             position,
             Some(&task),

@@ -12,8 +12,8 @@ use crate::graph::{AgentState, Hold, NodeLaunch, WaitSource};
 use crate::profile::adapter::{Port, TurnTake};
 use crate::profile::{self, BATCH_LIMIT_BYTES};
 use crate::protocol::{
-    AckRequest, Delivery, EndedTurn, IdleReply, IdleRequest, ListenAt, ListenRequest, MessageId,
-    Report, Session, TakeRequest, Taken, TurnReply, WakeReply,
+    AckRequest, AdapterRecord, Delivery, EndedTurn, IdleReply, IdleRequest, ListenAt,
+    ListenRequest, MessageId, Report, Session, TakeRequest, Taken, TurnReply, WakeReply,
 };
 use crate::screen;
 use api::graph::GraphEvent;
@@ -622,6 +622,20 @@ impl Port for AgentPort {
             }
         })
     }
+    fn save_adapter(&self, record: &AdapterRecord) -> Result<(), String> {
+        let node = self.node.borrow().ok_or("node is not registered")?;
+        self.app
+            .graph
+            .set_adapter(
+                NodeLaunch {
+                    node,
+                    token: &self.token,
+                },
+                record,
+            )
+            .map_err(|e| e.to_string())
+    }
+
     fn take(&self, req: TakeRequest) -> Result<Taken, Refusal> {
         match *self.node.borrow() {
             Some(node) => self.app.take_now(node, &self.token, req),

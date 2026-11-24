@@ -224,6 +224,7 @@ impl App {
             worktree: None,
             agent: None,
             choice: Default::default(),
+            resume_codex: None,
         };
         match spawn(self, gate, request).await {
             Ok(_) | Err(Problem::Refused(Refusal::ReviewerSeated { .. })) => None,
